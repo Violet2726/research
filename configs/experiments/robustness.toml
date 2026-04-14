@@ -1,0 +1,53 @@
+name = "robustness"
+description = "Provider and model robustness checks outside the headline main table."
+model_configs = [
+  "configs/models/dashscope-qwen2.5-math-7b-instruct.toml",
+  "configs/models/dashscope-deepseek-r1-distill-qwen-7b.toml",
+  "configs/models/zhipu-glm-4.6v-flash.toml",
+]
+benchmark_configs = [
+  "configs/benchmarks/gsm8k.toml",
+  "configs/benchmarks/strategyqa.toml",
+  "configs/benchmarks/hotpotqa.toml",
+]
+global_seed = 42
+reruns_per_method = 3
+prompt_version = "v1-json-short-reasoning"
+max_concurrent_requests = 6
+requests_per_minute_limit = 60
+tokens_per_minute_limit = 150000
+
+[phases.smoke20]
+split_suffix = "smoke20_seed42"
+methods = ["cot_1"]
+benchmark_filter = ["gsm8k", "strategyqa", "hotpotqa"]
+model_filter = ["zhipu-glm-4.6v-flash"]
+reruns_override = 1
+
+[phases.pilot100]
+methods = ["cot_1", "sc_5", "mv_5"]
+split_overrides = { gsm8k = "pilot100_seed42", strategyqa = "pilot100_seed42", hotpotqa = "pilot100_seed42" }
+model_filter = ["dashscope-qwen2.5-math-7b-instruct", "dashscope-deepseek-r1-distill-qwen-7b"]
+model_benchmark_allowlist = { "dashscope-qwen2.5-math-7b-instruct" = ["gsm8k"], "dashscope-deepseek-r1-distill-qwen-7b" = ["gsm8k", "strategyqa", "hotpotqa"] }
+reruns_override = 1
+
+[methods.cot_1]
+family = "cot"
+budget_calls = 1
+temperature = 0.0
+top_p = 1.0
+max_output_tokens = 256
+
+[methods.sc_5]
+family = "self_consistency"
+budget_calls = 5
+temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256
+
+[methods.mv_5]
+family = "majority_vote"
+budget_calls = 5
+temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256

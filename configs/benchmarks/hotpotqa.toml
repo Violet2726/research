@@ -1,0 +1,13 @@
+name = "HotpotQA"
+slug = "hotpotqa"
+loader = "hotpotqa_parquet"
+source_path = "datasets/hotpotqa/validation_distractor.parquet"
+source_split = "validation_distractor"
+sample_id_prefix = "hotpotqa"
+question_field = "question"
+answer_field = "answer"
+smoke_size = 20
+pilot_size = 100
+main_size = 300
+random_seed = 42
+notes = "Answer EM only for v1 main table."

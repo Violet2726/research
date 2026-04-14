@@ -1,0 +1,13 @@
+name = "GSM8K"
+slug = "gsm8k"
+loader = "gsm8k_jsonl"
+source_path = "datasets/gsm8k/test.jsonl"
+source_split = "test"
+sample_id_prefix = "gsm8k"
+question_field = "question"
+answer_field = "answer"
+smoke_size = 20
+pilot_size = 100
+main_size = 300
+random_seed = 42
+notes = "Use final answer after #### as gold label."

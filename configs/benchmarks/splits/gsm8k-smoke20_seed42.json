@@ -1,0 +1,28 @@
+{
+  "dataset": "gsm8k",
+  "source_split": "test",
+  "sample_count": 20,
+  "sample_ids": [
+    "gsm8k-00588",
+    "gsm8k-01214",
+    "gsm8k-00057",
+    "gsm8k-00906",
+    "gsm8k-01252",
+    "gsm8k-00618",
+    "gsm8k-00599",
+    "gsm8k-00289",
+    "gsm8k-00608",
+    "gsm8k-00400",
+    "gsm8k-00237",
+    "gsm8k-00616",
+    "gsm8k-00672",
+    "gsm8k-01132",
+    "gsm8k-00463",
+    "gsm8k-00222",
+    "gsm8k-00945",
+    "gsm8k-00238",
+    "gsm8k-00730",
+    "gsm8k-00055"
+  ],
+  "random_seed": 42
+}

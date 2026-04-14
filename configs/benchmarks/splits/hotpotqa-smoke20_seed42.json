@@ -1,0 +1,28 @@
+{
+  "dataset": "hotpotqa",
+  "source_split": "validation_distractor",
+  "sample_count": 20,
+  "sample_ids": [
+    "5a7a567255429941d65f25bd",
+    "5abca1a55542993a06baf937",
+    "5a73977d554299623ed4ac08",
+    "5ab514c05542991779162d72",
+    "5add2b435542990d50227e11",
+    "5a88d6df554299206df2b377",
+    "5ae6b6065542991bbc976168",
+    "5ae531ee5542990ba0bbb1ff",
+    "5a8aa5835542996c9b8d5f4e",
+    "5ab82d095542990e739ec853",
+    "5ae4c01e55429913cc2044f3",
+    "5a89fea655429970aeb701eb",
+    "5a80cf4c55429938b61421f6",
+    "5a89b1de5542992e4fca8378",
+    "5a8778d25542994846c1cd89",
+    "5a77897f55429949eeb29edc",
+    "5ae0132d55429925eb1afc00",
+    "5a7129685542994082a3e5fa",
+    "5ae762835542997b22f6a711",
+    "5ae2f5b955429928c423957e"
+  ],
+  "random_seed": 42
+}

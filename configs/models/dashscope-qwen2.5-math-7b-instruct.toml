@@ -1,0 +1,13 @@
+name = "dashscope-qwen2.5-math-7b-instruct"
+provider = "dashscope"
+model_id = "qwen2.5-math-7b-instruct"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key_env = "DASHSCOPE_API_KEY"
+chat_path = "/chat/completions"
+default_temperature = 0.0
+default_top_p = 1.0
+default_max_output_tokens = 256
+supports_response_format = true
+response_format = "json_object"
+timeout_seconds = 120
+max_retries = 4
