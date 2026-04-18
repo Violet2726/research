@@ -1,10 +1,15 @@
+# 数学专项 pilot 实验。
+# 该实验要求模型带有 `math` 标签，否则会在发请求前直接失败。
 name = "qwen2.5-math-pilot100"
-description = "Dedicated GSM8K pilot100 run for qwen2.5-math-7b-instruct with high-rate limits."
-model_configs = ["configs/models/dashscope-qwen2.5-math-7b-instruct.toml"]
+description = "Dedicated GSM8K pilot100 run for math-specialized models with high-rate limits."
+method_catalog = "configs/methods/math-pilot.toml"
 benchmark_configs = ["configs/benchmarks/gsm8k.toml"]
+# required_model_tags 是整个 experiment 默认生效的模型标签约束。
+required_model_tags = ["math"]
 global_seed = 42
 reruns_per_method = 1
 prompt_version = "v1-json-short-reasoning"
+# 数学 pilot 允许更高并发与更高限流上限。
 max_concurrent_requests = 48
 requests_per_minute_limit = 1200
 tokens_per_minute_limit = 1000000
@@ -18,24 +23,3 @@ reruns_override = 1
 split_suffix = "smoke20_seed42"
 methods = ["cot_1", "sc_5", "mv_5"]
 reruns_override = 1
-
-[methods.cot_1]
-family = "cot"
-budget_calls = 1
-temperature = 0.0
-top_p = 1.0
-max_output_tokens = 512
-
-[methods.sc_5]
-family = "self_consistency"
-budget_calls = 5
-temperature = 0.7
-top_p = 1.0
-max_output_tokens = 512
-
-[methods.mv_5]
-family = "majority_vote"
-budget_calls = 5
-temperature = 0.7
-top_p = 1.0
-max_output_tokens = 512

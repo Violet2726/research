@@ -1,0 +1,55 @@
+# 主基线方法目录。
+# `budget_calls` 表示每题总调用预算；CoT 为单次求解，
+# SC / MV 用相同预算做不同聚合策略对比。
+
+[methods.cot_1]
+# 单次 Chain-of-Thought，作为 lower bound / 单代理基线。
+family = "cot"
+budget_calls = 1
+temperature = 0.0
+top_p = 1.0
+max_output_tokens = 256
+
+[methods.sc_3]
+# Self-Consistency：同题采样 3 次，再做多数聚合。
+family = "self_consistency"
+budget_calls = 3
+temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256
+
+[methods.sc_5]
+family = "self_consistency"
+budget_calls = 5
+temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256
+
+[methods.sc_7]
+family = "self_consistency"
+budget_calls = 7
+temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256
+
+[methods.mv_3]
+# Majority Vote：预算与 SC 对齐，但显式作为多票投票基线。
+family = "majority_vote"
+budget_calls = 3
+temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256
+
+[methods.mv_5]
+family = "majority_vote"
+budget_calls = 5
+temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256
+
+[methods.mv_7]
+family = "majority_vote"
+budget_calls = 7
+temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256

@@ -1,0 +1,16 @@
+# 已知常用模型目录。
+# 这里不是“唯一可运行模型全集”；未登记模型仍可直接通过
+# `--model provider/model` 运行，只是默认没有 tags，也没有模型级覆盖项。
+
+[models."dashscope/qwen2.5-7b-instruct"]
+# tags 用于实验阶段的能力/来源筛选，例如 math、vision、provider_*。
+tags = ["text", "reasoning", "general_qa", "provider_dashscope"]
+
+[models."dashscope/qwen2.5-math-7b-instruct"]
+tags = ["text", "reasoning", "math", "provider_dashscope", "robustness_pilot"]
+
+[models."dashscope/deepseek-r1-distill-qwen-7b"]
+tags = ["text", "reasoning", "general_qa", "provider_dashscope", "robustness_pilot"]
+
+[models."zhipu/glm-4.6v-flash"]
+tags = ["text", "reasoning", "general_qa", "vision", "provider_zhipu"]

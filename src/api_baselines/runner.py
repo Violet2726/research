@@ -1,3 +1,10 @@
+"""实验主运行链路。
+
+该模块负责把实验规格转换成真实的 API 调用计划，并在一次运行中完成：
+phase 解析、样本展开、并发请求、缓存复用、解析兜底、指标汇总、
+报告导出与运行后校验。
+"""
+
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -16,7 +23,16 @@ from typing import Any
 from dotenv import load_dotenv
 
 from api_baselines.cache import CachedResponse, RequestCache, json_dump
-from api_baselines.config import BenchmarkConfig, ExperimentConfig, MethodConfig, ModelConfig, phase_metadata
+from api_baselines.config import (
+    BenchmarkConfig,
+    ExperimentConfig,
+    MethodConfig,
+    ResolvedModelConfig,
+    load_method_catalog,
+    phase_metadata,
+    required_benchmark_tags,
+    required_model_tags,
+)
 from api_baselines.datasets import DatasetSample, load_samples
 from api_baselines.evaluation import aggregate_majority, normalize_prediction, score_prediction
 from api_baselines.fallbacks import extract_fallback_answer
@@ -35,6 +51,8 @@ from api_baselines.validation import validate_run
 
 @dataclass(frozen=True)
 class RunPaths:
+    """单次运行目录下各类产物文件的固定路径集合。"""
+
     root: Path
     manifest: Path
     raw_responses: Path
@@ -49,6 +67,12 @@ class RunPaths:
 
 @dataclass(frozen=True)
 class CallSpec:
+    """单次 API 调用的完整执行规格。
+
+    该结构把一次调用需要的实验上下文全部固定下来，便于并发执行、
+    计算缓存键，以及在原始日志中保留足够的追溯信息。
+    """
+
     run_id: str
     dataset: str
     split_name: str
@@ -69,6 +93,8 @@ class CallSpec:
 
 
 class RunProgressTracker:
+    """把长时间运行的进度写到 ``progress.json``，便于外部观察。"""
+
     def __init__(self, progress_path: Path, total_planned_calls: int, total_planned_predictions: int) -> None:
         self.progress_path = progress_path
         self.total_planned_calls = total_planned_calls
@@ -88,6 +114,7 @@ class RunProgressTracker:
         self.write(force=True)
 
     def record_call(self, call_log: dict[str, Any]) -> None:
+        """记录一次原始调用完成。"""
         with self.lock:
             self.completed_calls += 1
             if call_log.get("cache_hit"):
@@ -100,6 +127,7 @@ class RunProgressTracker:
             self.write(force=self.completed_calls % 10 == 0)
 
     def record_predictions(self, count: int, dataset: str, method: str) -> None:
+        """记录一批题级预测已写出。"""
         with self.lock:
             self.completed_predictions += count
             self.last_dataset = dataset
@@ -107,11 +135,13 @@ class RunProgressTracker:
             self.write(force=True)
 
     def mark_completed(self) -> None:
+        """把运行状态标记为完成。"""
         with self.lock:
             self.status = "completed"
             self.write(force=True)
 
     def write(self, force: bool = False) -> None:
+        """按节流策略刷新进度文件，避免高频磁盘写入。"""
         now = time.monotonic()
         if not force and now - self.last_write_monotonic < 5:
             return
@@ -145,6 +175,7 @@ class RunProgressTracker:
 
 
 def generate_split_manifests(benchmark_configs: list[BenchmarkConfig], output_dir: str | Path) -> list[Path]:
+    """按 benchmark 配置生成冻结后的 split 清单。"""
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     created: list[Path] = []
@@ -182,14 +213,16 @@ def generate_split_manifests(benchmark_configs: list[BenchmarkConfig], output_di
 def run_experiment(
     experiment: ExperimentConfig,
     phase_name: str,
-    models: list[ModelConfig],
+    models: list[ResolvedModelConfig],
     benchmarks: list[BenchmarkConfig],
     run_root: str | Path = "runs",
     cache_path: str | Path = "cache/requests.sqlite",
 ) -> Path:
+    """执行一个 experiment phase，并产出完整运行目录。"""
     load_dotenv(".env.local", override=False)
     phase = phase_metadata(experiment, phase_name)
-    methods = _phase_methods(experiment, phase_name)
+    method_catalog = load_method_catalog(experiment.method_catalog)
+    methods = _phase_methods(experiment, phase_name, method_catalog)
     run_id = _build_run_id(experiment.name, phase_name)
     run_paths = _prepare_run_paths(run_root, run_id)
     cache = RequestCache(cache_path)
@@ -202,13 +235,16 @@ def run_experiment(
         phase_name=phase_name,
         models=models,
         benchmarks=benchmarks,
+        method_catalog=method_catalog,
     )
+    _ensure_run_has_eligible_work(experiment, phase_name, models, benchmarks)
     progress = RunProgressTracker(
         progress_path=run_paths.progress,
         total_planned_calls=total_planned_calls,
         total_planned_predictions=total_planned_predictions,
     )
 
+    # manifest 记录的是“这次运行最终使用了什么配置”，它是最重要的审计入口。
     manifest = {
         "run_id": run_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -231,12 +267,11 @@ def run_experiment(
     all_predictions: list[dict[str, Any]] = []
     with run_paths.raw_responses.open("w", encoding="utf-8") as raw_handle, run_paths.predictions.open("w", encoding="utf-8") as pred_handle:
         for model in models:
-            if not _model_is_allowed(experiment, phase_name, model.name):
+            if not _model_is_allowed(experiment, phase_name, model):
                 continue
             provider = OpenAICompatibleProvider(model)
-            allowed_benchmarks = _allowed_benchmarks_for_model(experiment, phase_name, model.name)
             for benchmark in benchmarks:
-                if allowed_benchmarks is not None and benchmark.slug not in allowed_benchmarks:
+                if not _benchmark_is_allowed(experiment, phase_name, model, benchmark.slug):
                     continue
                 split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
                 split_ids = _load_split_ids(benchmark.slug, split_name)
@@ -244,6 +279,7 @@ def run_experiment(
                 selected_samples = [sample_map[sample_id] for sample_id in split_ids if sample_id in sample_map]
 
                 for method in methods:
+                    # CoT 是单次确定性求解；其余方法通过多次调用形成同预算对比。
                     reruns = 1 if method.family == "cot" else int(phase.get("reruns_override", experiment.reruns_per_method))
                     for rerun_index in range(reruns):
                         batch_predictions = _run_method_batch(
@@ -292,7 +328,7 @@ def _run_method_batch(
     phase_name: str,
     experiment: ExperimentConfig,
     benchmark: BenchmarkConfig,
-    model: ModelConfig,
+    model: ResolvedModelConfig,
     method: MethodConfig,
     samples: list[DatasetSample],
     provider: OpenAICompatibleProvider,
@@ -302,6 +338,7 @@ def _run_method_batch(
     rerun_index: int,
     raw_handle,
 ) -> list[dict[str, Any]]:
+    """执行一个模型-数据集-方法-重跑组合下的整批样本。"""
     split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
     call_specs: list[CallSpec] = []
 
@@ -309,6 +346,7 @@ def _run_method_batch(
         messages = build_messages(sample, method.family)
         prompt_hash = _prompt_hash(messages)
         for replicate_id in range(method.budget_calls):
+            # SC 与 MV 共享同一 budget_calls 语义，只在后续聚合方式上区分。
             payload = build_payload(
                 config=model,
                 messages=messages,
@@ -373,6 +411,7 @@ def _run_method_batch(
 
     predictions: list[dict[str, Any]] = []
     for sample in samples:
+        # 题级预测以“同一题的多次调用”为单位聚合，方便后续做方法级统计。
         per_call_logs = sorted(grouped_logs[sample.sample_id], key=lambda row: row["replicate_id"])
         votes = [log["normalized_answer"] for log in per_call_logs]
         request_failure_count = sum(1 for log in per_call_logs if log.get("request_error"))
@@ -415,9 +454,11 @@ def _execute_call(
     cache: RequestCache,
     rate_limiter: SlidingWindowRateLimiter,
 ) -> dict[str, Any]:
+    """执行一次实际调用，必要时命中缓存，并把响应整理成统一日志行。"""
     cached = cache.get(spec.cache_key)
 
     if cached is None:
+        # 只有真正发网路请求时才占用限流配额；缓存命中不计入。
         rate_limiter.acquire(estimate_request_tokens(spec.payload))
         try:
             provider_response = provider.chat_completion(spec.payload)
@@ -473,6 +514,7 @@ def _execute_call(
             parsed, parse_status = parse_model_output(response_payload["raw_text"])
             final_answer = str(parsed.get("final_answer", "")).strip()
         except Exception:
+            # 当模型没返回合法 JSON 时，再按数据集规则做保守兜底。
             fallback = extract_fallback_answer(spec.dataset, response_payload["raw_text"])
             if fallback is None:
                 parsed = {}
@@ -516,6 +558,7 @@ def _execute_call(
 
 
 def _aggregate_metrics(predictions: list[dict[str, Any]]) -> dict[str, Any]:
+    """把题级预测聚合成论文与报告使用的 summary 指标。"""
     grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
     for record in predictions:
         key = (record["dataset"], record["model_name"], record["method"])
@@ -568,6 +611,7 @@ def _aggregate_metrics(predictions: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _write_leaderboard(path: Path, predictions: list[dict[str, Any]]) -> None:
+    """把 summary 指标导出成全局 leaderboard CSV。"""
     summary = _aggregate_metrics(predictions)["summary"]
     path.parent.mkdir(parents=True, exist_ok=True)
     headers = [
@@ -597,6 +641,7 @@ def _write_leaderboard(path: Path, predictions: list[dict[str, Any]]) -> None:
 
 
 def _prepare_run_paths(run_root: str | Path, run_id: str) -> RunPaths:
+    """创建运行目录，并返回其中所有固定产物路径。"""
     root = Path(run_root) / run_id
     root.mkdir(parents=True, exist_ok=True)
     return RunPaths(
@@ -614,49 +659,54 @@ def _prepare_run_paths(run_root: str | Path, run_id: str) -> RunPaths:
 
 
 def _load_split_ids(dataset_slug: str, split_name: str) -> list[str]:
+    """从冻结后的 split manifest 中读取样本 ID 列表。"""
     path = Path("configs/benchmarks/splits") / f"{dataset_slug}-{split_name}.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
     return payload["sample_ids"]
 
 
 def _resolve_split_name(experiment: ExperimentConfig, phase_name: str, benchmark_slug: str) -> str:
+    """解析某个 benchmark 在当前 phase 下实际使用的 split 名称。"""
     phase = phase_metadata(experiment, phase_name)
     if "split_overrides" in phase:
         return phase["split_overrides"][benchmark_slug]
     return phase["split_suffix"]
 
 
-def _allowed_benchmarks_for_model(experiment: ExperimentConfig, phase_name: str, model_name: str) -> set[str] | None:
-    phase = phase_metadata(experiment, phase_name)
-    allowlist = phase.get("model_benchmark_allowlist")
-    if allowlist is not None:
-        if model_name not in allowlist:
-            model_filter = phase.get("model_filter")
-            if model_filter is not None and model_name not in model_filter:
-                return set()
-            return None
-        return set(allowlist[model_name])
+def _model_is_allowed(experiment: ExperimentConfig, phase_name: str, model: ResolvedModelConfig) -> bool:
+    """检查模型是否满足 experiment/phase 级标签约束。"""
+    required_tags = set(required_model_tags(experiment, phase_name))
+    return required_tags.issubset(set(model.tags))
 
+
+def _benchmark_is_allowed(
+    experiment: ExperimentConfig,
+    phase_name: str,
+    model: ResolvedModelConfig,
+    benchmark_slug: str,
+) -> bool:
+    """检查模型是否能在当前 phase 下运行指定 benchmark。"""
+    phase = phase_metadata(experiment, phase_name)
     benchmark_filter = phase.get("benchmark_filter")
-    if benchmark_filter is None:
-        return None
-    return set(benchmark_filter)
+    if benchmark_filter is not None and benchmark_slug not in set(benchmark_filter):
+        return False
+    required_tags_for_benchmark = set(required_benchmark_tags(experiment, phase_name, benchmark_slug))
+    return required_tags_for_benchmark.issubset(set(model.tags))
 
 
-def _model_is_allowed(experiment: ExperimentConfig, phase_name: str, model_name: str) -> bool:
-    phase = phase_metadata(experiment, phase_name)
-    model_filter = phase.get("model_filter")
-    if model_filter is None:
-        return True
-    return model_name in set(model_filter)
-
-
-def _phase_methods(experiment: ExperimentConfig, phase_name: str) -> list[MethodConfig]:
+def _phase_methods(experiment: ExperimentConfig, phase_name: str, method_catalog: dict[str, MethodConfig]) -> list[MethodConfig]:
+    """把 phase 中声明的方法名解析成完整方法配置，并在缺失时立即报错。"""
     method_names = experiment.raw["phases"][phase_name]["methods"]
-    return [MethodConfig(name=name, **experiment.raw["methods"][name]) for name in method_names]
+    missing = [name for name in method_names if name not in method_catalog]
+    if missing:
+        raise RuntimeError(
+            f"Experiment {experiment.name} phase {phase_name} references undefined methods: {', '.join(missing)}"
+        )
+    return [method_catalog[name] for name in method_names]
 
 
 def _build_run_id(experiment_name: str, phase_name: str) -> str:
+    """生成带 UTC 时间戳的运行目录名。"""
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return f"{timestamp}-{experiment_name}-{phase_name}"
 
@@ -672,6 +722,10 @@ def _cache_key(
     prompt_hash: str,
     payload: dict[str, Any],
 ) -> str:
+    """构造稳定缓存键。
+
+    只要 prompt、payload、方法、模型或重跑索引变化，缓存键就会变化。
+    """
     fingerprint = {
         "dataset": dataset,
         "sample_id": sample_id,
@@ -687,10 +741,12 @@ def _cache_key(
 
 
 def _prompt_hash(messages: list[dict[str, str]]) -> str:
+    """对提示词内容做稳定哈希，便于事后验证公平性。"""
     return sha256(json.dumps(messages, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def _sum_usage(call_logs: list[dict[str, Any]], key: str) -> float:
+    """优先使用 provider 上报 usage，不足时退回估算值。"""
     values = []
     for log in call_logs:
         usage = log["usage_reported"] or log["usage_estimated"] or {}
@@ -703,19 +759,20 @@ def _sum_usage(call_logs: list[dict[str, Any]], key: str) -> float:
 def _estimate_run_work(
     experiment: ExperimentConfig,
     phase_name: str,
-    models: list[ModelConfig],
+    models: list[ResolvedModelConfig],
     benchmarks: list[BenchmarkConfig],
+    method_catalog: dict[str, MethodConfig],
 ) -> tuple[int, int]:
-    methods = _phase_methods(experiment, phase_name)
+    """估算本次运行总调用数与总预测数，用于进度展示。"""
+    methods = _phase_methods(experiment, phase_name, method_catalog)
     total_calls = 0
     total_predictions = 0
 
     for model in models:
-        if not _model_is_allowed(experiment, phase_name, model.name):
+        if not _model_is_allowed(experiment, phase_name, model):
             continue
-        allowed_benchmarks = _allowed_benchmarks_for_model(experiment, phase_name, model.name)
         for benchmark in benchmarks:
-            if allowed_benchmarks is not None and benchmark.slug not in allowed_benchmarks:
+            if not _benchmark_is_allowed(experiment, phase_name, model, benchmark.slug):
                 continue
             split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
             split_size = len(_load_split_ids(benchmark.slug, split_name))
@@ -725,3 +782,40 @@ def _estimate_run_work(
                 total_predictions += split_size * reruns
 
     return total_calls, total_predictions
+
+
+def _ensure_run_has_eligible_work(
+    experiment: ExperimentConfig,
+    phase_name: str,
+    models: list[ResolvedModelConfig],
+    benchmarks: list[BenchmarkConfig],
+) -> None:
+    """在真正发请求前做 fail-fast 校验。
+
+    如果模型缺少必需标签，或者当前 phase 下没有任何 benchmark 可运行，
+    这里会直接抛错，避免消耗无意义的 API 配额。
+    """
+    for model in models:
+        if not _model_is_allowed(experiment, phase_name, model):
+            required_tags = ", ".join(required_model_tags(experiment, phase_name))
+            raise RuntimeError(
+                f"Model {model.name} is missing required tags for phase {phase_name}. "
+                f"Required tags: [{required_tags}] | model tags: [{', '.join(model.tags)}]"
+            )
+        eligible_benchmarks = [
+            benchmark.slug
+            for benchmark in benchmarks
+            if _benchmark_is_allowed(experiment, phase_name, model, benchmark.slug)
+        ]
+        if eligible_benchmarks:
+            return
+
+        benchmark_requirements = {
+            benchmark.slug: required_benchmark_tags(experiment, phase_name, benchmark.slug)
+            for benchmark in benchmarks
+        }
+        raise RuntimeError(
+            f"Model {model.name} is not eligible for any benchmark in phase {phase_name}. "
+            f"Benchmark tag requirements: {json.dumps(benchmark_requirements, ensure_ascii=False)} | "
+            f"model tags: [{', '.join(model.tags)}]"
+        )

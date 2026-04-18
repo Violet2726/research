@@ -1,11 +1,16 @@
+# 主基线实验规格。
+# 该实验不绑定默认模型，运行时必须显式传入 `--model provider/model`。
 name = "main-baselines"
 description = "Main no-communication baselines on GSM8K, StrategyQA, and HotpotQA."
-model_configs = ["configs/models/dashscope-qwen2.5-7b-instruct.toml"]
+# 共享方法目录，phase 中只引用方法名。
+method_catalog = "configs/methods/common.toml"
+# 本实验会同时覆盖 3 个 benchmark。
 benchmark_configs = [
   "configs/benchmarks/gsm8k.toml",
   "configs/benchmarks/strategyqa.toml",
   "configs/benchmarks/hotpotqa.toml",
 ]
+# 以下参数控制随机性、并发和速率上限。
 global_seed = 42
 reruns_per_method = 3
 prompt_version = "v1-json-short-reasoning"
@@ -14,65 +19,19 @@ requests_per_minute_limit = 60
 tokens_per_minute_limit = 150000
 
 [phases.smoke20]
+# smoke20 用于最便宜的快速通路验证。
 split_suffix = "smoke20_seed42"
 methods = ["cot_1", "sc_5", "mv_5"]
 reruns_override = 1
 
 [phases.pilot100]
+# pilot100 用于在较小成本下做更稳定的观察。
 split_suffix = "pilot100_seed42"
 methods = ["cot_1", "sc_5", "mv_5"]
 reruns_override = 1
 
 [phases.main]
+# main 阶段覆盖完整主表设置，并允许不同 benchmark 使用不同冻结 split。
 methods = ["cot_1", "sc_3", "sc_5", "sc_7", "mv_3", "mv_5", "mv_7"]
 split_overrides = { gsm8k = "dev300_seed42", strategyqa = "dev_full_229_seed42", hotpotqa = "dev300_seed42" }
 reruns_override = 3
-
-[methods.cot_1]
-family = "cot"
-budget_calls = 1
-temperature = 0.0
-top_p = 1.0
-max_output_tokens = 256
-
-[methods.sc_3]
-family = "self_consistency"
-budget_calls = 3
-temperature = 0.7
-top_p = 1.0
-max_output_tokens = 256
-
-[methods.sc_5]
-family = "self_consistency"
-budget_calls = 5
-temperature = 0.7
-top_p = 1.0
-max_output_tokens = 256
-
-[methods.sc_7]
-family = "self_consistency"
-budget_calls = 7
-temperature = 0.7
-top_p = 1.0
-max_output_tokens = 256
-
-[methods.mv_3]
-family = "majority_vote"
-budget_calls = 3
-temperature = 0.7
-top_p = 1.0
-max_output_tokens = 256
-
-[methods.mv_5]
-family = "majority_vote"
-budget_calls = 5
-temperature = 0.7
-top_p = 1.0
-max_output_tokens = 256
-
-[methods.mv_7]
-family = "majority_vote"
-budget_calls = 7
-temperature = 0.7
-top_p = 1.0
-max_output_tokens = 256

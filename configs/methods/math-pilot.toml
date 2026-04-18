@@ -1,0 +1,25 @@
+# 数学专项 pilot 方法目录。
+# 与 common 方法目录相比，这里提高了最大输出长度，
+# 以适配数学模型在中间推理时更长的回答。
+
+[methods.cot_1]
+family = "cot"
+budget_calls = 1
+temperature = 0.0
+top_p = 1.0
+max_output_tokens = 512
+
+[methods.sc_5]
+# 数学 pilot 只保留最常用的 5-call 预算组合。
+family = "self_consistency"
+budget_calls = 5
+temperature = 0.7
+top_p = 1.0
+max_output_tokens = 512
+
+[methods.mv_5]
+family = "majority_vote"
+budget_calls = 5
+temperature = 0.7
+top_p = 1.0
+max_output_tokens = 512

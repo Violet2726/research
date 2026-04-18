@@ -1,3 +1,9 @@
+"""Provider 抽象层。
+
+当前项目统一走 OpenAI-compatible chat completions 协议，
+这里负责 API key 读取、请求重试、响应抽取和用量估算。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,11 +14,13 @@ from typing import Any
 
 import httpx
 
-from api_baselines.config import ModelConfig
+from api_baselines.config import ResolvedModelConfig
 
 
 @dataclass(frozen=True)
 class ProviderResponse:
+    """一次 provider 成功响应的标准化结果。"""
+
     http_status: int
     raw_payload: dict[str, Any]
     raw_text: str
@@ -27,6 +35,8 @@ class ProviderResponse:
 
 @dataclass(frozen=True)
 class ProviderRequestError(RuntimeError):
+    """对网络异常和 HTTP 错误做统一包装。"""
+
     message: str
     http_status: int | None
     response_text: str | None
@@ -37,7 +47,10 @@ class ProviderRequestError(RuntimeError):
 
 
 class OpenAICompatibleProvider:
-    def __init__(self, config: ModelConfig) -> None:
+    """兼容 OpenAI chat completions 协议的 provider 客户端。"""
+
+    def __init__(self, config: ResolvedModelConfig) -> None:
+        """读取模型解析后的连接配置，并校验 API key 是否可用。"""
         self.config = config
         api_key = os.getenv(config.api_key_env)
         if not api_key:
@@ -48,6 +61,7 @@ class OpenAICompatibleProvider:
         self.api_key = api_key
 
     def chat_completion(self, payload: dict[str, Any]) -> ProviderResponse:
+        """发送一次 chat completion 请求，并按配置执行指数退避重试。"""
         url = self.config.base_url.rstrip("/") + self.config.chat_path
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -119,13 +133,14 @@ class OpenAICompatibleProvider:
 
 
 def build_payload(
-    config: ModelConfig,
+    config: ResolvedModelConfig,
     messages: list[dict[str, str]],
     temperature: float,
     top_p: float,
     max_output_tokens: int,
     seed: int | None,
 ) -> dict[str, Any]:
+    """把方法参数与模型默认配置合并成最终请求体。"""
     payload: dict[str, Any] = {
         "model": config.model_id,
         "messages": messages,
@@ -141,6 +156,7 @@ def build_payload(
 
 
 def estimate_request_tokens(payload: dict[str, Any]) -> int:
+    """在真正发送请求前做保守 token 估算，用于限流。"""
     prompt_chars = len(json.dumps(payload.get("messages", []), ensure_ascii=False))
     prompt_tokens = max(1, prompt_chars // 4)
     completion_tokens = int(payload.get("max_tokens") or 0)
@@ -148,6 +164,7 @@ def estimate_request_tokens(payload: dict[str, Any]) -> int:
 
 
 def _extract_text(body: dict[str, Any]) -> str:
+    """从 provider 返回体中抽取首个候选回答文本。"""
     choices = body.get("choices") or []
     if not choices:
         return ""
@@ -165,6 +182,7 @@ def _extract_text(body: dict[str, Any]) -> str:
 
 
 def _extract_finish_reason(body: dict[str, Any]) -> str | None:
+    """提取 completion finish_reason，供排障与统计使用。"""
     choices = body.get("choices") or []
     if not choices:
         return None
@@ -172,6 +190,7 @@ def _extract_finish_reason(body: dict[str, Any]) -> str | None:
 
 
 def _estimate_usage(payload: dict[str, Any], raw_text: str) -> dict[str, int]:
+    """当 provider 没有上报 usage 时，用字符数估一个可比较的近似值。"""
     prompt_chars = len(json.dumps(payload, ensure_ascii=False))
     completion_chars = len(raw_text)
     return {

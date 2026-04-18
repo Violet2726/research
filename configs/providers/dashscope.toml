@@ -1,0 +1,19 @@
+# DashScope 供应商配置。
+# 这里只放“连接与默认请求参数”，不维护模型列表。
+name = "dashscope"
+# OpenAI-compatible 入口基地址；chat_path 会在运行时拼接到这里。
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+# 从哪个环境变量读取 API Key。
+api_key_env = "DASHSCOPE_API_KEY"
+# 当前项目统一走 chat completions 风格接口。
+chat_path = "/chat/completions"
+# 这些默认采样参数会被该 provider 下的大多数模型继承。
+default_temperature = 0.0
+default_top_p = 1.0
+default_max_output_tokens = 256
+# 是否支持 response_format，以及默认使用什么格式约束输出。
+supports_response_format = true
+response_format = "json_object"
+# 单次请求超时与最大重试次数。
+timeout_seconds = 120
+max_retries = 4
