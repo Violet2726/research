@@ -1,0 +1,16 @@
+# Vanilla MAD 协议：3 个关键点
+# 1. all_to_all 拓扑
+# 2. 1 轮 debate
+# 3. 最后用 majority vote 聚合最终答案
+name = "vanilla_mad_r1"
+debate_type = "all_to_all"
+debate_rounds = 1
+# 共享上一轮的 reasoning + final_answer。
+share_mode = "last_round_reasoning_answer"
+# 每个 agent 在看到 peer feedback 后允许修订自己的答案。
+revision_rule = "revise_after_peer_review"
+final_aggregator = "majority_vote"
+initial_temperature = 0.7
+debate_temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256

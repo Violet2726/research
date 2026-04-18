@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 baseline-cli = "api_baselines.cli:main"
+mad-cli = "multi_agent_baselines.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

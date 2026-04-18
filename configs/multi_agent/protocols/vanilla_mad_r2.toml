@@ -1,0 +1,11 @@
+# Vanilla MAD 协议：与 r1 相同，但 debate 扩展为 2 轮。
+name = "vanilla_mad_r2"
+debate_type = "all_to_all"
+debate_rounds = 2
+share_mode = "last_round_reasoning_answer"
+revision_rule = "revise_after_peer_review"
+final_aggregator = "majority_vote"
+initial_temperature = 0.7
+debate_temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256

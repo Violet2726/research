@@ -1,0 +1,165 @@
+"""多智能体实验命令行入口。"""
+
+from __future__ import annotations
+
+import argparse
+import json
+
+from multi_agent_baselines.config import (
+    load_benchmarks,
+    load_control_catalog,
+    load_experiment_config,
+    load_protocol_config,
+    load_roster_config,
+    phase_metadata,
+    resolve_backbone,
+)
+from multi_agent_baselines.reporting import summarize_run
+from multi_agent_baselines.runner import run_experiment
+from multi_agent_baselines.validation import validate_run
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """构建 `mad-cli` 参数解析器。"""
+    parser = argparse.ArgumentParser(description="Vanilla MAD multi-agent baseline runner.")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    inspect = subparsers.add_parser("inspect-experiment", help="Show the resolved multi-agent experiment configuration.")
+    inspect.add_argument("--experiment", required=True)
+    inspect.add_argument("--backbone", default=None)
+
+    run = subparsers.add_parser("run", help="Execute one configured multi-agent experiment phase.")
+    run.add_argument("--experiment", required=True)
+    run.add_argument("--phase", required=True)
+    run.add_argument("--backbone", required=True)
+    run.add_argument("--runs-root", default="runs/multi_agent")
+    run.add_argument("--cache-path", default="cache/multi_agent_requests.sqlite")
+
+    summarize = subparsers.add_parser("summarize-run", help="Print a concise run summary from metrics.json.")
+    summarize.add_argument("--run-dir", required=True)
+
+    validate = subparsers.add_parser("validate-run", help="Run validation checks for one multi-agent run.")
+    validate.add_argument("--run-dir", required=True)
+
+    return parser
+
+
+def main() -> None:
+    """根据子命令分发到多智能体实验逻辑。"""
+    parser = build_parser()
+    args = parser.parse_args()
+
+    if args.command == "inspect-experiment":
+        experiment = load_experiment_config(args.experiment)
+        controls = load_control_catalog(experiment.control_catalog)
+        benchmarks = load_benchmarks(experiment)
+        payload = {
+            "name": experiment.name,
+            "description": experiment.description,
+            "benchmark_configs": [str(path) for path in experiment.benchmark_configs],
+            "benchmarks": [benchmark.slug for benchmark in benchmarks],
+            "control_catalog": str(experiment.control_catalog),
+            "control_methods": {name: _serialize_control(method) for name, method in sorted(controls.items())},
+            "phases": experiment.raw["phases"],
+            "setups": [
+                {
+                    "name": setup.name,
+                    "protocol": _serialize_protocol(load_protocol_config(setup.protocol)),
+                    "roster": _serialize_roster(load_roster_config(setup.roster)),
+                    "matched_controls": setup.matched_controls,
+                    "calls_per_question": load_roster_config(setup.roster).agent_count * (1 + load_protocol_config(setup.protocol).debate_rounds),
+                }
+                for setup in experiment.setups
+            ],
+        }
+        if args.backbone:
+            payload["resolved_backbone"] = _serialize_backbone(resolve_backbone(args.backbone))
+        for phase_name in experiment.raw["phases"]:
+            phase = phase_metadata(experiment, phase_name)
+            payload.setdefault("resolved_by_phase", {})[phase_name] = {
+                "setups": phase["setups"],
+                "split_suffix": phase.get("split_suffix"),
+                "split_overrides": phase.get("split_overrides"),
+            }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+
+    if args.command == "run":
+        experiment = load_experiment_config(args.experiment)
+        backbone = resolve_backbone(args.backbone)
+        run_dir = run_experiment(
+            experiment=experiment,
+            phase_name=args.phase,
+            backbone=backbone,
+            run_root=args.runs_root,
+            cache_path=args.cache_path,
+        )
+        print(run_dir.as_posix())
+        return
+
+    if args.command == "summarize-run":
+        print(json.dumps(summarize_run(args.run_dir), ensure_ascii=False, indent=2))
+        return
+
+    if args.command == "validate-run":
+        print(json.dumps(validate_run(args.run_dir), ensure_ascii=False, indent=2))
+        return
+
+    parser.error(f"Unsupported command: {args.command}")
+
+
+def _serialize_protocol(protocol) -> dict[str, object]:
+    """把协议配置转成稳定 JSON 输出。"""
+    return {
+        "name": protocol.name,
+        "debate_type": protocol.debate_type,
+        "debate_rounds": protocol.debate_rounds,
+        "share_mode": protocol.share_mode,
+        "revision_rule": protocol.revision_rule,
+        "final_aggregator": protocol.final_aggregator,
+        "initial_temperature": protocol.initial_temperature,
+        "debate_temperature": protocol.debate_temperature,
+        "top_p": protocol.top_p,
+        "max_output_tokens": protocol.max_output_tokens,
+    }
+
+
+def _serialize_roster(roster) -> dict[str, object]:
+    """把 roster 配置转成稳定 JSON 输出。"""
+    return {
+        "name": roster.name,
+        "roster_type": roster.roster_type,
+        "agent_count": roster.agent_count,
+        "sampling_seed_rule": roster.sampling_seed_rule,
+    }
+
+
+def _serialize_control(method) -> dict[str, object]:
+    """把等预算单模型控制方法转成稳定 JSON 输出。"""
+    return {
+        "family": method.family,
+        "budget_calls": method.budget_calls,
+        "temperature": method.temperature,
+        "top_p": method.top_p,
+        "max_output_tokens": method.max_output_tokens,
+    }
+
+
+def _serialize_backbone(backbone) -> dict[str, object]:
+    """把解析后的 backbone 输出成可打印结构。"""
+    return {
+        "name": backbone.name,
+        "provider": backbone.provider,
+        "model_id": backbone.model_id,
+        "base_url": backbone.base_url,
+        "api_key_env": backbone.api_key_env,
+        "chat_path": backbone.chat_path,
+        "default_temperature": backbone.default_temperature,
+        "default_top_p": backbone.default_top_p,
+        "default_max_output_tokens": backbone.default_max_output_tokens,
+        "supports_response_format": backbone.supports_response_format,
+        "response_format": backbone.response_format,
+        "timeout_seconds": backbone.timeout_seconds,
+        "max_retries": backbone.max_retries,
+        "tags": backbone.tags,
+    }

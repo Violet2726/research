@@ -1,0 +1,28 @@
+# Vanilla MAD 干净 smoke 实验。
+# 目的：先回答“在最小传统 debate 设置下，debate 是否比 direct vote 更值”。
+# 设置：只保留 2-agent / 1-round / all-to-all / final majority vote。
+# 对照：cot_1、sc_4、mv_4，保证与 MAD 在总调用预算上对齐。
+
+name = "vanilla-mad-clean-smoke"
+description = "Clean smoke pilot for debate-vs-vote under equal 4-call budget."
+benchmark_configs = [
+  "configs/benchmarks/gsm8k.toml",
+  "configs/benchmarks/strategyqa.toml",
+  "configs/benchmarks/hotpotqa.toml",
+]
+control_catalog = "configs/multi_agent/controls/vanilla_equal_budget.toml"
+global_seed = 42
+prompt_version = "v1-mad-json-short-reasoning"
+max_concurrent_requests = 12
+requests_per_minute_limit = 1200
+tokens_per_minute_limit = 1000000
+
+[[setups]]
+name = "mad_2a_r1"
+protocol = "configs/multi_agent/protocols/vanilla_mad_r1.toml"
+roster = "configs/multi_agent/rosters/homogeneous_2agent.toml"
+matched_controls = ["cot_1", "sc_4", "mv_4"]
+
+[phases.smoke20]
+split_suffix = "smoke20_seed42"
+setups = ["mad_2a_r1"]

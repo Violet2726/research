@@ -1,0 +1,55 @@
+# Vanilla MAD 最小复现实验规格。
+# 推荐 pilot backbone：
+# - dashscope/qwen3-8b
+# - dashscope/deepseek-r1-distill-qwen-7b
+#
+# 推荐首批主 backbone：
+# - dashscope/qwen2.5-14b-instruct
+# - dashscope/qwen3-14b
+# - dashscope/deepseek-r1-distill-qwen-14b
+name = "vanilla-mad-minimal"
+description = "Minimal Vanilla MAD reproduction for clean debate-vs-vote comparisons."
+# 首批只覆盖 3 个经典开发集，先把 debate-vs-vote 跑干净。
+benchmark_configs = [
+  "configs/benchmarks/gsm8k.toml",
+  "configs/benchmarks/strategyqa.toml",
+  "configs/benchmarks/hotpotqa.toml",
+]
+# controls 放等预算单模型对照，不和 MAD setup 混写。
+control_catalog = "configs/multi_agent/controls/vanilla_equal_budget.toml"
+global_seed = 42
+prompt_version = "v1-mad-json-short-reasoning"
+max_concurrent_requests = 6
+requests_per_minute_limit = 60
+tokens_per_minute_limit = 150000
+
+[[setups]]
+# 2 agents × (初始回答 + 1 轮 debate) = 4 次调用预算。
+name = "mad_2a_r1"
+protocol = "configs/multi_agent/protocols/vanilla_mad_r1.toml"
+roster = "configs/multi_agent/rosters/homogeneous_2agent.toml"
+matched_controls = ["cot_1", "sc_4", "mv_4"]
+
+[[setups]]
+# 3 agents × (初始回答 + 1 轮 debate) = 6 次调用预算。
+name = "mad_3a_r1"
+protocol = "configs/multi_agent/protocols/vanilla_mad_r1.toml"
+roster = "configs/multi_agent/rosters/homogeneous_3agent.toml"
+matched_controls = ["cot_1", "sc_6", "mv_6"]
+
+[[setups]]
+# 3 agents × (初始回答 + 2 轮 debate) = 9 次调用预算。
+name = "mad_3a_r2"
+protocol = "configs/multi_agent/protocols/vanilla_mad_r2.toml"
+roster = "configs/multi_agent/rosters/homogeneous_3agent.toml"
+matched_controls = ["cot_1", "sc_9", "mv_9"]
+
+[phases.smoke20]
+# 最低成本的协议联调入口。
+split_suffix = "smoke20_seed42"
+setups = ["mad_2a_r1", "mad_3a_r1", "mad_3a_r2"]
+
+[phases.pilot100]
+# 小规模但更稳定的首批比较入口。
+split_suffix = "pilot100_seed42"
+setups = ["mad_2a_r1", "mad_3a_r1", "mad_3a_r2"]
