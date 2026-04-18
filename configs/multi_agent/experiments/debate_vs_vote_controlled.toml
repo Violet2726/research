@@ -1,0 +1,50 @@
+# Debate vs Vote 受控实验。
+# 目标：在同一批初始候选答案上，直接 vote 与 debate 后再 vote 做严格配对比较。
+# 默认 backbone 建议使用 `dashscope/qwen-turbo-1101`；
+# 若该模型在真实 API 上不可用，则仅切换到 `dashscope/qwen-plus`，协议与报告结构保持不变。
+
+name = "debate-vs-vote-controlled"
+description = "Controlled paired comparison between direct vote and debate-then-vote on the same initial candidates."
+
+# 只保留最能回答核心问题的两个数据集：
+# - GSM8K：检验数值推理场景下 debate 是否能纠错
+# - HotpotQA：检验多跳问答与短 span 约束下 debate 是否有净增益
+benchmark_configs = [
+  "configs/benchmarks/gsm8k.toml",
+  "configs/benchmarks/hotpotqa.toml",
+]
+
+# 这次主实验不运行等预算对照，但仍复用同一份 control catalog，
+# 便于 inspect 输出结构保持一致，也方便后续需要时再挂接对照。
+control_catalog = "configs/multi_agent/controls/vanilla_equal_budget.toml"
+
+global_seed = 42
+
+# 这版 prompt 专门强化 HotpotQA 的最短可判定 span 约束，
+# 减少 “The Lorax” vs “The Lorax (film)” 这类格式噪音。
+prompt_version = "v2-controlled-span-strict"
+
+# 该实验只跑一个 setup：3 个同模型 agent、1 轮 all-to-all debate。
+# 3 个候选答案能提供真实多数票，比 2-agent 设置更适合受控比较。
+#
+# 注意：`qwen-turbo-1101` 在真实 API 上对请求速率更敏感，
+# 因此这里采用更保守的并发档位，优先保证 run_validation 稳定通过。
+max_concurrent_requests = 4
+requests_per_minute_limit = 180
+tokens_per_minute_limit = 400000
+
+[[setups]]
+name = "mad_3a_r1"
+protocol = "configs/multi_agent/protocols/vanilla_mad_r1.toml"
+roster = "configs/multi_agent/rosters/homogeneous_3agent.toml"
+matched_controls = []
+
+[phases.smoke20]
+# 先验证链路、产物结构和 paired report，不在这一阶段做统计显著性判断。
+split_overrides = { gsm8k = "smoke20_seed42", hotpotqa = "smoke20_seed42" }
+setups = ["mad_3a_r1"]
+
+[phases.pilot100]
+# pilot100 才是这次 Debate vs Vote 受控实验的主结论来源。
+split_overrides = { gsm8k = "pilot100_seed42", hotpotqa = "pilot100_seed42" }
+setups = ["mad_3a_r1"]

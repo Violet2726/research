@@ -14,7 +14,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 from api_baselines.cache import CachedResponse, RequestCache, json_dump
-from api_baselines.datasets import DatasetSample, load_samples
+from api_baselines.datasets import DatasetSample
 from api_baselines.evaluation import aggregate_majority, normalize_prediction, score_prediction
 from api_baselines.fallbacks import extract_fallback_answer
 from api_baselines.parsing import parse_model_output
@@ -114,17 +114,35 @@ class FinalPredictionRecord:
     prediction: str
     gold: str
     score: float
+    initial_vote_prediction: str | None
+    initial_vote_score: float | None
+    initial_vote_counts: dict[str, int]
+    initial_consensus: bool
+    final_vote_prediction: str
+    final_vote_score: float
+    final_vote_counts: dict[str, int]
     prompt_tokens_per_question: float
     completion_tokens_per_question: float
     total_tokens_per_question: float
     latency_ms_per_question: float
+    initial_prompt_tokens_per_question: float
+    initial_completion_tokens_per_question: float
+    initial_total_tokens_per_question: float
+    initial_latency_ms_per_question: float
+    debate_prompt_tokens_per_question: float
+    debate_completion_tokens_per_question: float
+    debate_total_tokens_per_question: float
+    debate_latency_ms_per_question: float
     calls_per_question: int
     debate_rounds: int
     agent_count: int
-    initial_vote_prediction: str | None
     final_consensus: bool
     initial_disagreement: bool
     vote_flipped: bool
+    corrected_by_debate: bool
+    harmed_by_debate: bool
+    unchanged_correct: bool
+    unchanged_wrong: bool
 
 
 def run_experiment(
@@ -206,6 +224,7 @@ def run_experiment(
                     cache=cache,
                     limiter=limiter,
                     global_seed=experiment.global_seed,
+                    prompt_version=experiment.prompt_version,
                     max_concurrent_requests=experiment.max_concurrent_requests,
                 )
                 _write_sample_outputs(
@@ -234,6 +253,7 @@ def run_experiment(
                     cache=cache,
                     limiter=limiter,
                     global_seed=experiment.global_seed,
+                    prompt_version=experiment.prompt_version,
                     max_concurrent_requests=experiment.max_concurrent_requests,
                 )
                 _write_sample_outputs(
@@ -275,6 +295,7 @@ def _run_mad_setup_batch(
     cache: RequestCache,
     limiter: SlidingWindowRateLimiter,
     global_seed: int,
+    prompt_version: str,
     max_concurrent_requests: int,
 ) -> list[tuple[int, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]]:
     """并发执行同一 setup 下的全部样本。
@@ -294,6 +315,7 @@ def _run_mad_setup_batch(
         cache=cache,
         limiter=limiter,
         global_seed=global_seed,
+        prompt_version=prompt_version,
     )
     max_workers = max(1, min(max_concurrent_requests, len(samples) or 1))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -322,6 +344,7 @@ def _run_control_batch(
     cache: RequestCache,
     limiter: SlidingWindowRateLimiter,
     global_seed: int,
+    prompt_version: str,
     max_concurrent_requests: int,
 ) -> list[tuple[int, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]]:
     """并发执行同一等预算对照方法下的全部样本。"""
@@ -337,6 +360,7 @@ def _run_control_batch(
         cache=cache,
         limiter=limiter,
         global_seed=global_seed,
+        prompt_version=prompt_version,
     )
     max_workers = max(1, min(max_concurrent_requests, len(samples) or 1))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -391,6 +415,7 @@ def _run_mad_sample(
     cache: RequestCache,
     limiter: SlidingWindowRateLimiter,
     global_seed: int,
+    prompt_version: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     """运行单个样本上的 Vanilla MAD 协议。"""
     turn_rows: list[dict[str, Any]] = []
@@ -398,7 +423,7 @@ def _run_mad_sample(
 
     initial_turns: list[dict[str, Any]] = []
     for agent_id in range(1, roster.agent_count + 1):
-        messages = build_initial_messages(sample, agent_id)
+        messages = build_initial_messages(sample, agent_id, prompt_version=prompt_version)
         initial_turns.append(
             _execute_turn(
                 run_id=run_id,
@@ -463,6 +488,7 @@ def _run_mad_sample(
                 previous_reasoning=str(recipient_previous["parsed_output"].get("reasoning", "")).strip(),
                 previous_answer=recipient_previous["parsed_answer"],
                 peer_messages=peer_messages,
+                prompt_version=prompt_version,
             )
             current_round.append(
                 _execute_turn(
@@ -492,14 +518,30 @@ def _run_mad_sample(
 
     initial_answers = [row["normalized_answer"] for row in initial_turns]
     final_answers = [row["normalized_answer"] for row in previous_round]
-    initial_vote, _ = aggregate_majority(initial_answers)
-    final_vote, vote_counts = aggregate_majority(final_answers)
+    initial_vote, initial_vote_counts = aggregate_majority(initial_answers)
+    final_vote, final_vote_counts = aggregate_majority(final_answers)
+    initial_vote_score = score_prediction(benchmark_slug, initial_vote, sample.reference_answer)
+    final_vote_score = score_prediction(benchmark_slug, final_vote, sample.reference_answer)
+    initial_consensus = len(set(initial_answers)) == 1
     final_consensus = len(set(final_answers)) == 1
     initial_disagreement = len(set(initial_answers)) > 1
-    question_prompt_tokens = sum(float(row["prompt_tokens"]) for row in turn_rows)
-    question_completion_tokens = sum(float(row["completion_tokens"]) for row in turn_rows)
-    question_total_tokens = sum(float(row["total_tokens"]) for row in turn_rows)
-    question_latency = sum(float(row["latency_ms"]) for row in turn_rows)
+    initial_prompt_tokens = sum(float(row["prompt_tokens"]) for row in initial_turns)
+    initial_completion_tokens = sum(float(row["completion_tokens"]) for row in initial_turns)
+    initial_total_tokens = sum(float(row["total_tokens"]) for row in initial_turns)
+    initial_latency = sum(float(row["latency_ms"]) for row in initial_turns)
+    debate_turns = [row for row in turn_rows if row["role"] == "debate"]
+    debate_prompt_tokens = sum(float(row["prompt_tokens"]) for row in debate_turns)
+    debate_completion_tokens = sum(float(row["completion_tokens"]) for row in debate_turns)
+    debate_total_tokens = sum(float(row["total_tokens"]) for row in debate_turns)
+    debate_latency = sum(float(row["latency_ms"]) for row in debate_turns)
+    question_prompt_tokens = initial_prompt_tokens + debate_prompt_tokens
+    question_completion_tokens = initial_completion_tokens + debate_completion_tokens
+    question_total_tokens = initial_total_tokens + debate_total_tokens
+    question_latency = initial_latency + debate_latency
+    corrected_by_debate = initial_vote_score < 1.0 and final_vote_score == 1.0
+    harmed_by_debate = initial_vote_score == 1.0 and final_vote_score < 1.0
+    unchanged_correct = initial_vote_score == 1.0 and final_vote_score == 1.0
+    unchanged_wrong = initial_vote_score < 1.0 and final_vote_score < 1.0
     prediction_row = asdict(
         FinalPredictionRecord(
             run_id=run_id,
@@ -511,21 +553,39 @@ def _run_mad_sample(
             model_name=backbone.name,
             prediction=final_vote,
             gold=sample.reference_answer,
-            score=score_prediction(benchmark_slug, final_vote, sample.reference_answer),
+            score=final_vote_score,
+            initial_vote_prediction=initial_vote,
+            initial_vote_score=initial_vote_score,
+            initial_vote_counts=initial_vote_counts,
+            initial_consensus=initial_consensus,
+            final_vote_prediction=final_vote,
+            final_vote_score=final_vote_score,
+            final_vote_counts=final_vote_counts,
             prompt_tokens_per_question=question_prompt_tokens,
             completion_tokens_per_question=question_completion_tokens,
             total_tokens_per_question=question_total_tokens,
             latency_ms_per_question=question_latency,
+            initial_prompt_tokens_per_question=initial_prompt_tokens,
+            initial_completion_tokens_per_question=initial_completion_tokens,
+            initial_total_tokens_per_question=initial_total_tokens,
+            initial_latency_ms_per_question=initial_latency,
+            debate_prompt_tokens_per_question=debate_prompt_tokens,
+            debate_completion_tokens_per_question=debate_completion_tokens,
+            debate_total_tokens_per_question=debate_total_tokens,
+            debate_latency_ms_per_question=debate_latency,
             calls_per_question=roster.agent_count * (1 + protocol.debate_rounds),
             debate_rounds=protocol.debate_rounds,
             agent_count=roster.agent_count,
-            initial_vote_prediction=initial_vote,
             final_consensus=final_consensus,
             initial_disagreement=initial_disagreement,
             vote_flipped=initial_vote != final_vote,
+            corrected_by_debate=corrected_by_debate,
+            harmed_by_debate=harmed_by_debate,
+            unchanged_correct=unchanged_correct,
+            unchanged_wrong=unchanged_wrong,
         )
     )
-    prediction_row["vote_counts"] = vote_counts
+    prediction_row["vote_counts"] = final_vote_counts
     return turn_rows, debate_rows, prediction_row
 
 
@@ -541,11 +601,12 @@ def _run_control_sample(
     cache: RequestCache,
     limiter: SlidingWindowRateLimiter,
     global_seed: int,
+    prompt_version: str,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """运行单个样本上的等预算单模型对照。"""
     turn_rows: list[dict[str, Any]] = []
     for replicate_id in range(method.budget_calls):
-        messages = build_initial_messages(sample, replicate_id + 1)
+        messages = build_initial_messages(sample, replicate_id + 1, prompt_version=prompt_version)
         seed = global_seed if method.family == "cot" else global_seed + replicate_id
         turn_rows.append(
             _execute_turn(
@@ -572,6 +633,12 @@ def _run_control_sample(
         )
     answers = [row["normalized_answer"] for row in turn_rows]
     final_vote, vote_counts = aggregate_majority(answers)
+    final_score = score_prediction(benchmark_slug, final_vote, sample.reference_answer)
+    prompt_tokens = sum(float(row["prompt_tokens"]) for row in turn_rows)
+    completion_tokens = sum(float(row["completion_tokens"]) for row in turn_rows)
+    total_tokens = sum(float(row["total_tokens"]) for row in turn_rows)
+    latency_ms = sum(float(row["latency_ms"]) for row in turn_rows)
+    final_consensus = len(set(answers)) == 1
     prediction_row = asdict(
         FinalPredictionRecord(
             run_id=run_id,
@@ -583,18 +650,36 @@ def _run_control_sample(
             model_name=backbone.name,
             prediction=final_vote,
             gold=sample.reference_answer,
-            score=score_prediction(benchmark_slug, final_vote, sample.reference_answer),
-            prompt_tokens_per_question=sum(float(row["prompt_tokens"]) for row in turn_rows),
-            completion_tokens_per_question=sum(float(row["completion_tokens"]) for row in turn_rows),
-            total_tokens_per_question=sum(float(row["total_tokens"]) for row in turn_rows),
-            latency_ms_per_question=sum(float(row["latency_ms"]) for row in turn_rows),
+            score=final_score,
+            initial_vote_prediction=final_vote,
+            initial_vote_score=final_score,
+            initial_vote_counts=vote_counts,
+            initial_consensus=final_consensus,
+            final_vote_prediction=final_vote,
+            final_vote_score=final_score,
+            final_vote_counts=vote_counts,
+            prompt_tokens_per_question=prompt_tokens,
+            completion_tokens_per_question=completion_tokens,
+            total_tokens_per_question=total_tokens,
+            latency_ms_per_question=latency_ms,
+            initial_prompt_tokens_per_question=prompt_tokens,
+            initial_completion_tokens_per_question=completion_tokens,
+            initial_total_tokens_per_question=total_tokens,
+            initial_latency_ms_per_question=latency_ms,
+            debate_prompt_tokens_per_question=0.0,
+            debate_completion_tokens_per_question=0.0,
+            debate_total_tokens_per_question=0.0,
+            debate_latency_ms_per_question=0.0,
             calls_per_question=method.budget_calls,
             debate_rounds=0,
             agent_count=1 if method.family == "cot" else method.budget_calls,
-            initial_vote_prediction=None,
-            final_consensus=len(set(answers)) == 1,
+            final_consensus=final_consensus,
             initial_disagreement=False,
             vote_flipped=False,
+            corrected_by_debate=False,
+            harmed_by_debate=False,
+            unchanged_correct=final_score == 1.0,
+            unchanged_wrong=final_score < 1.0,
         )
     )
     prediction_row["vote_counts"] = vote_counts

@@ -14,7 +14,7 @@ from multi_agent_baselines.config import (
     phase_metadata,
     resolve_backbone,
 )
-from multi_agent_baselines.reporting import summarize_run
+from multi_agent_baselines.reporting import report_debate_vs_vote, summarize_run
 from multi_agent_baselines.runner import run_experiment
 from multi_agent_baselines.validation import validate_run
 
@@ -40,6 +40,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate = subparsers.add_parser("validate-run", help="Run validation checks for one multi-agent run.")
     validate.add_argument("--run-dir", required=True)
+
+    debate_vs_vote = subparsers.add_parser(
+        "report-debate-vs-vote",
+        help="Generate paired Debate vs Vote analysis and a Chinese markdown report.",
+    )
+    debate_vs_vote.add_argument("--run-dir", required=True)
+    debate_vs_vote.add_argument("--publish-dir", default="reports")
 
     return parser
 
@@ -103,6 +110,10 @@ def main() -> None:
 
     if args.command == "validate-run":
         print(json.dumps(validate_run(args.run_dir), ensure_ascii=False, indent=2))
+        return
+
+    if args.command == "report-debate-vs-vote":
+        print(json.dumps(report_debate_vs_vote(args.run_dir, publish_dir=args.publish_dir), ensure_ascii=False, indent=2))
         return
 
     parser.error(f"Unsupported command: {args.command}")

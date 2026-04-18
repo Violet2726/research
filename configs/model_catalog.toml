@@ -12,6 +12,12 @@ tags = ["text", "reasoning", "math", "provider_dashscope", "robustness_pilot"]
 [models."dashscope/qwen2.5-14b-instruct"]
 tags = ["text", "reasoning", "general_qa", "provider_dashscope", "mad_primary"]
 
+[models."dashscope/qwen-turbo-1101"]
+tags = ["text", "reasoning", "general_qa", "provider_dashscope", "debate_vote_primary"]
+
+[models."dashscope/qwen-plus"]
+tags = ["text", "reasoning", "general_qa", "provider_dashscope", "debate_vote_fallback"]
+
 [models."dashscope/deepseek-r1-distill-qwen-7b"]
 tags = ["text", "reasoning", "general_qa", "provider_dashscope", "robustness_pilot"]
 

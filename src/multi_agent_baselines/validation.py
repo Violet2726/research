@@ -32,6 +32,8 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "request_failures": request_failures,
         "prediction_rows": len(prediction_rows),
         "methods": dict(methods),
+        "paired_analysis_present": (root / "paired_debate_vs_vote.json").exists(),
+        "paired_report_present": (root / "debate_vs_vote_report.md").exists(),
     }
 
 
