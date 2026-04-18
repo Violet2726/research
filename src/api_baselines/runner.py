@@ -47,6 +47,7 @@ from api_baselines.providers import (
 from api_baselines.rate_limits import SlidingWindowRateLimiter
 from api_baselines.reporting import budget_fairness_check, export_paper_tables, summarize_run
 from api_baselines.validation import validate_run
+from experiment_common.runtime import RunProgressTracker, build_run_id, load_split_ids, select_samples
 
 
 @dataclass(frozen=True)
@@ -90,88 +91,6 @@ class CallSpec:
     prompt_hash: str
     payload: dict[str, Any]
     cache_key: str
-
-
-class RunProgressTracker:
-    """把长时间运行的进度写到 ``progress.json``，便于外部观察。"""
-
-    def __init__(self, progress_path: Path, total_planned_calls: int, total_planned_predictions: int) -> None:
-        self.progress_path = progress_path
-        self.total_planned_calls = total_planned_calls
-        self.total_planned_predictions = total_planned_predictions
-        self.started_at = datetime.now(timezone.utc).isoformat()
-        self.started_monotonic = time.monotonic()
-        self.completed_calls = 0
-        self.completed_predictions = 0
-        self.cache_hits = 0
-        self.network_calls = 0
-        self.last_dataset = None
-        self.last_method = None
-        self.last_sample_id = None
-        self.status = "running"
-        self.lock = threading.Lock()
-        self.last_write_monotonic = 0.0
-        self.write(force=True)
-
-    def record_call(self, call_log: dict[str, Any]) -> None:
-        """记录一次原始调用完成。"""
-        with self.lock:
-            self.completed_calls += 1
-            if call_log.get("cache_hit"):
-                self.cache_hits += 1
-            else:
-                self.network_calls += 1
-            self.last_dataset = call_log["dataset"]
-            self.last_method = call_log["method"]
-            self.last_sample_id = call_log["sample_id"]
-            self.write(force=self.completed_calls % 10 == 0)
-
-    def record_predictions(self, count: int, dataset: str, method: str) -> None:
-        """记录一批题级预测已写出。"""
-        with self.lock:
-            self.completed_predictions += count
-            self.last_dataset = dataset
-            self.last_method = method
-            self.write(force=True)
-
-    def mark_completed(self) -> None:
-        """把运行状态标记为完成。"""
-        with self.lock:
-            self.status = "completed"
-            self.write(force=True)
-
-    def write(self, force: bool = False) -> None:
-        """按节流策略刷新进度文件，避免高频磁盘写入。"""
-        now = time.monotonic()
-        if not force and now - self.last_write_monotonic < 5:
-            return
-        elapsed = now - self.started_monotonic
-        calls_per_minute = (self.network_calls / elapsed * 60) if elapsed > 0 else 0.0
-        eta_seconds = None
-        remaining_network_calls = max(0, self.total_planned_calls - self.completed_calls)
-        if self.network_calls > 0 and calls_per_minute > 0:
-            eta_seconds = remaining_network_calls / calls_per_minute * 60
-        payload = {
-            "status": self.status,
-            "started_at": self.started_at,
-            "last_updated_at": datetime.now(timezone.utc).isoformat(),
-            "elapsed_seconds": round(elapsed, 2),
-            "total_planned_calls": self.total_planned_calls,
-            "completed_calls": self.completed_calls,
-            "completed_call_ratio": round(self.completed_calls / self.total_planned_calls, 6) if self.total_planned_calls else 0.0,
-            "total_planned_predictions": self.total_planned_predictions,
-            "completed_predictions": self.completed_predictions,
-            "completed_prediction_ratio": round(self.completed_predictions / self.total_planned_predictions, 6) if self.total_planned_predictions else 0.0,
-            "cache_hits": self.cache_hits,
-            "network_calls": self.network_calls,
-            "observed_network_rpm": round(calls_per_minute, 2),
-            "eta_seconds": round(eta_seconds, 2) if eta_seconds is not None else None,
-            "last_dataset": self.last_dataset,
-            "last_method": self.last_method,
-            "last_sample_id": self.last_sample_id,
-        }
-        self.progress_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        self.last_write_monotonic = now
 
 
 def generate_split_manifests(benchmark_configs: list[BenchmarkConfig], output_dir: str | Path) -> list[Path]:
@@ -223,7 +142,7 @@ def run_experiment(
     phase = phase_metadata(experiment, phase_name)
     method_catalog = load_method_catalog(experiment.method_catalog)
     methods = _phase_methods(experiment, phase_name, method_catalog)
-    run_id = _build_run_id(experiment.name, phase_name)
+    run_id = build_run_id(experiment.name, phase_name)
     run_paths = _prepare_run_paths(run_root, run_id)
     cache = RequestCache(cache_path)
     rate_limiter = SlidingWindowRateLimiter(
@@ -274,9 +193,7 @@ def run_experiment(
                 if not _benchmark_is_allowed(experiment, phase_name, model, benchmark.slug):
                     continue
                 split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
-                split_ids = _load_split_ids(benchmark.slug, split_name)
-                sample_map = {sample.sample_id: sample for sample in load_samples(benchmark)}
-                selected_samples = [sample_map[sample_id] for sample_id in split_ids if sample_id in sample_map]
+                selected_samples = select_samples(benchmark, split_name)
 
                 for method in methods:
                     # CoT 是单次确定性求解；其余方法通过多次调用形成同预算对比。
@@ -658,13 +575,6 @@ def _prepare_run_paths(run_root: str | Path, run_id: str) -> RunPaths:
     )
 
 
-def _load_split_ids(dataset_slug: str, split_name: str) -> list[str]:
-    """从冻结后的 split manifest 中读取样本 ID 列表。"""
-    path = Path("configs/benchmarks/splits") / f"{dataset_slug}-{split_name}.json"
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    return payload["sample_ids"]
-
-
 def _resolve_split_name(experiment: ExperimentConfig, phase_name: str, benchmark_slug: str) -> str:
     """解析某个 benchmark 在当前 phase 下实际使用的 split 名称。"""
     phase = phase_metadata(experiment, phase_name)
@@ -703,12 +613,6 @@ def _phase_methods(experiment: ExperimentConfig, phase_name: str, method_catalog
             f"Experiment {experiment.name} phase {phase_name} references undefined methods: {', '.join(missing)}"
         )
     return [method_catalog[name] for name in method_names]
-
-
-def _build_run_id(experiment_name: str, phase_name: str) -> str:
-    """生成带 UTC 时间戳的运行目录名。"""
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return f"{timestamp}-{experiment_name}-{phase_name}"
 
 
 def _cache_key(
@@ -775,7 +679,7 @@ def _estimate_run_work(
             if not _benchmark_is_allowed(experiment, phase_name, model, benchmark.slug):
                 continue
             split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
-            split_size = len(_load_split_ids(benchmark.slug, split_name))
+            split_size = len(load_split_ids(benchmark.slug, split_name))
             for method in methods:
                 reruns = 1 if method.family == "cot" else int(phase_metadata(experiment, phase_name).get("reruns_override", experiment.reruns_per_method))
                 total_calls += split_size * method.budget_calls * reruns
