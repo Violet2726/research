@@ -1,3 +1,9 @@
+"""运行结果校验。
+
+该模块在实验结束后做结构化体检，重点检查请求失败、解析成功率、
+预算公平性以及 prompt 哈希一致性。
+"""
+
 from __future__ import annotations
 
 from collections import Counter, defaultdict
@@ -13,6 +19,7 @@ def validate_run(
     parse_success_threshold: float = 0.95,
     budget_threshold: float = 0.10,
 ) -> dict[str, Any]:
+    """读取一个运行目录，并输出统一的校验报告。"""
     root = Path(run_dir)
     raw_rows = _load_jsonl(root / "raw_responses.jsonl")
     prediction_rows = _load_jsonl(root / "predictions.jsonl")
@@ -73,6 +80,7 @@ def validate_run(
 
 
 def _validate_prompt_hash_parity(raw_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """检查 SC 与 MV 是否真正共享了同一套提示词内容。"""
     sc_map: dict[tuple[str, str, int], set[str]] = defaultdict(set)
     mv_map: dict[tuple[str, str, int], set[str]] = defaultdict(set)
     for row in raw_rows:
@@ -103,6 +111,7 @@ def _validate_prompt_hash_parity(raw_rows: list[dict[str, Any]]) -> dict[str, An
 
 
 def _validate_prediction_counts(prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """检查同一数据集下不同方法/重跑的样本数是否一致。"""
     grouped: Counter = Counter((row["dataset"], row["method"], row["rerun_index"]) for row in prediction_rows)
     if not grouped:
         return {"passed": False, "details": "No prediction rows found."}
@@ -121,4 +130,5 @@ def _validate_prediction_counts(prediction_rows: list[dict[str, Any]]) -> dict[s
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
+    """读取 UTF-8 JSONL 文件。"""
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]

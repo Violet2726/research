@@ -1,3 +1,5 @@
+"""实验报告导出与摘要统计。"""
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -7,11 +9,13 @@ from typing import Any
 
 
 def load_metrics(run_dir: str | Path) -> dict[str, Any]:
+    """读取某次运行的 ``metrics.json``。"""
     path = Path(run_dir) / "metrics.json"
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
+    """按数据集对 summary 行做一次轻量汇总。"""
     metrics = load_metrics(run_dir)
     summary_rows = metrics.get("summary", [])
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -26,6 +30,7 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
 
 
 def export_paper_tables(run_dir: str | Path, output_path: str | Path) -> Path:
+    """把运行结果导出为论文草稿可直接引用的 Markdown 表格。"""
     metrics = load_metrics(run_dir)
     rows = metrics.get("summary", [])
     lower_bound_rows = [row for row in rows if row["method"] == "cot_1"]
@@ -94,11 +99,13 @@ def export_paper_tables(run_dir: str | Path, output_path: str | Path) -> Path:
 
 
 def budget_fairness_check(run_dir: str | Path, threshold: float = 0.10) -> list[dict[str, Any]]:
+    """直接从运行目录读取 summary，并检查 SC/MV 的 token 差距。"""
     metrics = load_metrics(run_dir)
     return budget_fairness_check_from_rows(metrics.get("summary", []), threshold=threshold)
 
 
 def budget_fairness_check_from_rows(rows: list[dict[str, Any]], threshold: float = 0.10) -> list[dict[str, Any]]:
+    """对 summary 行做 SC 与 MV 的同预算公平性比较。"""
     by_key: dict[tuple[str, str, int], dict[str, dict[str, Any]]] = defaultdict(dict)
     for row in rows:
         method = row["method"]
@@ -136,6 +143,7 @@ def budget_fairness_check_from_rows(rows: list[dict[str, Any]], threshold: float
 
 
 def _markdown_table(rows: list[dict[str, Any]], headers: list[str]) -> list[str]:
+    """把表格行渲染成 Markdown。"""
     if not rows:
         return ["暂无数据。"]
     lines = [

@@ -1,3 +1,9 @@
+"""模型输出解析。
+
+优先解析严格 JSON；若模型没有完全遵守协议，再依次尝试轻量修复、
+多对象合并、正则抽取和数据集回退前的尾部值提取。
+"""
+
 from __future__ import annotations
 
 import json
@@ -6,6 +12,7 @@ from typing import Any
 
 
 def parse_model_output(raw_text: str) -> tuple[dict[str, Any], str]:
+    """把模型原始文本尽可能解析成 ``{reasoning, final_answer}`` 结构。"""
     cleaned = _strip_code_fences(raw_text.strip())
     try:
         return json.loads(cleaned), "direct_json"
@@ -40,6 +47,7 @@ def parse_model_output(raw_text: str) -> tuple[dict[str, Any], str]:
 
 
 def _strip_code_fences(text: str) -> str:
+    """去掉模型常见的 Markdown 代码块包裹。"""
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
@@ -47,6 +55,7 @@ def _strip_code_fences(text: str) -> str:
 
 
 def _extract_json_object(text: str) -> str | None:
+    """从自由文本中截取最外层 JSON 对象片段。"""
     start = text.find("{")
     end = text.rfind("}")
     if start == -1 or end == -1 or end <= start:
@@ -55,6 +64,7 @@ def _extract_json_object(text: str) -> str | None:
 
 
 def _light_repair(text: str) -> str | None:
+    """做最保守的括号配平修复，避免误改模型真实内容。"""
     candidate = text.strip().replace("\r", "")
     while candidate.endswith("}") and candidate.count("{") < candidate.count("}"):
         candidate = candidate[:-1].rstrip()
@@ -64,6 +74,7 @@ def _light_repair(text: str) -> str | None:
 
 
 def _decode_multiple_objects(text: str) -> tuple[dict[str, Any], str] | None:
+    """解析连续输出的多个 JSON 对象，并合并关心字段。"""
     decoder = json.JSONDecoder()
     index = 0
     objects: list[dict[str, Any]] = []
@@ -101,6 +112,7 @@ def _decode_multiple_objects(text: str) -> tuple[dict[str, Any], str] | None:
 
 
 def _extract_fields_via_regex(text: str) -> dict[str, Any] | None:
+    """从近似 JSON 的文本中用正则兜底抽取字段。"""
     reasoning_match = re.search(r'"reasoning"\s*:\s*"((?:[^"\\]|\\.)*)"', text, re.S)
     final_match = re.search(r'"final_answer"\s*:\s*"((?:[^"\\]|\\.)*)"', text, re.S)
     if final_match is None:
@@ -114,6 +126,7 @@ def _extract_fields_via_regex(text: str) -> dict[str, Any] | None:
 
 
 def _extract_tail_value(text: str) -> dict[str, Any] | None:
+    """处理只剩尾部答案值、但 reasoning 键仍部分存在的异常输出。"""
     if '"final_answer"' in text or '"reasoning"' not in text:
         return None
     match = re.search(r'"\s*:\s*"((?:[^"\\]|\\.)*)"\s*}\s*$', text, re.S)

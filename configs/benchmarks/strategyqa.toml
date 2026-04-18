@@ -1,3 +1,4 @@
+# StrategyQA benchmark 配置。
 name = "StrategyQA"
 slug = "strategyqa"
 loader = "strategyqa_json"
@@ -8,6 +9,7 @@ question_field = "question"
 answer_field = "answer"
 smoke_size = 20
 pilot_size = 100
+# 本地官方 dev 只有 229 条，因此 main 直接使用整份 dev。
 main_size = 229
 random_seed = 42
 notes = "Official local dev split has 229 examples, so main split is dev_full_229."

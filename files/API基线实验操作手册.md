@@ -1,229 +1,168 @@
 # API 基线实验操作手册
 
-本文档对应当前仓库内的专业版无通信基线框架，覆盖以下方法：
+## 1. 项目定位
 
-- `Single-agent CoT`
-- `Self-Consistency`
-- `Majority Vote`
+本项目用于复现和比较 API 模型上的基础推理方法，当前重点覆盖：
 
-## 1. 实验目标
+- 单次 CoT
+- Self-Consistency
+- Majority Vote
 
-这套框架的目标不是“先跑起来再说”，而是从一开始就把以下要素固定住：
+项目强调三件事：
 
-- 公平预算口径
-- 固定数据子集
-- 原始响应留档
-- 可追溯缓存
-- 题目级预测与聚合指标分离
-- 后续可扩展到 debate / audit / trigger
+- 配置链清晰
+- 运行结果可复现
+- 模型可替换，但实验记录不混乱
 
-## 2. 当前主实验设置
+## 2. 当前配置结构
 
-主实验 backbone：
+当前统一配置链如下：
 
-- `qwen2.5-7b-instruct`
+`命令行 --model -> experiment -> methods -> model catalog -> provider -> runner`
 
-补充稳健性模型：
+具体目录职责：
 
-- `qwen2.5-math-7b-instruct`
-- `deepseek-r1-distill-qwen-7b`
-- `glm-4.6v-flash`
+- `configs/providers/`
+  供应商配置，只放连接参数和默认请求参数
+- `configs/model_catalog.toml`
+  已知常用模型的元信息目录，包含标签与少量覆盖项
+- `configs/methods/`
+  共享方法目录
+- `configs/experiments/`
+  与具体模型解耦的实验规格
+- `configs/benchmarks/`
+  benchmark 配置
+- `configs/benchmarks/splits/`
+  冻结后的 split 清单
+- `configs/rosters/`
+  未来多智能体角色配置预留层，当前 runner 不读取
 
-主实验数据集：
+## 3. 运行原则
 
-- `GSM8K`
-- `StrategyQA`
-- `HotpotQA`
+- 运行实验时必须显式传入 `--model provider/model`
+- provider 文件只放公共连接参数，不再承担模型目录职责
+- model catalog 只维护“已知常用模型”，不是唯一可运行模型名单
+- 未登记模型也允许直接运行
+- 未登记模型默认没有 tags，也没有 model-specific override
+- 带标签约束的实验会在发请求前 fail-fast，避免浪费 API 配额
 
-方法矩阵：
+## 4. 常用命令
 
-- `CoT(1)`
-- `SC(3)`
-- `SC(5)`
-- `SC(7)`
-- `MV(3)`
-- `MV(5)`
-- `MV(7)`
-
-## 3. 路径说明
-
-- 模型配置：`configs/models/`
-- 数据集配置：`configs/benchmarks/`
-- 固定 split：`configs/benchmarks/splits/`
-- 实验矩阵：`configs/experiments/`
-- 运行产物：`runs/<run_id>/`
-- 请求缓存：`cache/requests.sqlite`
-- 汇总表：`reports/leaderboard.csv`
-
-## 4. 环境准备
-
-1. 安装依赖
+安装依赖：
 
 ```powershell
 uv sync
 ```
 
-2. 创建本地环境变量文件
+准备环境变量：
 
 ```powershell
 Copy-Item .env.example .env.local
 ```
 
-3. 在 `.env.local` 中填写：
+查看已登记模型：
 
-- `DASHSCOPE_API_KEY`
-- `ZHIPU_API_KEY`
+```powershell
+uv run baseline-cli list-models
+```
 
-注意：
-
-- 代码不会把 API Key 写入配置文件或日志。
-- `.env.local` 已加入忽略规则，不会进入 git。
-
-## 5. 固定 split 生成
-
-首次使用或更新 benchmark 配置后，先生成固定 split：
+生成冻结 split：
 
 ```powershell
 uv run baseline-cli generate-splits
 ```
 
-当前固定规则：
-
-- `GSM8K`：`smoke20` / `pilot100` / `dev300`
-- `HotpotQA`：`smoke20` / `pilot100` / `dev300`
-- `StrategyQA`：`smoke20` / `pilot100` / `dev_full_229`
-
-说明：
-
-- `StrategyQA` 本地官方 dev 只有 `229` 条，所以主配置使用 `dev_full_229`，这是刻意保持评测口径干净，而不是缺失功能。
-
-## 6. 运行顺序
-
-### 6.1 查看实验配置
+查看实验规格：
 
 ```powershell
 uv run baseline-cli inspect-experiment --experiment configs/experiments/main-baselines.toml
 ```
 
-### 6.2 先跑 smoke
+查看某个模型在实验中的最终解析结果：
 
 ```powershell
-uv run baseline-cli run --experiment configs/experiments/main-baselines.toml --phase smoke20
+uv run baseline-cli inspect-experiment --experiment configs/experiments/main-baselines.toml --model dashscope/qwen2.5-7b-instruct
 ```
 
-这一步主要检查：
-
-- endpoint 是否可用
-- API 认证是否正确
-- JSON 输出是否稳定
-- 缓存是否工作
-- usage 是否能正常落盘
-
-### 6.3 再跑 pilot
+运行主基线 smoke：
 
 ```powershell
-uv run baseline-cli run --experiment configs/experiments/main-baselines.toml --phase pilot100
+uv run baseline-cli run --experiment configs/experiments/main-baselines.toml --phase smoke20 --model dashscope/qwen2.5-7b-instruct
 ```
 
-建议先检查：
-
-- `SC(5)` 和 `MV(5)` 的平均总 token 是否接近
-- `parse_fail` 是否过多
-- 各数据集答案归一化是否符合预期
-
-### 6.4 最后跑 main
+运行数学专项 pilot：
 
 ```powershell
-uv run baseline-cli run --experiment configs/experiments/main-baselines.toml --phase main
+uv run baseline-cli run --experiment configs/experiments/qwen2.5-math-pilot100.toml --phase pilot100 --model dashscope/qwen2.5-math-7b-instruct
 ```
 
-### 6.5 跑稳健性实验
+运行稳健性实验：
 
 ```powershell
-uv run baseline-cli run --experiment configs/experiments/robustness.toml --phase smoke20
-uv run baseline-cli run --experiment configs/experiments/robustness.toml --phase pilot100
+uv run baseline-cli run --experiment configs/experiments/robustness.toml --phase pilot100 --model dashscope/deepseek-r1-distill-qwen-7b
 ```
 
-## 7. 输出文件说明
+## 5. 如何新增模型
 
-每次运行会生成 `runs/<run_id>/`，目录中包含：
+如果新模型只需要继承 provider 默认参数，可以直接运行：
+
+```powershell
+uv run baseline-cli run --experiment configs/experiments/main-baselines.toml --phase smoke20 --model dashscope/qwen-plus
+```
+
+如果希望这个模型：
+
+- 出现在 `list-models`
+- 带有标签
+- 带有模型级覆盖参数
+
+则把它补入 `configs/model_catalog.toml`。
+
+## 6. 如何新增实验
+
+新增 experiment 时，建议按下面顺序进行：
+
+1. 选择一个 method catalog
+2. 指定 benchmark 配置
+3. 配置 phases
+4. 只在必要时声明：
+   - `required_model_tags`
+   - `benchmark_required_tags`
+
+不要在 experiment 里写死具体模型名。
+
+## 7. 运行产物说明
+
+每次运行都会生成 `runs/<run_id>/`，通常包含：
 
 - `manifest.json`
-  - 记录实验名、phase、模型配置、benchmark 配置、prompt 版本等
+  本次运行的最终配置与模型快照
 - `raw_responses.jsonl`
-  - 每次 API 调用一行
-  - 包含 `sample_id`、`method`、`replicate_id`、`agent_id`、`usage`、`latency`、`raw_response`
+  原始 API 调用日志
 - `predictions.jsonl`
-  - 每道题聚合后的一行结果
-  - 包含最终投票答案、gold、score、题目级 token 总量与 latency
+  题级预测
 - `metrics.json`
-  - 数据集级聚合指标
+  汇总指标
+- `run_summary.json`
+  精简摘要
+- `budget_fairness.json`
+  SC 与 MV 的预算公平性检查
+- `paper_tables.md`
+  导出的论文表格
+- `run_validation.json`
+  严格校验结果
+- `progress.json`
+  实时进度
 
-此外：
+全局文件包括：
 
 - `cache/requests.sqlite`
-  - 按请求指纹缓存响应，避免重复烧 API
 - `reports/leaderboard.csv`
-  - 当前运行的汇总表
 
-## 8. 公平性检查清单
+## 8. 保持项目整洁的约定
 
-在报告主表前，至少检查以下几点：
-
-1. `CoT` 是否单独成表，而不是和 `B>1` 方法混排。
-2. `SC(B)` 与 `MV(B)` 是否使用相同模型、相同 prompt、相同采样参数。
-3. `SC(B)` 与 `MV(B)` 是否使用相同的题目清单。
-4. 相同 `B` 下，`total_tokens_mean` 是否没有明显偏离。
-5. `StrategyQA` 是否使用 `yes/no` 归一。
-6. `GSM8K` 是否只比最终数值。
-7. `HotpotQA` 当前是否只看 answer EM。
-
-## 9. 常见问题
-
-### 9.1 缺少 API Key
-
-如果运行时报缺少 `DASHSCOPE_API_KEY` 或 `ZHIPU_API_KEY`：
-
-- 检查 `.env.local` 是否存在
-- 检查变量名是否写对
-- 检查是否在仓库根目录执行命令
-
-### 9.2 JSON 解析失败
-
-如果 `raw_responses.jsonl` 里 `parse_status=parse_fail` 较多：
-
-- 先降低输出长度
-- 再检查 provider 是否稳定支持 `response_format=json_object`
-- 必要时按模型单独调 prompt，但要保证同模型下所有方法共用同一 solver 风格
-
-### 9.3 预算不对齐
-
-如果 `SC(5)` 和 `MV(5)` 的平均总 token 相差过大：
-
-- 先不要出主表
-- 优先缩短 reasoning
-- 必要时收紧 `max_output_tokens`
-
-### 9.4 StrategyQA 为什么不是 dev300
-
-因为本地官方 dev 只有 `229` 条。  
-框架选择保留真实评测口径，而不是伪造一个所谓的 `dev300`。
-
-## 10. 当前建议的首轮执行顺序
-
-```powershell
-uv run baseline-cli generate-splits
-uv run baseline-cli run --experiment configs/experiments/main-baselines.toml --phase smoke20
-uv run baseline-cli run --experiment configs/experiments/main-baselines.toml --phase pilot100
-uv run baseline-cli run --experiment configs/experiments/main-baselines.toml --phase main
-uv run baseline-cli run --experiment configs/experiments/robustness.toml --phase smoke20
-uv run baseline-cli run --experiment configs/experiments/robustness.toml --phase pilot100
-```
-
-如果想先控制费用，建议先只跑：
-
-```powershell
-uv run baseline-cli run --experiment configs/experiments/main-baselines.toml --phase smoke20
-```
-
-确认日志、缓存、usage、解析都稳定之后，再进 `pilot100`。
+- 旧配置入口废弃后要及时删除，不保留平行旧逻辑
+- provider 只负责连接，不再混入模型目录职责
+- experiment 保持模型无关，不回退到旧的写死模型方式
+- 通用方法统一放进 `configs/methods/`
+- 多智能体角色配置未来单独进入 `configs/rosters/`

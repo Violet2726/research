@@ -1,11 +1,16 @@
+# GSM8K benchmark 配置。
+# loader 指定用哪种解析器把原始文件转成统一样本结构。
 name = "GSM8K"
 slug = "gsm8k"
 loader = "gsm8k_jsonl"
+# source_path/source_split 记录原始数据来源，便于追溯。
 source_path = "datasets/gsm8k/test.jsonl"
 source_split = "test"
+# 统一样本 ID 前缀，生成 split manifest 时会用到。
 sample_id_prefix = "gsm8k"
 question_field = "question"
 answer_field = "answer"
+# smoke/pilot/main 分别对应快速验证、小规模实验和主实验规模。
 smoke_size = 20
 pilot_size = 100
 main_size = 300

@@ -1,3 +1,9 @@
+"""请求级缓存。
+
+该模块用 SQLite 记录同一请求指纹对应的原始响应，避免重复实验时
+反复消耗 API 配额，也方便后续做可复现实验和离线排障。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,6 +16,8 @@ from typing import Any
 
 @dataclass(frozen=True)
 class CachedResponse:
+    """缓存表中单条请求记录的内存表示。"""
+
     cache_key: str
     payload_json: str
     response_json: str
@@ -19,7 +27,10 @@ class CachedResponse:
 
 
 class RequestCache:
+    """线程安全的请求缓存封装。"""
+
     def __init__(self, db_path: str | Path) -> None:
+        """初始化缓存数据库，并在首次运行时创建表结构。"""
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.lock = threading.Lock()
@@ -40,6 +51,7 @@ class RequestCache:
         self.connection.commit()
 
     def get(self, cache_key: str) -> CachedResponse | None:
+        """按请求指纹读取缓存；未命中时返回 ``None``。"""
         with self.lock:
             row = self.connection.execute(
                 """
@@ -54,6 +66,7 @@ class RequestCache:
         return CachedResponse(*row)
 
     def put(self, record: CachedResponse) -> None:
+        """写入或覆盖一条缓存记录。"""
         with self.lock:
             self.connection.execute(
                 """
@@ -73,9 +86,11 @@ class RequestCache:
             self.connection.commit()
 
     def close(self) -> None:
+        """关闭数据库连接。"""
         with self.lock:
             self.connection.close()
 
 
 def json_dump(data: Any) -> str:
+    """统一的 JSON 序列化格式，保证缓存键与缓存值稳定可复用。"""
     return json.dumps(data, ensure_ascii=False, sort_keys=True)

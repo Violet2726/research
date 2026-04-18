@@ -1,3 +1,9 @@
+"""数据集加载与样本标准化。
+
+所有 benchmark 最终都会被转换成统一的 ``DatasetSample`` 结构，
+这样提示构造、模型调用和评测逻辑就不需要关心底层文件格式差异。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,6 +19,8 @@ from api_baselines.config import BenchmarkConfig
 
 @dataclass(frozen=True)
 class DatasetSample:
+    """单个样本的统一表示。"""
+
     dataset: str
     sample_id: str
     question: str
@@ -22,6 +30,7 @@ class DatasetSample:
 
 
 def load_samples(config: BenchmarkConfig) -> list[DatasetSample]:
+    """根据 benchmark 配置选择对应 loader，并返回标准化样本列表。"""
     loader_map = {
         "gsm8k_jsonl": _load_gsm8k,
         "strategyqa_json": _load_strategyqa,
@@ -31,6 +40,7 @@ def load_samples(config: BenchmarkConfig) -> list[DatasetSample]:
 
 
 def _load_gsm8k(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载 GSM8K JSONL，并抽取 ``####`` 后的最终答案作为金标。"""
     path = Path(config.source_path)
     samples: list[DatasetSample] = []
     with path.open("r", encoding="utf-8") as handle:
@@ -50,6 +60,7 @@ def _load_gsm8k(config: BenchmarkConfig) -> list[DatasetSample]:
 
 
 def _load_strategyqa(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载 StrategyQA JSON，并把布尔答案标准化成 yes/no。"""
     path = Path(config.source_path)
     payload = json.loads(path.read_text(encoding="utf-8"))
     samples: list[DatasetSample] = []
@@ -69,6 +80,7 @@ def _load_strategyqa(config: BenchmarkConfig) -> list[DatasetSample]:
 
 
 def _load_hotpotqa(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载 HotpotQA parquet，并把上下文段落渲染成可直接放入提示词的文本。"""
     table = pq.read_table(config.source_path)
     payload = table.to_pylist()
     samples: list[DatasetSample] = []
@@ -92,6 +104,7 @@ def _load_hotpotqa(config: BenchmarkConfig) -> list[DatasetSample]:
 
 
 def _render_hotpot_context(context: dict[str, Any]) -> str:
+    """把 HotpotQA 的结构化上下文压平成带标题的多段文本。"""
     titles = context["title"]
     paragraphs = context["sentences"]
     rendered: list[str] = []
@@ -102,6 +115,7 @@ def _render_hotpot_context(context: dict[str, Any]) -> str:
 
 
 def _extract_gsm8k_gold(answer: str) -> str:
+    """从 GSM8K 标注答案中提取最终数字，便于与模型输出对齐。"""
     match = re.search(r"####\s*([-+]?\d[\d,]*(?:\.\d+)?)", answer)
     if match:
         return match.group(1).replace(",", "")

@@ -1,3 +1,5 @@
+"""数据集特定的解析兜底逻辑。"""
+
 from __future__ import annotations
 
 import re
@@ -5,6 +7,7 @@ from typing import Any
 
 
 def extract_fallback_answer(dataset: str, raw_text: str) -> tuple[dict[str, Any], str] | None:
+    """当 JSON 解析失败时，尝试按数据集规则直接提取最终答案。"""
     text = raw_text.strip()
     if not text:
         return None
@@ -27,6 +30,7 @@ def extract_fallback_answer(dataset: str, raw_text: str) -> tuple[dict[str, Any]
 
 
 def _extract_gsm8k_answer(text: str) -> str | None:
+    """从 GSM8K 风格的自然语言解题过程里抽取最后数字。"""
     boxed_matches = re.findall(r"boxed\{([^}]*)\}", text, flags=re.IGNORECASE)
     if boxed_matches:
         candidate = _extract_last_number(boxed_matches[-1])
@@ -46,6 +50,7 @@ def _extract_gsm8k_answer(text: str) -> str | None:
 
 
 def _extract_strategyqa_answer(text: str) -> str | None:
+    """从尾部结论中抽取 yes/no。"""
     lowered = text.lower()
     if re.search(r"\bthe answer is yes\b", lowered) or re.search(r"\byes\b", lowered[-40:]):
         return "yes"
@@ -55,6 +60,7 @@ def _extract_strategyqa_answer(text: str) -> str | None:
 
 
 def _extract_hotpotqa_answer(text: str) -> str | None:
+    """从 HotpotQA 风格的自由文本中截取最终短答案。"""
     patterns = [
         r"(?:final answer|answer is|therefore[, ]+the answer is)\s*[:\-]?\s*(.+)$",
         r"^(.+)$",
@@ -70,6 +76,7 @@ def _extract_hotpotqa_answer(text: str) -> str | None:
 
 
 def _extract_last_number(text: str) -> str | None:
+    """返回文本中最后一个数值片段。"""
     matches = re.findall(r"[-+]?\d[\d,]*(?:\.\d+)?", text)
     if not matches:
         return None
