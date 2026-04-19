@@ -1,0 +1,20 @@
+[methods.mv_3]
+family = "shared_majority_vote"
+budget_calls = 0
+temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256
+
+[methods.mv_6]
+family = "majority_vote"
+budget_calls = 6
+temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256
+
+[methods.sc_6]
+family = "self_consistency"
+budget_calls = 6
+temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256

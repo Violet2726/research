@@ -1,0 +1,11 @@
+name = "shared_3a_r1"
+roster_type = "homogeneous"
+agent_count = 3
+sampling_seed_rule = "seed_plus_agent_round"
+debate_rounds = 1
+share_mode = "answer_confidence_short_reasoning"
+final_aggregator = "majority_vote"
+initial_temperature = 0.7
+debate_temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256

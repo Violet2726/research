@@ -1,0 +1,4 @@
+policy_name = "confidence_triggered"
+trigger_type = "confidence_triggered"
+mean_conf_threshold = 0.75
+fail_open_to_always = true

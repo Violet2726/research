@@ -1,0 +1,189 @@
+"""选择性通信运行结果校验。"""
+
+from __future__ import annotations
+
+from collections import Counter, defaultdict
+from pathlib import Path
+import json
+from typing import Any
+
+
+def validate_run(run_dir: str | Path) -> dict[str, Any]:
+    """检查选择性通信运行目录的关键产物是否齐全且约束满足。"""
+    root = Path(run_dir)
+    required = [
+        "manifest.json",
+        "stage_a_turns.jsonl",
+        "stage_b_turns.jsonl",
+        "trigger_decisions.jsonl",
+        "policy_predictions.jsonl",
+        "policy_metrics.json",
+        "policy_diagnostics.json",
+        "oracle_trigger_eval.json",
+        "progress.json",
+        "trigger_report.md",
+    ]
+    missing = [name for name in required if not (root / name).exists()]
+
+    stage_a_rows = _load_jsonl(root / "stage_a_turns.jsonl")
+    stage_b_rows = _load_jsonl(root / "stage_b_turns.jsonl")
+    control_rows = _load_jsonl(root / "control_turns.jsonl")
+    trigger_rows = _load_jsonl(root / "trigger_decisions.jsonl")
+    prediction_rows = _load_jsonl(root / "policy_predictions.jsonl")
+    diagnostics = _load_json(root / "policy_diagnostics.json") if (root / "policy_diagnostics.json").exists() else {}
+
+    all_turn_rows = stage_a_rows + stage_b_rows + control_rows
+    request_failures = sum(1 for row in all_turn_rows if row.get("parse_status") == "request_fail")
+    parse_success_count = sum(
+        1
+        for row in all_turn_rows
+        if row.get("parse_status") not in {"parse_fail", "request_fail"}
+    )
+    parse_success_rate = parse_success_count / len(all_turn_rows) if all_turn_rows else 0.0
+
+    shared_hash_check = _validate_shared_hashes(prediction_rows)
+    disagreement_check = _validate_disagreement_policy(trigger_rows)
+    early_exit_check = _validate_early_exit_tokens(prediction_rows)
+    trigger_rate_check = _validate_always_trigger_rate(trigger_rows)
+    invalid_confidence_check = _confidence_invalid_ratio(trigger_rows)
+
+    passed = all(
+        [
+            not missing,
+            request_failures == 0,
+            parse_success_rate >= 0.95,
+            shared_hash_check["passed"],
+            disagreement_check["passed"],
+            early_exit_check["passed"],
+            trigger_rate_check["passed"],
+        ]
+    )
+
+    return {
+        "run_dir": str(root),
+        "passed": passed,
+        "missing_files": missing,
+        "checks": {
+            "request_failures_total": request_failures,
+            "parse_success_rate": round(parse_success_rate, 6),
+            "parse_success_threshold": 0.95,
+            "shared_hash_check": shared_hash_check,
+            "always_trigger_rate_check": trigger_rate_check,
+            "disagreement_policy_check": disagreement_check,
+            "early_exit_zero_comm_check": early_exit_check,
+            "invalid_confidence_ratio": invalid_confidence_check,
+        },
+        "policy_methods": dict(Counter(row.get("method_name") for row in prediction_rows)),
+        "diagnostic_recommendation": diagnostics.get("recommended_next_default_policy"),
+    }
+
+
+def _validate_shared_hashes(prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """检查 4 个策略是否共享同一份 Stage A/Stage B 哈希。"""
+    mismatches: list[dict[str, Any]] = []
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in prediction_rows:
+        if row.get("method_kind") != "policy":
+            continue
+        grouped[(row["dataset"], row["sample_id"])].append(row)
+
+    for (dataset, sample_id), rows in grouped.items():
+        stage_a_hashes = {row.get("stage_a_trace_hash") for row in rows}
+        if len(stage_a_hashes) != 1:
+            mismatches.append(
+                {
+                    "dataset": dataset,
+                    "sample_id": sample_id,
+                    "issue": "stage_a_hash_mismatch",
+                    "values": sorted(value for value in stage_a_hashes if value),
+                }
+            )
+        triggered_rows = [row for row in rows if row.get("triggered")]
+        stage_b_hashes = {row.get("stage_b_trace_hash_used") for row in triggered_rows}
+        stage_b_hashes.discard(None)
+        if triggered_rows and len(stage_b_hashes) != 1:
+            mismatches.append(
+                {
+                    "dataset": dataset,
+                    "sample_id": sample_id,
+                    "issue": "stage_b_hash_mismatch",
+                    "values": sorted(stage_b_hashes),
+                }
+            )
+    return {"passed": len(mismatches) == 0, "mismatch_count": len(mismatches), "mismatches": mismatches[:20]}
+
+
+def _validate_always_trigger_rate(trigger_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """检查 always_communicate 是否总是触发。"""
+    rows = [row for row in trigger_rows if row.get("policy_name") == "always_communicate"]
+    total = len(rows)
+    triggered = sum(1 for row in rows if row.get("triggered"))
+    rate = triggered / total if total else 0.0
+    return {"passed": total > 0 and rate == 1.0, "total_rows": total, "trigger_rate": round(rate, 6)}
+
+
+def _validate_disagreement_policy(trigger_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """检查 disagreement 策略是否严格等于 initial_disagreement。"""
+    mismatches = []
+    rows = [row for row in trigger_rows if row.get("policy_name") == "disagreement_triggered"]
+    for row in rows:
+        if bool(row.get("triggered")) != bool(row.get("initial_disagreement")):
+            mismatches.append(
+                {
+                    "dataset": row["dataset"],
+                    "sample_id": row["sample_id"],
+                    "triggered": row["triggered"],
+                    "initial_disagreement": row["initial_disagreement"],
+                }
+            )
+    return {"passed": len(mismatches) == 0, "mismatch_count": len(mismatches), "mismatches": mismatches[:20]}
+
+
+def _validate_early_exit_tokens(prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """检查所有 early exit 题的通信 token 是否为 0。"""
+    mismatches = []
+    for row in prediction_rows:
+        if row.get("method_kind") != "policy":
+            continue
+        if row.get("early_exit") and float(row.get("communication_tokens_per_question") or 0.0) != 0.0:
+            mismatches.append(
+                {
+                    "dataset": row["dataset"],
+                    "sample_id": row["sample_id"],
+                    "method_name": row["method_name"],
+                    "communication_tokens_per_question": row["communication_tokens_per_question"],
+                }
+            )
+    return {"passed": len(mismatches) == 0, "mismatch_count": len(mismatches), "mismatches": mismatches[:20]}
+
+
+def _confidence_invalid_ratio(trigger_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """统计 confidence 非法值比例。"""
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in trigger_rows:
+        grouped[row["dataset"]].append(row)
+    per_dataset = {
+        dataset: round(sum(1 for row in rows if row.get("any_invalid_confidence")) / len(rows), 6)
+        for dataset, rows in grouped.items()
+        if rows
+    }
+    overall_denominator = len(trigger_rows)
+    overall_numerator = sum(1 for row in trigger_rows if row.get("any_invalid_confidence"))
+    return {
+        "overall_ratio": round(overall_numerator / overall_denominator, 6) if overall_denominator else 0.0,
+        "per_dataset": per_dataset,
+    }
+
+
+def _load_jsonl(path: Path) -> list[dict[str, Any]]:
+    """读取 UTF-8 JSONL。"""
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    """读取 UTF-8 JSON。"""
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))

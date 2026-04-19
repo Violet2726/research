@@ -153,3 +153,30 @@ uv run baseline-cli validate-run --run-dir runs/<run_id>
 - 新方法优先补到 `configs/methods/`，避免 experiment 文件重复定义
 - 新模型默认直接用 `--model provider/model` 运行；需要标签或覆盖参数时再进入模型目录
 - 多智能体阶段将单独进入 `configs/rosters/`，不会污染当前单模型 baseline 语义
+
+## 选择性通信实验
+
+触发式通信 / early-exit 实验使用独立子系统：
+
+- 代码：`src/selective_comm/`
+- 配置：`configs/selective_comm/`
+- 运行目录：`runs/selective_comm/`
+- 发布报告：`reports/selective_comm/`
+
+查看实验规格：
+
+```powershell
+uv run selective-cli inspect-experiment --experiment configs/selective_comm/experiments/trigger_early_exit_v1.toml
+```
+
+运行一个 phase：
+
+```powershell
+uv run selective-cli run --experiment configs/selective_comm/experiments/trigger_early_exit_v1.toml --phase smoke20
+```
+
+校验一次运行：
+
+```powershell
+uv run selective-cli validate-run --run-dir runs/selective_comm/<experiment>/<phase>/<run_id>
+```

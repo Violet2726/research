@@ -1,0 +1,3 @@
+policy_name = "always_communicate"
+trigger_type = "always_communicate"
+fail_open_to_always = true

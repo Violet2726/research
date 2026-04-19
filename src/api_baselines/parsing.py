@@ -15,9 +15,12 @@ def parse_model_output(raw_text: str) -> tuple[dict[str, Any], str]:
     """把模型原始文本尽可能解析成 ``{reasoning, final_answer}`` 结构。"""
     cleaned = _strip_code_fences(raw_text.strip())
     try:
-        return json.loads(cleaned), "direct_json"
+        parsed = json.loads(cleaned)
     except json.JSONDecodeError:
-        pass
+        parsed = None
+    else:
+        if _has_final_answer(parsed):
+            return parsed, "direct_json"
 
     merged_objects = _decode_multiple_objects(cleaned)
     if merged_objects is not None:
@@ -102,7 +105,7 @@ def _decode_multiple_objects(text: str) -> tuple[dict[str, Any], str] | None:
 
     merged: dict[str, Any] = {}
     for obj in objects:
-        for key in ("reasoning", "final_answer"):
+        for key in ("reasoning", "final_answer", "confidence_raw", "uncertain_point", "key_evidence"):
             if key in obj and obj[key] not in (None, ""):
                 merged[key] = obj[key]
 
@@ -113,15 +116,27 @@ def _decode_multiple_objects(text: str) -> tuple[dict[str, Any], str] | None:
 
 def _extract_fields_via_regex(text: str) -> dict[str, Any] | None:
     """从近似 JSON 的文本中用正则兜底抽取字段。"""
-    reasoning_match = re.search(r'"reasoning"\s*:\s*"((?:[^"\\]|\\.)*)"', text, re.S)
-    final_match = re.search(r'"final_answer"\s*:\s*"((?:[^"\\]|\\.)*)"', text, re.S)
-    if final_match is None:
+    reasoning_value = _extract_quoted_field(text, "reasoning")
+    final_value = _extract_quoted_field(text, "final_answer")
+    if final_value is None:
         return None
 
     payload: dict[str, Any] = {}
-    if reasoning_match is not None:
-        payload["reasoning"] = json.loads(f'"{reasoning_match.group(1)}"')
-    payload["final_answer"] = json.loads(f'"{final_match.group(1)}"')
+    if reasoning_value is not None:
+        payload["reasoning"] = reasoning_value
+    payload["final_answer"] = final_value
+
+    confidence_value = _extract_confidence_field(text)
+    if confidence_value is not None:
+        payload["confidence_raw"] = confidence_value
+
+    uncertain_point = _extract_quoted_field(text, "uncertain_point")
+    if uncertain_point is not None:
+        payload["uncertain_point"] = uncertain_point
+
+    key_evidence = _extract_quoted_field(text, "key_evidence")
+    if key_evidence is not None:
+        payload["key_evidence"] = key_evidence
     return payload
 
 
@@ -140,3 +155,30 @@ def _extract_tail_value(text: str) -> dict[str, Any] | None:
     if reasoning_match is not None:
         payload["reasoning"] = json.loads(f'"{reasoning_match.group(1)}"')
     return payload
+
+
+def _has_final_answer(payload: Any) -> bool:
+    """检查解析结果里是否已经包含可用的 final_answer。"""
+    if not isinstance(payload, dict):
+        return False
+    return payload.get("final_answer") not in (None, "")
+
+
+def _extract_quoted_field(text: str, field_name: str) -> str | None:
+    """抽取 JSON 风格的字符串字段。"""
+    match = re.search(rf'"{re.escape(field_name)}"\s*:\s*"((?:[^"\\]|\\.)*)"', text, re.S)
+    if match is None:
+        return None
+    return json.loads(f'"{match.group(1)}"')
+
+
+def _extract_confidence_field(text: str) -> float | str | None:
+    """抽取 confidence_raw，兼容数字和字符串两种形式。"""
+    numeric_match = re.search(
+        r'"confidence_raw"\s*:\s*(-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?)',
+        text,
+        re.S,
+    )
+    if numeric_match is not None:
+        return float(numeric_match.group(1))
+    return _extract_quoted_field(text, "confidence_raw")

@@ -1,0 +1,29 @@
+name = "trigger-early-exit-v1"
+description = "Trigger and early-exit v1 with shared Stage A and shared Stage B for smoke20 selective communication analysis."
+benchmark_configs = [
+  "configs/benchmarks/gsm8k.toml",
+  "configs/benchmarks/strategyqa.toml",
+  "configs/benchmarks/hotpotqa.toml",
+]
+protocol = "configs/selective_comm/protocols/shared_3a_r1.toml"
+policy_configs = [
+  "configs/selective_comm/policies/always_communicate.toml",
+  "configs/selective_comm/policies/disagreement_triggered.toml",
+  "configs/selective_comm/policies/confidence_triggered.toml",
+  "configs/selective_comm/policies/hybrid_trigger.toml",
+]
+control_catalog = "configs/selective_comm/controls/trigger_equal_budget.toml"
+global_seed = 42
+prompt_version = "v1-trigger-json-short-reasoning"
+max_concurrent_requests = 8
+requests_per_minute_limit = 600
+tokens_per_minute_limit = 1000000
+primary_backbone = "dashscope/qwen-turbo-1101"
+robustness_backbone = "dashscope/qwen-plus"
+backbone_fallback = "dashscope/qwen-plus"
+
+[phases.smoke20]
+split_suffix = "smoke20_seed42"
+
+[phases.pilot100]
+split_suffix = "pilot100_seed42"
