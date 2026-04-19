@@ -1,4 +1,4 @@
-"""选择性通信实验命令行入口。"""
+"""选择性通信实验 CLI。"""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from selective_comm.validation import validate_run
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """构建 `selective-cli` 参数解析器。"""
+    """构建选择性通信实验命令行解析器。"""
     parser = argparse.ArgumentParser(description="Selective communication trigger experiment runner.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -49,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    """根据子命令分发到选择性通信实验逻辑。"""
+    """解析参数并分发到对应子命令。"""
     parser = build_parser()
     args = parser.parse_args()
 
@@ -72,14 +72,10 @@ def main() -> None:
             "requests_per_minute_limit": experiment.requests_per_minute_limit,
             "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
             "primary_backbone": experiment.primary_backbone,
-            "robustness_backbone": experiment.robustness_backbone,
-            "backbone_fallback": experiment.backbone_fallback,
             "phases": experiment.raw["phases"],
         }
-        if args.backbone:
-            payload["resolved_backbone"] = _serialize_backbone(resolve_backbone(args.backbone))
-        else:
-            payload["resolved_backbone"] = _serialize_backbone(resolve_backbone(experiment.primary_backbone))
+        resolved_backbone = resolve_backbone(args.backbone or experiment.primary_backbone)
+        payload["resolved_backbone"] = _serialize_backbone(resolved_backbone)
         for phase_name in experiment.raw["phases"]:
             phase = phase_metadata(experiment, phase_name)
             payload.setdefault("resolved_by_phase", {})[phase_name] = {
@@ -118,15 +114,10 @@ def main() -> None:
 
 
 def _serialize_protocol(protocol: object) -> dict[str, object]:
-    """输出协议配置。"""
+    """把协议配置转换为可 JSON 输出结构。"""
     return {
-        "name": protocol.name,
-        "roster_type": protocol.roster_type,
         "agent_count": protocol.agent_count,
-        "sampling_seed_rule": protocol.sampling_seed_rule,
         "debate_rounds": protocol.debate_rounds,
-        "share_mode": protocol.share_mode,
-        "final_aggregator": protocol.final_aggregator,
         "initial_temperature": protocol.initial_temperature,
         "debate_temperature": protocol.debate_temperature,
         "top_p": protocol.top_p,
@@ -135,7 +126,7 @@ def _serialize_protocol(protocol: object) -> dict[str, object]:
 
 
 def _serialize_policy(policy: object) -> dict[str, object]:
-    """输出触发策略配置。"""
+    """把 trigger 策略转换为可 JSON 输出结构。"""
     return {
         "policy_name": policy.policy_name,
         "trigger_type": policy.trigger_type,
@@ -146,7 +137,7 @@ def _serialize_policy(policy: object) -> dict[str, object]:
 
 
 def _serialize_control(method: object) -> dict[str, object]:
-    """输出控制方法配置。"""
+    """把控制方法转换为可 JSON 输出结构。"""
     return {
         "family": method.family,
         "budget_calls": method.budget_calls,
@@ -157,7 +148,7 @@ def _serialize_control(method: object) -> dict[str, object]:
 
 
 def _serialize_backbone(backbone: object) -> dict[str, object]:
-    """输出 backbone。"""
+    """把解析后的 backbone 模型配置转换为可 JSON 输出结构。"""
     return {
         "name": backbone.name,
         "provider": backbone.provider,

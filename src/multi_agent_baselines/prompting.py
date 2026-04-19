@@ -1,16 +1,15 @@
 """多智能体实验提示词构造。
 
-当前支持两套稳定提示词版本：
+当前支持两套稳定 prompt 版本：
 
-- `v1-mad-json-short-reasoning`
-  兼容已有 Vanilla MAD 复现实验。
-- `v2-controlled-span-strict`
-  用于 Debate vs Vote 受控实验，重点强化 HotpotQA 的最短 span 输出约束。
+- ``v1-mad-json-short-reasoning``：兼容 Vanilla MAD 复现实验。
+- ``v2-controlled-span-strict``：用于 Debate vs Vote 对照分析，强化
+  HotpotQA 的最短可判别 span 约束。
 """
 
 from __future__ import annotations
 
-from api_baselines.datasets import DatasetSample
+from experiment_core.datasets import DatasetSample
 
 
 DEFAULT_PROMPT_VERSION = "v1-mad-json-short-reasoning"
@@ -21,7 +20,7 @@ def build_initial_messages(
     agent_id: int,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
-    """构造 agent 的首轮独立求解提示。"""
+    """构造 agent 首轮独立求解消息。"""
     user_prompt = (
         f"You are agent_{agent_id}.\n"
         f"{_dataset_instruction(sample, prompt_version)}\n"
@@ -48,7 +47,7 @@ def build_debate_messages(
     peer_messages: list[dict[str, str]],
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
-    """构造某一轮 debate 的修订提示。"""
+    """构造某一轮 debate 的修订消息。"""
     peer_block = "\n\n".join(
         f"{item['agent']} previous answer: {item['answer']}\n"
         f"{item['agent']} reasoning: {item['reasoning']}"
@@ -75,7 +74,7 @@ def build_debate_messages(
 
 
 def _system_prompt(prompt_version: str) -> str:
-    """返回当前 prompt version 对应的 system prompt。"""
+    """返回当前 prompt 版本对应的 system prompt。"""
     if prompt_version == "v2-controlled-span-strict":
         return (
             "You are one reasoning agent in a controlled debate-vs-vote experiment.\n"
@@ -94,7 +93,7 @@ def _system_prompt(prompt_version: str) -> str:
 
 
 def _dataset_instruction(sample: DatasetSample, prompt_version: str) -> str:
-    """返回数据集专属回答约束。"""
+    """返回数据集专属答题约束。"""
     if sample.dataset == "gsm8k":
         return (
             "Solve the math word problem carefully. "

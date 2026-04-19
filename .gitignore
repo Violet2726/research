@@ -14,4 +14,4 @@ dist/
 *.log
 cache/
 runs/
-reports/*.csv
+reports/

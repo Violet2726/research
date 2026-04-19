@@ -3,19 +3,20 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "api-baselines"
+name = "research-experiments"
 version = "0.1.0"
-description = "Professional API baseline runner for CoT, Self-Consistency, and Majority Vote experiments."
+description = "Shared-core research experiments for single-agent, multi-agent, and selective communication studies."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "httpx>=0.27.0,<1.0.0",
   "pyarrow>=18.0.0,<22.0.0",
   "python-dotenv>=1.0.0,<2.0.0",
+  "pytest>=8.0.0,<9.0.0",
 ]
 
 [project.scripts]
-baseline-cli = "api_baselines.cli:main"
+single-agent-cli = "single_agent_baselines.cli:main"
 mad-cli = "multi_agent_baselines.cli:main"
 selective-cli = "selective_comm.cli:main"
 
@@ -24,3 +25,6 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

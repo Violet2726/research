@@ -30,7 +30,7 @@ def extract_fallback_answer(dataset: str, raw_text: str) -> tuple[dict[str, Any]
 
 
 def _extract_gsm8k_answer(text: str) -> str | None:
-    """从 GSM8K 风格的自然语言解题过程里抽取最后数字。"""
+    """从 GSM8K 风格自然语言解题过程里抽取最后数字。"""
     boxed_matches = re.findall(r"boxed\{([^}]*)\}", text, flags=re.IGNORECASE)
     if boxed_matches:
         candidate = _extract_last_number(boxed_matches[-1])
@@ -50,7 +50,7 @@ def _extract_gsm8k_answer(text: str) -> str | None:
 
 
 def _extract_strategyqa_answer(text: str) -> str | None:
-    """从尾部结论中抽取 yes/no。"""
+    """从尾部结论中抽取 yes / no。"""
     lowered = text.lower()
     if re.search(r"\bthe answer is yes\b", lowered) or re.search(r"\byes\b", lowered[-40:]):
         return "yes"
@@ -60,7 +60,7 @@ def _extract_strategyqa_answer(text: str) -> str | None:
 
 
 def _extract_hotpotqa_answer(text: str) -> str | None:
-    """从 HotpotQA 风格的自由文本中截取最终短答案。"""
+    """从 HotpotQA 风格自由文本中截取最终短答案。"""
     patterns = [
         r"(?:final answer|answer is|therefore[, ]+the answer is)\s*[:\-]?\s*(.+)$",
         r"^(.+)$",

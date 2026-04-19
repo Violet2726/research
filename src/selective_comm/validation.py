@@ -9,7 +9,7 @@ from typing import Any
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
-    """检查选择性通信运行目录的关键产物是否齐全且约束满足。"""
+    """检查选择性通信运行目录的关键产物与约束是否满足。"""
     root = Path(run_dir)
     required = [
         "manifest.json",
@@ -79,7 +79,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
 
 
 def _validate_shared_hashes(prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """检查 4 个策略是否共享同一份 Stage A/Stage B 哈希。"""
+    """检查各策略是否共享同一份 Stage A / Stage B trace 哈希。"""
     mismatches: list[dict[str, Any]] = []
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in prediction_rows:
@@ -114,7 +114,7 @@ def _validate_shared_hashes(prediction_rows: list[dict[str, Any]]) -> dict[str, 
 
 
 def _validate_always_trigger_rate(trigger_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """检查 always_communicate 是否总是触发。"""
+    """检查 ``always_communicate`` 是否总会触发。"""
     rows = [row for row in trigger_rows if row.get("policy_name") == "always_communicate"]
     total = len(rows)
     triggered = sum(1 for row in rows if row.get("triggered"))
@@ -123,7 +123,7 @@ def _validate_always_trigger_rate(trigger_rows: list[dict[str, Any]]) -> dict[st
 
 
 def _validate_disagreement_policy(trigger_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """检查 disagreement 策略是否严格等于 initial_disagreement。"""
+    """检查 disagreement 策略是否严格等于 ``initial_disagreement``。"""
     mismatches = []
     rows = [row for row in trigger_rows if row.get("policy_name") == "disagreement_triggered"]
     for row in rows:
@@ -140,7 +140,7 @@ def _validate_disagreement_policy(trigger_rows: list[dict[str, Any]]) -> dict[st
 
 
 def _validate_early_exit_tokens(prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """检查所有 early exit 题的通信 token 是否为 0。"""
+    """检查所有 early exit 题目的通信 token 是否为 0。"""
     mismatches = []
     for row in prediction_rows:
         if row.get("method_kind") != "policy":
@@ -176,14 +176,14 @@ def _confidence_invalid_ratio(trigger_rows: list[dict[str, Any]]) -> dict[str, A
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
-    """读取 UTF-8 JSONL。"""
+    """读取 UTF-8 JSONL 文件。"""
     if not path.exists():
         return []
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
 def _load_json(path: Path) -> dict[str, Any]:
-    """读取 UTF-8 JSON。"""
+    """读取 UTF-8 JSON 文件。"""
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))

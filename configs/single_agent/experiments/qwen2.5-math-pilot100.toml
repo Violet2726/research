@@ -1,15 +1,11 @@
-# 数学专项 pilot 实验。
-# 该实验要求模型带有 `math` 标签，否则会在发请求前直接失败。
 name = "qwen2.5-math-pilot100"
 description = "Dedicated GSM8K pilot100 run for math-specialized models with high-rate limits."
-method_catalog = "configs/methods/math-pilot.toml"
-benchmark_configs = ["configs/benchmarks/gsm8k.toml"]
-# required_model_tags 是整个 experiment 默认生效的模型标签约束。
+method_catalog = "configs/single_agent/methods/math-pilot.toml"
+benchmark_configs = ["configs/shared/benchmarks/gsm8k.toml"]
 required_model_tags = ["math"]
 global_seed = 42
 reruns_per_method = 1
 prompt_version = "v1-json-short-reasoning"
-# 数学 pilot 允许更高并发与更高限流上限。
 max_concurrent_requests = 48
 requests_per_minute_limit = 1200
 tokens_per_minute_limit = 1000000

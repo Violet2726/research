@@ -1,5 +1,1 @@
-# 3 个同构 agent，共用同一个 backbone。
-name = "homogeneous_3agent"
-roster_type = "homogeneous"
 agent_count = 3
-sampling_seed_rule = "seed_plus_agent_round"

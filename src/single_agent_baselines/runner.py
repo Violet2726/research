@@ -1,8 +1,8 @@
-"""实验主运行链路。
+"""单智能体实验主运行链路。
 
-该模块负责把实验规格转换成真实的 API 调用计划，并在一次运行中完成：
-phase 解析、样本展开、并发请求、缓存复用、解析兜底、指标汇总、
-报告导出与运行后校验。
+本模块负责把实验规格转换成真实的 API 调用计划，并在一次运行中完成：
+phase 解析、样本展开、并发请求、缓存复用、解析兜底、指标聚合、报告导出
+与运行后校验。
 """
 
 from __future__ import annotations
@@ -14,40 +14,43 @@ from functools import partial
 from hashlib import sha256
 from pathlib import Path
 import json
-import random
 from statistics import mean, pstdev
-import threading
-import time
 from typing import Any
 
 from dotenv import load_dotenv
 
-from api_baselines.cache import CachedResponse, RequestCache, json_dump
-from api_baselines.config import (
+from experiment_core.cache import CachedResponse, RequestCache, json_dump
+from experiment_core.config import (
     BenchmarkConfig,
-    ExperimentConfig,
-    MethodConfig,
     ResolvedModelConfig,
-    load_method_catalog,
-    phase_metadata,
-    required_benchmark_tags,
-    required_model_tags,
 )
-from api_baselines.datasets import DatasetSample, load_samples
-from api_baselines.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from api_baselines.fallbacks import extract_fallback_answer
-from api_baselines.parsing import parse_model_output
-from api_baselines.prompting import build_messages
-from api_baselines.providers import (
+from experiment_core.datasets import (
+    DatasetSample,
+    generate_split_manifests as core_generate_split_manifests,
+    load_split_ids,
+    select_samples,
+)
+from experiment_core.evaluation import aggregate_majority, normalize_prediction, score_prediction
+from experiment_core.fallbacks import extract_fallback_answer
+from experiment_core.methods import MethodConfig, load_method_catalog
+from experiment_core.parsing import parse_model_output
+from experiment_core.providers import (
     OpenAICompatibleProvider,
     ProviderRequestError,
     build_payload,
     estimate_request_tokens,
 )
-from api_baselines.rate_limits import SlidingWindowRateLimiter
-from api_baselines.reporting import budget_fairness_check, export_paper_tables, summarize_run
-from api_baselines.validation import validate_run
-from experiment_common.runtime import RunProgressTracker, build_run_id, load_split_ids, select_samples
+from experiment_core.rate_limits import SlidingWindowRateLimiter
+from experiment_core.runtime import RunProgressTracker, build_run_id
+from single_agent_baselines.config import (
+    ExperimentConfig,
+    phase_metadata,
+    required_benchmark_tags,
+    required_model_tags,
+)
+from single_agent_baselines.prompting import build_messages
+from single_agent_baselines.reporting import budget_fairness_check, export_paper_tables, summarize_run
+from single_agent_baselines.validation import validate_run
 
 
 @dataclass(frozen=True)
@@ -95,38 +98,7 @@ class CallSpec:
 
 def generate_split_manifests(benchmark_configs: list[BenchmarkConfig], output_dir: str | Path) -> list[Path]:
     """按 benchmark 配置生成冻结后的 split 清单。"""
-    output = Path(output_dir)
-    output.mkdir(parents=True, exist_ok=True)
-    created: list[Path] = []
-
-    for config in benchmark_configs:
-        samples = load_samples(config)
-        indexed_ids = [sample.sample_id for sample in samples]
-        shuffled = indexed_ids[:]
-        random.Random(config.random_seed).shuffle(shuffled)
-
-        split_specs = [
-            (f"{config.slug}-smoke20_seed42.json", shuffled[: config.smoke_size]),
-            (f"{config.slug}-pilot100_seed42.json", shuffled[: min(config.pilot_size, len(shuffled))]),
-        ]
-        if config.slug == "strategyqa":
-            split_specs.append((f"{config.slug}-dev_full_229_seed42.json", indexed_ids[:]))
-        else:
-            split_specs.append((f"{config.slug}-dev300_seed42.json", shuffled[: min(config.main_size, len(shuffled))]))
-
-        for filename, sample_ids in split_specs:
-            path = output / filename
-            payload = {
-                "dataset": config.slug,
-                "source_split": config.source_split,
-                "sample_count": len(sample_ids),
-                "sample_ids": sample_ids,
-                "random_seed": config.random_seed,
-            }
-            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            created.append(path)
-
-    return created
+    return core_generate_split_manifests(benchmark_configs, output_dir)
 
 
 def run_experiment(
@@ -134,8 +106,8 @@ def run_experiment(
     phase_name: str,
     models: list[ResolvedModelConfig],
     benchmarks: list[BenchmarkConfig],
-    run_root: str | Path = "runs",
-    cache_path: str | Path = "cache/requests.sqlite",
+    run_root: str | Path = "runs/single_agent",
+    cache_path: str | Path = "cache/single_agent_requests.sqlite",
 ) -> Path:
     """执行一个 experiment phase，并产出完整运行目录。"""
     load_dotenv(".env.local", override=False)
@@ -184,7 +156,10 @@ def run_experiment(
     run_paths.manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     all_predictions: list[dict[str, Any]] = []
-    with run_paths.raw_responses.open("w", encoding="utf-8") as raw_handle, run_paths.predictions.open("w", encoding="utf-8") as pred_handle:
+    with (
+        run_paths.raw_responses.open("w", encoding="utf-8") as raw_handle,
+        run_paths.predictions.open("w", encoding="utf-8") as pred_handle,
+    ):
         for model in models:
             if not _model_is_allowed(experiment, phase_name, model):
                 continue
@@ -197,7 +172,10 @@ def run_experiment(
 
                 for method in methods:
                     # CoT 是单次确定性求解；其余方法通过多次调用形成同预算对比。
-                    reruns = 1 if method.family == "cot" else int(phase.get("reruns_override", experiment.reruns_per_method))
+                    reruns = (
+                        1 if method.family == "cot"
+                        else int(phase.get("reruns_override", experiment.reruns_per_method))
+                    )
                     for rerun_index in range(reruns):
                         batch_predictions = _run_method_batch(
                             run_id=run_id,
@@ -221,7 +199,7 @@ def run_experiment(
 
     metrics_payload = _aggregate_metrics(all_predictions)
     run_paths.metrics.write_text(json.dumps(metrics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    _write_leaderboard(Path("reports/leaderboard.csv"), all_predictions)
+    _write_leaderboard(Path("reports/single_agent/leaderboard.csv"), all_predictions)
     run_paths.run_summary.write_text(
         json.dumps(summarize_run(run_paths.root), ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -255,7 +233,7 @@ def _run_method_batch(
     rerun_index: int,
     raw_handle,
 ) -> list[dict[str, Any]]:
-    """执行一个模型-数据集-方法-重跑组合下的整批样本。"""
+    """执行一个模型-数据集-方法-重跑组合下的一整批样本。"""
     split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
     call_specs: list[CallSpec] = []
 
@@ -270,7 +248,11 @@ def _run_method_batch(
                 temperature=method.temperature,
                 top_p=method.top_p,
                 max_output_tokens=method.max_output_tokens,
-                seed=experiment.global_seed + rerun_index + replicate_id if method.family != "cot" else experiment.global_seed,
+                seed=(
+                    experiment.global_seed + rerun_index + replicate_id
+                    if method.family != "cot"
+                    else experiment.global_seed
+                ),
             )
             cache_key = _cache_key(
                 dataset=benchmark.slug,
@@ -343,7 +325,7 @@ def _run_method_batch(
                 "dataset": benchmark.slug,
                 "split": split_name,
                 "sample_id": sample.sample_id,
-                "method": method.name,
+                "method_name": method.name,
                 "method_family": method.family,
                 "model_name": model.name,
                 "model_id": model.model_id,
@@ -371,11 +353,11 @@ def _execute_call(
     cache: RequestCache,
     rate_limiter: SlidingWindowRateLimiter,
 ) -> dict[str, Any]:
-    """执行一次实际调用，必要时命中缓存，并把响应整理成统一日志行。"""
+    """执行一次实际调用，必要时命中缓存，并整理成统一日志结构。"""
     cached = cache.get(spec.cache_key)
 
     if cached is None:
-        # 只有真正发网路请求时才占用限流配额；缓存命中不计入。
+        # 只有真正发出网络请求时才占用限流配额；缓存命中不计入。
         rate_limiter.acquire(estimate_request_tokens(spec.payload))
         try:
             provider_response = provider.chat_completion(spec.payload)
@@ -431,7 +413,7 @@ def _execute_call(
             parsed, parse_status = parse_model_output(response_payload["raw_text"])
             final_answer = str(parsed.get("final_answer", "")).strip()
         except Exception:
-            # 当模型没返回合法 JSON 时，再按数据集规则做保守兜底。
+            # 当模型没有返回合法 JSON 时，再按数据集规则做保守兜底。
             fallback = extract_fallback_answer(spec.dataset, response_payload["raw_text"])
             if fallback is None:
                 parsed = {}
@@ -448,7 +430,7 @@ def _execute_call(
         "split": spec.split_name,
         "sample_id": spec.sample_id,
         "sample_order": spec.sample_order,
-        "method": spec.method_name,
+        "method_name": spec.method_name,
         "method_family": spec.method_family,
         "replicate_id": spec.replicate_id,
         "agent_id": spec.agent_id,
@@ -478,11 +460,11 @@ def _aggregate_metrics(predictions: list[dict[str, Any]]) -> dict[str, Any]:
     """把题级预测聚合成论文与报告使用的 summary 指标。"""
     grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
     for record in predictions:
-        key = (record["dataset"], record["model_name"], record["method"])
+        key = (record["dataset"], record["model_name"], record["method_name"])
         grouped.setdefault(key, []).append(record)
 
     summary: list[dict[str, Any]] = []
-    for (dataset, model_name, method), rows in grouped.items():
+    for (dataset, model_name, method_name), rows in grouped.items():
         scores = [float(row["score"]) for row in rows]
         prompt_tokens = [float(row["prompt_tokens_per_question"]) for row in rows]
         completion_tokens = [float(row["completion_tokens_per_question"]) for row in rows]
@@ -503,7 +485,7 @@ def _aggregate_metrics(predictions: list[dict[str, Any]]) -> dict[str, Any]:
             {
                 "dataset": dataset,
                 "model_name": model_name,
-                "method": method,
+                "method_name": method_name,
                 "prediction_rows": len(rows),
                 "questions_per_rerun": int(len(rows) / len(rerun_means)) if rerun_means else 0,
                 "rerun_count": len(rerun_means),
@@ -523,18 +505,18 @@ def _aggregate_metrics(predictions: list[dict[str, Any]]) -> dict[str, Any]:
             }
         )
 
-    summary.sort(key=lambda row: (row["dataset"], row["model_name"], row["method"]))
+    summary.sort(key=lambda row: (row["dataset"], row["model_name"], row["method_name"]))
     return {"summary": summary, "prediction_count": len(predictions)}
 
 
 def _write_leaderboard(path: Path, predictions: list[dict[str, Any]]) -> None:
-    """把 summary 指标导出成全局 leaderboard CSV。"""
+    """把 summary 指标导出为全局 leaderboard CSV。"""
     summary = _aggregate_metrics(predictions)["summary"]
     path.parent.mkdir(parents=True, exist_ok=True)
     headers = [
         "dataset",
         "model_name",
-        "method",
+        "method_name",
         "prediction_rows",
         "questions_per_rerun",
         "rerun_count",
@@ -584,7 +566,7 @@ def _resolve_split_name(experiment: ExperimentConfig, phase_name: str, benchmark
 
 
 def _model_is_allowed(experiment: ExperimentConfig, phase_name: str, model: ResolvedModelConfig) -> bool:
-    """检查模型是否满足 experiment/phase 级标签约束。"""
+    """检查模型是否满足 experiment / phase 级标签约束。"""
     required_tags = set(required_model_tags(experiment, phase_name))
     return required_tags.issubset(set(model.tags))
 
@@ -681,7 +663,10 @@ def _estimate_run_work(
             split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
             split_size = len(load_split_ids(benchmark.slug, split_name))
             for method in methods:
-                reruns = 1 if method.family == "cot" else int(phase_metadata(experiment, phase_name).get("reruns_override", experiment.reruns_per_method))
+                reruns = (
+                    1 if method.family == "cot"
+                    else int(phase_metadata(experiment, phase_name).get("reruns_override", experiment.reruns_per_method))
+                )
                 total_calls += split_size * method.budget_calls * reruns
                 total_predictions += split_size * reruns
 
@@ -697,7 +682,7 @@ def _ensure_run_has_eligible_work(
     """在真正发请求前做 fail-fast 校验。
 
     如果模型缺少必需标签，或者当前 phase 下没有任何 benchmark 可运行，
-    这里会直接抛错，避免消耗无意义的 API 配额。
+    这里会直接报错，避免消耗无意义的 API 配额。
     """
     for model in models:
         if not _model_is_allowed(experiment, phase_name, model):

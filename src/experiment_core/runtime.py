@@ -1,4 +1,7 @@
-"""实验运行期共享工具。"""
+"""运行时辅助工具。
+
+这里放置各实验线都需要的轻量运行时原语，例如运行进度跟踪和 run_id 生成。
+"""
 
 from __future__ import annotations
 
@@ -7,16 +10,9 @@ from pathlib import Path
 import json
 import time
 
-from api_baselines.config import BenchmarkConfig
-from api_baselines.datasets import DatasetSample, load_samples
-
 
 class RunProgressTracker:
-    """通用运行进度跟踪器。
-
-    两条实验线的字段基本一致，统一抽到这里，避免 single-agent 和
-    multi-agent 各自维护一份近似相同的进度写盘逻辑。
-    """
+    """把长时间实验的进度快照持续写入磁盘。"""
 
     def __init__(self, progress_path: Path, total_planned_calls: int, total_planned_predictions: int) -> None:
         self.progress_path = progress_path
@@ -35,7 +31,7 @@ class RunProgressTracker:
         self.last_write_monotonic = 0.0
         self.write(force=True)
 
-    def record_call(self, row: dict[str, object], method_key: str = "method") -> None:
+    def record_call(self, row: dict[str, object], method_key: str = "method_name") -> None:
         """记录一次底层调用完成。"""
         self.completed_calls += 1
         if row.get("cache_hit"):
@@ -48,19 +44,19 @@ class RunProgressTracker:
         self.write(force=self.completed_calls % 10 == 0)
 
     def record_predictions(self, count: int, dataset: str, method_name: str) -> None:
-        """记录一批题级预测已写出。"""
+        """记录题级预测产物已经落盘。"""
         self.completed_predictions += count
         self.last_dataset = dataset
         self.last_method = method_name
         self.write(force=True)
 
     def mark_completed(self) -> None:
-        """把运行状态标记为完成。"""
+        """将运行状态标记为完成。"""
         self.status = "completed"
         self.write(force=True)
 
     def write(self, force: bool = False) -> None:
-        """按节流策略刷新进度文件，避免高频磁盘写入。"""
+        """按节流策略刷新当前进度快照。"""
         now = time.monotonic()
         if not force and now - self.last_write_monotonic < 5:
             return
@@ -94,20 +90,7 @@ class RunProgressTracker:
 
 
 def build_run_id(*parts: str) -> str:
-    """生成带 UTC 时间戳的运行目录名。"""
+    """生成包含 UTC 时间戳的稳定运行 ID。"""
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     safe_parts = [part.replace("/", "-") for part in parts if part]
     return "-".join([timestamp, *safe_parts])
-
-
-def load_split_ids(dataset_slug: str, split_name: str, splits_root: str | Path = "configs/benchmarks/splits") -> list[str]:
-    """读取冻结后的 split manifest。"""
-    payload = json.loads((Path(splits_root) / f"{dataset_slug}-{split_name}.json").read_text(encoding="utf-8"))
-    return payload["sample_ids"]
-
-
-def select_samples(benchmark: BenchmarkConfig, split_name: str, splits_root: str | Path = "configs/benchmarks/splits") -> list[DatasetSample]:
-    """按冻结 split 选择当前 benchmark 的样本。"""
-    split_ids = load_split_ids(benchmark.slug, split_name, splits_root=splits_root)
-    sample_map = {sample.sample_id: sample for sample in load_samples(benchmark)}
-    return [sample_map[sample_id] for sample_id in split_ids if sample_id in sample_map]

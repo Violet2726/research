@@ -9,7 +9,7 @@ from typing import Any
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
-    """检查多智能体运行目录的关键产物是否齐全。"""
+    """检查多智能体运行目录中的关键产物是否齐全且基本可用。"""
     root = Path(run_dir)
     required = [
         "manifest.json",
@@ -38,5 +38,5 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
-    """读取 UTF-8 编码的 JSONL。"""
+    """读取 UTF-8 JSONL 文件。"""
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]

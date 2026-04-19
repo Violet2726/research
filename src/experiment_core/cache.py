@@ -1,6 +1,6 @@
 """请求级缓存。
 
-该模块用 SQLite 记录同一请求指纹对应的原始响应，避免重复实验时
+本模块使用 SQLite 持久化相同请求指纹对应的响应结果，避免重复实验时
 反复消耗 API 配额，也方便后续做可复现实验和离线排障。
 """
 
@@ -16,7 +16,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class CachedResponse:
-    """缓存表中单条请求记录的内存表示。"""
+    """内存中的单条缓存记录。"""
 
     cache_key: str
     payload_json: str
@@ -92,5 +92,5 @@ class RequestCache:
 
 
 def json_dump(data: Any) -> str:
-    """统一的 JSON 序列化格式，保证缓存键与缓存值稳定可复用。"""
+    """统一 JSON 序列化格式，保证缓存键和值都稳定可复用。"""
     return json.dumps(data, ensure_ascii=False, sort_keys=True)

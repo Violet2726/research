@@ -1,8 +1,4 @@
-"""命令行入口。
-
-CLI 负责把用户的显式输入转换成配置解析与实验运行调用，
-是项目配置链最靠前的一层。
-"""
+"""单智能体实验 CLI。"""
 
 from __future__ import annotations
 
@@ -10,72 +6,67 @@ import argparse
 import json
 from pathlib import Path
 
-from api_baselines.config import (
+from experiment_core.config import (
     DEFAULT_MODEL_CATALOG_PATH,
     load_benchmark_config,
-    load_experiment_config,
-    load_method_catalog,
     load_model_catalog,
-    required_benchmark_tags,
-    required_model_tags,
     resolve_model_ref,
 )
-from api_baselines.reporting import budget_fairness_check, export_paper_tables, summarize_run
-from api_baselines.runner import generate_split_manifests, run_experiment
-from api_baselines.validation import validate_run
+from experiment_core.datasets import generate_split_manifests
+from experiment_core.methods import load_method_catalog
+from single_agent_baselines.config import (
+    load_experiment_config,
+    required_benchmark_tags,
+    required_model_tags,
+)
+from single_agent_baselines.reporting import budget_fairness_check, export_paper_tables, summarize_run
+from single_agent_baselines.runner import run_experiment
+from single_agent_baselines.validation import validate_run
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """构建 baseline-cli 的命令行参数解析器。"""
-    parser = argparse.ArgumentParser(description="API 基线实验运行器。")
+    """构建单智能体实验命令行解析器。"""
+    parser = argparse.ArgumentParser(description="Single-agent baseline experiment runner.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    generate = subparsers.add_parser("generate-splits", help="生成冻结后的 benchmark split 清单。")
+    generate = subparsers.add_parser("generate-splits", help="Generate frozen benchmark splits.")
     generate.add_argument(
         "--benchmarks",
         nargs="*",
         default=[
-            "configs/benchmarks/gsm8k.toml",
-            "configs/benchmarks/strategyqa.toml",
-            "configs/benchmarks/hotpotqa.toml",
+            "configs/shared/benchmarks/gsm8k.toml",
+            "configs/shared/benchmarks/strategyqa.toml",
+            "configs/shared/benchmarks/hotpotqa.toml",
         ],
     )
-    generate.add_argument("--output-dir", default="configs/benchmarks/splits")
+    generate.add_argument("--output-dir", default="configs/shared/benchmarks/splits")
 
-    inspect = subparsers.add_parser("inspect-experiment", help="查看实验规格，必要时同时解析一个显式模型。")
+    inspect = subparsers.add_parser("inspect-experiment", help="Show the resolved experiment configuration.")
     inspect.add_argument("--experiment", required=True)
-    inspect.add_argument(
-        "--model",
-        default=None,
-        help="显式解析一个模型引用，例如 'dashscope/qwen2.5-7b-instruct'。",
-    )
+    inspect.add_argument("--model", default=None)
 
-    run = subparsers.add_parser("run", help="执行一个实验 phase。")
+    run = subparsers.add_parser("run", help="Execute one configured experiment phase.")
     run.add_argument("--experiment", required=True)
     run.add_argument("--phase", required=True)
-    run.add_argument(
-        "--model",
-        required=True,
-        help="显式指定要运行的模型引用，例如 'dashscope/qwen2.5-7b-instruct'。",
-    )
-    run.add_argument("--runs-root", default="runs")
-    run.add_argument("--cache-path", default="cache/requests.sqlite")
+    run.add_argument("--model", required=True)
+    run.add_argument("--runs-root", default="runs/single_agent")
+    run.add_argument("--cache-path", default="cache/single_agent_requests.sqlite")
 
-    list_models = subparsers.add_parser("list-models", help="列出模型目录中已登记的常用模型。")
+    list_models = subparsers.add_parser("list-models", help="List registered models from the catalog.")
     list_models.add_argument("--catalog", default=str(DEFAULT_MODEL_CATALOG_PATH))
 
-    summarize = subparsers.add_parser("summarize-run", help="根据 metrics.json 输出运行摘要。")
+    summarize = subparsers.add_parser("summarize-run", help="Print a concise run summary from metrics.json.")
     summarize.add_argument("--run-dir", required=True)
 
-    export = subparsers.add_parser("export-paper-tables", help="导出论文草稿可用的 Markdown 表格。")
+    export = subparsers.add_parser("export-paper-tables", help="Export paper-ready markdown tables.")
     export.add_argument("--run-dir", required=True)
     export.add_argument("--output", default=None)
 
-    fairness = subparsers.add_parser("check-budget-fairness", help="检查 SC 与 MV 在同预算下的 token 公平性。")
+    fairness = subparsers.add_parser("check-budget-fairness", help="Check SC vs MV token fairness.")
     fairness.add_argument("--run-dir", required=True)
     fairness.add_argument("--threshold", type=float, default=0.10)
 
-    validate = subparsers.add_parser("validate-run", help="对单次运行结果执行严格校验。")
+    validate = subparsers.add_parser("validate-run", help="Run validation checks for one run.")
     validate.add_argument("--run-dir", required=True)
     validate.add_argument("--parse-success-threshold", type=float, default=0.95)
     validate.add_argument("--budget-threshold", type=float, default=0.10)
@@ -84,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    """根据子命令分发到对应的实验或报告逻辑。"""
+    """解析参数并分发到对应子命令。"""
     parser = build_parser()
     args = parser.parse_args()
 
@@ -204,7 +195,7 @@ def main() -> None:
 
 
 def _serialize_model(model) -> dict[str, object]:
-    """把解析后的模型对象转成可打印的 JSON 结构。"""
+    """把解析后的模型配置转成可 JSON 序列化结构。"""
     return {
         "name": model.name,
         "provider": model.provider,
@@ -224,7 +215,7 @@ def _serialize_model(model) -> dict[str, object]:
 
 
 def _serialize_method(method) -> dict[str, object]:
-    """把方法配置转成稳定的 JSON 输出。"""
+    """把方法配置转成可 JSON 序列化结构。"""
     return {
         "family": method.family,
         "budget_calls": method.budget_calls,
@@ -232,3 +223,7 @@ def _serialize_method(method) -> dict[str, object]:
         "top_p": method.top_p,
         "max_output_tokens": method.max_output_tokens,
     }
+
+
+if __name__ == "__main__":
+    main()

@@ -1,12 +1,10 @@
-# 稳健性实验规格。
-# 用于主表之外的 provider / model 鲁棒性对比。
 name = "robustness"
 description = "Provider and model robustness checks outside the headline main table."
-method_catalog = "configs/methods/common.toml"
+method_catalog = "configs/single_agent/methods/common.toml"
 benchmark_configs = [
-  "configs/benchmarks/gsm8k.toml",
-  "configs/benchmarks/strategyqa.toml",
-  "configs/benchmarks/hotpotqa.toml",
+  "configs/shared/benchmarks/gsm8k.toml",
+  "configs/shared/benchmarks/strategyqa.toml",
+  "configs/shared/benchmarks/hotpotqa.toml",
 ]
 global_seed = 42
 reruns_per_method = 3
@@ -16,7 +14,6 @@ requests_per_minute_limit = 60
 tokens_per_minute_limit = 150000
 
 [phases.smoke20]
-# 该阶段只允许带 `provider_zhipu` 标签的模型，用于定向检查 provider 行为。
 split_suffix = "smoke20_seed42"
 methods = ["cot_1"]
 benchmark_filter = ["gsm8k", "strategyqa", "hotpotqa"]
@@ -24,7 +21,6 @@ required_model_tags = ["provider_zhipu"]
 reruns_override = 1
 
 [phases.pilot100]
-# benchmark_required_tags 表示“只有某些 benchmark 额外要求这些标签”。
 methods = ["cot_1", "sc_5", "mv_5"]
 split_overrides = { gsm8k = "pilot100_seed42", strategyqa = "pilot100_seed42", hotpotqa = "pilot100_seed42" }
 required_model_tags = ["robustness_pilot"]

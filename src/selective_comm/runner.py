@@ -14,16 +14,16 @@ from typing import Callable
 
 from dotenv import load_dotenv
 
-from api_baselines.cache import CachedResponse, RequestCache, json_dump
-from api_baselines.datasets import DatasetSample
-from api_baselines.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from api_baselines.fallbacks import extract_fallback_answer
-from api_baselines.parsing import parse_model_output
-from api_baselines.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
-from api_baselines.rate_limits import SlidingWindowRateLimiter
-from experiment_common.runtime import RunProgressTracker, build_run_id, load_split_ids, select_samples
+from experiment_core.cache import CachedResponse, RequestCache, json_dump
+from experiment_core.datasets import DatasetSample, load_split_ids, select_samples
+from experiment_core.evaluation import aggregate_majority, normalize_prediction, score_prediction
+from experiment_core.fallbacks import extract_fallback_answer
+from experiment_core.parsing import parse_model_output
+from experiment_core.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
+from experiment_core.rate_limits import SlidingWindowRateLimiter
+from experiment_core.runtime import RunProgressTracker, build_run_id
+from experiment_core.methods import MethodConfig
 from selective_comm.config import (
-    ControlMethodConfig,
     SelectiveCommExperimentConfig,
     SharedDebateProtocolConfig,
     TriggerPolicyConfig,
@@ -116,8 +116,6 @@ def run_experiment(
         "requests_per_minute_limit": experiment.requests_per_minute_limit,
         "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
         "primary_backbone": experiment.primary_backbone,
-        "robustness_backbone": experiment.robustness_backbone,
-        "backbone_fallback": experiment.backbone_fallback,
         "backbone": asdict(backbone),
         "benchmarks": [asdict(benchmark) for benchmark in benchmarks],
         "total_planned_calls": total_calls,
@@ -190,7 +188,7 @@ def _run_sample_batch(
     samples: list[DatasetSample],
     protocol: SharedDebateProtocolConfig,
     policies: list[TriggerPolicyConfig],
-    controls: dict[str, ControlMethodConfig],
+    controls: dict[str, MethodConfig],
     experiment: SelectiveCommExperimentConfig,
     backbone,
     provider: OpenAICompatibleProvider,
@@ -239,7 +237,7 @@ def _write_sample_result(
     all_trigger_rows: list[dict[str, Any]],
     all_prediction_rows: list[dict[str, Any]],
 ) -> None:
-    """把单题结果立即写盘并刷新进度。"""
+    """把单题结果立刻写盘并刷新进度。"""
     for row in result.stage_a_turns:
         stage_a_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
         progress.record_call(row, method_key="stage_name")
@@ -273,14 +271,14 @@ def _run_sample(
     sample: DatasetSample,
     protocol: SharedDebateProtocolConfig,
     policies: list[TriggerPolicyConfig],
-    controls: dict[str, ControlMethodConfig],
+    controls: dict[str, MethodConfig],
     experiment: SelectiveCommExperimentConfig,
     backbone,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
     limiter: SlidingWindowRateLimiter,
 ) -> SampleResult:
-    """运行单题共享前缀、策略决策与控制方法。"""
+    """运行单题上的共享前缀、策略决策与控制方法。"""
     question_preview = _question_preview(sample.question)
     stage_a_turns: list[dict[str, Any]] = []
     for agent_id in range(1, protocol.agent_count + 1):
@@ -573,7 +571,7 @@ def _run_control_method(
     split_name: str,
     sample: DatasetSample,
     control_name: str,
-    control: ControlMethodConfig,
+    control: MethodConfig,
     experiment: SelectiveCommExperimentConfig,
     backbone,
     provider: OpenAICompatibleProvider,
@@ -854,7 +852,10 @@ def _build_metrics_payload(prediction_rows: list[dict[str, Any]]) -> dict[str, A
                 "communication_tokens_mean": _mean(float(item["communication_tokens_per_question"]) for item in rows),
                 "latency_ms_mean": _mean(float(item["latency_ms_per_question"]) for item in rows),
                 "calls_per_question_mean": _mean(float(item["calls_per_question"]) for item in rows),
-                "acc_per_1k_tokens": (round(_mean(float(item["score"]) for item in rows) / total_tokens_mean * 1000, 6) if total_tokens_mean else 0.0),
+                "acc_per_1k_tokens": (
+                    round(_mean(float(item["score"]) for item in rows) / total_tokens_mean * 1000, 6)
+                    if total_tokens_mean else 0.0
+                ),
                 "trigger_rate": _mean(1.0 if item.get("triggered") else 0.0 for item in rows) if rows[0]["method_kind"] == "policy" else 0.0,
                 "early_exit_rate": _mean(1.0 if item.get("early_exit") else 0.0 for item in rows) if rows[0]["method_kind"] == "policy" else 0.0,
                 "invalid_confidence_rate": _mean(1.0 if item.get("any_invalid_confidence") else 0.0 for item in rows if item.get("any_invalid_confidence") is not None),
@@ -1113,7 +1114,7 @@ def _estimate_work(
     phase_name: str,
     benchmarks,
     protocol: SharedDebateProtocolConfig,
-    controls: dict[str, ControlMethodConfig],
+    controls: dict[str, MethodConfig],
 ) -> tuple[int, int]:
     """估算总调用数与总预测数。"""
     policies = load_policies(experiment.policy_configs)

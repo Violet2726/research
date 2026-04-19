@@ -1,6 +1,1 @@
-# 2 个同构 agent，共用同一个 backbone。
-name = "homogeneous_2agent"
-roster_type = "homogeneous"
 agent_count = 2
-# 通过 seed 偏移制造不同采样实例。
-sampling_seed_rule = "seed_plus_agent_round"

@@ -1,4 +1,4 @@
-"""多智能体实验命令行入口。"""
+"""多智能体实验 CLI。"""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from multi_agent_baselines.validation import validate_run
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """构建 `mad-cli` 参数解析器。"""
+    """构建多智能体实验命令行解析器。"""
     parser = argparse.ArgumentParser(description="Vanilla MAD multi-agent baseline runner.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -46,13 +46,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Generate paired Debate vs Vote analysis and a Chinese markdown report.",
     )
     debate_vs_vote.add_argument("--run-dir", required=True)
-    debate_vs_vote.add_argument("--publish-dir", default="reports")
+    debate_vs_vote.add_argument("--publish-dir", default="reports/multi_agent")
 
     return parser
 
 
 def main() -> None:
-    """根据子命令分发到多智能体实验逻辑。"""
+    """解析参数并分发到对应子命令。"""
     parser = build_parser()
     args = parser.parse_args()
 
@@ -74,7 +74,8 @@ def main() -> None:
                     "protocol": _serialize_protocol(load_protocol_config(setup.protocol)),
                     "roster": _serialize_roster(load_roster_config(setup.roster)),
                     "matched_controls": setup.matched_controls,
-                    "calls_per_question": load_roster_config(setup.roster).agent_count * (1 + load_protocol_config(setup.protocol).debate_rounds),
+                    "calls_per_question": load_roster_config(setup.roster).agent_count
+                    * (1 + load_protocol_config(setup.protocol).debate_rounds),
                 }
                 for setup in experiment.setups
             ],
@@ -120,14 +121,9 @@ def main() -> None:
 
 
 def _serialize_protocol(protocol) -> dict[str, object]:
-    """把协议配置转成稳定 JSON 输出。"""
+    """把协议信息转换为可 JSON 输出结构。"""
     return {
-        "name": protocol.name,
-        "debate_type": protocol.debate_type,
         "debate_rounds": protocol.debate_rounds,
-        "share_mode": protocol.share_mode,
-        "revision_rule": protocol.revision_rule,
-        "final_aggregator": protocol.final_aggregator,
         "initial_temperature": protocol.initial_temperature,
         "debate_temperature": protocol.debate_temperature,
         "top_p": protocol.top_p,
@@ -136,17 +132,12 @@ def _serialize_protocol(protocol) -> dict[str, object]:
 
 
 def _serialize_roster(roster) -> dict[str, object]:
-    """把 roster 配置转成稳定 JSON 输出。"""
-    return {
-        "name": roster.name,
-        "roster_type": roster.roster_type,
-        "agent_count": roster.agent_count,
-        "sampling_seed_rule": roster.sampling_seed_rule,
-    }
+    """把 roster 信息转换为可 JSON 输出结构。"""
+    return {"agent_count": roster.agent_count}
 
 
 def _serialize_control(method) -> dict[str, object]:
-    """把等预算单模型控制方法转成稳定 JSON 输出。"""
+    """把控制方法转换为可 JSON 输出结构。"""
     return {
         "family": method.family,
         "budget_calls": method.budget_calls,
@@ -157,7 +148,7 @@ def _serialize_control(method) -> dict[str, object]:
 
 
 def _serialize_backbone(backbone) -> dict[str, object]:
-    """把解析后的 backbone 输出成可打印结构。"""
+    """把解析后的 backbone 模型配置转换为可 JSON 输出结构。"""
     return {
         "name": backbone.name,
         "provider": backbone.provider,

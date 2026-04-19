@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from api_baselines.datasets import DatasetSample
+from experiment_core.datasets import DatasetSample
 
 
 DEFAULT_PROMPT_VERSION = "v1-trigger-json-short-reasoning"
@@ -13,7 +13,7 @@ def build_initial_messages(
     agent_id: int,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
-    """构造 Stage A 独立解题提示。"""
+    """构造 Stage A 独立求解提示。"""
     user_prompt = (
         f"You are agent_{agent_id} in Stage A of a selective-communication reasoning experiment.\n"
         f"{_dataset_instruction(sample, prompt_version)}\n"
@@ -90,7 +90,7 @@ def _system_prompt(prompt_version: str) -> str:
 
 
 def _dataset_instruction(sample: DatasetSample, prompt_version: str) -> str:
-    """返回数据集专属约束。"""
+    """返回数据集专属答题约束。"""
     del prompt_version
     if sample.dataset == "gsm8k":
         return (
@@ -112,7 +112,7 @@ def _dataset_instruction(sample: DatasetSample, prompt_version: str) -> str:
 
 
 def _revision_instruction(sample: DatasetSample, prompt_version: str) -> str:
-    """返回 Stage B 修订规则。"""
+    """返回 Stage B 的修订规则。"""
     del sample, prompt_version
     return (
         "Revise only if peer arguments reveal a concrete mistake or stronger evidence. "

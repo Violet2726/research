@@ -1,4 +1,4 @@
-"""输出标准化与任务级打分逻辑。"""
+"""输出归一化与任务级打分逻辑。"""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def normalize_number(value: str) -> str:
 
 
 def normalize_yes_no(value: str) -> str:
-    """把多种 yes/no 变体收敛成标准二元答案。"""
+    """把多种 yes / no 变体收敛成标准二元标签。"""
     lowered = value.strip().lower()
     if lowered.startswith("yes"):
         return "yes"

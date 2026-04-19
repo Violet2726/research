@@ -1,8 +1,4 @@
-"""运行结果校验。
-
-该模块在实验结束后做结构化体检，重点检查请求失败、解析成功率、
-预算公平性以及 prompt 哈希一致性。
-"""
+"""单智能体运行结果校验。"""
 
 from __future__ import annotations
 
@@ -11,7 +7,7 @@ from pathlib import Path
 import json
 from typing import Any
 
-from api_baselines.reporting import budget_fairness_check
+from single_agent_baselines.reporting import budget_fairness_check
 
 
 def validate_run(
@@ -19,7 +15,7 @@ def validate_run(
     parse_success_threshold: float = 0.95,
     budget_threshold: float = 0.10,
 ) -> dict[str, Any]:
-    """读取一个运行目录，并输出统一的校验报告。"""
+    """对单智能体运行产物执行完整性与一致性检查。"""
     root = Path(run_dir)
     raw_rows = _load_jsonl(root / "raw_responses.jsonl")
     prediction_rows = _load_jsonl(root / "predictions.jsonl")
@@ -34,10 +30,10 @@ def validate_run(
     parse_by_group: dict[str, Any] = {}
     grouped_parse: dict[tuple[str, str], Counter] = defaultdict(Counter)
     for row in raw_rows:
-        grouped_parse[(row["dataset"], row["method"])][row["parse_status"]] += 1
-    for (dataset, method), counts in sorted(grouped_parse.items()):
+        grouped_parse[(row["dataset"], row["method_name"])][row["parse_status"]] += 1
+    for (dataset, method_name), counts in sorted(grouped_parse.items()):
         total = sum(counts.values())
-        parse_by_group[f"{dataset}:{method}"] = {
+        parse_by_group[f"{dataset}:{method_name}"] = {
             "total_calls": total,
             "parse_failures": counts.get("parse_fail", 0),
             "request_failures": counts.get("request_fail", 0),
@@ -80,14 +76,14 @@ def validate_run(
 
 
 def _validate_prompt_hash_parity(raw_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """检查 SC 与 MV 是否真正共享了同一套提示词内容。"""
+    """检查同题同 rerun 下的 SC / MV prompt 是否一致。"""
     sc_map: dict[tuple[str, str, int], set[str]] = defaultdict(set)
     mv_map: dict[tuple[str, str, int], set[str]] = defaultdict(set)
     for row in raw_rows:
         key = (row["dataset"], row["sample_id"], int(row["rerun_index"]))
-        if row["method"].startswith("sc_"):
+        if row["method_name"].startswith("sc_"):
             sc_map[key].add(row["prompt_hash"])
-        if row["method"].startswith("mv_"):
+        if row["method_name"].startswith("mv_"):
             mv_map[key].add(row["prompt_hash"])
 
     mismatches: list[dict[str, Any]] = []
@@ -111,8 +107,8 @@ def _validate_prompt_hash_parity(raw_rows: list[dict[str, Any]]) -> dict[str, An
 
 
 def _validate_prediction_counts(prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """检查同一数据集下不同方法/重跑的样本数是否一致。"""
-    grouped: Counter = Counter((row["dataset"], row["method"], row["rerun_index"]) for row in prediction_rows)
+    """检查同数据集下不同方法与 rerun 的预测行数是否对齐。"""
+    grouped: Counter = Counter((row["dataset"], row["method_name"], row["rerun_index"]) for row in prediction_rows)
     if not grouped:
         return {"passed": False, "details": "No prediction rows found."}
     grouped_by_dataset: dict[str, list[int]] = defaultdict(list)
@@ -125,7 +121,10 @@ def _validate_prediction_counts(prediction_rows: list[dict[str, Any]]) -> dict[s
     return {
         "passed": all(per_dataset_ok.values()),
         "per_dataset": per_dataset_ok,
-        "details": {f"{dataset}:{method}:rerun{rerun_index}": count for (dataset, method, rerun_index), count in sorted(grouped.items())},
+        "details": {
+            f"{dataset}:{method_name}:rerun{rerun_index}": count
+            for (dataset, method_name, rerun_index), count in sorted(grouped.items())
+        },
     }
 
 

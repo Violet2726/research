@@ -1,4 +1,4 @@
-"""多智能体实验报告与受控分析。"""
+"""多智能体实验报告与配对分析。"""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Any
 
 
 def load_metrics(run_dir: str | Path) -> dict[str, Any]:
-    """读取多智能体运行目录下的 `metrics.json`。"""
+    """读取多智能体运行目录中的 ``metrics.json``。"""
     return json.loads((Path(run_dir) / "metrics.json").read_text(encoding="utf-8"))
 
 
@@ -33,9 +33,9 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
 
 def report_debate_vs_vote(
     run_dir: str | Path,
-    publish_dir: str | Path = "reports",
+    publish_dir: str | Path = "reports/multi_agent",
 ) -> dict[str, Any]:
-    """生成 Debate vs Vote 受控实验的 paired 分析结果与 markdown 报告。"""
+    """生成 Debate vs Vote 的配对分析结果与 Markdown 报告。"""
     root = Path(run_dir)
     manifest = _load_json(root / "manifest.json")
     prediction_rows = _load_jsonl(root / "final_predictions.jsonl")
@@ -139,7 +139,7 @@ def _paired_summary_for_group(
 
 
 def _paired_statistics(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """对配对准确率差做 McNemar 与 bootstrap 估计。"""
+    """对配对准确率差异做 McNemar 与 bootstrap 估计。"""
     harmed = sum(1 for row in rows if row["harmed_by_debate"])
     corrected = sum(1 for row in rows if row["corrected_by_debate"])
     deltas = _bootstrap_accuracy_delta(rows, iterations=10000, seed=42)
@@ -157,7 +157,7 @@ def _bootstrap_accuracy_delta(
     iterations: int,
     seed: int,
 ) -> list[float]:
-    """对 debate 相对 initial vote 的准确率差做配对 bootstrap。"""
+    """对 debate 相对 initial vote 的准确率增益做配对 bootstrap。"""
     rng = random.Random(seed)
     indexed = list(rows)
     samples: list[float] = []
@@ -187,10 +187,10 @@ def _render_debate_vs_vote_report(
     dataset_rows: list[dict[str, Any]],
     run_dir: Path,
 ) -> str:
-    """渲染中文 markdown 正式报告。"""
+    """渲染中文 Markdown 正式报告。"""
     backbone = manifest.get("backbone", {})
     lines = [
-        "# Debate vs Vote 受控实验报告",
+        "# Debate vs Vote 对照实验报告",
         "",
         "## 1. 实验概览",
         "",
@@ -202,8 +202,8 @@ def _render_debate_vs_vote_report(
         "",
         "本实验比较的是同一批初始候选答案上的两种聚合方式：",
         "",
-        "- `initial vote`：3 个 agent 的初始独立答案直接多数投票",
-        "- `debate vote`：同样 3 个 agent 在 1 轮 debate 后，再对修订答案投票",
+        "- `initial vote`：3 个 agent 的初始独立答案直接多数投票。",
+        "- `debate vote`：同样 3 个 agent 在 1 轮 debate 后，对修订答案再次投票。",
         "",
         "因此，这是一组严格配对的 Debate vs Vote 实验，而不是两套独立采样的横向比较。",
         "",
@@ -227,8 +227,8 @@ def _render_debate_vs_vote_report(
                 f"- 初始一致率：`{row['initial_consensus_rate']:.4f}`",
                 f"- debate 后一致率：`{row['final_consensus_rate']:.4f}`",
                 f"- debate 翻票率：`{row['debate_flip_rate']:.4f}`",
-                f"- debate 增量 token/题：`{row['debate_incremental_tokens_mean']:.2f}`",
-                f"- debate 增量时延/题：`{row['debate_incremental_latency_mean']:.2f} ms`",
+                f"- debate 增量 token / 题：`{row['debate_incremental_tokens_mean']:.2f}`",
+                f"- debate 增量时延 / 题：`{row['debate_incremental_latency_mean']:.2f} ms`",
                 f"- 每 1k debate token 的准确率增益：`{row['accuracy_gain_per_1k_debate_tokens']:+.6f}`",
             ]
         )
@@ -249,8 +249,8 @@ def _render_debate_vs_vote_report(
             "## 3. 解读注意事项",
             "",
             "- `smoke20` 只用于协议联调与方向观察，不做统计显著性结论。",
-            "- `pilot100` 才作为主结论来源；若 HotpotQA 上仍有跨度/表述噪音，应在结论里单独说明。",
-            "- 若 `accuracy_delta` 接近 0 且 debate 增量 token 很高，说明 debate 没有提供足够的边际收益。",
+            "- `pilot100` 才作为主结论来源；若 HotpotQA 上仍有跨度表述噪音，应在结论里单独说明。",
+            "- 若 `accuracy_delta` 接近 0，但 debate 增量 token 很高，说明 debate 没有提供足够的边际收益。",
             "",
         ]
     )
@@ -258,7 +258,7 @@ def _render_debate_vs_vote_report(
 
 
 def _enrich_prediction_row(row: dict[str, Any]) -> dict[str, Any]:
-    """为旧版或新版题级记录补齐 paired analysis 所需字段。"""
+    """为旧版或新版题级记录补齐配对分析所需字段。"""
     enriched = dict(row)
     gold = str(enriched["gold"])
     final_score = float(enriched.get("final_vote_score", enriched.get("score", 0.0)))
@@ -293,14 +293,14 @@ def _enrich_prediction_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _score_like_dataset(dataset: str, predicted: str, gold: str) -> float:
-    """轻量复用任务级打分逻辑，避免 reporting 层循环 import runner。"""
-    from api_baselines.evaluation import score_prediction
+    """轻量复用任务级打分逻辑，避免 reporting 层循环依赖 runner。"""
+    from experiment_core.evaluation import score_prediction
 
     return float(score_prediction(dataset, predicted, gold))
 
 
 def _published_report_name(manifest: dict[str, Any]) -> str:
-    """构造写入 reports/ 的报告文件名。"""
+    """构造写入 ``reports/`` 的报告文件名。"""
     created_at = manifest.get("created_at")
     try:
         created_date = datetime.fromisoformat(created_at).date().isoformat() if created_at else "unknown-date"

@@ -69,7 +69,7 @@ def _render_markdown(
     predictions: list[dict[str, Any]],
     run_dir: Path,
 ) -> str:
-    """渲染中文 markdown 报告。"""
+    """渲染中文 Markdown 报告。"""
     backbone = manifest.get("backbone", {})
     metric_rows = metrics.get("summary", [])
     policy_rows = diagnostics.get("policy_rows", [])
@@ -100,7 +100,7 @@ def _render_markdown(
         f"- 运行目录：`{run_dir.as_posix()}`",
         "- 数据集：`GSM8K + StrategyQA + HotpotQA`，当前轮次只解释 `smoke20`。",
         "- 共享前缀设计：4 个 trigger 策略共享同一份 Stage A 与同一份 Stage B，不重复发 4 套网络请求。",
-        "- 方法边界：本轮只回答“何时通信 / 何时 early exit”，不混入消息内容消融和局部审计。",
+        "- 方法边界：本轮只回答“何时通信 / 何时 early exit”，不混入消息内容压缩和局部审计。",
         "",
         "## 2. 共享前缀设计与预算节省说明",
         "",
@@ -108,8 +108,8 @@ def _render_markdown(
 
     for row in shared_prefix_rows:
         lines.append(
-            f"- `{row['dataset']}`：共享实际 token=`{row['shared_actual_tokens']:.2f}`，"
-            f"若按 4 套 trigger 独立重跑则为 `{row['naive_independent_tokens']:.2f}`，"
+            f"- `{row['dataset']}`：共享实际 token=`{row['shared_actual_tokens']:.2f}`；"
+            f"若按 4 套 trigger 独立重跑则为 `{row['naive_independent_tokens']:.2f}`；"
             f"共享前缀节省比例=`{row['shared_prefix_savings_ratio']:.4f}`"
         )
     lines.extend(
@@ -231,7 +231,7 @@ def _select_failure_cases(
     oracle_rows: list[dict[str, Any]],
     predictions: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """挑选 3-5 个失败案例。"""
+    """挑选 3 至 5 个有代表性的失败案例。"""
     pred_lookup: dict[tuple[str, str, str], dict[str, Any]] = {}
     for row in predictions:
         pred_lookup[(row["dataset"], row["sample_id"], row["method_name"])] = row
@@ -252,7 +252,7 @@ def _select_failure_cases(
         elif not row["beneficial_communication"] and disagreement_row and disagreement_row.get("triggered"):
             reason = "通信本身没有带来收益，但 disagreement_triggered 仍然进入了通信。"
         elif float(always_row["score"]) < float(mv_3_row["score"]):
-            reason = "always_communicate 比无通信 `mv_3` 更差，说明该题存在通信伤害。"
+            reason = "always_communicate 比无通信的 `mv_3` 更差，说明该题存在通信伤害。"
         if reason is None:
             continue
         cases.append(
@@ -282,7 +282,7 @@ def _ordered_policy_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _published_report_name(manifest: dict[str, Any]) -> str:
-    """构造发布到 reports/selective_comm 的文件名。"""
+    """构造发布到 ``reports/selective_comm`` 的文件名。"""
     created_at = manifest.get("created_at")
     try:
         created_date = datetime.fromisoformat(created_at).date().isoformat() if created_at else "unknown-date"

@@ -52,7 +52,7 @@ class SlidingWindowRateLimiter:
             self.token_events.popleft()
 
     def _request_wait_seconds(self, now: float) -> float:
-        """计算当前还需要等待多久才能满足 RPM 限制。"""
+        """计算还需等待多久才能满足 RPM 限制。"""
         if not self.requests_per_minute:
             return 0.0
         if len(self.request_events) < self.requests_per_minute:
@@ -61,7 +61,7 @@ class SlidingWindowRateLimiter:
         return max(0.0, self.window_seconds - (now - oldest))
 
     def _token_wait_seconds(self, now: float, estimated_tokens: int) -> float:
-        """计算当前还需要等待多久才能满足 TPM 限制。"""
+        """计算还需等待多久才能满足 TPM 限制。"""
         if not self.tokens_per_minute:
             return 0.0
         total_tokens = sum(tokens for _, tokens in self.token_events)

@@ -1,4 +1,4 @@
-"""实验报告导出与摘要统计。"""
+"""单智能体实验报告辅助工具。"""
 
 from __future__ import annotations
 
@@ -9,13 +9,12 @@ from typing import Any
 
 
 def load_metrics(run_dir: str | Path) -> dict[str, Any]:
-    """读取某次运行的 ``metrics.json``。"""
-    path = Path(run_dir) / "metrics.json"
-    return json.loads(path.read_text(encoding="utf-8"))
+    """读取单次运行目录下的 ``metrics.json``。"""
+    return json.loads((Path(run_dir) / "metrics.json").read_text(encoding="utf-8"))
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
-    """按数据集对 summary 行做一次轻量汇总。"""
+    """按数据集聚合单智能体运行摘要。"""
     metrics = load_metrics(run_dir)
     summary_rows = metrics.get("summary", [])
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -30,11 +29,13 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
 
 
 def export_paper_tables(run_dir: str | Path, output_path: str | Path) -> Path:
-    """把运行结果导出为论文草稿可直接引用的 Markdown 表格。"""
+    """导出论文表格风格的 Markdown 摘要。"""
     metrics = load_metrics(run_dir)
     rows = metrics.get("summary", [])
-    lower_bound_rows = [row for row in rows if row["method"] == "cot_1"]
-    equal_budget_rows = [row for row in rows if row["method"].startswith("sc_") or row["method"].startswith("mv_")]
+    lower_bound_rows = [row for row in rows if row["method_name"] == "cot_1"]
+    equal_budget_rows = [
+        row for row in rows if row["method_name"].startswith("sc_") or row["method_name"].startswith("mv_")
+    ]
     fairness_rows = budget_fairness_check_from_rows(rows)
 
     lines: list[str] = []
@@ -47,7 +48,7 @@ def export_paper_tables(run_dir: str | Path, output_path: str | Path) -> Path:
         [
             "dataset",
             "model_name",
-            "method",
+            "method_name",
             "questions_per_rerun",
             "accuracy_mean",
             "prompt_tokens_mean",
@@ -65,7 +66,7 @@ def export_paper_tables(run_dir: str | Path, output_path: str | Path) -> Path:
         [
             "dataset",
             "model_name",
-            "method",
+            "method_name",
             "questions_per_rerun",
             "accuracy_mean",
             "accuracy_std",
@@ -99,20 +100,20 @@ def export_paper_tables(run_dir: str | Path, output_path: str | Path) -> Path:
 
 
 def budget_fairness_check(run_dir: str | Path, threshold: float = 0.10) -> list[dict[str, Any]]:
-    """直接从运行目录读取 summary，并检查 SC/MV 的 token 差距。"""
+    """从运行目录读取指标并执行 SC / MV 公平性检查。"""
     metrics = load_metrics(run_dir)
     return budget_fairness_check_from_rows(metrics.get("summary", []), threshold=threshold)
 
 
 def budget_fairness_check_from_rows(rows: list[dict[str, Any]], threshold: float = 0.10) -> list[dict[str, Any]]:
-    """对 summary 行做 SC 与 MV 的同预算公平性比较。"""
+    """比较同预算下 SC 与 MV 方法的 token 差距。"""
     by_key: dict[tuple[str, str, int], dict[str, dict[str, Any]]] = defaultdict(dict)
     for row in rows:
-        method = row["method"]
-        if not (method.startswith("sc_") or method.startswith("mv_")):
+        method_name = row["method_name"]
+        if not (method_name.startswith("sc_") or method_name.startswith("mv_")):
             continue
-        budget_calls = int(method.split("_")[1])
-        family = "sc" if method.startswith("sc_") else "mv"
+        budget_calls = int(method_name.split("_")[1])
+        family = "sc" if method_name.startswith("sc_") else "mv"
         key = (row["dataset"], row["model_name"], budget_calls)
         by_key[key][family] = row
 
@@ -131,8 +132,8 @@ def budget_fairness_check_from_rows(rows: list[dict[str, Any]], threshold: float
                 "dataset": dataset,
                 "model_name": model_name,
                 "budget_calls": budget_calls,
-                "sc_method": sc_row["method"],
-                "mv_method": mv_row["method"],
+                "sc_method": sc_row["method_name"],
+                "mv_method": mv_row["method_name"],
                 "sc_total_tokens_mean": sc_tokens,
                 "mv_total_tokens_mean": mv_tokens,
                 "token_gap_ratio": round(gap_ratio, 6),
@@ -143,7 +144,7 @@ def budget_fairness_check_from_rows(rows: list[dict[str, Any]], threshold: float
 
 
 def _markdown_table(rows: list[dict[str, Any]], headers: list[str]) -> list[str]:
-    """把表格行渲染成 Markdown。"""
+    """把字典行渲染为简单 Markdown 表格。"""
     if not rows:
         return ["暂无数据。"]
     lines = [

@@ -1,7 +1,7 @@
 """模型输出解析。
 
 优先解析严格 JSON；若模型没有完全遵守协议，再依次尝试轻量修复、
-多对象合并、正则抽取和数据集回退前的尾部值提取。
+多对象合并、正则抽取和尾部值回退，以尽可能恢复 ``final_answer``。
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from typing import Any
 
 
 def parse_model_output(raw_text: str) -> tuple[dict[str, Any], str]:
-    """把模型原始文本尽可能解析成 ``{reasoning, final_answer}`` 结构。"""
+    """尽可能把模型原始文本解析成 ``{reasoning, final_answer}`` 结构。"""
     cleaned = _strip_code_fences(raw_text.strip())
     try:
         parsed = json.loads(cleaned)
@@ -77,7 +77,7 @@ def _light_repair(text: str) -> str | None:
 
 
 def _decode_multiple_objects(text: str) -> tuple[dict[str, Any], str] | None:
-    """解析连续输出的多个 JSON 对象，并合并关心字段。"""
+    """解析连续输出的多个 JSON 对象，并合并关键字段。"""
     decoder = json.JSONDecoder()
     index = 0
     objects: list[dict[str, Any]] = []
@@ -158,7 +158,7 @@ def _extract_tail_value(text: str) -> dict[str, Any] | None:
 
 
 def _has_final_answer(payload: Any) -> bool:
-    """检查解析结果里是否已经包含可用的 final_answer。"""
+    """检查解析结果里是否已经包含可用的 ``final_answer``。"""
     if not isinstance(payload, dict):
         return False
     return payload.get("final_answer") not in (None, "")
@@ -173,7 +173,7 @@ def _extract_quoted_field(text: str, field_name: str) -> str | None:
 
 
 def _extract_confidence_field(text: str) -> float | str | None:
-    """抽取 confidence_raw，兼容数字和字符串两种形式。"""
+    """抽取 ``confidence_raw``，兼容数字和字符串两种形态。"""
     numeric_match = re.search(
         r'"confidence_raw"\s*:\s*(-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?)',
         text,

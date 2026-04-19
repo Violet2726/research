@@ -13,20 +13,19 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from api_baselines.cache import CachedResponse, RequestCache, json_dump
-from api_baselines.datasets import DatasetSample
-from api_baselines.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from api_baselines.fallbacks import extract_fallback_answer
-from api_baselines.parsing import parse_model_output
-from api_baselines.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
-from api_baselines.rate_limits import SlidingWindowRateLimiter
-from experiment_common.runtime import RunProgressTracker, build_run_id, load_split_ids, select_samples
+from experiment_core.cache import CachedResponse, RequestCache, json_dump
+from experiment_core.datasets import DatasetSample, load_split_ids, select_samples
+from experiment_core.evaluation import aggregate_majority, normalize_prediction, score_prediction
+from experiment_core.fallbacks import extract_fallback_answer
+from experiment_core.parsing import parse_model_output
+from experiment_core.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
+from experiment_core.rate_limits import SlidingWindowRateLimiter
+from experiment_core.runtime import RunProgressTracker, build_run_id
 from multi_agent_baselines.config import (
     ExperimentSetup,
     MultiAgentExperimentConfig,
     ProtocolConfig,
     RosterConfig,
-    as_provider_model,
     load_benchmarks,
     load_control_catalog,
     load_protocol_config,
@@ -102,7 +101,7 @@ class DebateMessageRecord:
 
 @dataclass(frozen=True)
 class FinalPredictionRecord:
-    """某题在某个方法下的最终预测记录。"""
+    """某题在某种方法下的最终预测记录。"""
 
     run_id: str
     dataset: str
@@ -159,7 +158,7 @@ def run_experiment(
     setups = _active_setups(experiment, phase_name)
     controls = load_control_catalog(experiment.control_catalog)
     matched_control_names = sorted({name for setup in setups for name in setup.matched_controls})
-    provider = OpenAICompatibleProvider(as_provider_model(backbone))
+    provider = OpenAICompatibleProvider(backbone)
     cache = RequestCache(cache_path)
     limiter = SlidingWindowRateLimiter(
         requests_per_minute=experiment.requests_per_minute_limit,
@@ -709,7 +708,7 @@ def _execute_turn(
 ) -> dict[str, Any]:
     """执行单次 agent turn，并统一返回日志行结构。"""
     payload = build_payload(
-        config=as_provider_model(backbone),
+        config=backbone,
         messages=messages,
         temperature=temperature,
         top_p=top_p,
