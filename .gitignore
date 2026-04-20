@@ -13,5 +13,4 @@ dist/
 .mypy_cache/
 *.log
 cache/
-runs/
-reports/
+local/
