@@ -133,7 +133,7 @@ uv run baseline-cli run --experiment configs/experiments/main-baselines.toml --p
 
 ## 7. 运行产物说明
 
-每次运行都会生成 `runs/<run_id>/`，通常包含：
+每次运行都会生成 `local/runs/<run_id>/`，通常包含：
 
 - `manifest.json`
   本次运行的最终配置与模型快照
@@ -157,7 +157,7 @@ uv run baseline-cli run --experiment configs/experiments/main-baselines.toml --p
 全局文件包括：
 
 - `cache/requests.sqlite`
-- `reports/leaderboard.csv`
+- `local/reports/leaderboard.csv`
 
 ## 8. 保持项目整洁的约定
 

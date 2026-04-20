@@ -93,17 +93,17 @@ uv run selective-cli run --experiment configs/selective_comm/experiments/trigger
 ## 默认输出
 
 - 单智能体：
-  `runs/single_agent/`
+  `local/runs/single_agent/`
   `cache/single_agent_requests.sqlite`
-  `reports/single_agent/`
+  `local/reports/single_agent/`
 - 多智能体：
-  `runs/multi_agent/`
+  `local/runs/multi_agent/`
   `cache/multi_agent_requests.sqlite`
-  `reports/multi_agent/`
+  `local/reports/multi_agent/`
 - 选择性通信：
-  `runs/selective_comm/`
+  `local/runs/selective_comm/`
   `cache/selective_comm_requests.sqlite`
-  `reports/selective_comm/`
+  `local/reports/selective_comm/`
 
 ## 开发约束
 

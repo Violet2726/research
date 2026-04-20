@@ -148,7 +148,7 @@ def run_experiment(
     experiment: MultiAgentExperimentConfig,
     phase_name: str,
     backbone,
-    run_root: str | Path = "runs/multi_agent",
+    run_root: str | Path = "local/runs/multi_agent",
     cache_path: str | Path = "cache/multi_agent_requests.sqlite",
 ) -> Path:
     """执行一个多智能体 phase，并写出完整运行目录。"""

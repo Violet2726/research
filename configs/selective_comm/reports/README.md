@@ -1,6 +1,6 @@
 # 报告约定
 
-当前 trigger / early-exit 实验的正式发布目录为 `reports/selective_comm/`。
+当前 trigger / early-exit 实验的正式发布目录为 `local/reports/selective_comm/`。
 
 报告必须覆盖：
 

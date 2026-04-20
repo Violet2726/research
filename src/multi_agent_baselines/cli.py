@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--experiment", required=True)
     run.add_argument("--phase", required=True)
     run.add_argument("--backbone", required=True)
-    run.add_argument("--runs-root", default="runs/multi_agent")
+    run.add_argument("--runs-root", default="local/runs/multi_agent")
     run.add_argument("--cache-path", default="cache/multi_agent_requests.sqlite")
 
     summarize = subparsers.add_parser("summarize-run", help="Print a concise run summary from metrics.json.")
@@ -46,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Generate paired Debate vs Vote analysis and a Chinese markdown report.",
     )
     debate_vs_vote.add_argument("--run-dir", required=True)
-    debate_vs_vote.add_argument("--publish-dir", default="reports/multi_agent")
+    debate_vs_vote.add_argument("--publish-dir", default="local/reports/multi_agent")
 
     return parser
 

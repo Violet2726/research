@@ -49,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--experiment", required=True)
     run.add_argument("--phase", required=True)
     run.add_argument("--model", required=True)
-    run.add_argument("--runs-root", default="runs/single_agent")
+    run.add_argument("--runs-root", default="local/runs/single_agent")
     run.add_argument("--cache-path", default="cache/single_agent_requests.sqlite")
 
     list_models = subparsers.add_parser("list-models", help="List registered models from the catalog.")

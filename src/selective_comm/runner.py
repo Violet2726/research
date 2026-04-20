@@ -80,7 +80,7 @@ def run_experiment(
     experiment: SelectiveCommExperimentConfig,
     phase_name: str,
     backbone,
-    run_root: str | Path = "runs/selective_comm",
+    run_root: str | Path = "local/runs/selective_comm",
     cache_path: str | Path = "cache/selective_comm_requests.sqlite",
 ) -> Path:
     """执行一个选择性通信 phase，并写出完整运行目录。"""
@@ -174,7 +174,7 @@ def run_experiment(
     run_paths.policy_metrics.write_text(json.dumps(metrics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     run_paths.oracle_trigger_eval.write_text(json.dumps(oracle_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     run_paths.policy_diagnostics.write_text(json.dumps(diagnostics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    render_trigger_report(run_paths.root, publish_dir="reports/selective_comm")
+    render_trigger_report(run_paths.root, publish_dir="local/reports/selective_comm")
     run_paths.run_validation.write_text(json.dumps(validate_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
     progress.mark_completed()
     cache.close()

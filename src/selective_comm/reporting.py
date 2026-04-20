@@ -37,7 +37,7 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
 
 def render_trigger_report(
     run_dir: str | Path,
-    publish_dir: str | Path = "reports/selective_comm",
+    publish_dir: str | Path = "local/reports/selective_comm",
 ) -> dict[str, Any]:
     """渲染并写出中文 trigger 报告。"""
     root = Path(run_dir)
@@ -282,7 +282,7 @@ def _ordered_policy_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _published_report_name(manifest: dict[str, Any]) -> str:
-    """构造发布到 ``reports/selective_comm`` 的文件名。"""
+    """构造发布到 ``local/reports/selective_comm`` 的文件名。"""
     created_at = manifest.get("created_at")
     try:
         created_date = datetime.fromisoformat(created_at).date().isoformat() if created_at else "unknown-date"

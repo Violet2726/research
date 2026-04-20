@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--experiment", required=True)
     run.add_argument("--phase", required=True)
     run.add_argument("--backbone", default=None)
-    run.add_argument("--runs-root", default="runs/selective_comm")
+    run.add_argument("--runs-root", default="local/runs/selective_comm")
     run.add_argument("--cache-path", default="cache/selective_comm_requests.sqlite")
 
     summarize = subparsers.add_parser("summarize-run", help="Print a concise run summary from policy_metrics.json.")
@@ -43,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     report = subparsers.add_parser("report-trigger", help="Regenerate the Chinese trigger markdown report.")
     report.add_argument("--run-dir", required=True)
-    report.add_argument("--publish-dir", default="reports/selective_comm")
+    report.add_argument("--publish-dir", default="local/reports/selective_comm")
 
     return parser
 

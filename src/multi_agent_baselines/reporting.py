@@ -33,7 +33,7 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
 
 def report_debate_vs_vote(
     run_dir: str | Path,
-    publish_dir: str | Path = "reports/multi_agent",
+    publish_dir: str | Path = "local/reports/multi_agent",
 ) -> dict[str, Any]:
     """生成 Debate vs Vote 的配对分析结果与 Markdown 报告。"""
     root = Path(run_dir)
@@ -300,7 +300,7 @@ def _score_like_dataset(dataset: str, predicted: str, gold: str) -> float:
 
 
 def _published_report_name(manifest: dict[str, Any]) -> str:
-    """构造写入 ``reports/`` 的报告文件名。"""
+    """构造写入 ``local/reports/`` 的报告文件名。"""
     created_at = manifest.get("created_at")
     try:
         created_date = datetime.fromisoformat(created_at).date().isoformat() if created_at else "unknown-date"
