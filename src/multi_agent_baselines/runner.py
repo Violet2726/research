@@ -16,11 +16,14 @@ from dotenv import load_dotenv
 from experiment_core.cache import CachedResponse, RequestCache, json_dump
 from experiment_core.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from experiment_core.fallbacks import extract_fallback_answer
-from experiment_core.parsing import parse_model_output
 from experiment_core.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
 from experiment_core.rate_limits import SlidingWindowRateLimiter
 from experiment_core.runtime import RunProgressTracker, build_run_id
+from experiment_core.structured_output import (
+    ARTIFACT_VERSION,
+    OUTPUT_MODE_CORE,
+    validate_structured_output,
+)
 from multi_agent_baselines.config import (
     ExperimentSetup,
     MultiAgentExperimentConfig,
@@ -70,7 +73,7 @@ class AgentTurnRecord:
     prompt_hash: str
     prediction: str
     score: float | None
-    parse_status: str
+    output_status: str
     prompt_tokens: float
     completion_tokens: float
     total_tokens: float
@@ -79,8 +82,9 @@ class AgentTurnRecord:
     request_error: str | None
     visible_peer_count: int
     payload: dict[str, Any]
-    raw_response: str
-    parsed_output: dict[str, Any]
+    assistant_text: str
+    provider_reasoning_text: str
+    validated_output: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -177,6 +181,7 @@ def run_experiment(
         "phase": phase_name,
         "phase_metadata": phase,
         "prompt_version": experiment.prompt_version,
+        "artifact_version": ARTIFACT_VERSION,
         "backbone": asdict(backbone),
         "benchmarks": [asdict(item) for item in benchmarks],
         "setups": [
@@ -460,8 +465,8 @@ def _run_mad_sample(
                 peer_messages.append(
                     {
                         "agent": f"agent_{sender['agent_id']}",
-                        "answer": sender["parsed_answer"],
-                        "reasoning": str(sender["parsed_output"].get("reasoning", "")).strip(),
+                        "answer": str(sender["validated_output"].get("final_answer", "")).strip(),
+                        "reasoning": str(sender["validated_output"].get("reasoning", "")).strip(),
                     }
                 )
                 debate_rows.append(
@@ -475,8 +480,8 @@ def _run_mad_sample(
                             round_index=round_index,
                             sender_agent_id=sender["agent_id"],
                             recipient_agent_id=recipient_id,
-                            sender_answer=sender["parsed_answer"],
-                            sender_reasoning=str(sender["parsed_output"].get("reasoning", "")).strip(),
+                            sender_answer=str(sender["validated_output"].get("final_answer", "")).strip(),
+                            sender_reasoning=str(sender["validated_output"].get("reasoning", "")).strip(),
                         )
                     )
                 )
@@ -484,8 +489,8 @@ def _run_mad_sample(
                 sample=sample,
                 agent_id=recipient_id,
                 round_index=round_index,
-                previous_reasoning=str(recipient_previous["parsed_output"].get("reasoning", "")).strip(),
-                previous_answer=recipient_previous["parsed_answer"],
+                previous_reasoning=str(recipient_previous["validated_output"].get("reasoning", "")).strip(),
+                previous_answer=str(recipient_previous["validated_output"].get("final_answer", "")).strip(),
                 peer_messages=peer_messages,
                 prompt_version=prompt_version,
             )
@@ -733,7 +738,8 @@ def _execute_turn(
             response = provider.chat_completion(payload)
             response_payload = {
                 "http_status": response.http_status,
-                "raw_text": response.raw_text,
+                "assistant_text": response.assistant_text,
+                "provider_reasoning_text": response.provider_reasoning_text,
                 "usage_reported": response.usage_reported,
                 "usage_estimated": response.usage_estimated,
                 "latency_ms": response.latency_ms,
@@ -753,7 +759,8 @@ def _execute_turn(
         except ProviderRequestError as exc:
             response_payload = {
                 "http_status": exc.http_status,
-                "raw_text": "",
+                "assistant_text": "",
+                "provider_reasoning_text": "",
                 "usage_reported": None,
                 "usage_estimated": None,
                 "latency_ms": 0.0,
@@ -767,22 +774,18 @@ def _execute_turn(
 
     request_error = response_payload.get("request_error")
     if request_error:
-        parsed = {}
-        parse_status = "request_fail"
+        validated_output = {}
+        output_status = "request_fail"
         final_answer = ""
     else:
         try:
-            parsed, parse_status = parse_model_output(response_payload["raw_text"])
-            final_answer = str(parsed.get("final_answer", "")).strip()
+            validated_output = validate_structured_output(response_payload["assistant_text"], OUTPUT_MODE_CORE)
+            output_status = "ok"
+            final_answer = validated_output["final_answer"]
         except Exception:
-            fallback = extract_fallback_answer(dataset, response_payload["raw_text"])
-            if fallback is None:
-                parsed = {}
-                parse_status = "parse_fail"
-                final_answer = ""
-            else:
-                parsed, parse_status = fallback
-                final_answer = str(parsed.get("final_answer", "")).strip()
+            validated_output = {}
+            output_status = "schema_fail"
+            final_answer = ""
 
     usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
     return asdict(
@@ -799,7 +802,7 @@ def _execute_turn(
             prompt_hash=prompt_hash,
             prediction=normalize_prediction(dataset, final_answer),
             score=None,
-            parse_status=parse_status,
+            output_status=output_status,
             prompt_tokens=float(usage.get("prompt_tokens") or 0.0),
             completion_tokens=float(usage.get("completion_tokens") or 0.0),
             total_tokens=float(usage.get("total_tokens") or 0.0),
@@ -808,10 +811,11 @@ def _execute_turn(
             request_error=request_error,
             visible_peer_count=visible_peer_count,
             payload=payload,
-            raw_response=response_payload.get("raw_text", ""),
-            parsed_output=parsed,
+            assistant_text=response_payload.get("assistant_text", ""),
+            provider_reasoning_text=response_payload.get("provider_reasoning_text", ""),
+            validated_output=validated_output,
         )
-    ) | {"parsed_answer": final_answer, "normalized_answer": normalize_prediction(dataset, final_answer)}
+    ) | {"normalized_answer": normalize_prediction(dataset, final_answer)}
 
 
 def _build_metrics(

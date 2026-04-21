@@ -6,7 +6,7 @@ benchmark_configs = [
 ]
 control_catalog = "configs/multi_agent/controls/vanilla_equal_budget.toml"
 global_seed = 42
-prompt_version = "v2-controlled-span-strict"
+prompt_version = "multi_agent_controlled_json"
 max_concurrent_requests = 4
 requests_per_minute_limit = 180
 tokens_per_minute_limit = 400000

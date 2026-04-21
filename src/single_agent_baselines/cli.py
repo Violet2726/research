@@ -68,7 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate = subparsers.add_parser("validate-run", help="Run validation checks for one run.")
     validate.add_argument("--run-dir", required=True)
-    validate.add_argument("--parse-success-threshold", type=float, default=0.95)
+    validate.add_argument("--output-success-threshold", type=float, default=0.95)
     validate.add_argument("--budget-threshold", type=float, default=0.10)
 
     return parser
@@ -152,6 +152,7 @@ def main() -> None:
                         for key, value in {
                             "supports_response_format": entry.supports_response_format,
                             "response_format": entry.response_format,
+                            "reasoning_effort": entry.reasoning_effort,
                             "default_max_output_tokens": entry.default_max_output_tokens,
                             "timeout_seconds": entry.timeout_seconds,
                             "max_retries": entry.max_retries,
@@ -182,7 +183,7 @@ def main() -> None:
             json.dumps(
                 validate_run(
                     args.run_dir,
-                    parse_success_threshold=args.parse_success_threshold,
+                    output_success_threshold=args.output_success_threshold,
                     budget_threshold=args.budget_threshold,
                 ),
                 ensure_ascii=False,
@@ -206,6 +207,7 @@ def _serialize_model(model) -> dict[str, object]:
         "default_temperature": model.default_temperature,
         "default_top_p": model.default_top_p,
         "default_max_output_tokens": model.default_max_output_tokens,
+        "reasoning_effort": model.reasoning_effort,
         "supports_response_format": model.supports_response_format,
         "response_format": model.response_format,
         "timeout_seconds": model.timeout_seconds,

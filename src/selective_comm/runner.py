@@ -17,12 +17,15 @@ from dotenv import load_dotenv
 from experiment_core.cache import CachedResponse, RequestCache, json_dump
 from experiment_core.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from experiment_core.fallbacks import extract_fallback_answer
-from experiment_core.parsing import parse_model_output
 from experiment_core.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
 from experiment_core.rate_limits import SlidingWindowRateLimiter
 from experiment_core.runtime import RunProgressTracker, build_run_id
 from experiment_core.methods import MethodConfig
+from experiment_core.structured_output import (
+    ARTIFACT_VERSION,
+    OUTPUT_MODE_SELECTIVE_COMM,
+    validate_structured_output,
+)
 from selective_comm.config import (
     SelectiveCommExperimentConfig,
     SharedDebateProtocolConfig,
@@ -111,6 +114,7 @@ def run_experiment(
         "policies": [asdict(policy) for policy in policies],
         "controls": {name: asdict(control) for name, control in sorted(controls.items())},
         "prompt_version": experiment.prompt_version,
+        "artifact_version": ARTIFACT_VERSION,
         "global_seed": experiment.global_seed,
         "max_concurrent_requests": experiment.max_concurrent_requests,
         "requests_per_minute_limit": experiment.requests_per_minute_limit,
@@ -345,17 +349,17 @@ def _run_sample(
                 peer_messages.append(
                     {
                         "agent": f"agent_{sender['agent_id']}",
-                        "answer": sender["parsed_answer"],
+                        "answer": str(sender["validated_output"].get("final_answer", "")).strip(),
                         "confidence_raw": sender["confidence_raw_display"],
-                        "reasoning": sender["reasoning_text"],
+                        "reasoning": sender["reasoning"],
                     }
                 )
             messages = build_debate_messages(
                 sample=sample,
                 agent_id=recipient_id,
                 round_index=round_index,
-                previous_reasoning=recipient_previous["reasoning_text"],
-                previous_answer=recipient_previous["parsed_answer"],
+                previous_reasoning=recipient_previous["reasoning"],
+                previous_answer=str(recipient_previous["validated_output"].get("final_answer", "")).strip(),
                 previous_confidence_raw=recipient_previous["confidence_raw_display"],
                 peer_messages=peer_messages,
                 prompt_version=experiment.prompt_version,
@@ -715,7 +719,8 @@ def _execute_turn(
             response = provider.chat_completion(payload)
             response_payload = {
                 "http_status": response.http_status,
-                "raw_text": response.raw_text,
+                "assistant_text": response.assistant_text,
+                "provider_reasoning_text": response.provider_reasoning_text,
                 "usage_reported": response.usage_reported,
                 "usage_estimated": response.usage_estimated,
                 "latency_ms": response.latency_ms,
@@ -735,7 +740,8 @@ def _execute_turn(
         except ProviderRequestError as exc:
             response_payload = {
                 "http_status": exc.http_status,
-                "raw_text": "",
+                "assistant_text": "",
+                "provider_reasoning_text": "",
                 "usage_reported": None,
                 "usage_estimated": None,
                 "latency_ms": 0.0,
@@ -749,43 +755,25 @@ def _execute_turn(
 
     request_error = response_payload.get("request_error")
     if request_error:
-        parsed = {}
-        parse_status = "request_fail"
+        validated_output = {}
+        output_status = "request_fail"
         final_answer = ""
     else:
         try:
-            parsed, parse_status = parse_model_output(response_payload["raw_text"])
-            final_answer = str(parsed.get("final_answer", "")).strip()
-            if not final_answer:
-                fallback = extract_fallback_answer(dataset, response_payload["raw_text"])
-                if fallback is None:
-                    parsed = {}
-                    parse_status = "parse_fail"
-                    final_answer = ""
-                else:
-                    fallback_payload, fallback_status = fallback
-                    parsed = {
-                        **fallback_payload,
-                        **{key: value for key, value in parsed.items() if value not in (None, "")},
-                    }
-                    final_answer = str(parsed.get("final_answer", "")).strip()
-                    parse_status = f"{parse_status}+{fallback_status}"
+            validated_output = validate_structured_output(response_payload["assistant_text"], OUTPUT_MODE_SELECTIVE_COMM)
+            output_status = "ok"
+            final_answer = validated_output["final_answer"]
         except Exception:
-            fallback = extract_fallback_answer(dataset, response_payload["raw_text"])
-            if fallback is None:
-                parsed = {}
-                parse_status = "parse_fail"
-                final_answer = ""
-            else:
-                parsed, parse_status = fallback
-                final_answer = str(parsed.get("final_answer", "")).strip()
+            validated_output = {}
+            output_status = "schema_fail"
+            final_answer = ""
 
     usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
-    confidence_raw = parsed.get("confidence_raw")
+    reasoning = str(validated_output.get("reasoning", "")).strip() if validated_output else ""
+    confidence_raw = validated_output.get("confidence_raw") if validated_output else None
     confidence_value, confidence_valid, confidence_source = _normalize_confidence(confidence_raw)
-    reasoning_text = _to_text_field(parsed.get("reasoning"))
-    uncertain_point = _to_text_field(parsed.get("uncertain_point"))
-    key_evidence = _to_text_field(parsed.get("key_evidence"))
+    key_evidence = validated_output.get("key_evidence") if validated_output else None
+    uncertainty = validated_output.get("uncertain_point") if validated_output else None
     return {
         "run_id": run_id,
         "dataset": dataset,
@@ -800,9 +788,8 @@ def _execute_turn(
         "visible_peer_count": visible_peer_count,
         "prompt_hash": prompt_hash,
         "prediction": normalize_prediction(dataset, final_answer),
-        "parsed_answer": final_answer,
         "normalized_answer": normalize_prediction(dataset, final_answer),
-        "parse_status": parse_status,
+        "output_status": output_status,
         "prompt_tokens": float(usage.get("prompt_tokens") or 0.0),
         "completion_tokens": float(usage.get("completion_tokens") or 0.0),
         "total_tokens": float(usage.get("total_tokens") or 0.0),
@@ -810,16 +797,17 @@ def _execute_turn(
         "cache_hit": cache_hit,
         "request_error": request_error,
         "payload": payload,
-        "raw_response": response_payload.get("raw_text", ""),
-        "parsed_output": parsed,
-        "reasoning_text": reasoning_text,
+        "assistant_text": response_payload.get("assistant_text", ""),
+        "provider_reasoning_text": response_payload.get("provider_reasoning_text", ""),
+        "validated_output": validated_output,
+        "reasoning": reasoning,
         "confidence_raw": confidence_raw,
         "confidence_raw_display": _confidence_display(confidence_raw),
         "confidence_value": confidence_value,
         "confidence_valid": confidence_valid,
         "confidence_source": confidence_source,
-        "uncertain_point": uncertain_point,
         "key_evidence": key_evidence,
+        "uncertain_point": uncertainty,
     }
 
 
@@ -1160,8 +1148,8 @@ def _trace_hash(rows: list[dict[str, Any]]) -> str:
             "agent_id": row["agent_id"],
             "prompt_hash": row["prompt_hash"],
             "normalized_answer": row["normalized_answer"],
-            "confidence_value": row["confidence_value"],
-            "parse_status": row["parse_status"],
+            "confidence": row["confidence"],
+            "output_status": row["output_status"],
             "request_error": row["request_error"],
         }
         for row in rows
@@ -1208,29 +1196,19 @@ def _question_preview(question: str, max_chars: int = 120) -> str:
     return cleaned[: max_chars - 3] + "..."
 
 
-def _to_text_field(value: object) -> str:
-    """把结构化字段规整成简短文本。"""
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value.strip()
-    return str(value).strip()
-
-
 def _confidence_display(value: object) -> object:
-    """保留 confidence 的原始可展示值。"""
+    """Preserve the raw display form of confidence_raw."""
     if value is None:
         return ""
     return value
 
 
 def _normalize_confidence(raw_value: object) -> tuple[float | None, bool, str]:
-    """规范化 confidence。"""
+    """Normalize confidence_raw into a comparable numeric value."""
     if raw_value is None:
         return None, False, "missing"
     if isinstance(raw_value, bool):
         return None, False, "invalid_bool"
-    numeric_value: float | None
     if isinstance(raw_value, (int, float)):
         numeric_value = float(raw_value)
     else:

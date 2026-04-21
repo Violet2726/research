@@ -21,7 +21,7 @@ def test_single_agent_reporting_and_validation_use_method_name(tmp_path: Path) -
                 "method_name": "sc_5",
                 "rerun_index": 0,
                 "prompt_hash": "hash-1",
-                "parse_status": "direct_json",
+                "output_status": "ok",
             },
             {
                 "dataset": "gsm8k",
@@ -29,7 +29,7 @@ def test_single_agent_reporting_and_validation_use_method_name(tmp_path: Path) -
                 "method_name": "mv_5",
                 "rerun_index": 0,
                 "prompt_hash": "hash-1",
-                "parse_status": "direct_json",
+                "output_status": "ok",
             },
         ],
     )
@@ -74,7 +74,7 @@ def test_single_agent_reporting_and_validation_use_method_name(tmp_path: Path) -
 
 def test_multi_agent_validation_contract(tmp_path: Path) -> None:
     _touch_json(tmp_path / "manifest.json", {})
-    _write_jsonl(tmp_path / "agent_turns.jsonl", [{"parse_status": "direct_json"}])
+    _write_jsonl(tmp_path / "agent_turns.jsonl", [{"output_status": "ok"}])
     _write_jsonl(tmp_path / "debate_messages.jsonl", [{"x": 1}])
     _write_jsonl(tmp_path / "final_predictions.jsonl", [{"method_name": "mad_3a_r1"}])
     _touch_json(tmp_path / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
@@ -86,7 +86,7 @@ def test_multi_agent_validation_contract(tmp_path: Path) -> None:
 
 def test_selective_comm_validation_contract(tmp_path: Path) -> None:
     _touch_json(tmp_path / "manifest.json", {})
-    _write_jsonl(tmp_path / "stage_a_turns.jsonl", [{"parse_status": "direct_json"}])
+    _write_jsonl(tmp_path / "stage_a_turns.jsonl", [{"output_status": "ok"}])
     _write_jsonl(tmp_path / "stage_b_turns.jsonl", [])
     _write_jsonl(tmp_path / "control_turns.jsonl", [])
     _write_jsonl(

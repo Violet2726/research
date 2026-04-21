@@ -12,7 +12,7 @@ from single_agent_baselines.reporting import budget_fairness_check
 
 def validate_run(
     run_dir: str | Path,
-    parse_success_threshold: float = 0.95,
+    output_success_threshold: float = 0.95,
     budget_threshold: float = 0.10,
 ) -> dict[str, Any]:
     """对单智能体运行产物执行完整性与一致性检查。"""
@@ -21,25 +21,23 @@ def validate_run(
     prediction_rows = _load_jsonl(root / "predictions.jsonl")
     metrics = json.loads((root / "metrics.json").read_text(encoding="utf-8"))
 
-    request_failures = sum(1 for row in raw_rows if row.get("parse_status") == "request_fail")
-    parse_success_count = sum(
-        1 for row in raw_rows if row.get("parse_status") not in {"parse_fail", "request_fail"}
+    request_failures = sum(1 for row in raw_rows if row.get("output_status") == "request_fail")
+    output_success_count = sum(
+        1 for row in raw_rows if row.get("output_status") == "ok"
     )
-    parse_success_rate = parse_success_count / len(raw_rows) if raw_rows else 0.0
+    output_success_rate = output_success_count / len(raw_rows) if raw_rows else 0.0
 
-    parse_by_group: dict[str, Any] = {}
+    output_by_group: dict[str, Any] = {}
     grouped_parse: dict[tuple[str, str], Counter] = defaultdict(Counter)
     for row in raw_rows:
-        grouped_parse[(row["dataset"], row["method_name"])][row["parse_status"]] += 1
+        grouped_parse[(row["dataset"], row["method_name"])][row["output_status"]] += 1
     for (dataset, method_name), counts in sorted(grouped_parse.items()):
         total = sum(counts.values())
-        parse_by_group[f"{dataset}:{method_name}"] = {
+        output_by_group[f"{dataset}:{method_name}"] = {
             "total_calls": total,
-            "parse_failures": counts.get("parse_fail", 0),
+            "schema_failures": counts.get("schema_fail", 0),
             "request_failures": counts.get("request_fail", 0),
-            "parse_success_rate": (
-                total - counts.get("parse_fail", 0) - counts.get("request_fail", 0)
-            ) / total if total else 0.0,
+            "output_success_rate": counts.get("ok", 0) / total if total else 0.0,
         }
 
     prompt_hash_check = _validate_prompt_hash_parity(raw_rows)
@@ -50,7 +48,7 @@ def validate_run(
     passed = all(
         [
             request_failures == 0,
-            parse_success_rate >= parse_success_threshold,
+            output_success_rate >= output_success_threshold,
             fairness_ok,
             prompt_hash_check["passed"],
             split_count_check["passed"],
@@ -62,14 +60,14 @@ def validate_run(
         "passed": passed,
         "checks": {
             "request_failures_total": request_failures,
-            "parse_success_rate": parse_success_rate,
-            "parse_success_threshold": parse_success_threshold,
+            "output_success_rate": output_success_rate,
+            "output_success_threshold": output_success_threshold,
             "budget_threshold": budget_threshold,
             "fairness_ok": fairness_ok,
             "prompt_hash_parity": prompt_hash_check,
             "prediction_count_check": split_count_check,
         },
-        "parse_by_group": parse_by_group,
+        "output_by_group": output_by_group,
         "budget_fairness": fairness_rows,
         "metric_rows": metrics.get("summary", []),
     }

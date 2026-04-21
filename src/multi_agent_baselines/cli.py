@@ -159,6 +159,7 @@ def _serialize_backbone(backbone) -> dict[str, object]:
         "default_temperature": backbone.default_temperature,
         "default_top_p": backbone.default_top_p,
         "default_max_output_tokens": backbone.default_max_output_tokens,
+        "reasoning_effort": backbone.reasoning_effort,
         "supports_response_format": backbone.supports_response_format,
         "response_format": backbone.response_format,
         "timeout_seconds": backbone.timeout_seconds,

@@ -1,20 +1,23 @@
-"""单智能体实验提示词构造。"""
+"""Single-agent prompting."""
 
 from __future__ import annotations
 
 from experiment_core.datasets import DatasetSample
 
 
-SYSTEM_PROMPT = """You are an expert reasoning assistant for controlled research experiments.
-Follow the task instruction carefully.
-Return strict JSON with keys reasoning and final_answer.
-Keep reasoning concise and under 120 tokens.
-Do not add markdown fences."""
+DEFAULT_PROMPT_VERSION = "single_agent_baseline_json"
 
 
-def build_messages(sample: DatasetSample, method_family: str) -> list[dict[str, str]]:
-    """构造单智能体实验的一次标准请求消息。"""
+def build_messages(
+    sample: DatasetSample,
+    method_family: str,
+    prompt_version: str = DEFAULT_PROMPT_VERSION,
+) -> list[dict[str, str]]:
+    """Build one single-agent request."""
     del method_family
+    if prompt_version != DEFAULT_PROMPT_VERSION:
+        raise ValueError(f"Unsupported single-agent prompt_version: {prompt_version}")
+
     user_prompt = (
         f"{_dataset_instruction(sample)}\n"
         f"Question:\n{sample.question.strip()}\n\n"
@@ -22,17 +25,27 @@ def build_messages(sample: DatasetSample, method_family: str) -> list[dict[str, 
     if sample.prompt_context:
         user_prompt += f"Context:\n{sample.prompt_context}\n\n"
     user_prompt += (
-        'Return exactly one JSON object like '
-        '{"reasoning":"brief reasoning","final_answer":"answer"}'
+        'Return exactly one JSON object with key "final_answer". '
+        'You may optionally include "reasoning". '
+        'Do not add any other keys. '
+        'Return JSON only.'
     )
     return [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {
+            "role": "system",
+            "content": (
+                "You are an expert reasoning assistant for controlled research experiments.\n"
+                "Follow the task instruction carefully.\n"
+                "Return a single JSON object only.\n"
+                "Do not use markdown fences.\n"
+                "Do not add natural-language text before or after the JSON object."
+            ),
+        },
         {"role": "user", "content": user_prompt},
     ]
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
-    """返回不同数据集各自的答案约束。"""
     if sample.dataset == "gsm8k":
         return (
             "Solve the math word problem carefully. "

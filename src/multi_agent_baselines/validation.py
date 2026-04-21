@@ -23,13 +23,15 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     missing = [name for name in required if not (root / name).exists()]
     agent_rows = _load_jsonl(root / "agent_turns.jsonl") if (root / "agent_turns.jsonl").exists() else []
     prediction_rows = _load_jsonl(root / "final_predictions.jsonl") if (root / "final_predictions.jsonl").exists() else []
-    request_failures = sum(1 for row in agent_rows if row.get("parse_status") == "request_fail")
+    request_failures = sum(1 for row in agent_rows if row.get("output_status") == "request_fail")
+    schema_failures = sum(1 for row in agent_rows if row.get("output_status") == "schema_fail")
     methods = Counter(row.get("method_name") for row in prediction_rows)
     return {
         "run_dir": str(root),
-        "passed": not missing and request_failures == 0 and bool(prediction_rows),
+        "passed": not missing and request_failures == 0 and schema_failures == 0 and bool(prediction_rows),
         "missing_files": missing,
         "request_failures": request_failures,
+        "schema_failures": schema_failures,
         "prediction_rows": len(prediction_rows),
         "methods": dict(methods),
         "paired_analysis_present": (root / "paired_debate_vs_vote.json").exists(),

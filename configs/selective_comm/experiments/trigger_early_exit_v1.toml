@@ -14,7 +14,7 @@ policy_configs = [
 ]
 control_catalog = "configs/selective_comm/controls/trigger_equal_budget.toml"
 global_seed = 42
-prompt_version = "v1-trigger-json-short-reasoning"
+prompt_version = "selective_comm_trigger_json"
 max_concurrent_requests = 8
 requests_per_minute_limit = 600
 tokens_per_minute_limit = 1000000

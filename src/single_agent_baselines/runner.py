@@ -31,9 +31,7 @@ from experiment_core.datasets import (
     select_samples,
 )
 from experiment_core.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from experiment_core.fallbacks import extract_fallback_answer
 from experiment_core.methods import MethodConfig, load_method_catalog
-from experiment_core.parsing import parse_model_output
 from experiment_core.providers import (
     OpenAICompatibleProvider,
     ProviderRequestError,
@@ -42,6 +40,11 @@ from experiment_core.providers import (
 )
 from experiment_core.rate_limits import SlidingWindowRateLimiter
 from experiment_core.runtime import RunProgressTracker, build_run_id
+from experiment_core.structured_output import (
+    ARTIFACT_VERSION,
+    OUTPUT_MODE_CORE,
+    validate_structured_output,
+)
 from single_agent_baselines.config import (
     ExperimentConfig,
     phase_metadata,
@@ -143,6 +146,7 @@ def run_experiment(
         "phase": phase_name,
         "description": experiment.description,
         "prompt_version": experiment.prompt_version,
+        "artifact_version": ARTIFACT_VERSION,
         "reruns_per_method": experiment.reruns_per_method,
         "max_concurrent_requests": experiment.max_concurrent_requests,
         "requests_per_minute_limit": experiment.requests_per_minute_limit,
@@ -238,7 +242,7 @@ def _run_method_batch(
     call_specs: list[CallSpec] = []
 
     for sample_order, sample in enumerate(samples):
-        messages = build_messages(sample, method.family)
+        messages = build_messages(sample, method.family, prompt_version=experiment.prompt_version)
         prompt_hash = _prompt_hash(messages)
         for replicate_id in range(method.budget_calls):
             # SC 与 MV 共享同一 budget_calls 语义，只在后续聚合方式上区分。
@@ -364,7 +368,8 @@ def _execute_call(
             response_payload = {
                 "http_status": provider_response.http_status,
                 "raw_payload": provider_response.raw_payload,
-                "raw_text": provider_response.raw_text,
+                "assistant_text": provider_response.assistant_text,
+                "provider_reasoning_text": provider_response.provider_reasoning_text,
                 "finish_reason": provider_response.finish_reason,
                 "usage_reported": provider_response.usage_reported,
                 "usage_estimated": provider_response.usage_estimated,
@@ -388,7 +393,8 @@ def _execute_call(
             response_payload = {
                 "http_status": exc.http_status,
                 "raw_payload": {"error": exc.message},
-                "raw_text": "",
+                "assistant_text": "",
+                "provider_reasoning_text": "",
                 "finish_reason": None,
                 "usage_reported": None,
                 "usage_estimated": None,
@@ -405,23 +411,18 @@ def _execute_call(
 
     request_error = response_payload.get("request_error")
     if request_error:
-        parsed = {}
-        parse_status = "request_fail"
+        validated_output = {}
+        output_status = "request_fail"
         final_answer = ""
     else:
         try:
-            parsed, parse_status = parse_model_output(response_payload["raw_text"])
-            final_answer = str(parsed.get("final_answer", "")).strip()
+            validated_output = validate_structured_output(response_payload["assistant_text"], OUTPUT_MODE_CORE)
+            output_status = "ok"
+            final_answer = validated_output["final_answer"]
         except Exception:
-            # 当模型没有返回合法 JSON 时，再按数据集规则做保守兜底。
-            fallback = extract_fallback_answer(spec.dataset, response_payload["raw_text"])
-            if fallback is None:
-                parsed = {}
-                parse_status = "parse_fail"
-                final_answer = ""
-            else:
-                parsed, parse_status = fallback
-                final_answer = str(parsed.get("final_answer", "")).strip()
+            validated_output = {}
+            output_status = "schema_fail"
+            final_answer = ""
 
     normalized_answer = normalize_prediction(spec.dataset, final_answer)
     return {
@@ -440,11 +441,11 @@ def _execute_call(
         "provider": spec.provider_name,
         "base_url": spec.base_url,
         "prompt_hash": spec.prompt_hash,
-        "raw_response": response_payload["raw_text"],
-        "parsed_output": parsed,
-        "parsed_answer": final_answer,
+        "assistant_text": response_payload["assistant_text"],
+        "provider_reasoning_text": response_payload.get("provider_reasoning_text", ""),
+        "validated_output": validated_output,
         "normalized_answer": normalized_answer,
-        "parse_status": parse_status,
+        "output_status": output_status,
         "usage_reported": response_payload.get("usage_reported"),
         "usage_estimated": response_payload.get("usage_estimated"),
         "usage_source": response_payload.get("usage_source"),

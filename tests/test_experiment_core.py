@@ -4,12 +4,18 @@ from pathlib import Path
 import json
 import time
 
+import pytest
+
 from experiment_core.cache import CachedResponse, RequestCache, json_dump
-from experiment_core.config import load_benchmark_config, load_model_catalog, parse_model_ref
+from experiment_core.config import load_benchmark_config, load_model_catalog, parse_model_ref, resolve_model_ref
 from experiment_core.datasets import generate_split_manifests, load_split_ids, select_samples
-from experiment_core.fallbacks import extract_fallback_answer
-from experiment_core.parsing import parse_model_output
+from experiment_core.providers import _extract_message_channels, build_payload
 from experiment_core.rate_limits import SlidingWindowRateLimiter
+from experiment_core.structured_output import (
+    OUTPUT_MODE_CORE,
+    OUTPUT_MODE_SELECTIVE_COMM,
+    validate_structured_output,
+)
 
 
 def test_parse_model_ref() -> None:
@@ -20,6 +26,108 @@ def test_load_model_catalog() -> None:
     catalog = load_model_catalog()
     assert catalog
     assert all("/" in key for key in catalog)
+
+
+def test_resolve_local_ollama_model_ref() -> None:
+    resolved = resolve_model_ref("local_ollama/qwen3:4b")
+    assert resolved.provider == "local_ollama"
+    assert resolved.model_id == "qwen3:4b"
+    assert resolved.base_url == "http://127.0.0.1:11434/v1"
+    assert resolved.api_key_env == "OLLAMA_API_KEY"
+    assert resolved.reasoning_effort == "none"
+    assert resolved.supports_response_format is True
+
+
+def test_build_payload_maps_thinking_control_by_provider() -> None:
+    local_model = resolve_model_ref("local_ollama/qwen3:4b")
+    local_payload = build_payload(
+        local_model,
+        [{"role": "user", "content": "hi"}],
+        temperature=0.0,
+        top_p=1.0,
+        max_output_tokens=16,
+        seed=42,
+    )
+    assert local_payload["reasoning_effort"] == "none"
+    assert "enable_thinking" not in local_payload
+
+    dashscope_model = resolve_model_ref("dashscope/qwen3-4b")
+    dashscope_payload = build_payload(
+        dashscope_model,
+        [{"role": "user", "content": "hi"}],
+        temperature=0.0,
+        top_p=1.0,
+        max_output_tokens=16,
+        seed=42,
+    )
+    assert dashscope_payload["enable_thinking"] is False
+    assert "reasoning_effort" not in dashscope_payload
+
+
+def test_validate_core_structured_output() -> None:
+    payload = validate_structured_output(
+        json.dumps(
+            {
+                "final_answer": "yes",
+                "reasoning": "short",
+            }
+        ),
+        OUTPUT_MODE_CORE,
+    )
+    assert payload["final_answer"] == "yes"
+    assert payload["reasoning"] == "short"
+
+
+def test_validate_selective_structured_output() -> None:
+    payload = validate_structured_output(
+        json.dumps(
+            {
+                "final_answer": "yes",
+                "confidence_raw": 0.4,
+                "reasoning": "short",
+                "key_evidence": "one clue",
+                "uncertain_point": None,
+            }
+        ),
+        OUTPUT_MODE_SELECTIVE_COMM,
+    )
+    assert payload["confidence_raw"] == 0.4
+    assert payload["key_evidence"] == "one clue"
+    assert payload["uncertain_point"] is None
+
+
+@pytest.mark.parametrize(
+    ("raw_text", "mode"),
+    [
+        ('```json\n{"final_answer":"yes","reasoning":"short"}\n```', OUTPUT_MODE_CORE),
+        ("The answer is yes.", OUTPUT_MODE_CORE),
+        ('{"final_answer":"yes","confidence_raw":"high","reasoning":"short","key_evidence":null,"uncertain_point":null}', OUTPUT_MODE_SELECTIVE_COMM),
+        ('{"final_answer":"yes","reasoning":"short"}{"final_answer":"no","reasoning":"alt"}', OUTPUT_MODE_CORE),
+        ('{"reasoning":"short"}', OUTPUT_MODE_CORE),
+        ('{"final_answer":"yes"}', OUTPUT_MODE_SELECTIVE_COMM),
+        ('{"final_answer":"yes","unexpected":"field"}', OUTPUT_MODE_CORE),
+    ],
+)
+def test_validate_structured_output_rejects_malformed_payloads(raw_text: str, mode: str) -> None:
+    with pytest.raises(ValueError):
+        validate_structured_output(raw_text, mode)  # type: ignore[arg-type]
+
+
+def test_extract_message_channels_supports_reasoning_metadata() -> None:
+    assistant_text, provider_reasoning_text = _extract_message_channels(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": [{"type": "text", "text": '{"final_answer":"yes","reasoning":"short"}'}],
+                        "reasoning": "hidden provider reasoning",
+                    }
+                }
+            ]
+        }
+    )
+    assert assistant_text.startswith('{"final_answer":"yes"')
+    assert provider_reasoning_text == "hidden provider reasoning"
 
 
 def test_generate_and_load_split_manifests(tmp_path: Path) -> None:
@@ -63,16 +171,6 @@ def test_generate_and_load_split_manifests(tmp_path: Path) -> None:
     samples = select_samples(benchmark, "smoke20_seed42", tmp_path / "splits")
     assert len(smoke_ids) == 1
     assert [sample.sample_id for sample in samples] == smoke_ids
-
-
-def test_parse_model_output_and_fallbacks() -> None:
-    parsed, status = parse_model_output('{"reasoning":"short","final_answer":"yes"}')
-    assert status == "direct_json"
-    assert parsed["final_answer"] == "yes"
-
-    fallback = extract_fallback_answer("strategyqa", "The answer is yes.")
-    assert fallback is not None
-    assert fallback[0]["final_answer"] == "yes"
 
 
 def test_request_cache_round_trip(tmp_path: Path) -> None:

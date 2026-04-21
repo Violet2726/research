@@ -33,13 +33,9 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     diagnostics = _load_json(root / "policy_diagnostics.json") if (root / "policy_diagnostics.json").exists() else {}
 
     all_turn_rows = stage_a_rows + stage_b_rows + control_rows
-    request_failures = sum(1 for row in all_turn_rows if row.get("parse_status") == "request_fail")
-    parse_success_count = sum(
-        1
-        for row in all_turn_rows
-        if row.get("parse_status") not in {"parse_fail", "request_fail"}
-    )
-    parse_success_rate = parse_success_count / len(all_turn_rows) if all_turn_rows else 0.0
+    request_failures = sum(1 for row in all_turn_rows if row.get("output_status") == "request_fail")
+    output_success_count = sum(1 for row in all_turn_rows if row.get("output_status") == "ok")
+    output_success_rate = output_success_count / len(all_turn_rows) if all_turn_rows else 0.0
 
     shared_hash_check = _validate_shared_hashes(prediction_rows)
     disagreement_check = _validate_disagreement_policy(trigger_rows)
@@ -51,7 +47,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         [
             not missing,
             request_failures == 0,
-            parse_success_rate >= 0.95,
+            output_success_rate >= 0.95,
             shared_hash_check["passed"],
             disagreement_check["passed"],
             early_exit_check["passed"],
@@ -65,8 +61,8 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "missing_files": missing,
         "checks": {
             "request_failures_total": request_failures,
-            "parse_success_rate": round(parse_success_rate, 6),
-            "parse_success_threshold": 0.95,
+            "output_success_rate": round(output_success_rate, 6),
+            "output_success_threshold": 0.95,
             "shared_hash_check": shared_hash_check,
             "always_trigger_rate_check": trigger_rate_check,
             "disagreement_policy_check": disagreement_check,
