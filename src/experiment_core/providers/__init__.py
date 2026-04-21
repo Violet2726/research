@@ -1,8 +1,4 @@
-"""共享 provider 客户端实现。
-
-当前项目统一把远端模型视作 OpenAI-compatible chat completion 接口。
-本模块负责请求发送、重试、错误包装与 usage 估算，不夹带实验特定逻辑。
-"""
+"""Shared OpenAI-compatible provider client."""
 
 from __future__ import annotations
 
@@ -19,11 +15,12 @@ from experiment_core.config import ResolvedModelConfig
 
 @dataclass(frozen=True)
 class ProviderResponse:
-    """一次成功 provider 调用的规范化响应。"""
+    """Normalized provider response."""
 
     http_status: int
     raw_payload: dict[str, Any]
-    raw_text: str
+    assistant_text: str
+    provider_reasoning_text: str
     finish_reason: str | None
     usage_reported: dict[str, Any] | None
     usage_estimated: dict[str, Any]
@@ -35,7 +32,7 @@ class ProviderResponse:
 
 @dataclass(frozen=True)
 class ProviderRequestError(RuntimeError):
-    """对外暴露的 provider 请求异常。"""
+    """Public provider request error."""
 
     message: str
     http_status: int | None
@@ -47,7 +44,7 @@ class ProviderRequestError(RuntimeError):
 
 
 class OpenAICompatibleProvider:
-    """最小化的 OpenAI-compatible provider 封装。"""
+    """Minimal OpenAI-compatible provider wrapper."""
 
     def __init__(self, config: ResolvedModelConfig) -> None:
         self.config = config
@@ -60,7 +57,6 @@ class OpenAICompatibleProvider:
         self.api_key = api_key
 
     def chat_completion(self, payload: dict[str, Any]) -> ProviderResponse:
-        """发起一次 chat completion 请求，并在可恢复错误时重试。"""
         url = self.config.base_url.rstrip("/") + self.config.chat_path
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -78,7 +74,7 @@ class OpenAICompatibleProvider:
                 response.raise_for_status()
                 body = response.json()
                 usage_reported = body.get("usage")
-                content = _extract_text(body)
+                assistant_text, provider_reasoning_text = _extract_message_channels(body)
                 response_id = body.get("id")
                 provider_request_id = (
                     response.headers.get("x-request-id")
@@ -88,10 +84,11 @@ class OpenAICompatibleProvider:
                 return ProviderResponse(
                     http_status=response.status_code,
                     raw_payload=body,
-                    raw_text=content,
+                    assistant_text=assistant_text,
+                    provider_reasoning_text=provider_reasoning_text,
                     finish_reason=_extract_finish_reason(body),
                     usage_reported=usage_reported,
-                    usage_estimated=_estimate_usage(payload, content),
+                    usage_estimated=_estimate_usage(payload, assistant_text),
                     usage_source="reported" if usage_reported else "estimated",
                     latency_ms=latency_ms,
                     provider_request_id=provider_request_id,
@@ -139,7 +136,6 @@ def build_payload(
     max_output_tokens: int,
     seed: int | None,
 ) -> dict[str, Any]:
-    """构造统一的请求 payload。"""
     payload: dict[str, Any] = {
         "model": config.model_id,
         "messages": messages,
@@ -149,49 +145,77 @@ def build_payload(
     }
     if seed is not None:
         payload["seed"] = seed
+    _apply_thinking_control(config, payload)
     if config.supports_response_format and config.response_format:
         payload["response_format"] = {"type": config.response_format}
     return payload
 
 
 def estimate_request_tokens(payload: dict[str, Any]) -> int:
-    """用字符数对请求 token 做近似估算，供限流器占位。"""
     prompt_chars = len(json.dumps(payload.get("messages", []), ensure_ascii=False))
     prompt_tokens = max(1, prompt_chars // 4)
     completion_tokens = int(payload.get("max_tokens") or 0)
     return prompt_tokens + completion_tokens
 
 
-def _extract_text(body: dict[str, Any]) -> str:
-    """从 provider 响应中提取首个文本内容。"""
+def _apply_thinking_control(config: ResolvedModelConfig, payload: dict[str, Any]) -> None:
+    """Map the repo-level thinking policy onto provider-specific payload fields."""
+    if config.reasoning_effort is None:
+        return
+    if config.provider == "local_ollama":
+        payload["reasoning_effort"] = config.reasoning_effort
+        return
+    if config.provider == "dashscope":
+        payload["enable_thinking"] = config.reasoning_effort != "none"
+        return
+    payload["reasoning_effort"] = config.reasoning_effort
+
+
+def _extract_message_channels(body: dict[str, Any]) -> tuple[str, str]:
     choices = body.get("choices") or []
     if not choices:
-        return ""
+        return "", ""
     message = choices[0].get("message") or {}
-    content = message.get("content", "")
+    assistant_text = _extract_text_field(message.get("content", ""))
+    provider_reasoning_text = _extract_text_field(
+        message.get("reasoning", message.get("reasoning_content", ""))
+    )
+    return assistant_text, provider_reasoning_text
+
+
+def _extract_text_field(content: object) -> str:
     if isinstance(content, str):
         return content
     if isinstance(content, list):
         parts: list[str] = []
         for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
+            if not isinstance(item, dict):
+                parts.append(str(item))
+                continue
+            if item.get("type") == "text":
                 parts.append(str(item.get("text", "")))
+                continue
+            if "text" in item:
+                parts.append(str(item.get("text", "")))
+                continue
+            if "content" in item:
+                parts.append(str(item.get("content", "")))
         return "\n".join(part for part in parts if part)
+    if content is None:
+        return ""
     return str(content)
 
 
 def _extract_finish_reason(body: dict[str, Any]) -> str | None:
-    """提取首个 choice 的 finish reason。"""
     choices = body.get("choices") or []
     if not choices:
         return None
     return choices[0].get("finish_reason")
 
 
-def _estimate_usage(payload: dict[str, Any], raw_text: str) -> dict[str, int]:
-    """当 provider 未回 usage 时，用字符数提供保守估计。"""
+def _estimate_usage(payload: dict[str, Any], assistant_text: str) -> dict[str, int]:
     prompt_chars = len(json.dumps(payload, ensure_ascii=False))
-    completion_chars = len(raw_text)
+    completion_chars = len(assistant_text)
     return {
         "prompt_tokens": max(1, prompt_chars // 4),
         "completion_tokens": max(1, completion_chars // 4),

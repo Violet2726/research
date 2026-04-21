@@ -18,6 +18,10 @@ tags = ["text", "reasoning", "general_qa", "provider_dashscope", "debate_vote_pr
 [models."dashscope/qwen-plus"]
 tags = ["text", "reasoning", "general_qa", "provider_dashscope", "debate_vote_fallback"]
 
+[models."dashscope/qwen3-4b"]
+tags = ["text", "reasoning", "general_qa", "provider_dashscope"]
+reasoning_effort = "none"
+
 [models."dashscope/deepseek-r1-distill-qwen-7b"]
 tags = ["text", "reasoning", "general_qa", "provider_dashscope", "robustness_pilot"]
 
@@ -27,3 +31,16 @@ supports_response_format = false
 
 [models."zhipu/glm-4.6v-flash"]
 tags = ["text", "reasoning", "general_qa", "vision", "provider_zhipu"]
+
+[models."local_ollama/qwen2.5:3b-instruct"]
+tags = ["text", "reasoning", "general_qa", "provider_local_ollama", "local_gpu_4gb"]
+supports_response_format = true
+response_format = "json_object"
+default_max_output_tokens = 256
+
+[models."local_ollama/qwen3:4b"]
+tags = ["text", "reasoning", "general_qa", "provider_local_ollama", "local_gpu_4gb", "qwen_latest"]
+reasoning_effort = "none"
+supports_response_format = true
+response_format = "json_object"
+default_max_output_tokens = 256

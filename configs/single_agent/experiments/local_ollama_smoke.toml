@@ -1,0 +1,19 @@
+name = "local-ollama-smoke"
+description = "Local Ollama single-agent smoke run for the v4 minimal JSON contract on 4GB-class laptops."
+method_catalog = "configs/single_agent/methods/common.toml"
+benchmark_configs = [
+  "configs/shared/benchmarks/gsm8k.toml",
+  "configs/shared/benchmarks/strategyqa.toml",
+  "configs/shared/benchmarks/hotpotqa.toml",
+]
+global_seed = 42
+reruns_per_method = 1
+prompt_version = "single_agent_baseline_json"
+max_concurrent_requests = 1
+requests_per_minute_limit = 30
+tokens_per_minute_limit = 60000
+
+[phases.smoke20]
+split_suffix = "smoke20_seed42"
+methods = ["cot_1", "sc_5", "mv_5"]
+reruns_override = 1

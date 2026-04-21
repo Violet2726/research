@@ -1,9 +1,4 @@
-"""共享配置加载。
-
-本模块负责 provider、模型目录和 benchmark 配置的解析，是三条实验线
-统一依赖的配置入口。这里返回的 dataclass 尽量保持“已解析、可直接运行”
-的形态，避免上层 runner 再拼装底层细节。
-"""
+"""Shared configuration loading."""
 
 from __future__ import annotations
 
@@ -16,11 +11,12 @@ import tomllib
 SHARED_CONFIG_ROOT = Path("configs/shared")
 DEFAULT_MODEL_CATALOG_PATH = SHARED_CONFIG_ROOT / "model_catalog.toml"
 DEFAULT_PROVIDERS_DIR = SHARED_CONFIG_ROOT / "providers"
+REASONING_EFFORT_VALUES = {"high", "medium", "low", "none"}
 
 
 @dataclass(frozen=True)
 class ProviderConfig:
-    """provider 原始配置。"""
+    """Raw provider configuration."""
 
     name: str
     base_url: str
@@ -37,10 +33,11 @@ class ProviderConfig:
 
 @dataclass(frozen=True)
 class ModelCatalogEntry:
-    """模型目录中的单条覆盖项。"""
+    """One model entry from the catalog."""
 
     model_ref: str
     tags: list[str]
+    reasoning_effort: str | None
     supports_response_format: bool | None
     response_format: str | None
     default_max_output_tokens: int | None
@@ -50,7 +47,7 @@ class ModelCatalogEntry:
 
 @dataclass(frozen=True)
 class ResolvedModelConfig:
-    """合并 provider 默认值与模型覆盖项后的可运行模型配置。"""
+    """Runnable model configuration after merging provider defaults and model overrides."""
 
     name: str
     provider: str
@@ -61,6 +58,7 @@ class ResolvedModelConfig:
     default_temperature: float
     default_top_p: float
     default_max_output_tokens: int
+    reasoning_effort: str | None
     supports_response_format: bool
     response_format: str | None
     timeout_seconds: int
@@ -70,7 +68,7 @@ class ResolvedModelConfig:
 
 @dataclass(frozen=True)
 class BenchmarkConfig:
-    """基准数据集配置。"""
+    """Benchmark dataset configuration."""
 
     name: str
     slug: str
@@ -88,18 +86,15 @@ class BenchmarkConfig:
 
 
 def _load_toml(path: str | Path) -> dict[str, Any]:
-    """读取 TOML 文件并返回原始字典。"""
     with Path(path).open("rb") as handle:
         return tomllib.load(handle)
 
 
 def _provider_config_path(provider_name: str) -> Path:
-    """根据 provider 名称推导其配置文件路径。"""
     return DEFAULT_PROVIDERS_DIR / f"{provider_name}.toml"
 
 
 def load_provider_config(path: str | Path) -> ProviderConfig:
-    """加载单个 provider 配置。"""
     payload = _load_toml(path)
     return ProviderConfig(
         name=str(payload["name"]),
@@ -117,7 +112,6 @@ def load_provider_config(path: str | Path) -> ProviderConfig:
 
 
 def load_model_catalog(path: str | Path = DEFAULT_MODEL_CATALOG_PATH) -> dict[str, ModelCatalogEntry]:
-    """加载模型目录；目录不存在时返回空字典。"""
     catalog_path = Path(path)
     if not catalog_path.exists():
         return {}
@@ -127,6 +121,7 @@ def load_model_catalog(path: str | Path = DEFAULT_MODEL_CATALOG_PATH) -> dict[st
         str(model_ref): ModelCatalogEntry(
             model_ref=str(model_ref),
             tags=[str(tag) for tag in item.get("tags", [])],
+            reasoning_effort=_optional_reasoning_effort(item, "reasoning_effort"),
             supports_response_format=_optional_bool(item, "supports_response_format"),
             response_format=item.get("response_format"),
             default_max_output_tokens=_optional_int(item, "default_max_output_tokens"),
@@ -138,7 +133,6 @@ def load_model_catalog(path: str | Path = DEFAULT_MODEL_CATALOG_PATH) -> dict[st
 
 
 def load_benchmark_config(path: str | Path) -> BenchmarkConfig:
-    """加载单个 benchmark 配置。"""
     return BenchmarkConfig(**_load_toml(path))
 
 
@@ -146,7 +140,6 @@ def resolve_model_ref(
     model_ref: str,
     model_catalog_path: str | Path = DEFAULT_MODEL_CATALOG_PATH,
 ) -> ResolvedModelConfig:
-    """解析 ``provider/model`` 形式的模型引用并合并默认值。"""
     provider_name, model_name = parse_model_ref(model_ref)
     provider = load_provider_config(_provider_config_path(provider_name))
     catalog_entry = load_model_catalog(model_catalog_path).get(model_ref)
@@ -163,6 +156,11 @@ def resolve_model_ref(
             catalog_entry.default_max_output_tokens
             if catalog_entry and catalog_entry.default_max_output_tokens is not None
             else provider.default_max_output_tokens
+        ),
+        reasoning_effort=(
+            catalog_entry.reasoning_effort
+            if catalog_entry and catalog_entry.reasoning_effort is not None
+            else None
         ),
         supports_response_format=(
             catalog_entry.supports_response_format
@@ -189,7 +187,6 @@ def resolve_model_ref(
 
 
 def parse_model_ref(model_ref: str) -> tuple[str, str]:
-    """拆解 ``provider/model_name`` 形式的模型引用。"""
     if "/" not in model_ref:
         raise RuntimeError(
             f"Invalid model ref '{model_ref}'. Use the format 'provider/model_name'."
@@ -203,7 +200,6 @@ def parse_model_ref(model_ref: str) -> tuple[str, str]:
 
 
 def _optional_bool(payload: dict[str, Any], key: str) -> bool | None:
-    """读取可选布尔字段。"""
     value = payload.get(key)
     if value is None:
         return None
@@ -211,8 +207,19 @@ def _optional_bool(payload: dict[str, Any], key: str) -> bool | None:
 
 
 def _optional_int(payload: dict[str, Any], key: str) -> int | None:
-    """读取可选整数值。"""
     value = payload.get(key)
     if value is None:
         return None
     return int(value)
+
+
+def _optional_reasoning_effort(payload: dict[str, Any], key: str) -> str | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    normalized = str(value)
+    if normalized not in REASONING_EFFORT_VALUES:
+        raise RuntimeError(
+            f"Invalid reasoning_effort {normalized!r}. Expected one of {sorted(REASONING_EFFORT_VALUES)}."
+        )
+    return normalized

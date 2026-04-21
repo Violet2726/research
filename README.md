@@ -111,3 +111,32 @@ uv run selective-cli run --experiment configs/selective_comm/experiments/trigger
 - 实验包之间禁止互相导入
 - 共享配置统一放在 `configs/shared/`
 - 单智能体配置统一放在 `configs/single_agent/`
+## Local Ollama Smoke Run
+
+Use the local provider `local_ollama/qwen3:4b` to run the single-agent smoke experiment on a laptop GPU with the v4 minimal JSON contract.
+
+1. Install Ollama for Windows from the official installer and confirm `ollama --version`.
+2. Pull the base model:
+
+```powershell
+ollama pull qwen3:4b
+```
+
+3. Ensure `.env.local` contains `OLLAMA_API_KEY=ollama`.
+4. Inspect the resolved config:
+
+```powershell
+uv run single-agent-cli inspect-experiment --experiment configs/single_agent/experiments/local_ollama_smoke.toml --model local_ollama/qwen3:4b
+```
+
+5. Run the smoke split:
+
+```powershell
+uv run single-agent-cli run --experiment configs/single_agent/experiments/local_ollama_smoke.toml --phase smoke20 --model local_ollama/qwen3:4b --cache-path cache/single_agent_local_ollama.sqlite
+```
+
+6. Validate the run:
+
+```powershell
+uv run single-agent-cli validate-run --run-dir <run_dir>
+```

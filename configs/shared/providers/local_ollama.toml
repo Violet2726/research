@@ -1,0 +1,11 @@
+name = "local_ollama"
+base_url = "http://127.0.0.1:11434/v1"
+api_key_env = "OLLAMA_API_KEY"
+chat_path = "/chat/completions"
+default_temperature = 0.0
+default_top_p = 1.0
+default_max_output_tokens = 256
+supports_response_format = true
+response_format = "json_object"
+timeout_seconds = 120
+max_retries = 2
