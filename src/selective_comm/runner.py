@@ -20,6 +20,12 @@ from experiment_core.evaluation import aggregate_majority, normalize_prediction,
 from experiment_core.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
 from experiment_core.rate_limits import SlidingWindowRateLimiter
 from experiment_core.runtime import RunProgressTracker, build_run_id
+from experiment_core.selective_signals import (
+    confidence_display,
+    decide_trigger_from_policy,
+    normalize_confidence,
+    summarize_confidence_rows,
+)
 from experiment_core.methods import MethodConfig
 from experiment_core.structured_output import (
     ARTIFACT_VERSION,
@@ -320,16 +326,11 @@ def _run_sample(
     stage_a_score = score_prediction(benchmark_slug, stage_a_vote, sample.reference_answer)
     initial_disagreement = len(set(initial_answers)) > 1
 
-    valid_confidences = [float(row["confidence_value"]) for row in stage_a_turns if row["confidence_valid"]]
-    invalid_confidence_agents = [int(row["agent_id"]) for row in stage_a_turns if not row["confidence_valid"]]
-    any_invalid_confidence = bool(invalid_confidence_agents)
-    mean_confidence = round(sum(valid_confidences) / len(valid_confidences), 6) if valid_confidences else None
-    if len(valid_confidences) >= 2:
-        confidence_spread = round(max(valid_confidences) - min(valid_confidences), 6)
-    elif len(valid_confidences) == 1:
-        confidence_spread = 0.0
-    else:
-        confidence_spread = None
+    confidence_summary = summarize_confidence_rows(stage_a_turns)
+    invalid_confidence_agents = confidence_summary.invalid_agent_ids
+    any_invalid_confidence = confidence_summary.any_invalid_confidence
+    mean_confidence = confidence_summary.mean_confidence
+    confidence_spread = confidence_summary.confidence_spread
 
     stage_a_prompt_tokens = sum(float(row["prompt_tokens"]) for row in stage_a_turns)
     stage_a_completion_tokens = sum(float(row["completion_tokens"]) for row in stage_a_turns)
@@ -407,13 +408,16 @@ def _run_sample(
     trigger_rows: list[dict[str, Any]] = []
     prediction_rows: list[dict[str, Any]] = []
     for policy in policies:
-        triggered, decision_reason, fail_open_applied = _decide_trigger(
+        decision = decide_trigger_from_policy(
             policy=policy,
             initial_disagreement=initial_disagreement,
             mean_confidence=mean_confidence,
             confidence_spread=confidence_spread,
             any_invalid_confidence=any_invalid_confidence,
         )
+        triggered = decision.triggered
+        decision_reason = decision.decision_reason
+        fail_open_applied = decision.fail_open_applied
         prediction = stage_b_vote if triggered else stage_a_vote
         score = stage_b_score if triggered else stage_a_score
         prompt_tokens = stage_a_prompt_tokens + (stage_b_prompt_tokens if triggered else 0.0)
@@ -771,7 +775,7 @@ def _execute_turn(
     usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
     reasoning = str(validated_output.get("reasoning", "")).strip() if validated_output else ""
     confidence_raw = validated_output.get("confidence_raw") if validated_output else None
-    confidence_value, confidence_valid, confidence_source = _normalize_confidence(confidence_raw)
+    confidence_value, confidence_valid, confidence_source = normalize_confidence(confidence_raw)
     key_evidence = validated_output.get("key_evidence") if validated_output else None
     uncertainty = validated_output.get("uncertain_point") if validated_output else None
     return {
@@ -802,7 +806,7 @@ def _execute_turn(
         "validated_output": validated_output,
         "reasoning": reasoning,
         "confidence_raw": confidence_raw,
-        "confidence_raw_display": _confidence_display(confidence_raw),
+        "confidence_raw_display": confidence_display(confidence_raw),
         "confidence_value": confidence_value,
         "confidence_valid": confidence_valid,
         "confidence_source": confidence_source,
@@ -1052,43 +1056,6 @@ def _group_stage_tokens(turn_rows: list[dict[str, Any]]) -> dict[str, float]:
     return grouped
 
 
-def _decide_trigger(
-    policy: TriggerPolicyConfig,
-    initial_disagreement: bool,
-    mean_confidence: float | None,
-    confidence_spread: float | None,
-    any_invalid_confidence: bool,
-) -> tuple[bool, str, bool]:
-    """根据策略配置给出是否触发。"""
-    if policy.trigger_type == "always_communicate":
-        return True, "always_on", False
-    if policy.trigger_type == "disagreement_triggered":
-        return initial_disagreement, "answer_disagreement" if initial_disagreement else "early_exit_by_agreement", False
-    if policy.trigger_type == "confidence_triggered":
-        if any_invalid_confidence and policy.fail_open_to_always:
-            return True, "invalid_confidence_fail_open", True
-        threshold = policy.mean_conf_threshold if policy.mean_conf_threshold is not None else 0.75
-        if mean_confidence is None:
-            return False, "missing_confidence_without_fail_open", False
-        triggered = mean_confidence < threshold
-        return triggered, "low_mean_confidence" if triggered else "early_exit_by_high_confidence", False
-    if policy.trigger_type == "hybrid_trigger":
-        if initial_disagreement:
-            return True, "answer_disagreement", False
-        if any_invalid_confidence and policy.fail_open_to_always:
-            return True, "invalid_confidence_fail_open", True
-        threshold = policy.mean_conf_threshold if policy.mean_conf_threshold is not None else 0.75
-        spread_threshold = policy.conf_spread_threshold if policy.conf_spread_threshold is not None else 0.20
-        if mean_confidence is None:
-            return False, "missing_confidence_without_fail_open", False
-        if mean_confidence < threshold:
-            return True, "low_mean_confidence", False
-        if confidence_spread is not None and confidence_spread > spread_threshold:
-            return True, "high_confidence_spread", False
-        return False, "early_exit_by_hybrid_rule", False
-    raise ValueError(f"Unsupported trigger type: {policy.trigger_type}")
-
-
 def _resolve_split_name(experiment: SelectiveCommExperimentConfig, phase_name: str, benchmark_slug: str) -> str:
     """解析当前 benchmark 对应的冻结 split 名称。"""
     phase = phase_metadata(experiment, phase_name)
@@ -1148,7 +1115,7 @@ def _trace_hash(rows: list[dict[str, Any]]) -> str:
             "agent_id": row["agent_id"],
             "prompt_hash": row["prompt_hash"],
             "normalized_answer": row["normalized_answer"],
-            "confidence": row["confidence"],
+            "confidence_value": row["confidence_value"],
             "output_status": row["output_status"],
             "request_error": row["request_error"],
         }
@@ -1194,34 +1161,6 @@ def _question_preview(question: str, max_chars: int = 120) -> str:
     if len(cleaned) <= max_chars:
         return cleaned
     return cleaned[: max_chars - 3] + "..."
-
-
-def _confidence_display(value: object) -> object:
-    """Preserve the raw display form of confidence_raw."""
-    if value is None:
-        return ""
-    return value
-
-
-def _normalize_confidence(raw_value: object) -> tuple[float | None, bool, str]:
-    """Normalize confidence_raw into a comparable numeric value."""
-    if raw_value is None:
-        return None, False, "missing"
-    if isinstance(raw_value, bool):
-        return None, False, "invalid_bool"
-    if isinstance(raw_value, (int, float)):
-        numeric_value = float(raw_value)
-    else:
-        text = str(raw_value).strip().rstrip("%")
-        try:
-            numeric_value = float(text)
-        except ValueError:
-            return None, False, "non_numeric"
-    if 0.0 <= numeric_value <= 1.0:
-        return round(numeric_value, 6), True, "unit_interval"
-    if 1.0 < numeric_value <= 100.0:
-        return round(numeric_value / 100.0, 6), True, "percent_scaled"
-    return None, False, "out_of_range"
 
 
 def _mean(values) -> float:

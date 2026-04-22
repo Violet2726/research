@@ -11,9 +11,14 @@ from experiment_core.config import load_benchmark_config, load_model_catalog, pa
 from experiment_core.datasets import generate_split_manifests, load_split_ids, select_samples
 from experiment_core.providers import _extract_message_channels, build_payload
 from experiment_core.rate_limits import SlidingWindowRateLimiter
+from experiment_core.selective_signals import decide_trigger, summarize_confidence_rows
 from experiment_core.structured_output import (
     OUTPUT_MODE_CORE,
     OUTPUT_MODE_SELECTIVE_COMM,
+    OUTPUT_MODE_SPARC_AUDIT,
+    OUTPUT_MODE_SPARC_BELIEF_UPDATE,
+    OUTPUT_MODE_SPARC_MESSAGE,
+    OUTPUT_MODE_SPARC_SOLVER,
     validate_structured_output,
 )
 
@@ -94,6 +99,91 @@ def test_validate_selective_structured_output() -> None:
     assert payload["confidence_raw"] == 0.4
     assert payload["key_evidence"] == "one clue"
     assert payload["uncertain_point"] is None
+
+
+def test_validate_sparc_solver_structured_output() -> None:
+    payload = validate_structured_output(
+        json.dumps(
+            {
+                "final_answer": "42",
+                "reasoning_trace": "short trace",
+                "claim_span": "2+40",
+                "confidence_raw": 0.7,
+                "uncertain_point": "unit conversion",
+                "key_evidence": "5 groups of 8 and 2 extra",
+            }
+        ),
+        OUTPUT_MODE_SPARC_SOLVER,
+    )
+    assert payload["final_answer"] == "42"
+    assert payload["confidence_raw"] == 0.7
+
+
+def test_validate_sparc_message_structured_output() -> None:
+    payload = validate_structured_output(
+        json.dumps(
+            {
+                "final_answer": "yes",
+                "confidence_raw": "0.8",
+                "claim_span": "the key factual claim",
+            }
+        ),
+        OUTPUT_MODE_SPARC_MESSAGE,
+    )
+    assert payload["claim_span"] == "the key factual claim"
+
+
+def test_validate_sparc_belief_update_structured_output() -> None:
+    payload = validate_structured_output(
+        json.dumps(
+            {
+                "changed_answer": True,
+                "new_answer": "no",
+                "confidence_delta": -0.1,
+                "reason_for_change": "peer evidence is stronger",
+                "remaining_disagreement": None,
+            }
+        ),
+        OUTPUT_MODE_SPARC_BELIEF_UPDATE,
+    )
+    assert payload["changed_answer"] is True
+    assert payload["new_answer"] == "no"
+
+
+def test_validate_sparc_audit_structured_output() -> None:
+    payload = validate_structured_output(
+        json.dumps(
+            {
+                "decision": "resolve_for_a",
+                "verified_answer": "48",
+                "rationale": "candidate A matches the evidence",
+            }
+        ),
+        OUTPUT_MODE_SPARC_AUDIT,
+    )
+    assert payload["decision"] == "resolve_for_a"
+
+
+def test_selective_signal_summary_and_decision() -> None:
+    summary = summarize_confidence_rows(
+        [
+            {"agent_id": 1, "confidence_valid": True, "confidence_value": 0.9},
+            {"agent_id": 2, "confidence_valid": True, "confidence_value": 0.4},
+            {"agent_id": 3, "confidence_valid": False, "confidence_value": None},
+        ]
+    )
+    assert summary.mean_confidence == 0.65
+    assert summary.confidence_spread == 0.5
+    assert summary.invalid_agent_ids == [3]
+    decision = decide_trigger(
+        trigger_type="hybrid_trigger",
+        initial_disagreement=False,
+        mean_confidence=summary.mean_confidence,
+        confidence_spread=summary.confidence_spread,
+        any_invalid_confidence=summary.any_invalid_confidence,
+        fail_open_to_always=False,
+    )
+    assert decision.triggered is True
 
 
 @pytest.mark.parametrize(
