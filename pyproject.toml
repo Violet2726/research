@@ -19,6 +19,7 @@ dependencies = [
 single-agent-cli = "single_agent_baselines.cli:main"
 mad-cli = "multi_agent_baselines.cli:main"
 selective-cli = "selective_comm.cli:main"
+sparc-cli = "sparc.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

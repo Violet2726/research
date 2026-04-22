@@ -5,6 +5,7 @@
 - `single_agent_baselines`：单智能体 CoT / Self-Consistency / Majority Vote
 - `multi_agent_baselines`：多智能体 debate 基线
 - `selective_comm`：触发式通信 / early-exit 实验
+- `sparc`：内容消融、局部审计与 SPARC v1 smoke
 
 ## 项目结构
 
@@ -16,6 +17,8 @@
   多智能体实验实现
 - `src/selective_comm/`
   选择性通信实验实现
+- `src/sparc/`
+  SPARC v1 smoke 实验实现
 - `configs/shared/`
   共享 benchmarks、splits、providers、model catalog
 - `configs/single_agent/`
@@ -24,6 +27,8 @@
   多智能体 experiments、controls、protocols、rosters
 - `configs/selective_comm/`
   选择性通信 experiments、controls、policies、protocols
+- `configs/sparc/`
+  SPARC experiments、protocols
 
 ## 安装
 
@@ -90,6 +95,18 @@ uv run selective-cli inspect-experiment --experiment configs/selective_comm/expe
 uv run selective-cli run --experiment configs/selective_comm/experiments/trigger_early_exit_v1.toml --phase smoke20
 ```
 
+查看 SPARC 实验配置：
+
+```powershell
+uv run sparc-cli inspect-experiment --experiment configs/sparc/experiments/content_ablation_v1.toml
+```
+
+运行 SPARC 实验：
+
+```powershell
+uv run sparc-cli run --experiment configs/sparc/experiments/sparc_v1_smoke.toml --phase smoke20 --backbone dashscope/qwen3-4b
+```
+
 ## 默认输出
 
 - 单智能体：
@@ -104,6 +121,10 @@ uv run selective-cli run --experiment configs/selective_comm/experiments/trigger
   `local/runs/selective_comm/`
   `cache/selective_comm_requests.sqlite`
   `local/reports/selective_comm/`
+- SPARC：
+  `local/runs/sparc/`
+  `cache/sparc_requests.sqlite`
+  `local/reports/sparc/`
 
 ## 开发约束
 

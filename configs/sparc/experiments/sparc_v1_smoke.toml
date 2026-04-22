@@ -1,0 +1,25 @@
+name = "sparc_v1_smoke"
+description = "SPARC v1 end-to-end smoke with frozen trigger selection and local auditing."
+experiment_kind = "sparc_v1"
+benchmark_configs = [
+  "configs/shared/benchmarks/gsm8k.toml",
+  "configs/shared/benchmarks/strategyqa.toml",
+  "configs/shared/benchmarks/hotpotqa.toml",
+]
+protocol = "configs/sparc/protocols/shared_3a_r1.toml"
+global_seed = 42
+prompt_version = "sparc_v1_json"
+max_concurrent_requests = 2
+requests_per_minute_limit = 600
+tokens_per_minute_limit = 1000000
+primary_backbone = "dashscope/qwen3-4b"
+confirmatory_backbone = "dashscope/qwen-turbo"
+
+[sparc_v1]
+default_trigger_policy = "hybrid_trigger"
+fallback_trigger_policy = "disagreement_triggered"
+trigger_drop_questions = 1.0
+fixed_message_modes = { gsm8k = "disagreement_step_only", strategyqa = "disagreement_step_only", hotpotqa = "critical_evidence_only" }
+
+[phases.smoke20]
+split_suffix = "smoke20_seed42"

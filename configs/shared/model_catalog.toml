@@ -14,6 +14,11 @@ tags = ["text", "reasoning", "general_qa", "provider_dashscope", "mad_primary"]
 
 [models."dashscope/qwen-turbo-1101"]
 tags = ["text", "reasoning", "general_qa", "provider_dashscope", "debate_vote_primary"]
+max_retries = 8
+
+[models."dashscope/qwen-turbo"]
+tags = ["text", "reasoning", "general_qa", "provider_dashscope", "sparc_confirmatory"]
+max_retries = 8
 
 [models."dashscope/qwen-plus"]
 tags = ["text", "reasoning", "general_qa", "provider_dashscope", "debate_vote_fallback"]

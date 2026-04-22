@@ -5,6 +5,7 @@ import json
 from contextlib import redirect_stdout
 
 from multi_agent_baselines.cli import main as multi_agent_main
+from sparc.cli import main as sparc_main
 from selective_comm.cli import main as selective_main
 from single_agent_baselines.cli import main as single_agent_main
 
@@ -60,3 +61,16 @@ def test_selective_comm_inspect_cli() -> None:
         ],
     )
     assert payload["name"] == "trigger-early-exit-v1"
+
+
+def test_sparc_inspect_cli() -> None:
+    payload = _run_cli(
+        sparc_main,
+        [
+            "sparc-cli",
+            "inspect-experiment",
+            "--experiment",
+            "configs/sparc/experiments/content_ablation_v1.toml",
+        ],
+    )
+    assert payload["name"] == "content_ablation_v1"

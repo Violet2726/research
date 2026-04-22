@@ -5,6 +5,8 @@ import json
 
 from multi_agent_baselines.reporting import summarize_run as summarize_multi_agent
 from multi_agent_baselines.validation import validate_run as validate_multi_agent
+from sparc.reporting import summarize_run as summarize_sparc
+from sparc.validation import validate_run as validate_sparc
 from selective_comm.reporting import summarize_run as summarize_selective
 from selective_comm.validation import validate_run as validate_selective
 from single_agent_baselines.reporting import budget_fairness_check, summarize_run as summarize_single_agent
@@ -148,6 +150,40 @@ def test_selective_comm_validation_contract(tmp_path: Path) -> None:
 
     assert summarize_selective(tmp_path)["row_count"] == 1
     assert validate_selective(tmp_path)["passed"] is True
+
+
+def test_sparc_validation_contract(tmp_path: Path) -> None:
+    _touch_json(
+        tmp_path / "manifest.json",
+        {
+            "experiment_kind": "content_ablation",
+        },
+    )
+    _write_jsonl(tmp_path / "stage_a_turns.jsonl", [{"output_status": "ok", "cache_hit": False, "dataset": "gsm8k", "method_name": "shared_stage_a", "sample_id": "gsm8k-00001"}])
+    _write_jsonl(tmp_path / "message_packets.jsonl", [{"x": 1}])
+    _write_jsonl(tmp_path / "belief_updates.jsonl", [{"output_status": "ok", "cache_hit": False, "dataset": "gsm8k", "method_name": "shared_stage_b::full_cot", "sample_id": "gsm8k-00001"}])
+    _write_jsonl(tmp_path / "audit_turns.jsonl", [])
+    _write_jsonl(
+        tmp_path / "final_predictions.jsonl",
+        [
+            {
+                "dataset": "gsm8k",
+                "sample_id": "gsm8k-00001",
+                "method_name": "full_cot",
+                "stage_a_trace_hash": "a",
+                "audit_status": "not_applicable",
+                "audit_tokens_per_question": 0.0,
+            }
+        ],
+    )
+    _touch_json(tmp_path / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
+    _touch_json(tmp_path / "diagnostics.json", {"recommended_next_default": {"method_name": "full_cot"}})
+    (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "paper_summary.csv").write_text("dataset,model_name,method_name,accuracy_mean,communication_tokens_mean,total_tokens_mean,calls_per_question_mean,acc_per_1k_tokens\n", encoding="utf-8")
+    (tmp_path / "content_ablation_report.md").write_text("# report\n", encoding="utf-8")
+
+    assert summarize_sparc(tmp_path)["row_count"] == 1
+    assert validate_sparc(tmp_path)["passed"] is True
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:

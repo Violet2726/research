@@ -10,6 +10,7 @@ EXPERIMENT_PACKAGES = {
     "single_agent_baselines",
     "multi_agent_baselines",
     "selective_comm",
+    "sparc",
 }
 
 
