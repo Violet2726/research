@@ -8,7 +8,7 @@ benchmark_configs = [
 ]
 global_seed = 42
 reruns_per_method = 3
-prompt_version = "single_agent_baseline_json"
+prompt_version = "single_agent_reasoning_json_v1"
 max_concurrent_requests = 6
 requests_per_minute_limit = 60
 tokens_per_minute_limit = 150000
