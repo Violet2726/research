@@ -1,0 +1,10 @@
+agent_count = 3
+debate_rounds = 1
+initial_temperature = 0.7
+debate_temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256
+mean_conf_threshold = 0.75
+conf_spread_threshold = 0.20
+full_token_cap = 192
+compressed_token_cap = 80

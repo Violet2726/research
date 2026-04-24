@@ -1,0 +1,23 @@
+name = "free_mad_lite_v1"
+description = "Free-MAD-lite smoke20 mechanism validation: single-round anti-conformity plus LLM trajectory judge."
+benchmark_configs = [
+  "configs/shared/benchmarks/gsm8k.toml",
+  "configs/shared/benchmarks/strategyqa.toml",
+  "configs/shared/benchmarks/hotpotqa.toml",
+]
+protocol = "configs/free_mad_lite/protocols/shared_3a_r1.toml"
+methods = [
+  "mv_3_initial",
+  "vanilla_mad_r1_final_vote",
+  "anti_conformity_final_vote",
+  "free_mad_lite_llm_trajectory",
+]
+global_seed = 42
+prompt_version = "free_mad_lite_v1_json"
+max_concurrent_requests = 3
+requests_per_minute_limit = 60
+tokens_per_minute_limit = 1000000
+primary_backbone = "dashscope/qwen-turbo-1101"
+
+[phases.smoke20]
+split_suffix = "smoke20_seed42"

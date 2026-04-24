@@ -1,0 +1,18 @@
+name = "sid_lite_v1"
+description = "SID-lite smoke20 mechanism validation: confidence early exit plus compressed messages."
+benchmark_configs = [
+  "configs/shared/benchmarks/gsm8k.toml",
+  "configs/shared/benchmarks/strategyqa.toml",
+  "configs/shared/benchmarks/hotpotqa.toml",
+]
+protocol = "configs/sid_lite/protocols/shared_3a_r1.toml"
+methods = ["mv_3", "always_full", "compression_only", "sid_lite"]
+global_seed = 42
+prompt_version = "sid_lite_v1_json"
+max_concurrent_requests = 3
+requests_per_minute_limit = 60
+tokens_per_minute_limit = 1000000
+primary_backbone = "dashscope/qwen-turbo-1101"
+
+[phases.smoke20]
+split_suffix = "smoke20_seed42"

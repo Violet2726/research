@@ -21,6 +21,8 @@ mad-cli = "multi_agent_baselines.cli:main"
 selective-cli = "selective_comm.cli:main"
 sparc-cli = "sparc.cli:main"
 budget-cli = "budget_comm.cli:main"
+sid-lite-cli = "sid_lite.cli:main"
+free-mad-lite-cli = "free_mad_lite.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
