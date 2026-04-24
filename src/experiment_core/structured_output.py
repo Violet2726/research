@@ -8,6 +8,8 @@ from typing import Any, Literal
 ARTIFACT_VERSION = "v5"
 OUTPUT_MODE_CORE = "core"
 OUTPUT_MODE_SELECTIVE_COMM = "selective_comm"
+OUTPUT_MODE_BUDGET_SOLVER = "budget_solver"
+OUTPUT_MODE_BUDGET_BELIEF_UPDATE = "budget_belief_update"
 OUTPUT_MODE_SPARC_SOLVER = "sparc_solver"
 OUTPUT_MODE_SPARC_MESSAGE = "sparc_message"
 OUTPUT_MODE_SPARC_BELIEF_UPDATE = "sparc_belief_update"
@@ -15,6 +17,8 @@ OUTPUT_MODE_SPARC_AUDIT = "sparc_audit"
 OutputMode = Literal[
     "core",
     "selective_comm",
+    "budget_solver",
+    "budget_belief_update",
     "sparc_solver",
     "sparc_message",
     "sparc_belief_update",
@@ -35,6 +39,10 @@ def validate_structured_output(raw_text: str, output_mode: OutputMode) -> dict[s
         return _validate_core_output(payload)
     if output_mode == OUTPUT_MODE_SELECTIVE_COMM:
         return _validate_selective_output(payload)
+    if output_mode == OUTPUT_MODE_BUDGET_SOLVER:
+        return _validate_budget_solver_output(payload)
+    if output_mode == OUTPUT_MODE_BUDGET_BELIEF_UPDATE:
+        return _validate_budget_belief_update_output(payload)
     if output_mode == OUTPUT_MODE_SPARC_SOLVER:
         return _validate_sparc_solver_output(payload)
     if output_mode == OUTPUT_MODE_SPARC_MESSAGE:
@@ -120,6 +128,36 @@ def _validate_sparc_solver_output(payload: dict[str, Any]) -> dict[str, Any]:
     return validated
 
 
+def _validate_budget_solver_output(payload: dict[str, Any]) -> dict[str, Any]:
+    allowed_keys = {
+        "final_answer",
+        "reasoning_trace",
+        "claim_span",
+        "key_evidence",
+        "keyword_clues",
+        "confidence_raw",
+        "uncertain_point",
+    }
+    actual_keys = set(payload)
+    required_keys = {"final_answer", "confidence_raw", "keyword_clues"}
+    missing = sorted(required_keys - actual_keys)
+    if missing:
+        raise ValueError(f"Assistant output is missing required keys: {missing}.")
+    if not actual_keys.issubset(allowed_keys):
+        raise ValueError(
+            f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}."
+        )
+    return {
+        "final_answer": _require_answer_value(payload.get("final_answer"), "final_answer"),
+        "reasoning_trace": _require_nullable_hint(payload.get("reasoning_trace"), "reasoning_trace"),
+        "claim_span": _require_nullable_hint(payload.get("claim_span"), "claim_span"),
+        "key_evidence": _require_nullable_hint(payload.get("key_evidence"), "key_evidence"),
+        "keyword_clues": _require_keyword_clues(payload.get("keyword_clues")),
+        "confidence_raw": _require_confidence_raw(payload.get("confidence_raw")),
+        "uncertain_point": _require_nullable_hint(payload.get("uncertain_point"), "uncertain_point"),
+    }
+
+
 def _validate_sparc_message_output(payload: dict[str, Any]) -> dict[str, Any]:
     allowed_keys = {
         "final_answer",
@@ -172,6 +210,10 @@ def _validate_sparc_belief_update_output(payload: dict[str, Any]) -> dict[str, A
         "reason_for_change": _require_nullable_hint(payload.get("reason_for_change"), "reason_for_change"),
         "remaining_disagreement": _require_nullable_hint(payload.get("remaining_disagreement"), "remaining_disagreement"),
     }
+
+
+def _validate_budget_belief_update_output(payload: dict[str, Any]) -> dict[str, Any]:
+    return _validate_sparc_belief_update_output(payload)
 
 
 def _validate_sparc_audit_output(payload: dict[str, Any]) -> dict[str, Any]:
@@ -269,6 +311,22 @@ def _require_confidence_raw(value: object) -> float | str:
             raise ValueError("confidence_raw string must be numeric.") from exc
         return normalized
     raise ValueError("confidence_raw must be a numeric value or numeric string.")
+
+
+def _require_keyword_clues(value: object) -> list[str]:
+    if isinstance(value, str):
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("keyword_clues must be non-empty.")
+        return [normalized]
+    if not isinstance(value, list):
+        raise ValueError("keyword_clues must be a string or a list of strings.")
+    normalized_items: list[str] = []
+    for item in value:
+        normalized_items.append(_require_non_empty_string(item, "keyword_clues[]"))
+    if not normalized_items:
+        raise ValueError("keyword_clues must contain at least one clue.")
+    return normalized_items
 
 
 def _optional_confidence_raw(value: object) -> float | str | None:

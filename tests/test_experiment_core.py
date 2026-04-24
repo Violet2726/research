@@ -13,6 +13,8 @@ from experiment_core.providers import _extract_message_channels, build_payload
 from experiment_core.rate_limits import SlidingWindowRateLimiter
 from experiment_core.selective_signals import decide_trigger, summarize_confidence_rows
 from experiment_core.structured_output import (
+    OUTPUT_MODE_BUDGET_BELIEF_UPDATE,
+    OUTPUT_MODE_BUDGET_SOLVER,
     OUTPUT_MODE_CORE,
     OUTPUT_MODE_SELECTIVE_COMM,
     OUTPUT_MODE_SPARC_AUDIT,
@@ -99,6 +101,42 @@ def test_validate_selective_structured_output() -> None:
     assert payload["confidence_raw"] == 0.4
     assert payload["key_evidence"] == "one clue"
     assert payload["uncertain_point"] is None
+
+
+def test_validate_budget_solver_structured_output() -> None:
+    payload = validate_structured_output(
+        json.dumps(
+            {
+                "final_answer": "yes",
+                "reasoning_trace": "short trace",
+                "claim_span": "one claim",
+                "key_evidence": "one evidence",
+                "keyword_clues": ["alpha", "beta"],
+                "confidence_raw": 0.8,
+                "uncertain_point": None,
+            }
+        ),
+        OUTPUT_MODE_BUDGET_SOLVER,
+    )
+    assert payload["keyword_clues"] == ["alpha", "beta"]
+    assert payload["confidence_raw"] == 0.8
+
+
+def test_validate_budget_belief_update_structured_output() -> None:
+    payload = validate_structured_output(
+        json.dumps(
+            {
+                "changed_answer": False,
+                "new_answer": "no",
+                "confidence_delta": 0.1,
+                "reason_for_change": "peer confirms it",
+                "remaining_disagreement": None,
+            }
+        ),
+        OUTPUT_MODE_BUDGET_BELIEF_UPDATE,
+    )
+    assert payload["changed_answer"] is False
+    assert payload["new_answer"] == "no"
 
 
 def test_validate_sparc_solver_structured_output() -> None:
@@ -192,6 +230,7 @@ def test_selective_signal_summary_and_decision() -> None:
         ('```json\n{"final_answer":"yes","reasoning":"short"}\n```', OUTPUT_MODE_CORE),
         ("The answer is yes.", OUTPUT_MODE_CORE),
         ('{"final_answer":"yes","confidence_raw":"high","reasoning":"short","key_evidence":null,"uncertain_point":null}', OUTPUT_MODE_SELECTIVE_COMM),
+        ('{"final_answer":"yes","reasoning_trace":"short","claim_span":"claim","key_evidence":"evidence","keyword_clues":[],"confidence_raw":0.8,"uncertain_point":null}', OUTPUT_MODE_BUDGET_SOLVER),
         ('{"final_answer":"yes","reasoning":"short"}{"final_answer":"no","reasoning":"alt"}', OUTPUT_MODE_CORE),
         ('{"reasoning":"short"}', OUTPUT_MODE_CORE),
         ('{"final_answer":"yes"}', OUTPUT_MODE_SELECTIVE_COMM),

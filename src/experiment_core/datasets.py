@@ -134,7 +134,14 @@ def _load_strategyqa(config: BenchmarkConfig) -> list[DatasetSample]:
                 question=record["question"].strip(),
                 reference_answer=answer,
                 prompt_context="",
-                metadata={"raw_index": index, "term": record.get("term")},
+                metadata={
+                    "raw_index": index,
+                    "term": record.get("term"),
+                    "description": record.get("description"),
+                    "facts": list(record.get("facts", [])),
+                    "decomposition": list(record.get("decomposition", [])),
+                    "evidence": record.get("evidence"),
+                },
             )
         )
     return samples
@@ -158,6 +165,8 @@ def _load_hotpotqa(config: BenchmarkConfig) -> list[DatasetSample]:
                     "raw_index": index,
                     "type": record.get("type"),
                     "level": record.get("level"),
+                    "supporting_facts": record.get("supporting_facts"),
+                    "raw_context": record.get("context"),
                 },
             )
         )
