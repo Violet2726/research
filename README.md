@@ -1,11 +1,12 @@
 # Research Experiments
 
-统一共享核心层的研究实验仓库，当前包含 3 条独立实验线：
+统一共享核心层的研究实验仓库，当前包含 5 条独立实验线：
 
 - `single_agent_baselines`：单智能体 CoT / Self-Consistency / Majority Vote
 - `multi_agent_baselines`：多智能体 debate 基线
 - `selective_comm`：触发式通信 / early-exit 实验
 - `sparc`：内容消融、局部审计与 SPARC v1 smoke
+- `budget_comm`：DALA-lite 风格的预算约束通信实验
 
 ## 项目结构
 
@@ -19,6 +20,8 @@
   选择性通信实验实现
 - `src/sparc/`
   SPARC v1 smoke 实验实现
+- `src/budget_comm/`
+  DALA-lite budget-aware communication 实验实现
 - `configs/shared/`
   共享 benchmarks、splits、providers、model catalog
 - `configs/single_agent/`
@@ -29,6 +32,8 @@
   选择性通信 experiments、controls、policies、protocols
 - `configs/sparc/`
   SPARC experiments、protocols
+- `configs/budget_comm/`
+  DALA-lite experiments、policies、protocols、views
 
 ## 安装
 
@@ -107,6 +112,18 @@ uv run sparc-cli inspect-experiment --experiment configs/sparc/experiments/conte
 uv run sparc-cli run --experiment configs/sparc/experiments/sparc_v1_smoke.toml --phase smoke20 --backbone dashscope/qwen3-4b
 ```
 
+查看 budget_comm 实验配置：
+
+```powershell
+uv run budget-cli inspect-experiment --experiment configs/budget_comm/experiments/dala_lite_same_context_v1.toml
+```
+
+运行 DALA-lite same-context 实验：
+
+```powershell
+uv run budget-cli run --experiment configs/budget_comm/experiments/dala_lite_same_context_v1.toml --phase smoke20 --backbone dashscope/qwen-turbo-1101
+```
+
 ## 默认输出
 
 - 单智能体：
@@ -125,6 +142,10 @@ uv run sparc-cli run --experiment configs/sparc/experiments/sparc_v1_smoke.toml 
   `local/runs/sparc/`
   `cache/sparc_requests.sqlite`
   `local/reports/sparc/`
+- DALA-lite：
+  `local/runs/budget_comm/`
+  `cache/budget_comm_requests.sqlite`
+  `local/reports/budget_comm/`
 
 ## 开发约束
 

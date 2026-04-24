@@ -1,0 +1,9 @@
+calibration_fraction = 0.4
+disagreement_weight = 0.35
+evidence_weight = 0.25
+novelty_weight = 0.25
+confidence_weight = 0.15
+positive_density_threshold = 0.0
+full_token_cap = 192
+summary_token_cap = 96
+keywords_token_cap = 32

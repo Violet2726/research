@@ -11,6 +11,7 @@ EXPERIMENT_PACKAGES = {
     "multi_agent_baselines",
     "selective_comm",
     "sparc",
+    "budget_comm",
 }
 
 

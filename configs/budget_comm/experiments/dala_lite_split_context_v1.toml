@@ -1,0 +1,19 @@
+name = "dala_lite_split_context_v1"
+description = "DALA-lite v1 smoke20 on split-context StrategyQA and HotpotQA."
+benchmark_configs = [
+  "configs/shared/benchmarks/strategyqa.toml",
+  "configs/shared/benchmarks/hotpotqa.toml",
+]
+protocol = "configs/budget_comm/protocols/shared_3a_r1.toml"
+auction_policy = "configs/budget_comm/policies/dala_lite_v1.toml"
+context_view = "configs/budget_comm/views/split_context_v1.toml"
+global_seed = 42
+prompt_version = "budget_comm_dala_lite_v1"
+calibration_sample_size = 5
+max_concurrent_requests = 3
+requests_per_minute_limit = 60
+tokens_per_minute_limit = 1000000
+primary_backbone = "dashscope/qwen-turbo-1101"
+
+[phases.smoke20]
+split_suffix = "smoke20_seed42"

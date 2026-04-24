@@ -5,6 +5,7 @@ import json
 from contextlib import redirect_stdout
 
 from multi_agent_baselines.cli import main as multi_agent_main
+from budget_comm.cli import main as budget_main
 from sparc.cli import main as sparc_main
 from selective_comm.cli import main as selective_main
 from single_agent_baselines.cli import main as single_agent_main
@@ -97,3 +98,18 @@ def test_sparc_aggregation_auditing_inspect_cli() -> None:
         "final_round_vote",
         "local_auditing",
     ]
+
+
+def test_budget_comm_inspect_cli() -> None:
+    payload = _run_cli(
+        budget_main,
+        [
+            "budget-cli",
+            "inspect-experiment",
+            "--experiment",
+            "configs/budget_comm/experiments/dala_lite_same_context_v1.toml",
+        ],
+    )
+    assert payload["name"] == "dala_lite_same_context_v1"
+    assert payload["context_view"]["track_name"] == "same_context"
+    assert payload["resolved_backbone"]["name"] == "dashscope/qwen-turbo-1101"

@@ -1,0 +1,4 @@
+track_name = "split_context"
+strategyqa_mode = "facts_even_odd_plus_decomposition"
+hotpotqa_mode = "supporting_paragraph_shards"
+allow_full_context = false
