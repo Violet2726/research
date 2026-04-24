@@ -7,6 +7,8 @@
 - `selective_comm`：触发式通信 / early-exit 实验
 - `sparc`：内容消融、局部审计与 SPARC v1 smoke
 - `budget_comm`：DALA-lite 风格的预算约束通信实验
+- `sid_lite`：SID-lite 风格的置信度早退与压缩消息实验
+- `free_mad_lite`：Free-MAD-lite 风格的单轮 anti-conformity 与轨迹裁决实验
 
 ## 项目结构
 
@@ -22,6 +24,10 @@
   SPARC v1 smoke 实验实现
 - `src/budget_comm/`
   DALA-lite budget-aware communication 实验实现
+- `src/sid_lite/`
+  SID-lite smoke20 机制验证实现
+- `src/free_mad_lite/`
+  Free-MAD-lite smoke20 机制验证实现
 - `configs/shared/`
   共享 benchmarks、splits、providers、model catalog
 - `configs/single_agent/`
@@ -34,6 +40,10 @@
   SPARC experiments、protocols
 - `configs/budget_comm/`
   DALA-lite experiments、policies、protocols、views
+- `configs/sid_lite/`
+  SID-lite experiments、protocols
+- `configs/free_mad_lite/`
+  Free-MAD-lite experiments、protocols
 
 ## 安装
 
@@ -124,6 +134,20 @@ uv run budget-cli inspect-experiment --experiment configs/budget_comm/experiment
 uv run budget-cli run --experiment configs/budget_comm/experiments/dala_lite_same_context_v1.toml --phase smoke20 --backbone dashscope/qwen-turbo-1101
 ```
 
+查看并运行 SID-lite smoke20：
+
+```powershell
+uv run sid-lite-cli inspect-experiment --experiment configs/sid_lite/experiments/sid_lite_v1.toml
+uv run sid-lite-cli run --experiment configs/sid_lite/experiments/sid_lite_v1.toml --phase smoke20 --backbone dashscope/qwen-turbo-1101
+```
+
+查看并运行 Free-MAD-lite smoke20：
+
+```powershell
+uv run free-mad-lite-cli inspect-experiment --experiment configs/free_mad_lite/experiments/free_mad_lite_v1.toml
+uv run free-mad-lite-cli run --experiment configs/free_mad_lite/experiments/free_mad_lite_v1.toml --phase smoke20 --backbone dashscope/qwen-turbo-1101
+```
+
 ## 默认输出
 
 - 单智能体：
@@ -146,6 +170,14 @@ uv run budget-cli run --experiment configs/budget_comm/experiments/dala_lite_sam
   `local/runs/budget_comm/`
   `cache/budget_comm_requests.sqlite`
   `local/reports/budget_comm/`
+- SID-lite：
+  `local/runs/sid_lite/`
+  `cache/sid_lite_requests.sqlite`
+  `local/reports/sid_lite/`
+- Free-MAD-lite：
+  `local/runs/free_mad_lite/`
+  `cache/free_mad_lite_requests.sqlite`
+  `local/reports/free_mad_lite/`
 
 ## 开发约束
 
