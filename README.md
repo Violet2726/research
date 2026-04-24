@@ -9,6 +9,7 @@
 - `budget_comm`：DALA-lite 风格的预算约束通信实验
 - `sid_lite`：SID-lite 风格的置信度早退与压缩消息实验
 - `free_mad_lite`：Free-MAD-lite 风格的单轮 anti-conformity 与轨迹裁决实验
+- `comm_necessary`：HotpotQA split-context 通信必要性实验
 
 ## 项目结构
 
@@ -28,6 +29,8 @@
   SID-lite smoke20 机制验证实现
 - `src/free_mad_lite/`
   Free-MAD-lite smoke20 机制验证实现
+- `src/comm_necessary/`
+  HotpotQA evidence exchange 通信必要性实验实现
 - `configs/shared/`
   共享 benchmarks、splits、providers、model catalog
 - `configs/single_agent/`
@@ -44,6 +47,8 @@
   SID-lite experiments、protocols
 - `configs/free_mad_lite/`
   Free-MAD-lite experiments、protocols
+- `configs/comm_necessary/`
+  Communication-necessary experiments、protocols
 
 ## 安装
 
@@ -148,6 +153,14 @@ uv run free-mad-lite-cli inspect-experiment --experiment configs/free_mad_lite/e
 uv run free-mad-lite-cli run --experiment configs/free_mad_lite/experiments/free_mad_lite_v1.toml --phase smoke20 --backbone dashscope/qwen-turbo-1101
 ```
 
+查看并运行 HotpotQA 通信必要性 smoke20：
+
+```powershell
+uv run comm-necessary-cli inspect-experiment --experiment configs/comm_necessary/experiments/hotpotqa_split_evidence_v1.toml --backbone dashscope/qwen-turbo-1101
+uv run comm-necessary-cli run --experiment configs/comm_necessary/experiments/hotpotqa_split_evidence_v1.toml --phase smoke20 --backbone dashscope/qwen-turbo-1101
+uv run comm-necessary-cli validate-run --run-dir <run_dir>
+```
+
 ## 默认输出
 
 - 单智能体：
@@ -178,6 +191,10 @@ uv run free-mad-lite-cli run --experiment configs/free_mad_lite/experiments/free
   `local/runs/free_mad_lite/`
   `cache/free_mad_lite_requests.sqlite`
   `local/reports/free_mad_lite/`
+- HotpotQA 通信必要性：
+  `local/runs/comm_necessary/`
+  `cache/comm_necessary_requests.sqlite`
+  `local/reports/comm_necessary/`
 
 ## 开发约束
 
