@@ -12,6 +12,8 @@ EXPERIMENT_PACKAGES = {
     "selective_comm",
     "sparc",
     "budget_comm",
+    "sid_lite",
+    "free_mad_lite",
 }
 
 

@@ -5,12 +5,16 @@ import json
 
 from budget_comm.reporting import summarize_run as summarize_budget
 from budget_comm.validation import validate_run as validate_budget
+from free_mad_lite.reporting import summarize_run as summarize_free_mad
+from free_mad_lite.validation import validate_run as validate_free_mad
 from multi_agent_baselines.reporting import summarize_run as summarize_multi_agent
 from multi_agent_baselines.validation import validate_run as validate_multi_agent
 from sparc.reporting import summarize_run as summarize_sparc
 from sparc.validation import validate_run as validate_sparc
 from selective_comm.reporting import summarize_run as summarize_selective
 from selective_comm.validation import validate_run as validate_selective
+from sid_lite.reporting import summarize_run as summarize_sid
+from sid_lite.validation import validate_run as validate_sid
 from single_agent_baselines.reporting import budget_fairness_check, summarize_run as summarize_single_agent
 from single_agent_baselines.validation import validate_run as validate_single_agent
 
@@ -342,6 +346,87 @@ def test_budget_comm_validation_contract(tmp_path: Path) -> None:
 
     assert summarize_budget(tmp_path)["row_count"] == 1
     assert validate_budget(tmp_path)["passed"] is True
+
+
+def test_sid_lite_validation_contract(tmp_path: Path) -> None:
+    _touch_json(
+        tmp_path / "manifest.json",
+        {"methods": ["mv_3", "always_full", "compression_only", "sid_lite"]},
+    )
+    _write_jsonl(tmp_path / "stage_a_turns.jsonl", [{"output_status": "ok"}])
+    _write_jsonl(
+        tmp_path / "message_packets.jsonl",
+        [{"dataset": "gsm8k", "sample_id": "s1", "agent_id": 1, "approx_packet_tokens": 5, "token_cap": 10}],
+    )
+    _write_jsonl(tmp_path / "belief_updates.jsonl", [{"output_status": "ok"}])
+    _write_jsonl(
+        tmp_path / "final_predictions.jsonl",
+        [
+            {
+                "dataset": "gsm8k",
+                "sample_id": "s1",
+                "method_name": method,
+                "stage_a_trace_hash": "stage-a",
+                "early_exit": method in {"mv_3", "sid_lite"},
+                "communication_tokens_per_question": 0.0 if method in {"mv_3", "sid_lite"} else 1.0,
+                "any_invalid_confidence": False,
+            }
+            for method in ["mv_3", "always_full", "compression_only", "sid_lite"]
+        ],
+    )
+    _touch_json(tmp_path / "metrics.json", {"summary": [{"dataset": "overall"}]})
+    _touch_json(tmp_path / "diagnostics.json", {"sid_early_exit_rate": 1.0})
+    (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "sid_lite_report.md").write_text("# report\n", encoding="utf-8")
+
+    assert summarize_sid(tmp_path)["row_count"] == 1
+    assert validate_sid(tmp_path)["passed"] is True
+
+
+def test_free_mad_lite_validation_contract(tmp_path: Path) -> None:
+    _touch_json(
+        tmp_path / "manifest.json",
+        {
+            "methods": [
+                "mv_3_initial",
+                "vanilla_mad_r1_final_vote",
+                "anti_conformity_final_vote",
+                "free_mad_lite_llm_trajectory",
+            ],
+            "protocol": {"debate_rounds": 1},
+            "anti_conformity_prompt_hash": "hash",
+        },
+    )
+    _write_jsonl(tmp_path / "agent_turns.jsonl", [{"output_status": "ok", "role": "initial"}])
+    _write_jsonl(tmp_path / "debate_messages.jsonl", [{"x": 1}])
+    _write_jsonl(
+        tmp_path / "trajectory_scores.jsonl",
+        [{"dataset": "gsm8k", "sample_id": "s1", "output_status": "ok", "judge_fallback_used": False}],
+    )
+    _write_jsonl(
+        tmp_path / "final_predictions.jsonl",
+        [
+            {
+                "dataset": "gsm8k",
+                "sample_id": "s1",
+                "method_name": method,
+                "stage_a_trace_hash": "stage-a",
+            }
+            for method in [
+                "mv_3_initial",
+                "vanilla_mad_r1_final_vote",
+                "anti_conformity_final_vote",
+                "free_mad_lite_llm_trajectory",
+            ]
+        ],
+    )
+    _touch_json(tmp_path / "metrics.json", {"summary": [{"dataset": "overall"}]})
+    _touch_json(tmp_path / "diagnostics.json", {"judge_fallback_rate": 0.0})
+    (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "free_mad_lite_report.md").write_text("# report\n", encoding="utf-8")
+
+    assert summarize_free_mad(tmp_path)["row_count"] == 1
+    assert validate_free_mad(tmp_path)["passed"] is True
 
 
 def _sparc_auditing_prediction_rows(dataset: str, sample_id: str) -> list[dict[str, object]]:

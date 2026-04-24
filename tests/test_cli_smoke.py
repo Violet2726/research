@@ -6,8 +6,10 @@ from contextlib import redirect_stdout
 
 from multi_agent_baselines.cli import main as multi_agent_main
 from budget_comm.cli import main as budget_main
+from free_mad_lite.cli import main as free_mad_main
 from sparc.cli import main as sparc_main
 from selective_comm.cli import main as selective_main
+from sid_lite.cli import main as sid_lite_main
 from single_agent_baselines.cli import main as single_agent_main
 
 
@@ -113,3 +115,41 @@ def test_budget_comm_inspect_cli() -> None:
     assert payload["name"] == "dala_lite_same_context_v1"
     assert payload["context_view"]["track_name"] == "same_context"
     assert payload["resolved_backbone"]["name"] == "dashscope/qwen-turbo-1101"
+
+
+def test_sid_lite_inspect_cli() -> None:
+    payload = _run_cli(
+        sid_lite_main,
+        [
+            "sid-lite-cli",
+            "inspect-experiment",
+            "--experiment",
+            "configs/sid_lite/experiments/sid_lite_v1.toml",
+        ],
+    )
+    assert payload["name"] == "sid_lite_v1"
+    assert payload["methods"] == ["mv_3", "always_full", "compression_only", "sid_lite"]
+    assert payload["max_concurrent_requests"] == 3
+    assert payload["requests_per_minute_limit"] == 60
+    assert payload["tokens_per_minute_limit"] == 1000000
+
+
+def test_free_mad_lite_inspect_cli() -> None:
+    payload = _run_cli(
+        free_mad_main,
+        [
+            "free-mad-lite-cli",
+            "inspect-experiment",
+            "--experiment",
+            "configs/free_mad_lite/experiments/free_mad_lite_v1.toml",
+        ],
+    )
+    assert payload["name"] == "free_mad_lite_v1"
+    assert payload["methods"] == [
+        "mv_3_initial",
+        "vanilla_mad_r1_final_vote",
+        "anti_conformity_final_vote",
+        "free_mad_lite_llm_trajectory",
+    ]
+    assert payload["protocol"]["debate_rounds"] == 1
+    assert payload["anti_conformity_prompt_hash"]
