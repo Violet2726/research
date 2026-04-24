@@ -1,0 +1,10 @@
+agent_count = 3
+debate_rounds = 1
+initial_temperature = 0.7
+update_temperature = 0.7
+top_p = 1.0
+max_output_tokens = 384
+answer_only_token_cap = 48
+evidence_token_cap = 128
+full_packet_token_cap = 224
+

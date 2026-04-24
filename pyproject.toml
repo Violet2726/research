@@ -23,6 +23,7 @@ sparc-cli = "sparc.cli:main"
 budget-cli = "budget_comm.cli:main"
 sid-lite-cli = "sid_lite.cli:main"
 free-mad-lite-cli = "free_mad_lite.cli:main"
+comm-necessary-cli = "comm_necessary.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
