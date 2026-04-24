@@ -74,3 +74,26 @@ def test_sparc_inspect_cli() -> None:
         ],
     )
     assert payload["name"] == "content_ablation_v1"
+
+
+def test_sparc_aggregation_auditing_inspect_cli() -> None:
+    payload = _run_cli(
+        sparc_main,
+        [
+            "sparc-cli",
+            "inspect-experiment",
+            "--experiment",
+            "configs/sparc/experiments/aggregation_auditing_ablation_v1.toml",
+        ],
+    )
+    assert payload["name"] == "aggregation_auditing_ablation_v1"
+    assert payload["resolved_backbone"]["name"] == "dashscope/qwen-turbo-1101"
+    assert payload["max_concurrent_requests"] == 8
+    assert payload["requests_per_minute_limit"] == 600
+    assert payload["tokens_per_minute_limit"] == 1000000
+    assert payload["aggregation_methods"] == [
+        "majority_vote",
+        "single_judge",
+        "final_round_vote",
+        "local_auditing",
+    ]

@@ -65,6 +65,19 @@ def test_select_audit_candidate_pair_handles_three_way_conflict() -> None:
     assert {pair["candidate_a"]["agent_id"], pair["candidate_b"]["agent_id"]} == {2, 3}
 
 
+def test_select_audit_candidate_pair_skips_consensus() -> None:
+    pair = select_audit_candidate_pair(
+        [
+            {"agent_id": 1, "normalized_answer": "yes", "confidence_valid": True, "confidence_value": 0.6},
+            {"agent_id": 2, "normalized_answer": "yes", "confidence_valid": True, "confidence_value": 0.8},
+            {"agent_id": 3, "normalized_answer": "yes", "confidence_valid": True, "confidence_value": 0.7},
+        ]
+    )
+    assert pair["skipped"] is True
+    assert pair["skip_reason"] == "consensus"
+    assert pair["fallback_answer"] == "yes"
+
+
 def test_aggregate_with_confidence_tiebreak_uses_confidence_then_agent_id() -> None:
     winner, counts = aggregate_with_confidence_tiebreak(
         [
