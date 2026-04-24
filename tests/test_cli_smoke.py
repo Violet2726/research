@@ -6,6 +6,7 @@ from contextlib import redirect_stdout
 
 from multi_agent_baselines.cli import main as multi_agent_main
 from budget_comm.cli import main as budget_main
+from comm_necessary.cli import main as comm_necessary_main
 from free_mad_lite.cli import main as free_mad_main
 from sparc.cli import main as sparc_main
 from selective_comm.cli import main as selective_main
@@ -153,3 +154,26 @@ def test_free_mad_lite_inspect_cli() -> None:
     ]
     assert payload["protocol"]["debate_rounds"] == 1
     assert payload["anti_conformity_prompt_hash"]
+
+
+def test_comm_necessary_inspect_cli() -> None:
+    payload = _run_cli(
+        comm_necessary_main,
+        [
+            "comm-necessary-cli",
+            "inspect-experiment",
+            "--experiment",
+            "configs/comm_necessary/experiments/hotpotqa_split_evidence_v1.toml",
+        ],
+    )
+    assert payload["name"] == "hotpotqa_split_evidence_v1"
+    assert payload["methods"] == [
+        "full_context_single",
+        "split_no_comm_mv3",
+        "answer_only_exchange",
+        "evidence_exchange",
+        "full_packet_exchange",
+    ]
+    assert payload["max_concurrent_requests"] == 4
+    assert payload["requests_per_minute_limit"] == 60
+    assert payload["tokens_per_minute_limit"] == 2000000

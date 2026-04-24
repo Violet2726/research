@@ -5,6 +5,8 @@ import json
 
 from budget_comm.reporting import summarize_run as summarize_budget
 from budget_comm.validation import validate_run as validate_budget
+from comm_necessary.reporting import summarize_run as summarize_comm_necessary
+from comm_necessary.validation import validate_run as validate_comm_necessary
 from free_mad_lite.reporting import summarize_run as summarize_free_mad
 from free_mad_lite.validation import validate_run as validate_free_mad
 from multi_agent_baselines.reporting import summarize_run as summarize_multi_agent
@@ -427,6 +429,142 @@ def test_free_mad_lite_validation_contract(tmp_path: Path) -> None:
 
     assert summarize_free_mad(tmp_path)["row_count"] == 1
     assert validate_free_mad(tmp_path)["passed"] is True
+
+
+def test_comm_necessary_validation_contract(tmp_path: Path) -> None:
+    methods = [
+        "full_context_single",
+        "split_no_comm_mv3",
+        "answer_only_exchange",
+        "evidence_exchange",
+        "full_packet_exchange",
+    ]
+    _touch_json(
+        tmp_path / "manifest.json",
+        {
+            "methods": methods,
+            "requests_per_minute_limit": 60,
+            "tokens_per_minute_limit": 2000000,
+        },
+    )
+    _write_jsonl(
+        tmp_path / "sample_views.jsonl",
+        [
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "h1",
+                "agent_id": 1,
+                "view_kind": "supporting_shard_a",
+                "includes_full_context": False,
+                "full_context_hash": "full",
+                "view_context_hash": "a",
+                "coverage_titles": ["A"],
+                "required_titles": ["A", "B"],
+            },
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "h1",
+                "agent_id": 2,
+                "view_kind": "supporting_shard_b",
+                "includes_full_context": False,
+                "full_context_hash": "full",
+                "view_context_hash": "b",
+                "coverage_titles": ["B"],
+                "required_titles": ["A", "B"],
+            },
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "h1",
+                "agent_id": 3,
+                "view_kind": "distractor_titles_only",
+                "includes_full_context": False,
+                "full_context_hash": "full",
+                "view_context_hash": "c",
+                "coverage_titles": [],
+                "required_titles": ["A", "B"],
+            },
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "h1",
+                "agent_id": 0,
+                "view_kind": "full_context",
+                "includes_full_context": True,
+                "full_context_hash": "full",
+                "view_context_hash": "full",
+                "coverage_titles": ["A", "B"],
+                "required_titles": ["A", "B"],
+            },
+        ],
+    )
+    _write_jsonl(
+        tmp_path / "stage_a_turns.jsonl",
+        [
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "h1",
+                "method_name": "shared_split_stage_a",
+                "stage_name": "stage_a",
+                "agent_id": 1,
+                "output_status": "ok",
+                "cache_hit": False,
+                "request_started_at": "2026-04-24T00:00:00+00:00",
+                "estimated_request_tokens": 100,
+            }
+        ],
+    )
+    _write_jsonl(
+        tmp_path / "message_packets.jsonl",
+        [
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "h1",
+                "method_name": "evidence_exchange",
+                "agent_id": 1,
+                "approx_packet_tokens": 10,
+                "token_cap": 128,
+            }
+        ],
+    )
+    _write_jsonl(
+        tmp_path / "stage_b_turns.jsonl",
+        [
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "h1",
+                "method_name": "evidence_exchange",
+                "agent_id": 1,
+                "output_status": "ok",
+                "cache_hit": False,
+                "request_started_at": "2026-04-24T00:00:01+00:00",
+                "estimated_request_tokens": 100,
+            }
+        ],
+    )
+    _write_jsonl(
+        tmp_path / "final_predictions.jsonl",
+        [
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "h1",
+                "method_name": method,
+                "prediction": "alpha",
+                "supporting_facts": [["A", 0], ["B", 0]],
+            }
+            for method in methods
+        ],
+    )
+    _touch_json(tmp_path / "metrics.json", {"summary": [{"dataset": "overall"}]})
+    _touch_json(tmp_path / "diagnostics.json", {"key_deltas": []})
+    (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "comm_necessary_report.md").write_text("# report\n", encoding="utf-8")
+    (tmp_path / "paper_summary.csv").write_text("dataset,model_name,method_name,answer_em_mean\n", encoding="utf-8")
+    hotpot_dir = tmp_path / "hotpot_predictions"
+    hotpot_dir.mkdir()
+    for method in methods:
+        _touch_json(hotpot_dir / f"{method}.json", {"answer": {"h1": "alpha"}, "sp": {"h1": [["A", 0], ["B", 0]]}})
+
+    assert summarize_comm_necessary(tmp_path)["row_count"] == 1
+    assert validate_comm_necessary(tmp_path)["passed"] is True
 
 
 def _sparc_auditing_prediction_rows(dataset: str, sample_id: str) -> list[dict[str, object]]:

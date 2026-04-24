@@ -14,6 +14,7 @@ EXPERIMENT_PACKAGES = {
     "budget_comm",
     "sid_lite",
     "free_mad_lite",
+    "comm_necessary",
 }
 
 
