@@ -1,4 +1,8 @@
-"""SPARC CLI。"""
+"""SPARC 命令行入口。
+
+CLI 暴露实验检查、执行、摘要、校验与报告生成能力，
+方便在内容压缩、局部审计和完整 SPARC 方案之间切换分析。
+"""
 
 from __future__ import annotations
 

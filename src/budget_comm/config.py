@@ -1,4 +1,9 @@
-"""budget_comm 实验配置加载。"""
+"""`budget_comm` 实验配置加载。
+
+本模块负责解析 DALA-lite 风格预算通信实验所需的配置对象，
+包括共享协议、拍卖策略、上下文视图以及顶层实验定义。
+这些配置共同决定了“谁看见什么上下文”“消息如何压缩”“预算如何分配”。
+"""
 
 from __future__ import annotations
 
@@ -12,7 +17,7 @@ from experiment_core.config import BenchmarkConfig, ResolvedModelConfig, load_be
 
 @dataclass(frozen=True)
 class BudgetProtocolConfig:
-    """DALA-lite v1 的共享协议配置。"""
+    """DALA-lite v1 的共享通信协议配置。"""
 
     agent_count: int
     debate_rounds: int
@@ -39,7 +44,7 @@ class AuctionPolicyConfig:
 
 @dataclass(frozen=True)
 class ContextViewConfig:
-    """same-context / split-context 视图配置。"""
+    """`same-context / split-context` 样本视图配置。"""
 
     track_name: str
     strategyqa_mode: str
@@ -49,7 +54,7 @@ class ContextViewConfig:
 
 @dataclass(frozen=True)
 class BudgetCommExperimentConfig:
-    """budget_comm 顶层实验配置。"""
+    """`budget_comm` 顶层实验配置。"""
 
     name: str
     description: str
@@ -114,7 +119,7 @@ def load_context_view_config(path: str | Path) -> ContextViewConfig:
 
 
 def load_experiment_config(path: str | Path) -> BudgetCommExperimentConfig:
-    """加载 budget_comm 顶层实验配置。"""
+    """加载 `budget_comm` 顶层实验配置。"""
     payload = _load_toml(path)
     return BudgetCommExperimentConfig(
         name=str(payload["name"]),
@@ -145,7 +150,7 @@ def load_benchmarks(experiment: BudgetCommExperimentConfig) -> list[BenchmarkCon
 
 
 def resolve_backbone(model_ref: str) -> ResolvedModelConfig:
-    """解析 budget_comm 使用的 backbone 模型。"""
+    """解析 `budget_comm` 使用的 backbone 模型。"""
     return resolve_model_ref(model_ref)
 
 

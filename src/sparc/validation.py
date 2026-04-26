@@ -1,4 +1,8 @@
-"""SPARC 运行结果校验。"""
+"""SPARC 运行结果校验。
+
+该校验器重点验证共享 Stage A 哈希、跳过审计时的 token 归零、
+局部审计只访问局部信息，以及不同实验形态下的配对设计是否成立。
+"""
 
 from __future__ import annotations
 

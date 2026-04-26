@@ -1,4 +1,8 @@
-"""Free-MAD-lite 纯逻辑辅助函数。"""
+"""Free-MAD-lite 的机制级纯逻辑函数。
+
+这里集中实现轨迹裁决相关逻辑，包括多数投票、judge 失败时的确定性回退、
+轨迹哈希构造与轻量 token 估算，便于 runner 与 validation 共享同一套解释规则。
+"""
 
 from __future__ import annotations
 

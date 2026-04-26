@@ -1,4 +1,8 @@
-"""Selective-communication prompting."""
+"""选择性通信实验提示词构造。
+
+本模块负责构造共享前缀实验中的 Stage A 与 Stage B prompt，
+重点是显式要求模型输出 `confidence_raw`，以便后续 trigger 策略统一判定。
+"""
 
 from __future__ import annotations
 

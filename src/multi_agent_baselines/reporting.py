@@ -1,4 +1,9 @@
-"""多智能体实验报告与配对分析。"""
+"""多智能体实验报告与配对分析。
+
+该模块重点服务于 `Debate vs Vote` 分析：
+在同一批初始候选答案上，对比“直接投票”和“先 debate 再投票”两种聚合方式，
+并输出配对统计、bootstrap 区间和中文报告。
+"""
 
 from __future__ import annotations
 
@@ -12,7 +17,7 @@ from typing import Any
 
 
 def load_metrics(run_dir: str | Path) -> dict[str, Any]:
-    """读取多智能体运行目录中的 ``metrics.json``。"""
+    """读取多智能体运行目录中的 `metrics.json`。"""
     return json.loads((Path(run_dir) / "metrics.json").read_text(encoding="utf-8"))
 
 
@@ -35,7 +40,7 @@ def report_debate_vs_vote(
     run_dir: str | Path,
     publish_dir: str | Path = "local/reports/multi_agent",
 ) -> dict[str, Any]:
-    """生成 Debate vs Vote 的配对分析结果与 Markdown 报告。"""
+    """生成 `Debate vs Vote` 的配对分析结果与 Markdown 报告。"""
     root = Path(run_dir)
     manifest = _load_json(root / "manifest.json")
     prediction_rows = _load_jsonl(root / "final_predictions.jsonl")

@@ -1,4 +1,9 @@
-"""SID-lite 主运行链路。"""
+"""SID-lite 主运行链路。
+
+本模块把 SID-lite 的完整流程落地为可执行实验：
+共享 Stage A、早退判定、压缩消息广播、belief update、题级聚合、
+以及指标/诊断/报告产物生成。
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,8 @@
-"""Free-MAD-lite 提示词构造。"""
+"""Free-MAD-lite 提示词构造。
+
+本模块为初始求解、单轮 anti-conformity 辩论和轨迹裁决器分别生成 prompt，
+把“反从众修正”和“轨迹级最终裁决”明确拆开。
+"""
 
 from __future__ import annotations
 

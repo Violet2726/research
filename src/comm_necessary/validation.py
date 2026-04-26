@@ -1,4 +1,8 @@
-"""comm_necessary 运行产物验证。"""
+"""`comm_necessary` 运行产物验证。
+
+该校验器重点检查 split-context 设计是否被破坏、消息包是否超上限、
+rate limit 约束是否失守，以及 HotpotQA 官方预测文件是否已经正确导出。
+"""
 
 from __future__ import annotations
 

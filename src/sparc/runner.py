@@ -1,4 +1,9 @@
-"""SPARC 实验主运行链路。"""
+"""SPARC 实验主运行链路。
+
+本模块把 SPARC 的多种实验形态落成完整流程：
+共享 Stage A、内容压缩/触发选择、Stage B belief update、single judge 或 local auditing，
+以及指标、诊断和报告产物生成。
+"""
 
 from __future__ import annotations
 

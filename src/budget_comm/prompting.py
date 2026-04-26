@@ -1,4 +1,9 @@
-"""budget_comm 提示词构造。"""
+"""`budget_comm` 提示词构造。
+
+本模块把 DALA-lite 实验中的两个关键阶段拆成两套提示词：
+1. Stage A：agent 在私有视图上独立求解，并显式产出可压缩的结构化字段；
+2. Stage B：agent 读取预算筛选后的 peer packet，再决定是否修正答案。
+"""
 
 from __future__ import annotations
 
@@ -88,6 +93,7 @@ def build_belief_update_messages(
 
 
 def _solver_system_prompt() -> str:
+    """返回 Stage A 的 system prompt。"""
     return (
         "You are one reasoning agent in a controlled DALA-lite experiment.\n"
         "Return strict JSON only.\n"
@@ -99,6 +105,7 @@ def _solver_system_prompt() -> str:
 
 
 def _belief_update_system_prompt() -> str:
+    """返回 Stage B 的 system prompt。"""
     return (
         "You are one reasoning agent receiving budget-selected peer packets.\n"
         "Return strict JSON only.\n"
@@ -109,6 +116,7 @@ def _belief_update_system_prompt() -> str:
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
+    """返回数据集特定的答题约束。"""
     if sample.dataset == "gsm8k":
         return (
             "Solve the math word problem carefully. "

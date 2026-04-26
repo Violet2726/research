@@ -1,4 +1,8 @@
-"""comm_necessary CLI。"""
+"""`comm_necessary` 命令行入口。
+
+CLI 暴露实验检查、执行、摘要、校验与报告生成能力，
+便于把 HotpotQA 通信必要性实验单独运行和复核。
+"""
 
 from __future__ import annotations
 

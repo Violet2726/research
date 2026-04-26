@@ -1,7 +1,11 @@
-"""数据集加载与 split 工具。
+"""数据集加载与冻结 split 工具。
 
-这里提供 benchmark 样本的统一抽象，以及冻结 split 清单的生成与读取逻辑。
-各实验线只关心“本轮该跑哪些样本”，不必分别理解底层数据文件格式。
+本模块把不同 benchmark 的原始样本统一抽象为 `DatasetSample`，并负责：
+1. 从底层文件格式中加载全量样本；
+2. 生成固定随机种子的冻结 split 清单；
+3. 根据冻结 split 选出某轮实验真正要跑的样本。
+
+这样各实验包只需要关心“本轮有哪些题”，不需要重复理解 JSONL、JSON 或 Parquet 的细节。
 """
 
 from __future__ import annotations
@@ -20,7 +24,11 @@ from experiment_core.config import BenchmarkConfig
 
 @dataclass(frozen=True)
 class DatasetSample:
-    """统一后的单条样本。"""
+    """统一后的单条样本表示。
+
+    无论底层 benchmark 来自哪种格式，进入实验 runner 之后都会收敛为这一结构，
+    从而保证提示构造、评测与日志写出逻辑能够跨数据集复用。
+    """
 
     dataset: str
     sample_id: str
@@ -31,7 +39,7 @@ class DatasetSample:
 
 
 def load_samples(config: BenchmarkConfig) -> list[DatasetSample]:
-    """根据 loader 类型读取 benchmark 全量样本。"""
+    """按 `loader` 类型读取 benchmark 的全量样本。"""
     loader_map = {
         "gsm8k_jsonl": _load_gsm8k,
         "strategyqa_json": _load_strategyqa,
@@ -44,7 +52,11 @@ def generate_split_manifests(
     benchmark_configs: list[BenchmarkConfig],
     output_dir: str | Path,
 ) -> list[Path]:
-    """为多个 benchmark 生成冻结后的 split 清单。"""
+    """为多个 benchmark 生成冻结后的 split 清单。
+
+    这里生成的 JSON 清单只记录样本 ID 列表，而不复制样本正文。
+    这样既能保持 split 可复现，也能避免在切分阶段复制整份原始数据。
+    """
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     created: list[Path] = []
@@ -94,14 +106,14 @@ def select_samples(
     split_name: str,
     splits_root: str | Path = "configs/shared/benchmarks/splits",
 ) -> list[DatasetSample]:
-    """根据冻结 split 从全量 benchmark 中选出本轮样本。"""
+    """按冻结 split 从全量 benchmark 中选出本轮样本。"""
     split_ids = load_split_ids(benchmark.slug, split_name, splits_root=splits_root)
     sample_map = {sample.sample_id: sample for sample in load_samples(benchmark)}
     return [sample_map[sample_id] for sample_id in split_ids if sample_id in sample_map]
 
 
 def _load_gsm8k(config: BenchmarkConfig) -> list[DatasetSample]:
-    """加载 GSM8K JSONL 并抽取最终数字答案。"""
+    """加载 GSM8K JSONL，并抽取 `####` 后的标准数字答案。"""
     path = Path(config.source_path)
     samples: list[DatasetSample] = []
     with path.open("r", encoding="utf-8") as handle:
@@ -121,7 +133,7 @@ def _load_gsm8k(config: BenchmarkConfig) -> list[DatasetSample]:
 
 
 def _load_strategyqa(config: BenchmarkConfig) -> list[DatasetSample]:
-    """加载 StrategyQA JSON 并规范化为 yes / no 标签。"""
+    """加载 StrategyQA JSON，并把答案规范化为 `yes / no`。"""
     path = Path(config.source_path)
     payload = json.loads(path.read_text(encoding="utf-8"))
     samples: list[DatasetSample] = []
@@ -148,7 +160,7 @@ def _load_strategyqa(config: BenchmarkConfig) -> list[DatasetSample]:
 
 
 def _load_hotpotqa(config: BenchmarkConfig) -> list[DatasetSample]:
-    """加载 HotpotQA parquet 并渲染上下文段落。"""
+    """加载 HotpotQA Parquet，并把上下文段落渲染成 prompt 可直接使用的文本。"""
     table = pq.read_table(config.source_path)
     payload = table.to_pylist()
     samples: list[DatasetSample] = []
@@ -174,7 +186,7 @@ def _load_hotpotqa(config: BenchmarkConfig) -> list[DatasetSample]:
 
 
 def _render_hotpot_context(context: dict[str, Any]) -> str:
-    """把 HotpotQA 的标题与句子数组渲染成 prompt 可直接使用的文本。"""
+    """把 HotpotQA 的标题与句子数组渲染成 prompt 可直接使用的上下文文本。"""
     titles = context["title"]
     paragraphs = context["sentences"]
     rendered: list[str] = []
@@ -185,7 +197,7 @@ def _render_hotpot_context(context: dict[str, Any]) -> str:
 
 
 def _extract_gsm8k_gold(answer: str) -> str:
-    """从 GSM8K 标注答案中抽取 ``####`` 后的标准数字。"""
+    """从 GSM8K 标注答案中抽取 `####` 之后的标准数字。"""
     match = re.search(r"####\s*([-+]?\d[\d,]*(?:\.\d+)?)", answer)
     if match:
         return match.group(1).replace(",", "")

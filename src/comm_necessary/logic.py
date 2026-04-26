@@ -1,4 +1,9 @@
-"""comm_necessary 的纯逻辑函数。"""
+"""`comm_necessary` 的机制级纯逻辑函数。
+
+这里集中实现 HotpotQA 通信必要性实验的核心逻辑：
+supporting facts 归一化、不同消息包强度压缩、答案与证据聚合，
+以及联合 answer / support 指标的计算。
+"""
 
 from __future__ import annotations
 

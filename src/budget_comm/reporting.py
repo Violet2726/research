@@ -1,4 +1,8 @@
-"""budget_comm 报告与摘要。"""
+"""`budget_comm` 报告与摘要。
+
+本模块负责把运行目录中的 JSON/JSONL 产物整理成面向研究阅读的中文 Markdown 报告，
+重点突出预算校准、通信成本、方法对比和是否值得进入 full DALA 的门槛判断。
+"""
 
 from __future__ import annotations
 
@@ -59,6 +63,7 @@ def _render_markdown(
     predictions: list[dict[str, Any]],
     run_dir: Path,
 ) -> str:
+    """把 manifest、指标与诊断结果渲染成最终报告文本。"""
     backbone = manifest.get("backbone", {})
     track_name = manifest.get("context_view", {}).get("track_name", "unknown")
     calibration = diagnostics.get("calibration", {})
@@ -199,6 +204,7 @@ def _render_markdown(
 
 
 def _select_failure_cases(predictions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """挑选少量具有解释价值的失败或优势样例。"""
     lookup = {
         (row["dataset"], row["sample_id"], row["method_name"]): row
         for row in predictions
@@ -237,6 +243,7 @@ def _select_failure_cases(predictions: list[dict[str, Any]]) -> list[dict[str, A
 
 
 def _bootstrap_ci_text(predictions: list[dict[str, Any]], primary_method: str, reference_method: str) -> str:
+    """生成两种方法 accuracy delta 的 bootstrap 置信区间文本。"""
     paired = _paired_rows(predictions, primary_method, reference_method)
     if not paired:
         return "未计算。"
@@ -245,6 +252,7 @@ def _bootstrap_ci_text(predictions: list[dict[str, Any]], primary_method: str, r
 
 
 def _paired_rows(predictions: list[dict[str, Any]], primary_method: str, reference_method: str) -> list[tuple[float, float]]:
+    """按样本 ID 配对两种方法的分数。"""
     lookup = {
         (row["dataset"], row["sample_id"], row["method_name"]): row
         for row in predictions
@@ -266,6 +274,7 @@ def _bootstrap_accuracy_delta(
     iterations: int,
     seed: int,
 ) -> list[float]:
+    """对两种方法的准确率差做配对 bootstrap 采样。"""
     rng = random.Random(seed)
     rows = list(paired_scores)
     samples: list[float] = []
@@ -278,10 +287,12 @@ def _bootstrap_accuracy_delta(
 
 
 def _ordered_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """按论文中约定的方法顺序排序。"""
     return sorted(rows, key=lambda row: METHOD_ORDER.index(row["method_name"]) if row["method_name"] in METHOD_ORDER else 999)
 
 
 def _published_report_name(manifest: dict[str, Any]) -> str:
+    """构造发布到 `local/reports/budget_comm` 的报告文件名。"""
     created_at = manifest.get("created_at")
     try:
         created_date = datetime.fromisoformat(created_at).date().isoformat() if created_at else "unknown-date"
@@ -294,6 +305,7 @@ def _published_report_name(manifest: dict[str, Any]) -> str:
 
 
 def _quantile(values: list[float], q: float) -> float:
+    """计算线性插值分位数。"""
     if not values:
         return 0.0
     ordered = sorted(values)
@@ -309,12 +321,14 @@ def _quantile(values: list[float], q: float) -> float:
 
 
 def _load_json(path: Path) -> dict[str, Any]:
+    """读取 UTF-8 JSON 文件；不存在时返回空字典。"""
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
+    """读取 UTF-8 JSONL 文件；不存在时返回空列表。"""
     if not path.exists():
         return []
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]

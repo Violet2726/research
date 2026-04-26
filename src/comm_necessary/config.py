@@ -1,4 +1,8 @@
-"""comm_necessary 实验配置加载。"""
+"""`comm_necessary` 实验配置加载。
+
+本模块解析 HotpotQA 通信必要性实验所需的协议、方法集合与顶层实验配置，
+支持在 split-context 设定下比较不同消息强度对 answer / evidence 整合的影响。
+"""
 
 from __future__ import annotations
 

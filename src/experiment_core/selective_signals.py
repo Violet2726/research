@@ -1,4 +1,8 @@
-"""共享的选择性通信信号与 trigger 规则。"""
+"""共享的选择性通信信号与 trigger 规则。
+
+本模块把“置信度如何标准化”“何时应该触发通信”这两件事收敛成统一实现，
+避免不同实验线各自解释置信度字段，导致结果不可横向比较。
+"""
 
 from __future__ import annotations
 
@@ -8,7 +12,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class ConfidenceSummary:
-    """一组 agent confidence 的聚合统计。"""
+    """一组 agent 置信度的聚合统计。"""
 
     valid_confidences: list[float]
     invalid_agent_ids: list[int]
@@ -27,14 +31,14 @@ class TriggerDecision:
 
 
 def confidence_display(value: object) -> object:
-    """保留 confidence 原始展示形式。"""
+    """保留 `confidence_raw` 的原始展示形式。"""
     if value is None:
         return ""
     return value
 
 
 def normalize_confidence(raw_value: object) -> tuple[float | None, bool, str]:
-    """把 confidence_raw 归一化到可比较的 ``[0, 1]``。"""
+    """把 `confidence_raw` 归一化到可比较的 `[0, 1]` 区间。"""
     if raw_value is None:
         return None, False, "missing"
     if isinstance(raw_value, bool):
@@ -61,7 +65,7 @@ def summarize_confidence_rows(
     confidence_valid_key: str = "confidence_valid",
     agent_id_key: str = "agent_id",
 ) -> ConfidenceSummary:
-    """从 turn rows 汇总 mean / spread 与非法 confidence agent。"""
+    """从多条 turn 记录中汇总均值、离散度和非法置信度来源。"""
     valid_confidences = [
         float(row[confidence_value_key])
         for row in rows

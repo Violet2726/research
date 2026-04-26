@@ -1,4 +1,9 @@
-"""SID-lite 提示词构造。"""
+"""SID-lite 提示词构造。
+
+本模块为 SID-lite 的两个阶段构造结构化 prompt：
+Stage A 负责产出答案、证据与置信度，
+Stage B 在读取压缩消息后仅输出“是否改答”的最小更新信息。
+"""
 
 from __future__ import annotations
 

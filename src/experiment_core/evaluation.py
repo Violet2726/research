@@ -1,4 +1,8 @@
-"""输出归一化与任务级打分逻辑。"""
+"""预测归一化与任务级打分逻辑。
+
+本模块刻意保持轻量，只实现当前仓库需要的答案归一化和精确匹配打分，
+以便所有实验线共享同一套“答案如何比较”的基础规则。
+"""
 
 from __future__ import annotations
 
@@ -10,7 +14,7 @@ from typing import Iterable
 
 
 def normalize_prediction(dataset: str, final_answer: str) -> str:
-    """按数据集类型把模型答案归一化到可比较的形式。"""
+    """按数据集类型把模型答案归一化为可比较的形式。"""
     if dataset == "gsm8k":
         return normalize_number(final_answer)
     if dataset == "strategyqa":
@@ -21,17 +25,20 @@ def normalize_prediction(dataset: str, final_answer: str) -> str:
 
 
 def normalize_gold(dataset: str, answer: str) -> str:
-    """金标答案沿用与预测值一致的归一化规则。"""
+    """对金标答案沿用与预测值一致的归一化规则。"""
     return normalize_prediction(dataset, answer)
 
 
 def score_prediction(dataset: str, predicted: str, gold: str) -> float:
-    """当前项目统一采用精确匹配，命中记 1.0，否则记 0.0。"""
+    """计算单题得分。
+
+    当前仓库统一采用精确匹配：归一化后完全一致记为 `1.0`，否则记为 `0.0`。
+    """
     return 1.0 if normalize_prediction(dataset, predicted) == normalize_gold(dataset, gold) else 0.0
 
 
 def aggregate_majority(candidates: Iterable[str]) -> tuple[str, dict[str, int]]:
-    """聚合同一题的多次回答，并在平票时保持先出现者优先。"""
+    """聚合同一题的多次回答，并在平票时保持“先出现者优先”。"""
     ordered = [candidate for candidate in candidates if candidate]
     counts = Counter(ordered)
     if not counts:
@@ -41,7 +48,7 @@ def aggregate_majority(candidates: Iterable[str]) -> tuple[str, dict[str, int]]:
 
 
 def normalize_number(value: str) -> str:
-    """把数值答案清洗成稳定字符串，避免 ``1`` 与 ``1.0`` 被视作不同。"""
+    """把数值答案清洗成稳定字符串，避免 `1` 与 `1.0` 被视为不同。"""
     match = re.search(r"[-+]?\d[\d,]*(?:\.\d+)?", value.replace(",", ""))
     if not match:
         return value.strip().lower()
@@ -56,7 +63,7 @@ def normalize_number(value: str) -> str:
 
 
 def normalize_yes_no(value: str) -> str:
-    """把多种 yes / no 变体收敛成标准二元标签。"""
+    """把多种 `yes / no` 变体收敛成标准二元标签。"""
     lowered = value.strip().lower()
     if lowered.startswith("yes"):
         return "yes"
@@ -66,7 +73,7 @@ def normalize_yes_no(value: str) -> str:
 
 
 def normalize_text(value: str) -> str:
-    """对文本答案做轻量归一化，近似常见 QA 的 EM 预处理。"""
+    """对文本答案做轻量归一化，近似常见 QA 任务的 EM 预处理。"""
     lowered = value.lower()
     lowered = re.sub(r"\b(a|an|the)\b", " ", lowered)
     lowered = lowered.translate(str.maketrans("", "", string.punctuation))

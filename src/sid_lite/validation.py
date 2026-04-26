@@ -1,4 +1,8 @@
-"""SID-lite 运行产物验证。"""
+"""SID-lite 运行产物验证。
+
+该校验器重点验证共享前缀、公平对照与机制约束：
+例如 early-exit 是否真的零通信、共享 Stage A 哈希是否一致、置信度失效时是否 fail-open。
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,8 @@
-"""SPARC 纯逻辑辅助函数。"""
+"""SPARC 的机制级纯逻辑函数。
+
+这里集中实现 SPARC 的核心算法：消息包投影与退化、belief update 合并、
+带置信度的聚合、审计候选选择，以及局部审计器可见的最小候选包构造。
+"""
 
 from __future__ import annotations
 

@@ -1,7 +1,8 @@
 """滑动窗口限流器。
 
-实验 runner 在发请求前会先占用一次请求额度和 token 额度，
-从而把并发执行约束在 provider 配额范围内。
+实验 runner 会在真正发出网络请求之前，先占用一次请求额度和 token 额度，
+从而把多线程并发约束在 provider 的 RPM / TPM 配额范围内。
+这里使用轻量的滑动窗口实现，强调可解释性与可复现性，而不是极致吞吐。
 """
 
 from __future__ import annotations
@@ -45,7 +46,7 @@ class SlidingWindowRateLimiter:
                 self.condition.wait(timeout=wait_seconds)
 
     def _evict_expired(self, now: float) -> None:
-        """移除窗口外的旧事件。"""
+        """移除滑动窗口之外的旧事件。"""
         while self.request_events and now - self.request_events[0] >= self.window_seconds:
             self.request_events.popleft()
         while self.token_events and now - self.token_events[0][0] >= self.window_seconds:

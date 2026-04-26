@@ -1,4 +1,8 @@
-"""Multi-agent prompting."""
+"""多智能体基线提示词构造。
+
+本模块负责构造 Vanilla MAD 的初始作答 prompt 与 debate prompt，
+保持“先独立求解，再读取同伴反馈修正”的协议边界清晰。
+"""
 
 from __future__ import annotations
 
@@ -71,6 +75,7 @@ def build_debate_messages(
 
 
 def _system_prompt(prompt_version: str) -> str:
+    """返回指定 prompt 版本的 system prompt。"""
     if prompt_version == CONTROLLED_PROMPT_VERSION:
         return (
             "You are one reasoning agent in a controlled debate-vs-vote experiment.\n"
@@ -92,6 +97,7 @@ def _system_prompt(prompt_version: str) -> str:
 
 
 def _dataset_instruction(sample: DatasetSample, prompt_version: str) -> str:
+    """返回数据集特定的答题约束。"""
     if sample.dataset == "gsm8k":
         return (
             "Solve the math word problem carefully. "
@@ -118,6 +124,7 @@ def _dataset_instruction(sample: DatasetSample, prompt_version: str) -> str:
 
 
 def _revision_instruction(sample: DatasetSample, prompt_version: str) -> str:
+    """返回 debate 阶段的修正原则。"""
     if sample.dataset == "hotpotqa" and prompt_version == CONTROLLED_PROMPT_VERSION:
         return (
             "Revise your answer only if peer arguments reveal a concrete mistake or provide stronger textual evidence. "

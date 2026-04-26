@@ -1,4 +1,8 @@
-"""SID-lite 纯逻辑辅助函数。"""
+"""SID-lite 的机制级纯逻辑函数。
+
+这里集中实现 SID-lite 的关键机制：早退判定、消息压缩、belief update 合并、
+通信压缩比统计与题级多数投票。该层不直接依赖 I/O，便于 runner、validation 与测试复用。
+"""
 
 from __future__ import annotations
 
@@ -91,7 +95,7 @@ def decide_early_exit(
 
 
 def project_message_packet(stage_a_row: dict[str, Any], *, mode: str, token_cap: int) -> dict[str, Any]:
-    """把 Stage A 输出投影为 full 或 compressed 可通信消息。"""
+    """把 Stage A 输出投影为 `full` 或 `compressed` 可通信消息。"""
     if mode not in {"full", "compressed"}:
         raise ValueError(f"Unsupported SID-lite packet mode: {mode}")
 

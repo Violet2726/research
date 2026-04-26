@@ -1,4 +1,9 @@
-"""Free-MAD-lite 主运行链路。"""
+"""Free-MAD-lite 主运行链路。
+
+本模块把 Free-MAD-lite 的完整流程落地为可执行实验：
+共享 Stage A、单轮 anti-conformity debate、轨迹裁决器调用、
+以及题级指标、诊断与报告产物生成。
+"""
 
 from __future__ import annotations
 

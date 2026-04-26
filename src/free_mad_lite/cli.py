@@ -1,4 +1,8 @@
-"""Free-MAD-lite CLI。"""
+"""Free-MAD-lite 命令行入口。
+
+CLI 暴露实验检查、执行、摘要、校验与报告生成能力，
+方便单独运行 Free-MAD-lite 机制验证实验。
+"""
 
 from __future__ import annotations
 

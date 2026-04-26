@@ -1,4 +1,8 @@
-"""SID-lite 报告与摘要。"""
+"""SID-lite 报告与摘要。
+
+报告层重点展示 SID-lite 与无通信 / 总是全通信 / 仅压缩通信之间的对比，
+突出 early-exit 触发比例、压缩比、通信成本和是否修正了原始错误。
+"""
 
 from __future__ import annotations
 

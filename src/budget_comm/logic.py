@@ -1,4 +1,10 @@
-"""budget_comm 纯逻辑辅助函数。"""
+"""`budget_comm` 的机制级纯逻辑函数。
+
+这里承载 DALA-lite 相关的核心算法，但不直接依赖 I/O：
+包括消息包压缩、value density 特征构造、tier 分配、背包求解、
+VCG 诊断支付、belief update 合并，以及是否值得进入 full DALA 的门槛判断。
+这使得核心机制可以被单测、validation 与 runner 共同复用。
+"""
 
 from __future__ import annotations
 
@@ -51,7 +57,7 @@ def trim_text_to_token_cap(text: str | None, token_cap: int) -> str:
 
 
 def normalize_keyword_clues(value: object) -> list[str]:
-    """把 keyword_clues 收敛为稳定的字符串列表。"""
+    """把 `keyword_clues` 收敛为稳定的字符串列表。"""
     if isinstance(value, str):
         normalized = value.strip()
         return [normalized] if normalized else []
@@ -66,7 +72,11 @@ def normalize_keyword_clues(value: object) -> list[str]:
 
 
 def build_shared_candidate_features(stage_a_rows: list[dict[str, Any]], auction_policy) -> list[dict[str, Any]]:
-    """从共享 Stage A 输出构造 value density 所需特征。"""
+    """从共享 Stage A 输出构造 value density 所需特征。
+
+    这是 DALA-lite 的关键入口：它会把每个 agent 的初始答案、证据、关键词和置信度
+    转换成可比较的候选表示，并进一步计算 utility、density 与预分配消息档位。
+    """
     answer_counts = Counter(str(row.get("normalized_answer") or "") for row in stage_a_rows if row.get("normalized_answer"))
     keyword_sets = {
         int(row["agent_id"]): _keyword_set(normalize_keyword_clues(row.get("keyword_clues")))
@@ -76,6 +86,8 @@ def build_shared_candidate_features(stage_a_rows: list[dict[str, Any]], auction_
     candidates: list[dict[str, Any]] = []
     utility_scores: list[float] = []
     for row in stage_a_rows:
+        # 先计算与答案分歧、证据充分性、新颖性、置信度相关的局部特征，
+        # 再按配置权重合成为 utility 分数。
         packet_variants = build_packet_variants(row, auction_policy)
         disagreement_score = _disagreement_component(str(row.get("normalized_answer") or ""), answer_counts)
         evidence_score = _evidence_component(row)
@@ -111,6 +123,7 @@ def build_shared_candidate_features(stage_a_rows: list[dict[str, Any]], auction_
     std_utility = math.sqrt(variance)
     density_values = []
     for candidate in candidates:
+        # DALA-lite 使用“标准化效用 / Full 包成本”的近似 value density。
         zscore = (candidate["utility_score"] - mean_utility) / std_utility if std_utility > 0 else 0.0
         full_tokens = candidate["packet_variants"]["full"]["packet_tokens"] or 1
         density_score = round(zscore / full_tokens, 6)
@@ -125,6 +138,7 @@ def build_shared_candidate_features(stage_a_rows: list[dict[str, Any]], auction_
         }
     )
     for candidate in candidates:
+        # 只有正 density 候选才有资格获得某种消息档位，否则直接静默。
         density_score = float(candidate["density_score"])
         assigned_mode = tier_map.get(candidate["agent_id"], "silence")
         if density_score <= auction_policy.positive_density_threshold:
@@ -135,7 +149,13 @@ def build_shared_candidate_features(stage_a_rows: list[dict[str, Any]], auction_
 
 
 def build_packet_variants(stage_a_row: dict[str, Any], auction_policy) -> dict[str, dict[str, Any]]:
-    """把 Stage A solver 输出投影为三档消息包。"""
+    """把 Stage A solver 输出投影为三档消息包。
+
+    三档分别对应：
+    - `full`：较完整的推理与证据；
+    - `summary`：保留争议 claim 与关键证据；
+    - `keywords`：只保留答案与关键词线索。
+    """
     final_answer = trim_text_to_token_cap(str(stage_a_row.get("normalized_answer") or ""), 24)
     reasoning_trace = trim_text_to_token_cap(stage_a_row.get("reasoning_trace"), 128)
     claim_span = trim_text_to_token_cap(stage_a_row.get("claim_span"), 48)
@@ -171,7 +191,7 @@ def build_packet_variants(stage_a_row: dict[str, Any], auction_policy) -> dict[s
 
 
 def assign_density_tiers(positive_densities: dict[int, float]) -> dict[int, str]:
-    """按正密度候选的相对位置映射 full / summary / keywords。"""
+    """按正密度候选的相对位置映射 `full / summary / keywords`。"""
     if not positive_densities:
         return {}
     ordered = sorted(positive_densities.items(), key=lambda item: (item[1], item[0]))
@@ -191,7 +211,7 @@ def assign_density_tiers(positive_densities: dict[int, float]) -> dict[int, str]
 
 
 def build_all_to_all_full_decision(shared_candidates: list[dict[str, Any]]) -> dict[str, Any]:
-    """all_to_all_full 固定广播所有 Full 消息。"""
+    """构造 `all_to_all_full` 决策，即固定广播所有 Full 消息。"""
     selected_modes = {candidate["agent_id"]: "full" for candidate in shared_candidates if candidate["packet_variants"]["full"]["packet_tokens"] > 0}
     candidate_rows = _materialize_candidate_rows(
         shared_candidates,
@@ -223,7 +243,7 @@ def build_budget_random_decision(
     round_budget_tokens: int,
     seed: int,
 ) -> dict[str, Any]:
-    """随机打分、Full-only 的预算基线。"""
+    """构造 `budget_random` 决策，即随机打分的 Full-only 预算基线。"""
     rng = random.Random(seed)
     score_lookup = {candidate["agent_id"]: round(rng.random(), 6) for candidate in shared_candidates}
     items = [
@@ -265,7 +285,7 @@ def build_budget_confidence_decision(
     *,
     round_budget_tokens: int,
 ) -> dict[str, Any]:
-    """按 confidence 排序的 Full-only 预算基线。"""
+    """构造 `budget_confidence` 决策，即按置信度排序的 Full-only 预算基线。"""
     score_lookup = {
         candidate["agent_id"]: float(candidate["confidence_score"])
         for candidate in shared_candidates
@@ -310,7 +330,11 @@ def build_dala_lite_decision(
     round_budget_tokens: int,
     positive_density_threshold: float,
 ) -> dict[str, Any]:
-    """按 value density + tier packet 的 DALA-lite 决策。"""
+    """构造 `dala_lite` 决策。
+
+    该方法先根据 density 决定每个 agent 的候选消息档位，
+    再在预算约束下用背包求解器选出赢家集合。
+    """
     items = []
     for candidate in shared_candidates:
         density_score = float(candidate["density_score"])
@@ -359,7 +383,11 @@ def build_dala_lite_decision(
 
 
 def solve_knapsack(items: list[dict[str, Any]], budget_tokens: int) -> KnapsackDecision:
-    """用穷举法求解小规模 knapsack，并实现固定 tie-break。"""
+    """用穷举法求解小规模 knapsack，并实现固定 tie-break。
+
+    当前实验中的候选数量很小，因此这里优先选择可解释、可重放的穷举法，
+    便于 validation 对拍和论文级诊断。
+    """
     best = KnapsackDecision(winner_agent_ids=tuple(), total_score=0.0, total_cost=0)
     candidate_count = len(items)
     for mask in range(1 << candidate_count):
@@ -416,7 +444,11 @@ def apply_belief_update(
     stage_a_row: dict[str, Any],
     belief_row: dict[str, Any],
 ) -> dict[str, Any]:
-    """把 Stage B belief update 应用到 Stage A 候选。"""
+    """把 Stage B belief update 应用到 Stage A 候选。
+
+    如果 belief update 失败或缺字段，这里会保守回退到 Stage A 的原始答案，
+    避免由于格式问题把机制收益误判为通信收益。
+    """
     validated = belief_row.get("validated_output", {}) if belief_row.get("output_status") == "ok" else {}
     changed_answer = bool(validated.get("changed_answer")) if validated else False
     previous_answer = str(stage_a_row.get("normalized_answer") or "")
@@ -490,6 +522,7 @@ def _materialize_candidate_rows(
     score_lookup: dict[int, float],
     vcg_payments: dict[int, float],
 ) -> list[dict[str, Any]]:
+    """把候选、选择分数与最终中标结果展开成可落盘的诊断行。"""
     rows: list[dict[str, Any]] = []
     for candidate in shared_candidates:
         agent_id = int(candidate["agent_id"])
@@ -540,6 +573,7 @@ def _materialize_candidate_rows(
 
 
 def _disagreement_component(answer: str, answer_counts: Counter[str]) -> float:
+    """计算答案分歧分量：少数观点比多数观点更有潜在通信价值。"""
     if not answer or not answer_counts:
         return 0.0
     if len(answer_counts) == 1:
@@ -550,6 +584,7 @@ def _disagreement_component(answer: str, answer_counts: Counter[str]) -> float:
 
 
 def _evidence_component(stage_a_row: dict[str, Any]) -> float:
+    """计算证据分量：有关键证据和可争议 claim 的候选更值得发送。"""
     has_evidence = bool(str(stage_a_row.get("key_evidence") or "").strip())
     has_claim = bool(str(stage_a_row.get("claim_span") or "").strip()) or bool(normalize_keyword_clues(stage_a_row.get("keyword_clues")))
     if has_evidence and has_claim:
@@ -560,6 +595,7 @@ def _evidence_component(stage_a_row: dict[str, Any]) -> float:
 
 
 def _novelty_component(agent_id: int, keyword_sets: dict[int, set[str]]) -> float:
+    """计算新颖性分量：关键词越不与同伴重合，分数越高。"""
     current = keyword_sets.get(agent_id, set())
     if not current:
         return 0.0
@@ -574,6 +610,7 @@ def _novelty_component(agent_id: int, keyword_sets: dict[int, set[str]]) -> floa
 
 
 def _confidence_component(raw_confidence: object) -> float:
+    """计算置信度分量；无效置信度回退到中性分数。"""
     value, valid, _ = normalize_confidence(raw_confidence)
     if valid and value is not None:
         return float(value)
@@ -581,6 +618,7 @@ def _confidence_component(raw_confidence: object) -> float:
 
 
 def _fit_packet_to_cap(packet_fields: dict[str, Any], token_cap: int, primary_keys: list[str]) -> dict[str, Any]:
+    """在保留主要字段语义的前提下，把消息包裁剪到 token 上限内。"""
     fields = json.loads(json.dumps(packet_fields, ensure_ascii=False))
     while approximate_token_count(json.dumps(fields, ensure_ascii=False, sort_keys=True)) > token_cap and primary_keys:
         trimmed = False
@@ -608,6 +646,7 @@ def _fit_packet_to_cap(packet_fields: dict[str, Any], token_cap: int, primary_ke
 
 
 def _has_non_empty_content(value: object) -> bool:
+    """判断某个字段是否仍然包含可传递内容。"""
     if value is None:
         return False
     if isinstance(value, str):
@@ -618,6 +657,7 @@ def _has_non_empty_content(value: object) -> bool:
 
 
 def _keyword_set(keyword_clues: list[str]) -> set[str]:
+    """把关键词线索列表转换成归一化后的 token 集合。"""
     normalized: set[str] = set()
     for clue in keyword_clues:
         for token in clue.lower().replace(",", " ").split():
@@ -628,6 +668,7 @@ def _keyword_set(keyword_clues: list[str]) -> set[str]:
 
 
 def _jaccard(left: set[str], right: set[str]) -> float:
+    """计算两个关键词集合的 Jaccard 相似度。"""
     if not left and not right:
         return 1.0
     if not left or not right:
@@ -645,6 +686,7 @@ def _is_better_decision(
     winner_ids: tuple[int, ...],
     current: KnapsackDecision,
 ) -> bool:
+    """比较两个 knapsack 候选解，按得分、成本、ID 顺序稳定决策。"""
     if score > current.total_score + 1e-12:
         return True
     if math.isclose(score, current.total_score, abs_tol=1e-12) and cost < current.total_cost:

@@ -1,4 +1,9 @@
-"""Free-MAD-lite 报告与摘要。"""
+"""Free-MAD-lite 报告与摘要。
+
+报告层重点展示三类结果：
+初始多数票、单轮反从众后的最终票，以及轨迹裁决器的最终选择，
+并强调 judge 回退比例与单轮机制收益。
+"""
 
 from __future__ import annotations
 

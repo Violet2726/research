@@ -1,4 +1,8 @@
-"""多智能体实验 CLI。"""
+"""多智能体实验命令行入口。
+
+CLI 负责暴露实验检查、执行、摘要、校验与 `Debate vs Vote` 报告生成，
+方便把多智能体基线作为统一可复现实验流程运行。
+"""
 
 from __future__ import annotations
 

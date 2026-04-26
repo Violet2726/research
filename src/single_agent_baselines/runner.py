@@ -112,7 +112,11 @@ def run_experiment(
     run_root: str | Path = "local/runs/single_agent",
     cache_path: str | Path = "cache/single_agent_requests.sqlite",
 ) -> Path:
-    """执行一个 experiment phase，并产出完整运行目录。"""
+    """执行一个 `single_agent` phase，并产出完整运行目录。
+
+    它会把“模型 × 数据集 × 方法 × rerun”的笛卡尔积展开成具体调用计划，
+    然后负责并发执行、缓存复用、题级聚合、指标汇总与产物落盘。
+    """
     load_dotenv(".env.local", override=False)
     phase = phase_metadata(experiment, phase_name)
     method_catalog = load_method_catalog(experiment.method_catalog)

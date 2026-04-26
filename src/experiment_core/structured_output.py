@@ -1,4 +1,9 @@
-"""Minimal model-facing output validators plus framework artifact version."""
+"""面向模型输出的最小结构化校验器。
+
+本模块定义仓库内各类 prompt 对应的最小 JSON 契约，并在模型返回文本后做统一校验。
+设计目标不是做语义纠错，而是尽早发现 schema 偏移、字段缺失和类型错误，
+从而让 runner 可以稳定地区分“请求失败”“格式失败”和“答案内容本身错误”。
+"""
 
 from __future__ import annotations
 
@@ -27,7 +32,11 @@ OutputMode = Literal[
 
 
 def validate_structured_output(raw_text: str, output_mode: OutputMode) -> dict[str, Any]:
-    """Validate one assistant response against the minimal model-facing contract."""
+    """按指定输出模式校验一条模型响应。
+
+    返回值是已经过字段级校验和轻度归一化的字典；
+    如果结构不满足约定，则抛出 `ValueError`，由上层 runner 记录为 schema 失败。
+    """
     cleaned = raw_text.strip()
     if not cleaned:
         raise ValueError("Assistant output is empty.")
@@ -55,6 +64,7 @@ def validate_structured_output(raw_text: str, output_mode: OutputMode) -> dict[s
 
 
 def _validate_core_output(payload: dict[str, Any]) -> dict[str, Any]:
+    """校验最基础的 `final_answer [+ reasoning]` 输出模式。"""
     allowed_keys = {"final_answer", "reasoning"}
     actual_keys = set(payload)
     if "final_answer" not in payload:
@@ -73,6 +83,7 @@ def _validate_core_output(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validate_selective_output(payload: dict[str, Any]) -> dict[str, Any]:
+    """校验选择性通信实验使用的回答与置信度输出。"""
     allowed_keys = {"final_answer", "reasoning", "confidence_raw", "key_evidence", "uncertain_point"}
     actual_keys = set(payload)
     required_keys = {"final_answer", "confidence_raw"}
@@ -102,6 +113,7 @@ def _validate_selective_output(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validate_sparc_solver_output(payload: dict[str, Any]) -> dict[str, Any]:
+    """校验 SPARC Stage A solver 的结构化输出。"""
     allowed_keys = {
         "final_answer",
         "reasoning_trace",
@@ -129,6 +141,7 @@ def _validate_sparc_solver_output(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validate_budget_solver_output(payload: dict[str, Any]) -> dict[str, Any]:
+    """校验 `budget_comm` Stage A solver 的结构化输出。"""
     allowed_keys = {
         "final_answer",
         "reasoning_trace",
@@ -159,6 +172,7 @@ def _validate_budget_solver_output(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validate_sparc_message_output(payload: dict[str, Any]) -> dict[str, Any]:
+    """校验 SPARC 消息包投影前的候选输出。"""
     allowed_keys = {
         "final_answer",
         "reasoning_trace",
@@ -183,6 +197,7 @@ def _validate_sparc_message_output(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validate_sparc_belief_update_output(payload: dict[str, Any]) -> dict[str, Any]:
+    """校验 belief update 阶段的变更说明输出。"""
     allowed_keys = {
         "changed_answer",
         "new_answer",
@@ -213,10 +228,12 @@ def _validate_sparc_belief_update_output(payload: dict[str, Any]) -> dict[str, A
 
 
 def _validate_budget_belief_update_output(payload: dict[str, Any]) -> dict[str, Any]:
+    """`budget_comm` 与 SPARC 共用同一套 belief update 校验规则。"""
     return _validate_sparc_belief_update_output(payload)
 
 
 def _validate_sparc_audit_output(payload: dict[str, Any]) -> dict[str, Any]:
+    """校验 SPARC 局部审计器的裁决输出。"""
     allowed_keys = {"decision", "verified_answer", "rationale"}
     actual_keys = set(payload)
     required_keys = {"decision", "rationale"}
@@ -239,6 +256,7 @@ def _validate_sparc_audit_output(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _decode_json_object(cleaned: str) -> dict[str, Any]:
+    """把模型文本解码为 JSON 对象，并拒绝非对象顶层结构。"""
     import json
 
     payload = json.loads(cleaned)
@@ -248,6 +266,7 @@ def _decode_json_object(cleaned: str) -> dict[str, Any]:
 
 
 def _require_non_empty_string(value: object, field_name: str) -> str:
+    """要求字段是非空字符串。"""
     if not isinstance(value, str):
         raise ValueError(f"{field_name} must be a string.")
     normalized = value.strip()
@@ -257,6 +276,7 @@ def _require_non_empty_string(value: object, field_name: str) -> str:
 
 
 def _require_answer_value(value: object, field_name: str) -> str:
+    """要求答案字段是非空字符串或数值，并统一转成字符串。"""
     if isinstance(value, bool) or value is None:
         raise ValueError(f"{field_name} must be a string or numeric value.")
     if isinstance(value, (int, float)):
@@ -265,6 +285,7 @@ def _require_answer_value(value: object, field_name: str) -> str:
 
 
 def _optional_answer_value(value: object, field_name: str) -> str | None:
+    """读取可选答案字段；空串按缺失处理。"""
     if value is None:
         return None
     if isinstance(value, str) and not value.strip():
@@ -273,6 +294,7 @@ def _optional_answer_value(value: object, field_name: str) -> str | None:
 
 
 def _require_nullable_string(value: object, field_name: str) -> str | None:
+    """要求字段为字符串或 `null`，且出现时不能为空串。"""
     if value is None:
         return None
     if not isinstance(value, str):
@@ -284,6 +306,7 @@ def _require_nullable_string(value: object, field_name: str) -> str | None:
 
 
 def _require_nullable_hint(value: object, field_name: str) -> str | None:
+    """读取可选提示字段，并把常见“空语义”文本折叠为 `None`。"""
     if value is None:
         return None
     if not isinstance(value, str):
@@ -297,6 +320,7 @@ def _require_nullable_hint(value: object, field_name: str) -> str | None:
 
 
 def _require_confidence_raw(value: object) -> float | str:
+    """要求 `confidence_raw` 是数值或可解析为数值的字符串。"""
     if isinstance(value, bool) or value is None:
         raise ValueError("confidence_raw must be a numeric value or numeric string.")
     if isinstance(value, (int, float)):
@@ -314,6 +338,7 @@ def _require_confidence_raw(value: object) -> float | str:
 
 
 def _require_keyword_clues(value: object) -> list[str]:
+    """要求 `keyword_clues` 至少包含一个非空线索。"""
     if isinstance(value, str):
         normalized = value.strip()
         if not normalized:
@@ -330,6 +355,7 @@ def _require_keyword_clues(value: object) -> list[str]:
 
 
 def _optional_confidence_raw(value: object) -> float | str | None:
+    """读取可选的 `confidence_raw`；空串按缺失处理。"""
     if value is None:
         return None
     if isinstance(value, str) and not value.strip():
@@ -338,6 +364,7 @@ def _optional_confidence_raw(value: object) -> float | str | None:
 
 
 def _optional_float(value: object, field_name: str) -> float | None:
+    """读取可选浮点字段。"""
     if value is None:
         return None
     if isinstance(value, bool):
@@ -356,12 +383,14 @@ def _optional_float(value: object, field_name: str) -> float | None:
 
 
 def _require_bool(value: object, field_name: str) -> bool:
+    """要求字段是布尔值。"""
     if not isinstance(value, bool):
         raise ValueError(f"{field_name} must be a boolean.")
     return value
 
 
 def _require_enum(value: object, field_name: str, allowed: set[str]) -> str:
+    """要求字段属于给定枚举集合。"""
     normalized = _require_non_empty_string(value, field_name)
     if normalized not in allowed:
         raise ValueError(f"{field_name} must be one of {sorted(allowed)}.")

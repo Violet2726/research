@@ -1,4 +1,9 @@
-"""多智能体实验主运行链路。"""
+"""多智能体实验主运行链路。
+
+本模块把 Vanilla MAD 及其等预算控制方法组织成完整实验流程，
+包括共享样本选择、setup 解析、agent turn 执行、debate 消息落盘、
+题级投票聚合、成本拆分与最终报告/校验产物生成。
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,8 @@
-"""单智能体实验配置加载。"""
+"""单智能体实验配置加载。
+
+本模块负责解析单智能体基线实验的顶层配置，并把实验级、phase 级的模型约束
+与 benchmark 约束整理成统一接口，供 runner 在真正发请求之前做筛选与 fail-fast 校验。
+"""
 
 from __future__ import annotations
 
@@ -92,7 +96,7 @@ def _dedupe_preserving_order(items: list[str]) -> list[str]:
 
 
 def _optional_int(payload: dict[str, Any], key: str) -> int | None:
-    """读取可选整数值。"""
+    """读取可选整数字段。"""
     value = payload.get(key)
     if value is None:
         return None

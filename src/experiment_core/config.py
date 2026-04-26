@@ -1,4 +1,8 @@
-"""Shared configuration loading."""
+"""共享配置加载。
+
+本模块负责把 `configs/shared/` 与各实验包引用的 TOML 配置解析成具名数据结构。
+它的职责不是做实验逻辑决策，而是把“原始配置文本”转换成“可执行、可校验、可追踪”的运行配置。
+"""
 
 from __future__ import annotations
 
@@ -16,7 +20,7 @@ REASONING_EFFORT_VALUES = {"high", "medium", "low", "none"}
 
 @dataclass(frozen=True)
 class ProviderConfig:
-    """Raw provider configuration."""
+    """Provider 的原始默认配置。"""
 
     name: str
     base_url: str
@@ -33,7 +37,7 @@ class ProviderConfig:
 
 @dataclass(frozen=True)
 class ModelCatalogEntry:
-    """One model entry from the catalog."""
+    """模型目录中的单条模型覆盖项。"""
 
     model_ref: str
     tags: list[str]
@@ -47,7 +51,7 @@ class ModelCatalogEntry:
 
 @dataclass(frozen=True)
 class ResolvedModelConfig:
-    """Runnable model configuration after merging provider defaults and model overrides."""
+    """合并 provider 默认值与模型级覆盖项后的可运行模型配置。"""
 
     name: str
     provider: str
@@ -68,7 +72,7 @@ class ResolvedModelConfig:
 
 @dataclass(frozen=True)
 class BenchmarkConfig:
-    """Benchmark dataset configuration."""
+    """单个 benchmark 的数据集配置。"""
 
     name: str
     slug: str
@@ -86,15 +90,18 @@ class BenchmarkConfig:
 
 
 def _load_toml(path: str | Path) -> dict[str, Any]:
+    """读取 TOML 文件并返回原始字典。"""
     with Path(path).open("rb") as handle:
         return tomllib.load(handle)
 
 
 def _provider_config_path(provider_name: str) -> Path:
+    """根据 provider 名称定位其共享配置文件。"""
     return DEFAULT_PROVIDERS_DIR / f"{provider_name}.toml"
 
 
 def load_provider_config(path: str | Path) -> ProviderConfig:
+    """加载单个 provider 配置文件。"""
     payload = _load_toml(path)
     return ProviderConfig(
         name=str(payload["name"]),
@@ -112,6 +119,10 @@ def load_provider_config(path: str | Path) -> ProviderConfig:
 
 
 def load_model_catalog(path: str | Path = DEFAULT_MODEL_CATALOG_PATH) -> dict[str, ModelCatalogEntry]:
+    """加载模型目录。
+
+    如果目录文件不存在，则返回空字典，方便最小化测试环境直接沿用 provider 默认值。
+    """
     catalog_path = Path(path)
     if not catalog_path.exists():
         return {}
@@ -133,6 +144,7 @@ def load_model_catalog(path: str | Path = DEFAULT_MODEL_CATALOG_PATH) -> dict[st
 
 
 def load_benchmark_config(path: str | Path) -> BenchmarkConfig:
+    """加载单个 benchmark 配置。"""
     return BenchmarkConfig(**_load_toml(path))
 
 
@@ -140,6 +152,11 @@ def resolve_model_ref(
     model_ref: str,
     model_catalog_path: str | Path = DEFAULT_MODEL_CATALOG_PATH,
 ) -> ResolvedModelConfig:
+    """把 `provider/model_name` 解析成最终可执行的模型配置。
+
+    解析顺序是先读取 provider 默认配置，再叠加模型目录中的可选覆盖项，
+    最后得到 runner 可以直接消费的 `ResolvedModelConfig`。
+    """
     provider_name, model_name = parse_model_ref(model_ref)
     provider = load_provider_config(_provider_config_path(provider_name))
     catalog_entry = load_model_catalog(model_catalog_path).get(model_ref)
@@ -187,6 +204,7 @@ def resolve_model_ref(
 
 
 def parse_model_ref(model_ref: str) -> tuple[str, str]:
+    """解析形如 `provider/model_name` 的模型引用。"""
     if "/" not in model_ref:
         raise RuntimeError(
             f"Invalid model ref '{model_ref}'. Use the format 'provider/model_name'."
@@ -200,6 +218,7 @@ def parse_model_ref(model_ref: str) -> tuple[str, str]:
 
 
 def _optional_bool(payload: dict[str, Any], key: str) -> bool | None:
+    """读取可选布尔字段。"""
     value = payload.get(key)
     if value is None:
         return None
@@ -207,6 +226,7 @@ def _optional_bool(payload: dict[str, Any], key: str) -> bool | None:
 
 
 def _optional_int(payload: dict[str, Any], key: str) -> int | None:
+    """读取可选整数字段。"""
     value = payload.get(key)
     if value is None:
         return None
@@ -214,6 +234,7 @@ def _optional_int(payload: dict[str, Any], key: str) -> int | None:
 
 
 def _optional_reasoning_effort(payload: dict[str, Any], key: str) -> str | None:
+    """读取并校验可选的 `reasoning_effort` 字段。"""
     value = payload.get(key)
     if value is None:
         return None

@@ -1,4 +1,8 @@
-"""Free-MAD-lite 运行产物验证。"""
+"""Free-MAD-lite 运行产物验证。
+
+该校验器重点检查共享前缀哈希、单轮约束、judge 输出结构，
+以及轨迹裁决器在日志层面是否保持可复核。
+"""
 
 from __future__ import annotations
 

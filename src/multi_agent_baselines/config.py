@@ -1,4 +1,8 @@
-"""多智能体实验配置加载。"""
+"""多智能体实验配置加载。
+
+本模块负责解析 Vanilla MAD 风格多智能体实验所需的配置，
+包括 debate 协议、agent roster、实验 setup，以及与之配套的等预算控制方法。
+"""
 
 from __future__ import annotations
 

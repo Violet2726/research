@@ -1,4 +1,8 @@
-"""SID-lite 实验配置加载。"""
+"""SID-lite 实验配置加载。
+
+本模块负责解析 SID-lite 所需的共享协议、顶层实验配置与 phase 元数据，
+为“高置信一致时早退、否则进入压缩通信”的机制实验提供统一配置入口。
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,9 @@
-"""Shared OpenAI-compatible provider client."""
+"""共享的 OpenAI 兼容 provider 客户端。
+
+本模块把不同 provider 的 OpenAI-compatible 接口收敛成统一调用面，
+负责构造请求、处理重试、抽取文本通道和估算 usage，
+让上层 runner 不需要重复关心 HTTP 细节。
+"""
 
 from __future__ import annotations
 
@@ -15,7 +20,7 @@ from experiment_core.config import ResolvedModelConfig
 
 @dataclass(frozen=True)
 class ProviderResponse:
-    """Normalized provider response."""
+    """标准化后的 provider 响应。"""
 
     http_status: int
     raw_payload: dict[str, Any]
@@ -32,7 +37,7 @@ class ProviderResponse:
 
 @dataclass(frozen=True)
 class ProviderRequestError(RuntimeError):
-    """Public provider request error."""
+    """对上层暴露的 provider 请求异常。"""
 
     message: str
     http_status: int | None
@@ -44,7 +49,7 @@ class ProviderRequestError(RuntimeError):
 
 
 class OpenAICompatibleProvider:
-    """Minimal OpenAI-compatible provider wrapper."""
+    """最小化的 OpenAI-compatible provider 封装。"""
 
     def __init__(self, config: ResolvedModelConfig) -> None:
         self.config = config
@@ -57,6 +62,7 @@ class OpenAICompatibleProvider:
         self.api_key = api_key
 
     def chat_completion(self, payload: dict[str, Any]) -> ProviderResponse:
+        """执行一次聊天补全请求，并在必要时做有限重试。"""
         url = self.config.base_url.rstrip("/") + self.config.chat_path
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -136,6 +142,7 @@ def build_payload(
     max_output_tokens: int,
     seed: int | None,
 ) -> dict[str, Any]:
+    """把仓库内部的请求参数组合成 provider 侧 payload。"""
     payload: dict[str, Any] = {
         "model": config.model_id,
         "messages": messages,
@@ -152,6 +159,7 @@ def build_payload(
 
 
 def estimate_request_tokens(payload: dict[str, Any]) -> int:
+    """用轻量近似规则估算一次请求会消耗的 token。"""
     prompt_chars = len(json.dumps(payload.get("messages", []), ensure_ascii=False))
     prompt_tokens = max(1, prompt_chars // 4)
     completion_tokens = int(payload.get("max_tokens") or 0)
@@ -159,7 +167,7 @@ def estimate_request_tokens(payload: dict[str, Any]) -> int:
 
 
 def _apply_thinking_control(config: ResolvedModelConfig, payload: dict[str, Any]) -> None:
-    """Map the repo-level thinking policy onto provider-specific payload fields."""
+    """把仓库级推理控制策略映射到 provider 特定字段。"""
     if config.reasoning_effort is None:
         return
     if config.provider == "local_ollama":
@@ -172,6 +180,7 @@ def _apply_thinking_control(config: ResolvedModelConfig, payload: dict[str, Any]
 
 
 def _extract_message_channels(body: dict[str, Any]) -> tuple[str, str]:
+    """从 provider 返回体中抽取主回答文本与推理文本通道。"""
     choices = body.get("choices") or []
     if not choices:
         return "", ""
@@ -184,6 +193,7 @@ def _extract_message_channels(body: dict[str, Any]) -> tuple[str, str]:
 
 
 def _extract_text_field(content: object) -> str:
+    """把 provider 可能返回的多种文本字段结构压平成纯文本。"""
     if isinstance(content, str):
         return content
     if isinstance(content, list):
@@ -207,6 +217,7 @@ def _extract_text_field(content: object) -> str:
 
 
 def _extract_finish_reason(body: dict[str, Any]) -> str | None:
+    """抽取首个 choice 的 finish reason。"""
     choices = body.get("choices") or []
     if not choices:
         return None
@@ -214,6 +225,7 @@ def _extract_finish_reason(body: dict[str, Any]) -> str | None:
 
 
 def _estimate_usage(payload: dict[str, Any], assistant_text: str) -> dict[str, int]:
+    """在 provider 未显式返回 usage 时做保守估算。"""
     prompt_chars = len(json.dumps(payload, ensure_ascii=False))
     completion_chars = len(assistant_text)
     return {

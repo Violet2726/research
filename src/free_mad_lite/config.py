@@ -1,4 +1,8 @@
-"""Free-MAD-lite 实验配置加载。"""
+"""Free-MAD-lite 实验配置加载。
+
+本模块负责解析 Free-MAD-lite 所需的协议与顶层实验配置，
+支撑“单轮反从众辩论 + 轨迹裁决”的轻量机制验证。
+"""
 
 from __future__ import annotations
 

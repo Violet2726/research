@@ -1,4 +1,8 @@
-"""comm_necessary 提示词构造。"""
+"""`comm_necessary` 提示词构造。
+
+本模块为 HotpotQA split-context 实验构造 Stage A 与 belief update prompt，
+要求模型同时输出答案与 supporting facts，便于后续分析通信对证据整合的帮助程度。
+"""
 
 from __future__ import annotations
 

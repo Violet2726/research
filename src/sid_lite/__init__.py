@@ -1,1 +1,5 @@
-"""SID-lite experiment package."""
+"""SID-lite 实验包。
+
+该包实现高置信早退与压缩消息通信机制实验，
+用于验证 SID-lite 风格选择性通信方案的成本-性能权衡。
+"""

@@ -1,4 +1,9 @@
-"""选择性通信运行结果校验。"""
+"""选择性通信运行结果校验。
+
+该校验器同时验证工程正确性与实验设计正确性：
+既检查关键文件、请求成功率，也检查共享哈希、always/disagreement 规则、
+early-exit 零通信约束和非法置信度比例。
+"""
 
 from __future__ import annotations
 

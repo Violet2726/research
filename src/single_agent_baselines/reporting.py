@@ -1,4 +1,8 @@
-"""单智能体实验报告辅助工具。"""
+"""单智能体实验报告辅助工具。
+
+本模块负责把基础指标整理成更适合论文与实验记录阅读的摘要形式，
+尤其关注 lower bound、等预算对照和 SC / MV 的 token 公平性检查。
+"""
 
 from __future__ import annotations
 
@@ -9,7 +13,7 @@ from typing import Any
 
 
 def load_metrics(run_dir: str | Path) -> dict[str, Any]:
-    """读取单次运行目录下的 ``metrics.json``。"""
+    """读取单次运行目录下的 `metrics.json`。"""
     return json.loads((Path(run_dir) / "metrics.json").read_text(encoding="utf-8"))
 
 

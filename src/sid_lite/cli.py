@@ -1,4 +1,8 @@
-"""SID-lite CLI。"""
+"""SID-lite 命令行入口。
+
+CLI 暴露实验检查、执行、摘要、校验和报告生成能力，
+方便把 SID-lite 作为独立机制实验运行和复核。
+"""
 
 from __future__ import annotations
 

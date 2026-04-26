@@ -1,4 +1,8 @@
-"""comm_necessary 报告与摘要。"""
+"""`comm_necessary` 报告与摘要。
+
+报告层重点展示不同通信强度对 HotpotQA answer、supporting facts 与 joint 指标的影响，
+并帮助判断“通信是否必要、必要到什么程度”。
+"""
 
 from __future__ import annotations
 

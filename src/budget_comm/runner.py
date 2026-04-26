@@ -1,4 +1,12 @@
-"""budget_comm 实验主运行链路。"""
+"""`budget_comm` 实验主运行链路。
+
+本模块把 DALA-lite 风格预算通信实验落成完整的可执行流程：
+1. 校准每个数据集的轮次预算；
+2. 运行共享 Stage A，得到可压缩候选；
+3. 分别执行多种预算决策方法；
+4. 在 Stage B 中基于中标消息包做 belief update；
+5. 汇总指标、诊断与论文摘要产物。
+"""
 
 from __future__ import annotations
 
@@ -58,7 +66,7 @@ from experiment_core.structured_output import (
 
 @dataclass(frozen=True)
 class RunPaths:
-    """budget_comm 运行目录下的固定产物路径。"""
+    """`budget_comm` 运行目录下的固定产物路径集合。"""
 
     root: Path
     manifest: Path
@@ -78,7 +86,7 @@ class RunPaths:
 
 @dataclass(frozen=True)
 class SampleResult:
-    """单题运行产物。"""
+    """单题运行产生的全部中间产物与最终结果。"""
 
     sample_views: list[dict[str, Any]]
     stage_a_turns: list[dict[str, Any]]
@@ -95,7 +103,11 @@ def run_experiment(
     run_root: str | Path = "local/runs/budget_comm",
     cache_path: str | Path = "cache/budget_comm_requests.sqlite",
 ) -> Path:
-    """执行一个 budget_comm phase，并写出完整运行目录。"""
+    """执行一个 `budget_comm` phase，并写出完整运行目录。
+
+    这是整条实验线的总调度入口，负责准备共享依赖、校准预算、并发跑样本、
+    落盘中间日志、汇总最终指标，并生成报告与校验结果。
+    """
     from budget_comm.reporting import render_report
     from budget_comm.validation import validate_run
 
@@ -111,6 +123,8 @@ def run_experiment(
         tokens_per_minute=experiment.tokens_per_minute_limit,
     )
 
+    # 先固定每个 benchmark 的 split，再一次性加载本轮样本，
+    # 避免不同方法在运行途中出现数据选择漂移。
     benchmark_to_split = {
         benchmark.slug: _resolve_split_name(experiment, phase_name, benchmark.slug)
         for benchmark in benchmarks
@@ -119,6 +133,8 @@ def run_experiment(
         benchmark.slug: select_samples(benchmark, benchmark_to_split[benchmark.slug])
         for benchmark in benchmarks
     }
+    # 预算不是拍脑袋给定，而是先用 calibration 样本跑 all_to_all_full，
+    # 再按配置比例冻结成每个数据集的 round budget。
     calibration = _calibrate_budgets(
         experiment=experiment,
         benchmarks=benchmarks,
@@ -138,6 +154,8 @@ def run_experiment(
     total_calls, total_predictions = _estimate_work(experiment, phase_name, benchmarks, protocol)
     progress = RunProgressTracker(run_paths.progress, total_calls, total_predictions)
 
+    # manifest 记录“本次真正落地使用了什么配置与预算”，
+    # 是后续分析、复现与审计的第一入口。
     manifest = {
         "run_id": run_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -242,7 +260,11 @@ def _calibrate_budgets(
     cache: RequestCache,
     limiter: SlidingWindowRateLimiter,
 ) -> dict[str, Any]:
-    """先做 5 题 all_to_all_full 校准，冻结每个数据集的预算。"""
+    """先做少量 `all_to_all_full` 校准，再冻结每个数据集的预算。
+
+    当前实现使用校准样本上的通信 token 中位数，再乘以 `calibration_fraction`
+    作为该数据集后续所有方法共享的 `round_budget_tokens`。
+    """
     datasets_payload: dict[str, dict[str, Any]] = {}
     for benchmark in benchmarks:
         calibration_samples = benchmark_to_samples[benchmark.slug][: experiment.calibration_sample_size]
@@ -304,6 +326,7 @@ def _run_sample_batch(
     cache: RequestCache,
     limiter: SlidingWindowRateLimiter,
 ) -> list[SampleResult]:
+    """并发执行同一数据集下的一整批样本，并保持原始样本顺序。"""
     worker = partial(
         _run_sample,
         run_id=run_id,
@@ -350,6 +373,7 @@ def _write_sample_results(
     all_belief_updates: list[dict[str, Any]],
     all_prediction_rows: list[dict[str, Any]],
 ) -> None:
+    """把单题结果稳定写盘，并同步更新内存聚合与进度快照。"""
     for result in sample_results:
         for row in result.sample_views:
             sample_view_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -396,6 +420,16 @@ def _run_sample(
     cache: RequestCache,
     limiter: SlidingWindowRateLimiter,
 ) -> SampleResult:
+    """执行单题上的全部预算通信方法。
+
+    执行顺序固定为：
+    1. 共享 Stage A；
+    2. 无通信基线 `mv_3`；
+    3. `all_to_all_full`；
+    4. `budget_random`；
+    5. `budget_confidence`；
+    6. `dala_lite`。
+    """
     shared_context = _prepare_shared_context(
         run_id=run_id,
         benchmark_slug=benchmark_slug,
@@ -415,6 +449,7 @@ def _run_sample(
     belief_rows: list[dict[str, Any]] = []
     prediction_rows: list[dict[str, Any]] = []
 
+    # `mv_3` 直接复用 Stage A 投票结果，作为无通信基线。
     prediction_rows.append(_build_mv3_prediction(shared_context))
 
     all_to_all = build_all_to_all_full_decision(shared_context["shared_candidates"])
@@ -501,6 +536,13 @@ def _prepare_shared_context(
     cache: RequestCache,
     limiter: SlidingWindowRateLimiter,
 ) -> dict[str, Any]:
+    """准备单题共享上下文。
+
+    这里会完成三件事：
+    1. 按 track 生成 agent 视图；
+    2. 跑共享 Stage A solver；
+    3. 从 Stage A 输出中提炼可供所有方法复用的候选特征。
+    """
     question_preview = _question_preview(sample.question)
     context_views = build_context_views(sample, context_view_config, agent_count=protocol.agent_count)
     sample_view_rows = [
@@ -514,6 +556,8 @@ def _prepare_shared_context(
     ]
     stage_a_turns: list[dict[str, Any]] = []
     for view in context_views:
+        # Stage A 是所有方法共享的前缀，因此它的输出必须完整落盘，
+        # 后续所有预算方法都从这里出发，保证对照公平。
         messages = build_solver_messages(sample, view, prompt_version=experiment.prompt_version)
         stage_a_turn = _execute_turn(
             run_id=run_id,
@@ -584,13 +628,16 @@ def _run_stage_b_method(
     method_name: str,
     round_budget_tokens: int | None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """执行某个方法的一轮 Stage B，并返回 belief rows 与题级预测。"""
+    """执行某个方法的一轮 Stage B，并返回 belief rows 与题级预测。
+
+    每个 agent 会看到“预算筛选后、且不包含自己”的 peer packets，
+    再基于这些消息决定是否修正答案与置信度。
+    """
     stage_a_turns = shared_context["stage_a_turns"]
     context_views = shared_context["context_views"]
     belief_rows: list[dict[str, Any]] = []
     post_debate_candidates: list[dict[str, Any]] = []
     selected_rows = [row for row in decision["candidate_rows"] if row.get("is_winner")]
-    selected_lookup = {int(row["agent_id"]): row for row in selected_rows}
     for view, stage_a_row in zip(context_views, stage_a_turns, strict=False):
         visible_peer_packets = [
             {
@@ -650,6 +697,7 @@ def _run_stage_b_method(
     for row in belief_rows:
         row["stage_b_trace_hash"] = stage_b_trace_hash
 
+    # Stage B 结束后再按题级多数票聚合，得到该方法在本题上的最终表现。
     post_answers = [normalize_prediction(shared_context["dataset"], str(candidate["final_answer"])) for candidate in post_debate_candidates]
     post_vote, post_vote_counts = aggregate_majority(post_answers)
     post_score = score_prediction(shared_context["dataset"], post_vote, shared_context["sample"].reference_answer)
@@ -707,7 +755,7 @@ def _run_stage_b_method(
 
 
 def _build_mv3_prediction(shared_context: dict[str, Any]) -> dict[str, Any]:
-    """构造无通信基线 mv_3。"""
+    """构造无通信基线 `mv_3`。"""
     agent_count = int(shared_context["protocol"].agent_count)
     return {
         "run_id": shared_context["run_id"],
@@ -757,7 +805,7 @@ def _build_mv3_prediction(shared_context: dict[str, Any]) -> dict[str, Any]:
 
 
 def _enrich_candidate_rows(shared_context: dict[str, Any], candidate_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """补齐 candidate row 的样本级字段。"""
+    """为候选消息包行补齐样本级上下文字段。"""
     enriched: list[dict[str, Any]] = []
     for row in candidate_rows:
         enriched.append(
@@ -865,6 +913,7 @@ def _build_budget_diagnostics(
 
 
 def _export_paper_summary(path: Path, summary_rows: list[dict[str, Any]]) -> None:
+    """导出面向论文整理的轻量 CSV 摘要。"""
     fieldnames = [
         "dataset",
         "track_name",
@@ -884,6 +933,7 @@ def _export_paper_summary(path: Path, summary_rows: list[dict[str, Any]]) -> Non
 
 
 def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> RunPaths:
+    """创建运行目录，并返回其中所有固定产物路径。"""
     root = Path(run_root) / experiment_name / phase_name / run_id
     root.mkdir(parents=True, exist_ok=True)
     return RunPaths(
@@ -910,6 +960,7 @@ def _estimate_work(
     benchmarks,
     protocol: BudgetProtocolConfig,
 ) -> tuple[int, int]:
+    """估算总调用数与总预测数，用于进度展示。"""
     total_calls = 0
     total_predictions = 0
     for benchmark in benchmarks:
@@ -921,6 +972,7 @@ def _estimate_work(
 
 
 def _resolve_split_name(experiment: BudgetCommExperimentConfig, phase_name: str, benchmark_slug: str) -> str:
+    """解析某个 benchmark 在当前 phase 下使用的冻结 split 名称。"""
     phase = phase_metadata(experiment, phase_name)
     if "split_overrides" in phase:
         return str(phase["split_overrides"][benchmark_slug])
@@ -953,6 +1005,11 @@ def _execute_turn(
     seed: int,
     output_mode: str,
 ) -> dict[str, Any]:
+    """执行单次 Stage A 或 Stage B 调用，并整理成统一日志结构。
+
+    这里会统一处理缓存、限流、provider 请求、结构化校验、轻量修复与字段展开，
+    让上层阶段逻辑只关心“这一轮产生了什么记录”。
+    """
     payload = build_payload(
         config=backbone,
         messages=messages,
@@ -975,6 +1032,7 @@ def _execute_turn(
     )
     cached = cache.get(cache_key)
     if cached is None:
+        # 只有真正发网路请求时才占用限流配额；缓存命中不计入。
         limiter.acquire(estimate_request_tokens(payload))
         try:
             response = provider.chat_completion(payload)
@@ -1028,6 +1086,8 @@ def _execute_turn(
             else:
                 answer_for_normalization = str(validated_output.get("final_answer") or "")
         except Exception:
+            # `budget_comm` 对截断 JSON 做一次保守修复，
+            # 尽量把“轻微格式问题”与“真正逻辑错误”区分开来。
             repaired_output = _repair_budget_output(response_payload["assistant_text"], output_mode)
             if repaired_output is not None:
                 validated_output = repaired_output
@@ -1072,6 +1132,8 @@ def _execute_turn(
         "validated_output": validated_output,
     }
     if output_mode == OUTPUT_MODE_BUDGET_SOLVER:
+        # Stage A 需要额外展开证据、关键词与置信度归一化字段，
+        # 供后续 density 计算与消息压缩复用。
         confidence_raw = validated_output.get("confidence_raw") if validated_output else None
         confidence_value, confidence_valid, confidence_source = normalize_confidence(confidence_raw)
         row.update(
@@ -1113,6 +1175,7 @@ def _cache_key(
     prompt_hash: str,
     payload: dict[str, Any],
 ) -> str:
+    """构造单次 turn 的稳定缓存键。"""
     fingerprint = {
         "dataset": dataset,
         "split_name": split_name,
@@ -1128,6 +1191,7 @@ def _cache_key(
 
 
 def _trace_hash(rows: list[dict[str, Any]]) -> str:
+    """为一组阶段日志生成稳定 trace 哈希。"""
     payload = [
         {
             "stage_name": row["stage_name"],
@@ -1144,10 +1208,12 @@ def _trace_hash(rows: list[dict[str, Any]]) -> str:
 
 
 def _prompt_hash(messages: list[dict[str, str]]) -> str:
+    """为提示词内容生成稳定哈希。"""
     return sha256(json.dumps(messages, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def _question_preview(question: str, max_chars: int = 120) -> str:
+    """生成用于日志与报告展示的短问题预览。"""
     cleaned = " ".join(question.split())
     if len(cleaned) <= max_chars:
         return cleaned
@@ -1155,6 +1221,7 @@ def _question_preview(question: str, max_chars: int = 120) -> str:
 
 
 def _stable_sample_seed(sample_id: str) -> int:
+    """从样本 ID 派生稳定种子，避免全局随机漂移。"""
     return sum(ord(char) for char in sample_id)
 
 
@@ -1168,6 +1235,7 @@ def _repair_budget_output(raw_text: str, output_mode: str) -> dict[str, Any] | N
 
 
 def _repair_budget_solver_output(raw_text: str) -> dict[str, Any] | None:
+    """尝试从破损的 Stage A 输出中恢复最小可用字段。"""
     final_answer = _extract_json_string_field(raw_text, "final_answer")
     if final_answer is None and re.search(r'"final_answer"\s*:\s*""', raw_text):
         final_answer = "unknown"
@@ -1189,6 +1257,7 @@ def _repair_budget_solver_output(raw_text: str) -> dict[str, Any] | None:
 
 
 def _repair_budget_belief_update_output(raw_text: str) -> dict[str, Any] | None:
+    """尝试从破损的 belief update 输出中恢复最小可用字段。"""
     changed_answer = _extract_json_bool_field(raw_text, "changed_answer")
     if changed_answer is None:
         return None
@@ -1205,6 +1274,7 @@ def _repair_budget_belief_update_output(raw_text: str) -> dict[str, Any] | None:
 
 
 def _extract_json_string_field(raw_text: str, field_name: str) -> str | None:
+    """用正则从原始文本中提取 JSON 字符串字段。"""
     pattern = rf'"{re.escape(field_name)}"\s*:\s*"((?:\\.|[^"\\])*)"'
     match = re.search(pattern, raw_text, flags=re.DOTALL)
     if not match:
@@ -1213,6 +1283,7 @@ def _extract_json_string_field(raw_text: str, field_name: str) -> str | None:
 
 
 def _extract_json_string_list(raw_text: str, field_name: str) -> list[str]:
+    """用正则从原始文本中提取 JSON 字符串列表字段。"""
     pattern = rf'"{re.escape(field_name)}"\s*:\s*\[(.*?)\]'
     match = re.search(pattern, raw_text, flags=re.DOTALL)
     if not match:
@@ -1223,6 +1294,7 @@ def _extract_json_string_list(raw_text: str, field_name: str) -> list[str]:
 
 
 def _extract_json_number_field(raw_text: str, field_name: str) -> float | None:
+    """用正则从原始文本中提取 JSON 数值字段。"""
     pattern = rf'"{re.escape(field_name)}"\s*:\s*(-?\d+(?:\.\d+)?)'
     match = re.search(pattern, raw_text)
     if not match:
@@ -1231,6 +1303,7 @@ def _extract_json_number_field(raw_text: str, field_name: str) -> float | None:
 
 
 def _extract_json_bool_field(raw_text: str, field_name: str) -> bool | None:
+    """用正则从原始文本中提取 JSON 布尔字段。"""
     pattern = rf'"{re.escape(field_name)}"\s*:\s*(true|false)'
     match = re.search(pattern, raw_text, flags=re.IGNORECASE)
     if not match:
@@ -1239,10 +1312,12 @@ def _extract_json_bool_field(raw_text: str, field_name: str) -> bool | None:
 
 
 def _sum_metric(rows: list[dict[str, Any]], key: str) -> float:
+    """对一组日志行中的某个数值字段求和。"""
     return sum(float(row.get(key) or 0.0) for row in rows)
 
 
 def _mean(values) -> float:
+    """安全计算均值。"""
     materialized = list(values)
     if not materialized:
         return 0.0
@@ -1250,6 +1325,7 @@ def _mean(values) -> float:
 
 
 def _median_floor(values: list[int]) -> int:
+    """计算整型列表的下取整中位数。"""
     if not values:
         return 0
     ordered = sorted(values)

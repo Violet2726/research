@@ -1,7 +1,8 @@
 """请求级缓存。
 
-本模块使用 SQLite 持久化相同请求指纹对应的响应结果，避免重复实验时
-反复消耗 API 配额，也方便后续做可复现实验和离线排障。
+本模块使用 SQLite 持久化“同一请求指纹 -> 同一响应结果”的映射关系，
+避免重复实验时反复消耗 API 配额，也为复现实验、离线排障和运行恢复
+提供稳定的底层支撑。
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class CachedResponse:
-    """内存中的单条缓存记录。"""
+    """表示一条已经标准化并可落盘的缓存记录。"""
 
     cache_key: str
     payload_json: str
@@ -27,7 +28,7 @@ class CachedResponse:
 
 
 class RequestCache:
-    """线程安全的请求缓存封装。"""
+    """线程安全的 SQLite 请求缓存封装。"""
 
     def __init__(self, db_path: str | Path) -> None:
         """初始化缓存数据库，并在首次运行时创建表结构。"""
@@ -51,7 +52,7 @@ class RequestCache:
         self.connection.commit()
 
     def get(self, cache_key: str) -> CachedResponse | None:
-        """按请求指纹读取缓存；未命中时返回 ``None``。"""
+        """按缓存键读取记录；未命中时返回 `None`。"""
         with self.lock:
             row = self.connection.execute(
                 """
@@ -86,11 +87,11 @@ class RequestCache:
             self.connection.commit()
 
     def close(self) -> None:
-        """关闭数据库连接。"""
+        """关闭底层数据库连接。"""
         with self.lock:
             self.connection.close()
 
 
 def json_dump(data: Any) -> str:
-    """统一 JSON 序列化格式，保证缓存键和值都稳定可复用。"""
+    """按统一规则序列化 JSON，保证缓存键和值都具备稳定性。"""
     return json.dumps(data, ensure_ascii=False, sort_keys=True)

@@ -1,4 +1,8 @@
-"""SPARC 提示词构造。"""
+"""SPARC 提示词构造。
+
+本模块为 solver、debate、single judge 与 auditor 分别构造 prompt，
+显式区分内容压缩、触发通信和局部审计几个阶段的输出契约。
+"""
 
 from __future__ import annotations
 

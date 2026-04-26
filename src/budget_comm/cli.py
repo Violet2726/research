@@ -1,4 +1,8 @@
-"""budget_comm CLI。"""
+"""`budget_comm` 命令行入口。
+
+CLI 负责把实验配置解析、执行、摘要、校验和报告生成这些动作暴露为稳定子命令，
+方便在终端、脚本和 CI 中统一调用。
+"""
 
 from __future__ import annotations
 
@@ -20,6 +24,7 @@ from budget_comm.validation import validate_run
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """构造 `budget_comm` 命令行参数解析器。"""
     parser = argparse.ArgumentParser(description="Budget-aware DALA-lite experiment runner.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -48,6 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """解析命令行并分发到具体子命令实现。"""
     parser = build_parser()
     args = parser.parse_args()
 

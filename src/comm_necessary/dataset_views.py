@@ -1,4 +1,9 @@
-"""HotpotQA split-context 视图构造。"""
+"""HotpotQA split-context 视图构造。
+
+该模块为通信必要性实验提供受控的上下文拆分：
+两个 agent 分别看到不同 supporting paragraph，另一个 agent 主要看到干扰项与标题清单，
+从而构造“没有通信就难以完整整合证据”的实验下界。
+"""
 
 from __future__ import annotations
 

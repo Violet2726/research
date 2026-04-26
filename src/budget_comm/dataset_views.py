@@ -1,4 +1,9 @@
-"""same-context / split-context 的样本视图构造。"""
+"""`same-context / split-context` 样本视图构造。
+
+`budget_comm` 的关键前提之一是：不同 agent 不一定看到同一份上下文。
+本模块负责把统一样本切分成 agent 级别的可见视图，并显式记录覆盖范围、
+完整上下文哈希和分片标题，便于后续做泄漏校验、覆盖校验和机制分析。
+"""
 
 from __future__ import annotations
 
@@ -37,7 +42,10 @@ def build_context_views(
     *,
     agent_count: int,
 ) -> list[ContextView]:
-    """按轨道配置为单题构造全部 agent 视图。"""
+    """按轨道配置为单题构造全部 agent 视图。
+
+    当前 `budget_comm v1` 固定为 3 个 agent，因此这里也显式约束为三路视图设计。
+    """
     if agent_count != 3:
         raise ValueError(f"budget_comm v1 only supports 3 agents, got {agent_count}.")
     if config.track_name == "same_context":
@@ -56,7 +64,7 @@ def serialize_view_row(
     question_preview: str,
     view: ContextView,
 ) -> dict[str, Any]:
-    """把视图对象转成可直接写入 JSONL 的行。"""
+    """把视图对象转成可直接写入 JSONL 的稳定行结构。"""
     return {
         "run_id": run_id,
         "dataset": view.dataset,
@@ -78,6 +86,7 @@ def serialize_view_row(
 
 
 def _build_same_context_views(sample: DatasetSample, config: ContextViewConfig) -> list[ContextView]:
+    """构造所有 agent 共享完整上下文的视图。"""
     full_context = sample.prompt_context.strip()
     full_hash = _stable_hash(full_context)
     return [
@@ -102,6 +111,7 @@ def _build_same_context_views(sample: DatasetSample, config: ContextViewConfig) 
 
 
 def _build_strategyqa_split_views(sample: DatasetSample, config: ContextViewConfig) -> list[ContextView]:
+    """按事实奇偶位与分解步骤为 StrategyQA 构造三路视图。"""
     if config.strategyqa_mode != "facts_even_odd_plus_decomposition":
         raise ValueError(f"Unsupported strategyqa_mode: {config.strategyqa_mode}")
     facts = [str(item).strip() for item in sample.metadata.get("facts", []) if str(item).strip()]
@@ -163,6 +173,7 @@ def _build_strategyqa_split_views(sample: DatasetSample, config: ContextViewConf
 
 
 def _build_hotpotqa_split_views(sample: DatasetSample, config: ContextViewConfig) -> list[ContextView]:
+    """按 supporting paragraphs 与干扰段落为 HotpotQA 构造三路视图。"""
     if config.hotpotqa_mode != "supporting_paragraph_shards":
         raise ValueError(f"Unsupported hotpotqa_mode: {config.hotpotqa_mode}")
     raw_context = sample.metadata.get("raw_context") or {}
@@ -236,6 +247,7 @@ def _build_hotpotqa_split_views(sample: DatasetSample, config: ContextViewConfig
 
 
 def _render_strategyqa_decomposition(description: str, decomposition: list[str]) -> str:
+    """把 StrategyQA 的描述与分解步骤渲染成第三路视图文本。"""
     sections: list[str] = []
     if description:
         sections.append(f"Description:\n{description}")
@@ -245,6 +257,7 @@ def _render_strategyqa_decomposition(description: str, decomposition: list[str])
 
 
 def _hotpot_paragraph_map(raw_context: dict[str, Any]) -> list[tuple[str, str]]:
+    """把 HotpotQA 原始上下文整理为 `(标题, 段落文本)` 列表。"""
     titles = raw_context.get("title", [])
     sentences = raw_context.get("sentences", [])
     rendered: list[tuple[str, str]] = []
@@ -261,6 +274,7 @@ def _render_hotpot_shard(
     *,
     title_list: str | None,
 ) -> str:
+    """渲染单个 HotpotQA 视图分片，并按需附加标题清单。"""
     rendered_sections = [paragraph for title, paragraph in paragraph_map if title in selected_titles]
     if title_list:
         rendered_sections.append(title_list)
@@ -268,16 +282,19 @@ def _render_hotpot_shard(
 
 
 def _join_sections(header: str, items: list[str]) -> str:
+    """把一个条目列表渲染为带标题的文本块。"""
     if not items:
         return ""
     return f"{header}:\n" + "\n".join(f"- {item}" for item in items)
 
 
 def _slice(items: list[str], start: int, stop: int) -> list[str]:
+    """返回去空后的稳定切片。"""
     return [item for item in items[start:stop] if item]
 
 
 def _stable_hash(text: str) -> str:
+    """为上下文文本计算稳定哈希。"""
     return sha256(text.encode("utf-8")).hexdigest()
 
 

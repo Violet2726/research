@@ -1,4 +1,8 @@
-"""Single-agent prompting."""
+"""单智能体基线提示词构造。
+
+这里定义仓库中最基础的一类 prompt：单模型、单轮、单个 JSON 输出。
+虽然结构简单，但它也是后续多数对照实验的公共参照，因此约束需要保持稳定。
+"""
 
 from __future__ import annotations
 
@@ -13,7 +17,7 @@ def build_messages(
     method_family: str,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
-    """Build one single-agent request."""
+    """构造一次单智能体请求。"""
     del method_family
     if prompt_version != DEFAULT_PROMPT_VERSION:
         raise ValueError(f"Unsupported single-agent prompt_version: {prompt_version}")
@@ -24,6 +28,7 @@ def build_messages(
 
 
 def _system_prompt(prompt_version: str) -> str:
+    """返回单智能体实验的 system prompt。"""
     if prompt_version == DEFAULT_PROMPT_VERSION:
         return (
             "You are an expert reasoning assistant for controlled research experiments.\n"
@@ -36,6 +41,7 @@ def _system_prompt(prompt_version: str) -> str:
 
 
 def _user_prompt(sample: DatasetSample, prompt_version: str) -> str:
+    """构造数据集相关的 user prompt。"""
     user_prompt = (
         f"{_dataset_instruction(sample, prompt_version)}\n"
         f"Question:\n{sample.question.strip()}\n\n"
@@ -54,6 +60,7 @@ def _user_prompt(sample: DatasetSample, prompt_version: str) -> str:
 
 
 def _dataset_instruction(sample: DatasetSample, prompt_version: str) -> str:
+    """返回数据集特定的答题约束。"""
     if sample.dataset == "gsm8k":
         return (
             "Solve the math word problem carefully. "

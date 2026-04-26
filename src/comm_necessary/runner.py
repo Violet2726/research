@@ -1,4 +1,9 @@
-"""comm_necessary 实验主运行链路。"""
+"""`comm_necessary` 实验主运行链路。
+
+本模块把 HotpotQA 通信必要性实验落成完整流程：
+构造 split-context 视图、运行不同消息强度的方法、聚合答案与 supporting facts，
+并导出联合指标、官方预测文件与报告产物。
+"""
 
 from __future__ import annotations
 
