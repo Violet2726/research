@@ -2,10 +2,10 @@
 
 ## 1. 实验概览
 
-- 实验名：`hotpotqa_split_evidence_v1`
+- 实验名：`hotpotqa_split500_main`
 - Phase：`smoke20`
 - Backbone：`dashscope/qwen-turbo-1101`
-- 运行目录：`local/runs/comm_necessary/hotpotqa_split_evidence_v1/smoke20/20260424T083720Z-hotpotqa_split_evidence_v1-smoke20-dashscope-qwen-turbo-1101`
+- 运行目录：`local/runs/comm_necessary/hotpotqa_split500_main/smoke20/20260426T080346Z-hotpotqa_split500_main-smoke20-dashscope-qwen-turbo-1101`
 - 任务：HotpotQA split-context evidence exchange；smoke20 只作工程验证和方向性证据。
 - 方法：`full_context_single`、`split_no_comm_mv3`、`answer_only_exchange`、`evidence_exchange`、`full_packet_exchange`。
 
