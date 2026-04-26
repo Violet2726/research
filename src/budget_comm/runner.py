@@ -747,8 +747,12 @@ def _run_stage_b_method(
         "corrected_by_method": stage_a_score < 1.0 and post_score == 1.0,
         "harmed_by_method": stage_a_score == 1.0 and post_score < 1.0,
         "selection_rule": decision["selection_rule"],
+        "stage_a_hash": shared_context["stage_a_trace_hash"],
         "stage_a_trace_hash": shared_context["stage_a_trace_hash"],
         "stage_b_trace_hash_used": stage_b_trace_hash,
+        "route_cost": float(decision["total_cost"]),
+        "route_value": round(post_score - stage_a_score, 6),
+        "drift_flag": post_score < stage_a_score,
         "note": None,
     }
     return belief_rows, prediction_row
@@ -798,8 +802,12 @@ def _build_mv3_prediction(shared_context: dict[str, Any]) -> dict[str, Any]:
         "corrected_by_method": False,
         "harmed_by_method": False,
         "selection_rule": "stage_a_majority_vote",
+        "stage_a_hash": shared_context["stage_a_trace_hash"],
         "stage_a_trace_hash": shared_context["stage_a_trace_hash"],
         "stage_b_trace_hash_used": None,
+        "route_cost": 0.0,
+        "route_value": 0.0,
+        "drift_flag": False,
         "note": "no_communication_baseline",
     }
 

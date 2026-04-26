@@ -570,6 +570,9 @@ def _prediction_row(
         "corrected_by_method": corrected,
         "harmed_by_method": harmed,
         "minority_rescue": corrected,
+        "stage_a_hash": common.get("stage_a_trace_hash"),
+        "minority_rescue_flag": corrected,
+        "drift_flag": harmed,
     }
 
 

@@ -15,6 +15,7 @@ import random
 from typing import Any
 
 from budget_comm.logic import METHOD_ORDER
+from experiment_core.analysis_reports import render_frontier_report, write_report
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
@@ -45,6 +46,7 @@ def render_report(
     markdown = _render_markdown(manifest, metrics, diagnostics, predictions, root)
     local_report_path = root / "dala_lite_report.md"
     local_report_path.write_text(markdown, encoding="utf-8")
+    write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="Budget Communication Frontier"))
 
     publish_path = Path(publish_dir) / _published_report_name(manifest)
     publish_path.parent.mkdir(parents=True, exist_ok=True)
@@ -53,6 +55,7 @@ def render_report(
         "run_dir": str(root),
         "local_report": str(local_report_path),
         "published_report": str(publish_path),
+        "frontier_report": str(root / "frontier_report.md"),
     }
 
 

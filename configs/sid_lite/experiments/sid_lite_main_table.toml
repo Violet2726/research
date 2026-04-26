@@ -1,0 +1,25 @@
+name = "sid_lite_main_table"
+description = "SID-lite main-table experiment on the SPARC same-context benchmarks."
+benchmark_configs = [
+  "configs/shared/benchmarks/math500.toml",
+  "configs/shared/benchmarks/hotpotqa.toml",
+  "configs/shared/benchmarks/mmlu_pro.toml",
+  "configs/shared/benchmarks/gpqa_diamond.toml",
+]
+protocol = "configs/sid_lite/protocols/shared_3a_r1.toml"
+methods = ["mv_3", "always_full", "compression_only", "sid_lite"]
+global_seed = 42
+prompt_version = "sid_lite_v1_json"
+max_concurrent_requests = 3
+requests_per_minute_limit = 60
+tokens_per_minute_limit = 1000000
+primary_backbone = "dashscope/qwen-turbo-1101"
+
+[phases.smoke20]
+split_overrides = { math500 = "smoke20_seed42", hotpotqa = "smoke20_seed42", mmlu_pro = "smoke20_seed42", gpqa_diamond = "smoke20_seed42" }
+
+[phases.pilot100]
+split_overrides = { math500 = "pilot100_seed42", hotpotqa = "pilot100_seed42", mmlu_pro = "pilot100_seed42", gpqa_diamond = "pilot100_seed42" }
+
+[phases.main]
+split_overrides = { math500 = "full500_seed42", hotpotqa = "dev1000_seed42", mmlu_pro = "strat1200_seed42", gpqa_diamond = "full_seed42" }

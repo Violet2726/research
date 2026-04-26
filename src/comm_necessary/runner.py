@@ -638,10 +638,12 @@ def _prediction_row(
         "total_tokens_per_question": costs["total_tokens"],
         "latency_ms_per_question": costs["latency_ms"],
         "calls_per_question": calls_per_question,
+        "stage_a_hash": stage_a_trace_hash,
         "stage_a_trace_hash": stage_a_trace_hash,
         "stage_b_trace_hash_used": stage_b_trace_hash_used,
         "corrected_by_method": corrected,
         "harmed_by_method": harmed,
+        "drift_flag": harmed,
     }
 
 

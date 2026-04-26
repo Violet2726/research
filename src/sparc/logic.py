@@ -17,6 +17,7 @@ MESSAGE_MODE_ORDER = [
     "answer_confidence",
     "disagreement_step_only",
     "critical_evidence_only",
+    "task_adaptive",
 ]
 FIELD_TOKEN_CAPS = {
     "reasoning_trace": 160,
@@ -35,11 +36,16 @@ MESSAGE_MODE_TOKEN_CAPS = {
 }
 DEFAULT_MESSAGE_MODE_BY_DATASET = {
     "gsm8k": "disagreement_step_only",
+    "math500": "disagreement_step_only",
     "strategyqa": "disagreement_step_only",
     "hotpotqa": "critical_evidence_only",
+    "mmlu_pro": "disagreement_step_only",
+    "gpqa_diamond": "disagreement_step_only",
+    "gsm_symbolic": "disagreement_step_only",
 }
 AGGREGATION_METHOD_ORDER = [
     "majority_vote",
+    "weighted_vote_fallback",
     "single_judge",
     "final_round_vote",
     "local_auditing",
@@ -77,6 +83,8 @@ def project_message_packet(stage_a_row: dict[str, Any], requested_mode: str) -> 
     claim_span = trim_text_to_token_cap(stage_a_row.get("claim_span", ""), FIELD_TOKEN_CAPS["claim_span"])
     key_evidence = trim_text_to_token_cap(stage_a_row.get("key_evidence", ""), FIELD_TOKEN_CAPS["key_evidence"])
 
+    if requested_mode == "task_adaptive":
+        requested_mode = DEFAULT_MESSAGE_MODE_BY_DATASET.get(str(stage_a_row.get("dataset") or ""), "disagreement_step_only")
     effective_mode = requested_mode
     degradation_reason = ""
     if requested_mode == "answer_confidence" and (not confidence_valid or confidence_raw_display in {"", None}):
@@ -210,6 +218,39 @@ def aggregate_with_confidence_tiebreak(candidates: list[dict[str, Any]]) -> tupl
 
     winner = max(counts, key=_rank)
     return winner, dict(counts)
+
+
+def aggregate_weighted_vote(candidates: list[dict[str, Any]]) -> tuple[str, dict[str, float]]:
+    """Aggregate answers by confidence-weighted support with deterministic tie-breaking."""
+    grouped_weights: dict[str, float] = defaultdict(float)
+    grouped_counts: dict[str, int] = defaultdict(int)
+    best_confidence: dict[str, float] = defaultdict(lambda: -1.0)
+    min_agent_id: dict[str, int] = defaultdict(lambda: 10**6)
+    for candidate in candidates:
+        answer = str(candidate.get("normalized_answer", "")).strip()
+        if not answer:
+            continue
+        confidence = (
+            float(candidate.get("confidence_value"))
+            if candidate.get("confidence_valid") and candidate.get("confidence_value") is not None
+            else 0.5
+        )
+        grouped_weights[answer] += confidence
+        grouped_counts[answer] += 1
+        best_confidence[answer] = max(best_confidence[answer], confidence)
+        min_agent_id[answer] = min(min_agent_id[answer], int(candidate.get("agent_id", 10**6)))
+    if not grouped_weights:
+        return "", {}
+    winner = max(
+        grouped_weights,
+        key=lambda answer: (
+            grouped_weights[answer],
+            grouped_counts[answer],
+            best_confidence[answer],
+            -min_agent_id[answer],
+        ),
+    )
+    return winner, {answer: round(weight, 6) for answer, weight in grouped_weights.items()}
 
 
 def select_audit_candidate_pair(candidates: list[dict[str, Any]]) -> dict[str, Any]:

@@ -14,6 +14,12 @@ import math
 import random
 from typing import Any
 
+from experiment_core.analysis_reports import (
+    render_audit_diagnostic_report,
+    render_frontier_report,
+    write_report,
+)
+
 
 REPORT_NAME_BY_KIND = {
     "content_ablation": "content_ablation_report.md",
@@ -49,6 +55,8 @@ def render_report(
     report_name = REPORT_NAME_BY_KIND.get(str(manifest.get("experiment_kind")), "sparc_report.md")
     local_report_path = root / report_name
     local_report_path.write_text(markdown, encoding="utf-8")
+    write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="SPARC Frontier"))
+    write_report(root / "audit_diagnostics.md", render_audit_diagnostic_report(metrics.get("summary", []), title="SPARC Audit Diagnostics"))
     publish_path = Path(publish_dir) / _published_report_name(manifest)
     publish_path.parent.mkdir(parents=True, exist_ok=True)
     publish_path.write_text(markdown, encoding="utf-8")
@@ -56,6 +64,8 @@ def render_report(
         "run_dir": str(root),
         "local_report": str(local_report_path),
         "published_report": str(publish_path),
+        "frontier_report": str(root / "frontier_report.md"),
+        "audit_diagnostic_report": str(root / "audit_diagnostics.md"),
     }
 
 
@@ -82,7 +92,7 @@ def _render_content_report(
     run_dir: Path,
 ) -> str:
     overall_rows = _rows_for_dataset(metrics, "overall")
-    method_order = ["mv_3", "full_cot", "answer_only", "answer_confidence", "disagreement_step_only", "critical_evidence_only"]
+    method_order = ["mv_3", "full_cot", "answer_only", "answer_confidence", "disagreement_step_only", "critical_evidence_only", "task_adaptive"]
     ordered_rows = _ordered_rows(overall_rows, method_order)
     disagreement_rows = _subset_summary(predictions, lambda row: bool(row.get("initial_disagreement")))
     oracle_rows = _subset_summary(predictions, lambda row: bool(row.get("oracle_positive")))
@@ -173,7 +183,7 @@ def _render_auditing_report(
 ) -> str:
     overall_rows = _ordered_rows(
         _rows_for_dataset(metrics, "overall"),
-        ["majority_vote", "single_judge", "final_round_vote", "local_auditing"],
+        ["majority_vote", "weighted_vote_fallback", "single_judge", "final_round_vote", "local_auditing"],
     )
     recommendation = diagnostics.get("recommended_next_default")
     ci_text = _bootstrap_ci_text(predictions, "local_auditing", "final_round_vote")

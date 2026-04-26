@@ -1,0 +1,28 @@
+name = "hotpotqa_split500_main"
+description = "Communication-necessary split-context HotpotQA main experiment on the frozen split500 set."
+benchmark_configs = [
+  "configs/shared/benchmarks/hotpotqa.toml",
+]
+protocol = "configs/comm_necessary/protocols/split_3a_r1.toml"
+methods = [
+  "full_context_single",
+  "split_no_comm_mv3",
+  "answer_only_exchange",
+  "evidence_exchange",
+  "full_packet_exchange",
+]
+global_seed = 42
+prompt_version = "comm_necessary_hotpotqa_v1"
+max_concurrent_requests = 4
+requests_per_minute_limit = 40
+tokens_per_minute_limit = 2000000
+primary_backbone = "dashscope/qwen-turbo-1101"
+
+[phases.smoke20]
+split_suffix = "smoke20_seed42"
+
+[phases.pilot100]
+split_suffix = "pilot100_seed42"
+
+[phases.main]
+split_suffix = "split500_seed42"

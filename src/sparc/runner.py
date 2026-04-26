@@ -47,6 +47,7 @@ from sparc.logic import (
     DEFAULT_MESSAGE_MODE_BY_DATASET,
     MESSAGE_MODE_ORDER,
     aggregate_with_confidence_tiebreak,
+    aggregate_weighted_vote,
     build_prompt_packet,
     project_message_packet,
     select_audit_candidate_pair,
@@ -470,6 +471,8 @@ def _run_auditing_sample(shared_context: dict[str, Any]) -> SampleResult:
         candidates,
         requested_message_mode=requested_mode,
     )
+    weighted_vote_prediction, _ = aggregate_weighted_vote(candidates)
+    weighted_vote_score = score_prediction(shared_context["dataset"], weighted_vote_prediction, sample.reference_answer)
     oracle_positive = stage_b_summary["stage_b_score"] > shared_context["stage_a_score"]
     prediction_rows = [
         _build_prediction_row(
@@ -500,6 +503,36 @@ def _run_auditing_sample(shared_context: dict[str, Any]) -> SampleResult:
             wrong_overrule=False,
             minority_rescue=False,
             note="stage_a_majority_vote",
+            oracle_positive=oracle_positive,
+        ),
+        _build_prediction_row(
+            shared_context,
+            method_name="weighted_vote_fallback",
+            display_name="weighted_vote_fallback",
+            method_kind="aggregation",
+            prediction=weighted_vote_prediction,
+            score=weighted_vote_score,
+            stage_b_prediction=stage_b_summary["stage_b_vote"],
+            stage_b_score=stage_b_summary["stage_b_score"],
+            message_mode=requested_mode,
+            trigger_policy="always_communicate",
+            aggregation_method="weighted_vote_fallback",
+            triggered=True,
+            early_exit=False,
+            communication_tokens=stage_b_summary["stage_b_total_tokens"],
+            audit_tokens=0.0,
+            prompt_tokens=_sum_metric(shared_context["stage_a_turns"] + belief_rows, "prompt_tokens"),
+            completion_tokens=_sum_metric(shared_context["stage_a_turns"] + belief_rows, "completion_tokens"),
+            total_tokens=_sum_metric(shared_context["stage_a_turns"] + belief_rows, "total_tokens"),
+            latency_ms=_sum_metric(shared_context["stage_a_turns"] + belief_rows, "latency_ms"),
+            calls_per_question=len(shared_context["stage_a_turns"]) + len(belief_rows),
+            stage_b_trace_hash_used=stage_b_summary["stage_b_trace_hash"],
+            audit_status="not_applicable",
+            audit_resolved=False,
+            audit_abstained=False,
+            wrong_overrule=False,
+            minority_rescue=weighted_vote_prediction != shared_context["stage_a_vote"] and weighted_vote_score > shared_context["stage_a_score"],
+            note="confidence_weighted_stage_b_vote",
             oracle_positive=oracle_positive,
         ),
         _build_prediction_row(
@@ -1027,7 +1060,7 @@ def _run_local_auditing(
     requested_message_mode: str,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     pair = select_audit_candidate_pair(candidates)
-    fallback_answer, _ = aggregate_with_confidence_tiebreak(candidates)
+    fallback_answer, _ = aggregate_weighted_vote(candidates)
     fallback_score = score_prediction(shared_context["dataset"], fallback_answer, shared_context["sample"].reference_answer)
     if pair["skipped"]:
         return [], {
@@ -1142,7 +1175,22 @@ def _build_prediction_row(
     note: str | None,
     oracle_positive: bool | None = None,
     selected_trigger_policy: str | None = None,
+    trigger_reason: str | None = None,
+    route_value: float | None = None,
+    route_cost: float | None = None,
+    audit_verdict: str | None = None,
+    drift_flag: bool | None = None,
 ) -> dict[str, Any]:
+    if route_value is None:
+        route_value = round(float(score) - float(shared_context["stage_a_score"]), 6)
+    if route_cost is None:
+        route_cost = round(float(communication_tokens) + float(audit_tokens), 6)
+    if audit_verdict is None:
+        audit_verdict = audit_status
+    if trigger_reason is None:
+        trigger_reason = note
+    if drift_flag is None:
+        drift_flag = bool(triggered and not early_exit and float(stage_b_score) < float(shared_context["stage_a_score"]))
     return {
         "run_id": shared_context["run_id"],
         "dataset": shared_context["dataset"],
@@ -1168,6 +1216,7 @@ def _build_prediction_row(
         "stage_a_score": shared_context["stage_a_score"],
         "stage_b_prediction": stage_b_prediction,
         "stage_b_score": stage_b_score,
+        "stage_a_hash": shared_context["stage_a_trace_hash"],
         "stage_a_trace_hash": shared_context["stage_a_trace_hash"],
         "stage_b_trace_hash_used": stage_b_trace_hash_used,
         "prompt_tokens_per_question": prompt_tokens,
@@ -1175,13 +1224,20 @@ def _build_prediction_row(
         "total_tokens_per_question": total_tokens,
         "communication_tokens_per_question": communication_tokens,
         "audit_tokens_per_question": audit_tokens,
+        "route_value": route_value,
+        "route_cost": route_cost,
         "latency_ms_per_question": latency_ms,
         "calls_per_question": calls_per_question,
+        "trigger_reason": trigger_reason,
         "audit_status": audit_status,
+        "audit_verdict": audit_verdict,
         "audit_resolved": audit_resolved,
         "audit_abstained": audit_abstained,
+        "abstain_flag": audit_abstained,
         "wrong_overrule": wrong_overrule,
         "minority_rescue": minority_rescue,
+        "minority_rescue_flag": minority_rescue,
+        "drift_flag": drift_flag,
         "note": note,
     }
 
@@ -1588,6 +1644,7 @@ def _execute_turn(
         row.update(
             {
                 "reasoning_trace": validated_output.get("reasoning_trace") if validated_output else None,
+                "reasoning_sketch": validated_output.get("reasoning_trace") if validated_output else None,
                 "claim_span": validated_output.get("claim_span") if validated_output else None,
                 "confidence_raw": confidence_raw,
                 "confidence_raw_display": confidence_raw if confidence_raw is not None else "",

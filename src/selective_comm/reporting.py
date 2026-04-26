@@ -14,6 +14,12 @@ from pathlib import Path
 import json
 from typing import Any
 
+from experiment_core.analysis_reports import (
+    render_frontier_report,
+    render_trigger_diagnostic_report,
+    write_report,
+)
+
 
 METHOD_ORDER = [
     "mv_3",
@@ -56,6 +62,8 @@ def render_trigger_report(
     markdown = _render_markdown(manifest, metrics, diagnostics, oracle, predictions, root)
     local_report_path = root / "trigger_report.md"
     local_report_path.write_text(markdown, encoding="utf-8")
+    write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="Selective Communication Frontier"))
+    write_report(root / "trigger_diagnostics.md", render_trigger_diagnostic_report(_analysis_trigger_rows(diagnostics), title="Selective Communication Trigger Diagnostics"))
 
     publish_path = Path(publish_dir) / _published_report_name(manifest)
     publish_path.parent.mkdir(parents=True, exist_ok=True)
@@ -64,7 +72,29 @@ def render_trigger_report(
         "run_dir": str(root),
         "local_report": str(local_report_path),
         "published_report": str(publish_path),
+        "frontier_report": str(root / "frontier_report.md"),
+        "trigger_diagnostic_report": str(root / "trigger_diagnostics.md"),
     }
+
+
+def _analysis_trigger_rows(diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row in diagnostics.get("policy_rows", []):
+        rows.append(
+            {
+                "dataset": row.get("dataset"),
+                "policy_name": row.get("policy_name"),
+                "method_name": row.get("policy_name"),
+                "trigger_rate": row.get("trigger_rate"),
+                "early_exit_rate": row.get("early_exit_rate"),
+                "oracle_precision": row.get("precision"),
+                "oracle_recall": row.get("recall"),
+                "false_trigger_rate": row.get("false_trigger_rate"),
+                "missed_beneficial_comm_rate": row.get("missed_beneficial_comm_rate"),
+                "communication_tokens_mean": row.get("communication_tokens_mean"),
+            }
+        )
+    return rows
 
 
 def _render_markdown(

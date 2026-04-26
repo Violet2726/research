@@ -13,6 +13,7 @@ import json
 from typing import Any
 
 from comm_necessary.logic import METHOD_ORDER
+from experiment_core.analysis_reports import render_split_context_report, write_report
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
@@ -43,6 +44,7 @@ def render_report(
     markdown = _render_markdown(manifest, metrics, diagnostics, predictions, root)
     local_report = root / "comm_necessary_report.md"
     local_report.write_text(markdown, encoding="utf-8")
+    write_report(root / "split_context_report.md", render_split_context_report(metrics.get("summary", []), title="Communication-Necessary Split-Context Report"))
 
     publish_path = Path(publish_dir) / _published_report_name(manifest)
     publish_path.parent.mkdir(parents=True, exist_ok=True)
@@ -56,6 +58,7 @@ def render_report(
         "local_report": str(local_report),
         "published_report": str(publish_path),
         "summary_report": str(summary_path),
+        "split_context_report": str(root / "split_context_report.md"),
     }
 
 

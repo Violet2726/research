@@ -1,0 +1,36 @@
+name = "main-table-same-context"
+description = "Single-agent baselines for the SPARC main-table same-context benchmarks."
+method_catalog = "configs/single_agent/methods/common.toml"
+benchmark_configs = [
+  "configs/shared/benchmarks/math500.toml",
+  "configs/shared/benchmarks/hotpotqa.toml",
+  "configs/shared/benchmarks/mmlu_pro.toml",
+  "configs/shared/benchmarks/gpqa_diamond.toml",
+]
+global_seed = 42
+reruns_per_method = 3
+prompt_version = "single_agent_reasoning_json_v1"
+max_concurrent_requests = 4
+requests_per_minute_limit = 40
+tokens_per_minute_limit = 150000
+
+[phases.smoke20]
+split_overrides = { math500 = "smoke20_seed42", hotpotqa = "smoke20_seed42", mmlu_pro = "smoke20_seed42", gpqa_diamond = "smoke20_seed42" }
+methods = ["cot_1", "sc_5", "mv_3"]
+reruns_override = 1
+
+[phases.pilot100]
+split_overrides = { math500 = "pilot100_seed42", hotpotqa = "pilot100_seed42", mmlu_pro = "pilot100_seed42", gpqa_diamond = "pilot100_seed42" }
+methods = ["cot_1", "sc_5", "mv_3"]
+reruns_override = 1
+
+[phases.main]
+split_overrides = { math500 = "full500_seed42", hotpotqa = "dev1000_seed42", mmlu_pro = "strat1200_seed42", gpqa_diamond = "full_seed42" }
+methods = ["cot_1", "sc_5", "mv_3"]
+reruns_override = 3
+
+[phases.mmlu_confirm_full]
+benchmark_filter = ["mmlu_pro"]
+split_overrides = { mmlu_pro = "test_full_12032_seed42" }
+methods = ["mv_3"]
+reruns_override = 1

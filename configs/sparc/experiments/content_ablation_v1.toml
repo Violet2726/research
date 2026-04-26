@@ -23,6 +23,7 @@ message_modes = [
   "answer_confidence",
   "disagreement_step_only",
   "critical_evidence_only",
+  "task_adaptive",
 ]
 
 [phases.smoke20]

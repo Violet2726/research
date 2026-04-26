@@ -19,7 +19,7 @@ primary_backbone = "dashscope/qwen-turbo-1101"
 [auditing_ablation]
 trigger_policy = "always_communicate"
 fixed_message_modes = { gsm8k = "disagreement_step_only", strategyqa = "disagreement_step_only", hotpotqa = "critical_evidence_only" }
-aggregation_methods = ["majority_vote", "single_judge", "final_round_vote", "local_auditing"]
+aggregation_methods = ["majority_vote", "weighted_vote_fallback", "single_judge", "final_round_vote", "local_auditing"]
 
 [phases.smoke20]
 split_suffix = "smoke20_seed42"

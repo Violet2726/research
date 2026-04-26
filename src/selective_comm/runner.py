@@ -484,6 +484,7 @@ def _run_sample(
                 "confidence_spread": confidence_spread,
                 "any_invalid_confidence": any_invalid_confidence,
                 "invalid_confidence_agents": invalid_confidence_agents,
+                "stage_a_hash": stage_a_trace_hash,
                 "stage_a_trace_hash": stage_a_trace_hash,
                 "stage_b_trace_hash": stage_b_trace_hash,
                 "stage_b_trace_hash_used": stage_b_trace_hash if triggered else None,
@@ -501,6 +502,8 @@ def _run_sample(
                 "calls_per_question": calls_per_question,
                 "stage_a_tokens_per_question": stage_a_total_tokens,
                 "stage_b_tokens_per_question": stage_b_total_tokens,
+                "trigger_reason": decision_reason,
+                "drift_flag": triggered and stage_b_score < stage_a_score,
             }
         )
 
@@ -528,6 +531,7 @@ def _run_sample(
             "confidence_spread": confidence_spread,
             "any_invalid_confidence": any_invalid_confidence,
             "invalid_confidence_agents": invalid_confidence_agents,
+            "stage_a_hash": stage_a_trace_hash,
             "stage_a_trace_hash": stage_a_trace_hash,
             "stage_b_trace_hash": stage_b_trace_hash,
             "stage_b_trace_hash_used": None,
@@ -545,6 +549,8 @@ def _run_sample(
             "calls_per_question": protocol.agent_count,
             "stage_a_tokens_per_question": stage_a_total_tokens,
             "stage_b_tokens_per_question": stage_b_total_tokens,
+            "trigger_reason": "shared_stage_a_vote",
+            "drift_flag": False,
         }
     )
 

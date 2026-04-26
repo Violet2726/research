@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sparc.logic import (
     aggregate_with_confidence_tiebreak,
+    aggregate_weighted_vote,
     project_message_packet,
     select_audit_candidate_pair,
 )
@@ -38,6 +39,24 @@ def test_project_message_packet_respects_full_cot_cap() -> None:
         "full_cot",
     )
     assert packet["approx_packet_tokens"] <= 192
+
+
+def test_project_message_packet_task_adaptive_uses_dataset_default() -> None:
+    packet = project_message_packet(
+        {
+            "dataset": "hotpotqa",
+            "validated_output": {"final_answer": "Keelung"},
+            "confidence_raw_display": 0.7,
+            "confidence_valid": True,
+            "confidence_value": 0.7,
+            "reasoning_trace": "reason",
+            "claim_span": "claim",
+            "key_evidence": "evidence",
+        },
+        "task_adaptive",
+    )
+    assert packet["requested_message_mode"] == "critical_evidence_only"
+    assert packet["effective_message_mode"] == "critical_evidence_only"
 
 
 def test_select_audit_candidate_pair_prefers_majority_vs_minority() -> None:
@@ -87,3 +106,15 @@ def test_aggregate_with_confidence_tiebreak_uses_confidence_then_agent_id() -> N
     )
     assert counts == {"a": 1, "b": 1}
     assert winner == "b"
+
+
+def test_aggregate_weighted_vote_prefers_higher_total_confidence() -> None:
+    winner, weights = aggregate_weighted_vote(
+        [
+            {"agent_id": 1, "normalized_answer": "a", "confidence_valid": True, "confidence_value": 0.95},
+            {"agent_id": 2, "normalized_answer": "b", "confidence_valid": True, "confidence_value": 0.60},
+            {"agent_id": 3, "normalized_answer": "b", "confidence_valid": True, "confidence_value": 0.60},
+        ]
+    )
+    assert winner == "b"
+    assert weights["b"] > weights["a"]

@@ -16,6 +16,7 @@ import random
 from typing import Any
 
 from free_mad_lite.logic import METHOD_ORDER
+from experiment_core.analysis_reports import render_frontier_report, write_report
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
@@ -43,10 +44,16 @@ def render_report(run_dir: str | Path, publish_dir: str | Path = "local/reports/
     markdown = _render_markdown(manifest, metrics, diagnostics, predictions, root)
     local_report = root / "free_mad_lite_report.md"
     local_report.write_text(markdown, encoding="utf-8")
+    write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="Free-MAD-lite Frontier"))
     publish_path = Path(publish_dir) / _published_report_name(manifest)
     publish_path.parent.mkdir(parents=True, exist_ok=True)
     publish_path.write_text(markdown, encoding="utf-8")
-    return {"run_dir": str(root), "local_report": str(local_report), "published_report": str(publish_path)}
+    return {
+        "run_dir": str(root),
+        "local_report": str(local_report),
+        "published_report": str(publish_path),
+        "frontier_report": str(root / "frontier_report.md"),
+    }
 
 
 def _render_markdown(
