@@ -10,10 +10,9 @@ benchmark_configs = [
 global_seed = 42
 reruns_per_method = 3
 prompt_version = "single_agent_reasoning_json_v1"
-max_concurrent_requests = 4
-requests_per_minute_limit = 40
-tokens_per_minute_limit = 150000
-
+max_concurrent_requests = 5
+requests_per_minute_limit = 50
+tokens_per_minute_limit = 1000000
 [phases.smoke20]
 split_overrides = { math500 = "smoke20_seed42", hotpotqa = "smoke20_seed42", mmlu_pro = "smoke20_seed42", gpqa_diamond = "smoke20_seed42" }
 methods = ["cot_1", "sc_5", "mv_3"]

@@ -1,38 +1,10 @@
-# 已知常用模型目录。
-# 这里不是“唯一可运行模型全集”；未登记模型仍可直接通过
-# `--model provider/model` 运行，只是默认没有 tags，也没有模型级覆盖项。
-
-[models."dashscope/qwen2.5-7b-instruct"]
-# tags 用于实验阶段的能力/来源筛选，例如 math、vision、provider_*。
-tags = ["text", "reasoning", "general_qa", "provider_dashscope"]
-
-[models."dashscope/qwen2.5-math-7b-instruct"]
-tags = ["text", "reasoning", "math", "provider_dashscope", "robustness_pilot"]
-
-[models."dashscope/qwen2.5-14b-instruct"]
-tags = ["text", "reasoning", "general_qa", "provider_dashscope", "mad_primary"]
+# Known commonly used model catalog.
+# Unlisted models may still be used directly via `--model provider/model`.
 
 [models."dashscope/qwen-turbo-1101"]
 tags = ["text", "reasoning", "general_qa", "provider_dashscope", "debate_vote_primary"]
-max_retries = 8
-
-[models."dashscope/qwen-turbo"]
-tags = ["text", "reasoning", "general_qa", "provider_dashscope", "sparc_confirmatory"]
-max_retries = 8
-
-[models."dashscope/qwen-plus"]
-tags = ["text", "reasoning", "general_qa", "provider_dashscope", "debate_vote_fallback"]
-
-[models."dashscope/qwen3-4b"]
-tags = ["text", "reasoning", "general_qa", "provider_dashscope"]
 reasoning_effort = "none"
-
-[models."dashscope/deepseek-r1-distill-qwen-7b"]
-tags = ["text", "reasoning", "general_qa", "provider_dashscope", "robustness_pilot"]
-
-[models."dashscope/deepseek-r1-distill-qwen-14b"]
-tags = ["text", "reasoning", "general_qa", "provider_dashscope", "mad_primary"]
-supports_response_format = false
+max_retries = 8
 
 [models."zhipu/glm-4.6v-flash"]
 tags = ["text", "reasoning", "general_qa", "vision", "provider_zhipu"]

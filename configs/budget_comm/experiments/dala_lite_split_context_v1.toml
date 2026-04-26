@@ -10,8 +10,8 @@ context_view = "configs/budget_comm/views/split_context_v1.toml"
 global_seed = 42
 prompt_version = "budget_comm_dala_lite_v1"
 calibration_sample_size = 5
-max_concurrent_requests = 3
-requests_per_minute_limit = 60
+max_concurrent_requests = 5
+requests_per_minute_limit = 50
 tokens_per_minute_limit = 1000000
 primary_backbone = "dashscope/qwen-turbo-1101"
 

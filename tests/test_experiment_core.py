@@ -26,7 +26,7 @@ from experiment_core.structured_output import (
 
 
 def test_parse_model_ref() -> None:
-    assert parse_model_ref("dashscope/qwen-turbo") == ("dashscope", "qwen-turbo")
+    assert parse_model_ref("dashscope/qwen-turbo-1101") == ("dashscope", "qwen-turbo-1101")
 
 
 def test_load_model_catalog() -> None:
@@ -58,7 +58,7 @@ def test_build_payload_maps_thinking_control_by_provider() -> None:
     assert local_payload["reasoning_effort"] == "none"
     assert "enable_thinking" not in local_payload
 
-    dashscope_model = resolve_model_ref("dashscope/qwen3-4b")
+    dashscope_model = resolve_model_ref("dashscope/qwen-turbo-1101")
     dashscope_payload = build_payload(
         dashscope_model,
         [{"role": "user", "content": "hi"}],

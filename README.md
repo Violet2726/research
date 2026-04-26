@@ -88,7 +88,7 @@ uv run single-agent-cli inspect-experiment --experiment configs/single_agent/exp
 运行单智能体实验：
 
 ```powershell
-uv run single-agent-cli run --experiment configs/single_agent/experiments/main-baselines.toml --phase smoke20 --model dashscope/qwen2.5-7b-instruct
+uv run single-agent-cli run --experiment configs/single_agent/experiments/main-baselines.toml --phase smoke20 --model dashscope/qwen-turbo-1101
 ```
 
 查看多智能体实验配置：
@@ -124,7 +124,7 @@ uv run sparc-cli inspect-experiment --experiment configs/sparc/experiments/conte
 运行 SPARC 实验：
 
 ```powershell
-uv run sparc-cli run --experiment configs/sparc/experiments/sparc_v1_smoke.toml --phase smoke20 --backbone dashscope/qwen3-4b
+uv run sparc-cli run --experiment configs/sparc/experiments/sparc_v1_smoke.toml --phase smoke20 --backbone dashscope/qwen-turbo-1101
 ```
 
 查看 budget_comm 实验配置：

@@ -9,10 +9,9 @@ benchmark_configs = [
 global_seed = 42
 reruns_per_method = 1
 prompt_version = "single_agent_reasoning_json_v1"
-max_concurrent_requests = 1
-requests_per_minute_limit = 30
-tokens_per_minute_limit = 60000
-
+max_concurrent_requests = 5
+requests_per_minute_limit = 50
+tokens_per_minute_limit = 1000000
 [phases.smoke20]
 split_suffix = "smoke20_seed42"
 methods = ["cot_1", "sc_5", "mv_5"]

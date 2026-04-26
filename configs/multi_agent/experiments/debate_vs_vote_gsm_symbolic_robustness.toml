@@ -6,10 +6,9 @@ benchmark_configs = [
 control_catalog = "configs/multi_agent/controls/vanilla_equal_budget.toml"
 global_seed = 42
 prompt_version = "multi_agent_controlled_json"
-max_concurrent_requests = 4
-requests_per_minute_limit = 180
-tokens_per_minute_limit = 400000
-
+max_concurrent_requests = 5
+requests_per_minute_limit = 50
+tokens_per_minute_limit = 1000000
 [[setups]]
 name = "mad_3a_r1"
 protocol = "configs/multi_agent/protocols/vanilla_mad_r1.toml"

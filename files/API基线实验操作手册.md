@@ -81,25 +81,25 @@ uv run baseline-cli inspect-experiment --experiment configs/experiments/main-bas
 查看某个模型在实验中的最终解析结果：
 
 ```powershell
-uv run baseline-cli inspect-experiment --experiment configs/experiments/main-baselines.toml --model dashscope/qwen2.5-7b-instruct
+uv run baseline-cli inspect-experiment --experiment configs/experiments/main-baselines.toml --model dashscope/qwen-turbo-1101
 ```
 
 运行主基线 smoke：
 
 ```powershell
-uv run baseline-cli run --experiment configs/experiments/main-baselines.toml --phase smoke20 --model dashscope/qwen2.5-7b-instruct
+uv run baseline-cli run --experiment configs/experiments/main-baselines.toml --phase smoke20 --model dashscope/qwen-turbo-1101
 ```
 
 运行数学专项 pilot：
 
 ```powershell
-uv run baseline-cli run --experiment configs/experiments/qwen2.5-math-pilot100.toml --phase pilot100 --model dashscope/qwen2.5-math-7b-instruct
+uv run baseline-cli run --experiment configs/experiments/main_table_same_context.toml --phase pilot100 --model dashscope/qwen-turbo-1101
 ```
 
 运行稳健性实验：
 
 ```powershell
-uv run baseline-cli run --experiment configs/experiments/robustness.toml --phase pilot100 --model dashscope/deepseek-r1-distill-qwen-7b
+uv run baseline-cli run --experiment configs/experiments/robustness.toml --phase pilot100 --model dashscope/qwen-turbo-1101
 ```
 
 ## 5. 如何新增模型
@@ -107,7 +107,7 @@ uv run baseline-cli run --experiment configs/experiments/robustness.toml --phase
 如果新模型只需要继承 provider 默认参数，可以直接运行：
 
 ```powershell
-uv run baseline-cli run --experiment configs/experiments/main-baselines.toml --phase smoke20 --model dashscope/qwen-plus
+uv run baseline-cli run --experiment configs/experiments/main-baselines.toml --phase smoke20 --model dashscope/qwen-turbo-1101
 ```
 
 如果希望这个模型：

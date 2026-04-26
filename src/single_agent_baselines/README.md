@@ -44,7 +44,6 @@
 当前常用实验文件包括：
 
 - `configs/single_agent/experiments/main-baselines.toml`
-- `configs/single_agent/experiments/qwen2.5-math-pilot100.toml`
 - `configs/single_agent/experiments/robustness.toml`
 
 ## 4. 常用命令

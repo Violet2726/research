@@ -9,11 +9,11 @@ benchmark_configs = [
 protocol = "configs/sparc/protocols/shared_3a_r1.toml"
 global_seed = 42
 prompt_version = "sparc_v1_json"
-max_concurrent_requests = 2
-requests_per_minute_limit = 600
+max_concurrent_requests = 5
+requests_per_minute_limit = 50
 tokens_per_minute_limit = 1000000
-primary_backbone = "dashscope/qwen3-4b"
-confirmatory_backbone = "dashscope/qwen-turbo"
+primary_backbone = "dashscope/qwen-turbo-1101"
+confirmatory_backbone = "dashscope/qwen-turbo-1101"
 
 [sparc_v1]
 default_trigger_policy = "hybrid_trigger"
