@@ -15,12 +15,16 @@ from typing import Iterable
 
 def normalize_prediction(dataset: str, final_answer: str) -> str:
     """按数据集类型把模型答案归一化为可比较的形式。"""
-    if dataset == "gsm8k":
+    if dataset in {"gsm8k", "gsm_symbolic"}:
         return normalize_number(final_answer)
+    if dataset == "math500":
+        return normalize_math_expression(final_answer)
     if dataset == "strategyqa":
         return normalize_yes_no(final_answer)
     if dataset == "hotpotqa":
         return normalize_text(final_answer)
+    if dataset in {"mmlu_pro", "gpqa_diamond"}:
+        return normalize_multiple_choice(final_answer)
     raise ValueError(f"Unsupported dataset {dataset}")
 
 
@@ -34,6 +38,8 @@ def score_prediction(dataset: str, predicted: str, gold: str) -> float:
 
     当前仓库统一采用精确匹配：归一化后完全一致记为 `1.0`，否则记为 `0.0`。
     """
+    if dataset in {"mmlu_pro", "gpqa_diamond"}:
+        return score_multiple_choice(predicted, gold)
     return 1.0 if normalize_prediction(dataset, predicted) == normalize_gold(dataset, gold) else 0.0
 
 
@@ -79,3 +85,44 @@ def normalize_text(value: str) -> str:
     lowered = lowered.translate(str.maketrans("", "", string.punctuation))
     lowered = " ".join(lowered.split())
     return lowered
+
+
+def normalize_multiple_choice(value: str) -> str:
+    """Normalize MCQ answers to either an option letter or normalized option text."""
+    normalized = value.strip()
+    if not normalized:
+        return ""
+    match = re.search(r"\b([A-J])\b", normalized.upper())
+    if match:
+        return match.group(1)
+    return normalize_text(normalized)
+
+
+def normalize_math_expression(value: str) -> str:
+    """Lightweight normalization for short mathematical expressions."""
+    normalized = value.strip().lower()
+    normalized = normalized.replace("$", "")
+    normalized = normalized.replace("\\left", "").replace("\\right", "")
+    normalized = normalized.replace("\\!", "")
+    normalized = normalized.replace(" ", "")
+    normalized = normalized.replace("{", "").replace("}", "")
+    normalized = normalized.rstrip(".")
+    return normalized
+
+
+def score_multiple_choice(predicted: str, gold: str) -> float:
+    """Accept either the option letter or the exact option text for MCQ benchmarks."""
+    predicted_norm = normalize_multiple_choice(predicted)
+    gold_letter, gold_text = _decode_multiple_choice_gold(gold)
+    accepted = {gold_letter}
+    if gold_text:
+        accepted.add(normalize_text(gold_text))
+    return 1.0 if predicted_norm in accepted else 0.0
+
+
+def _decode_multiple_choice_gold(gold: str) -> tuple[str, str]:
+    if "|||" in gold:
+        letter, text = gold.split("|||", 1)
+        return normalize_multiple_choice(letter), text.strip()
+    normalized = normalize_multiple_choice(gold)
+    return normalized, ""

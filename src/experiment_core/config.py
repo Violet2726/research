@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 import tomllib
@@ -87,6 +87,11 @@ class BenchmarkConfig:
     main_size: int
     random_seed: int
     notes: str
+    options_field: str | None = None
+    answer_index_field: str | None = None
+    archive_member: str | None = None
+    archive_password: str | None = None
+    split_presets: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _load_toml(path: str | Path) -> dict[str, Any]:

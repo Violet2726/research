@@ -13,3 +13,28 @@ main_size = 300
 random_seed = 42
 # 当前 v1 只统计答案 EM，不统计 supporting facts。
 notes = "Answer EM only for v1 main table."
+
+[[split_presets]]
+name = "smoke20_seed42"
+strategy = "shuffle"
+size = 20
+
+[[split_presets]]
+name = "pilot100_seed42"
+strategy = "shuffle"
+size = 100
+
+[[split_presets]]
+name = "dev300_seed42"
+strategy = "shuffle"
+size = 300
+
+[[split_presets]]
+name = "dev1000_seed42"
+strategy = "shuffle"
+size = 1000
+
+[[split_presets]]
+name = "split500_seed42"
+strategy = "shuffle"
+size = 500

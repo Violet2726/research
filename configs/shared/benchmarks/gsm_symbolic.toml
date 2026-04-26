@@ -1,0 +1,29 @@
+# GSM-Symbolic robustness benchmark configuration.
+name = "GSM-Symbolic"
+slug = "gsm_symbolic"
+loader = "gsm_symbolic_jsonl"
+source_path = "datasets/gsm-symbolic/GSM_symbolic.jsonl"
+source_split = "test"
+sample_id_prefix = "gsm_symbolic"
+question_field = "question"
+answer_field = "answer"
+smoke_size = 20
+pilot_size = 100
+main_size = 200
+random_seed = 42
+notes = "Use the #### final numeric answer and freeze a 200-example robustness split."
+
+[[split_presets]]
+name = "smoke20_seed42"
+strategy = "shuffle"
+size = 20
+
+[[split_presets]]
+name = "pilot100_seed42"
+strategy = "shuffle"
+size = 100
+
+[[split_presets]]
+name = "robustness200_seed42"
+strategy = "shuffle"
+size = 200

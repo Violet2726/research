@@ -41,6 +41,10 @@ def build_parser() -> argparse.ArgumentParser:
             "configs/shared/benchmarks/gsm8k.toml",
             "configs/shared/benchmarks/strategyqa.toml",
             "configs/shared/benchmarks/hotpotqa.toml",
+            "configs/shared/benchmarks/math500.toml",
+            "configs/shared/benchmarks/mmlu_pro.toml",
+            "configs/shared/benchmarks/gpqa_diamond.toml",
+            "configs/shared/benchmarks/gsm_symbolic.toml",
         ],
     )
     generate.add_argument("--output-dir", default="configs/shared/benchmarks/splits")

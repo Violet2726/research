@@ -119,6 +119,16 @@ def _dataset_instruction(sample: DatasetSample) -> str:
             "Solve the math word problem carefully. "
             "The final_answer must be only the final numeric answer without commas or units."
         )
+    if sample.dataset == "gsm_symbolic":
+        return (
+            "Solve the math problem carefully. "
+            "The final_answer must be only the final numeric answer without commas or units."
+        )
+    if sample.dataset == "math500":
+        return (
+            "Solve the math problem carefully. "
+            "The final_answer must be only the final mathematical expression, with no explanation."
+        )
     if sample.dataset == "strategyqa":
         return (
             'Answer with exactly "yes" or "no". '
@@ -129,6 +139,11 @@ def _dataset_instruction(sample: DatasetSample) -> str:
             "Answer the multi-hop question using only the provided context. "
             "The final_answer must be the shortest judgeable text span. "
             "Prefer exact wording from the context when possible."
+        )
+    if sample.dataset in {"mmlu_pro", "gpqa_diamond"}:
+        return (
+            "Choose the single best option. "
+            'The final_answer must be only the option letter, such as "A" or "B".'
         )
     raise ValueError(f"Unsupported dataset: {sample.dataset}")
 

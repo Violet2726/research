@@ -117,6 +117,7 @@ def _validate_sparc_solver_output(payload: dict[str, Any]) -> dict[str, Any]:
     allowed_keys = {
         "final_answer",
         "reasoning_trace",
+        "reasoning_sketch",
         "claim_span",
         "confidence_raw",
         "uncertain_point",
@@ -131,7 +132,10 @@ def _validate_sparc_solver_output(payload: dict[str, Any]) -> dict[str, Any]:
         )
     validated: dict[str, Any] = {
         "final_answer": _require_answer_value(payload.get("final_answer"), "final_answer"),
-        "reasoning_trace": _require_nullable_hint(payload.get("reasoning_trace"), "reasoning_trace"),
+        "reasoning_trace": _require_nullable_hint(
+            payload.get("reasoning_trace", payload.get("reasoning_sketch")),
+            "reasoning_trace",
+        ),
         "claim_span": _require_nullable_hint(payload.get("claim_span"), "claim_span"),
         "confidence_raw": _optional_confidence_raw(payload.get("confidence_raw")),
         "uncertain_point": _require_nullable_hint(payload.get("uncertain_point"), "uncertain_point"),
@@ -145,6 +149,7 @@ def _validate_budget_solver_output(payload: dict[str, Any]) -> dict[str, Any]:
     allowed_keys = {
         "final_answer",
         "reasoning_trace",
+        "reasoning_sketch",
         "claim_span",
         "key_evidence",
         "keyword_clues",
@@ -162,7 +167,10 @@ def _validate_budget_solver_output(payload: dict[str, Any]) -> dict[str, Any]:
         )
     return {
         "final_answer": _require_answer_value(payload.get("final_answer"), "final_answer"),
-        "reasoning_trace": _require_nullable_hint(payload.get("reasoning_trace"), "reasoning_trace"),
+        "reasoning_trace": _require_nullable_hint(
+            payload.get("reasoning_trace", payload.get("reasoning_sketch")),
+            "reasoning_trace",
+        ),
         "claim_span": _require_nullable_hint(payload.get("claim_span"), "claim_span"),
         "key_evidence": _require_nullable_hint(payload.get("key_evidence"), "key_evidence"),
         "keyword_clues": _require_keyword_clues(payload.get("keyword_clues")),

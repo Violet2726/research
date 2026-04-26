@@ -1,0 +1,28 @@
+{
+  "dataset": "mmlu_pro",
+  "source_split": "test",
+  "sample_count": 20,
+  "sample_ids": [
+    "mmlu_pro-10024",
+    "mmlu_pro-5088",
+    "mmlu_pro-7070",
+    "mmlu_pro-556",
+    "mmlu_pro-1496",
+    "mmlu_pro-3320",
+    "mmlu_pro-473",
+    "mmlu_pro-6570",
+    "mmlu_pro-7562",
+    "mmlu_pro-2854",
+    "mmlu_pro-8486",
+    "mmlu_pro-11489",
+    "mmlu_pro-2503",
+    "mmlu_pro-688",
+    "mmlu_pro-5136",
+    "mmlu_pro-8930",
+    "mmlu_pro-3079",
+    "mmlu_pro-12113",
+    "mmlu_pro-10343",
+    "mmlu_pro-8802"
+  ],
+  "random_seed": 42
+}

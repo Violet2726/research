@@ -1,0 +1,37 @@
+# MMLU-Pro benchmark configuration for stable multi-choice reasoning evaluation.
+name = "MMLU-Pro"
+slug = "mmlu_pro"
+loader = "mmlu_pro_parquet"
+source_path = "datasets/mmlu-pro/test.parquet"
+source_split = "test"
+sample_id_prefix = "mmlu_pro"
+question_field = "question"
+answer_field = "answer"
+options_field = "options"
+answer_index_field = "answer_index"
+smoke_size = 20
+pilot_size = 100
+main_size = 1200
+random_seed = 42
+notes = "Use a stratified 1200-question main split and the full 12032-question test split for confirmatory runs."
+
+[[split_presets]]
+name = "smoke20_seed42"
+strategy = "shuffle"
+size = 20
+
+[[split_presets]]
+name = "pilot100_seed42"
+strategy = "shuffle"
+size = 100
+
+[[split_presets]]
+name = "strat1200_seed42"
+strategy = "stratified"
+field = "category"
+size = 1200
+
+[[split_presets]]
+name = "test_full_12032_seed42"
+strategy = "full"
+size = 12032
