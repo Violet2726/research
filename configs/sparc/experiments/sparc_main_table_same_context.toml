@@ -13,7 +13,7 @@ prompt_version = "sparc_v1_json"
 max_concurrent_requests = 5
 requests_per_minute_limit = 50
 tokens_per_minute_limit = 1000000
-primary_backbone = "dashscope/qwen-turbo-1101"
+primary_backbone = "deepseek/deepseek-v4-flash"
 confirmatory_backbone = "zhipu/glm-4.6v-flash"
 
 [sparc_v1]
@@ -34,3 +34,4 @@ split_overrides = { math500 = "full500_seed42", hotpotqa = "dev1000_seed42", mml
 [phases.mmlu_confirm_full]
 benchmark_filter = ["mmlu_pro"]
 split_overrides = { mmlu_pro = "test_full_12032_seed42" }
+

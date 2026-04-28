@@ -1,15 +1,19 @@
-"""选择性通信实验命令行入口。
-
-CLI 暴露实验检查、执行、摘要、校验与 trigger 报告重生成功能，
-方便围绕同一份共享前缀产物反复分析不同策略。
-"""
-
 from __future__ import annotations
 
 import argparse
 import json
 
+from dotenv import load_dotenv
+
+from experiment_core.workspace import (
+    default_cache_path,
+    default_reports_root,
+    default_runs_root,
+    workspace_defaults,
+)
 from selective_comm.config import (
+    describe_backbone_fit,
+    ensure_backbone_fit,
     load_benchmarks,
     load_control_catalog,
     load_experiment_config,
@@ -24,7 +28,7 @@ from selective_comm.validation import validate_run
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """构建选择性通信实验命令行解析器。"""
+    load_dotenv(".env.local", override=False)
     parser = argparse.ArgumentParser(description="Selective communication trigger experiment runner.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -36,8 +40,9 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--experiment", required=True)
     run.add_argument("--phase", required=True)
     run.add_argument("--backbone", default=None)
-    run.add_argument("--runs-root", default="local/runs/selective_comm")
-    run.add_argument("--cache-path", default="cache/selective_comm_requests.sqlite")
+    run.add_argument("--runs-root", default=default_runs_root("selective_comm"))
+    run.add_argument("--cache-path", default=default_cache_path("selective_comm"))
+    run.add_argument("--resume-run-dir", default=None)
 
     summarize = subparsers.add_parser("summarize-run", help="Print a concise run summary from policy_metrics.json.")
     summarize.add_argument("--run-dir", required=True)
@@ -47,26 +52,27 @@ def build_parser() -> argparse.ArgumentParser:
 
     report = subparsers.add_parser("report-trigger", help="Regenerate the Chinese trigger markdown report.")
     report.add_argument("--run-dir", required=True)
-    report.add_argument("--publish-dir", default="local/reports/selective_comm")
+    report.add_argument("--publish-dir", default=default_reports_root("selective_comm"))
 
     return parser
 
 
 def main() -> None:
-    """解析参数并分发到对应子命令。"""
     parser = build_parser()
     args = parser.parse_args()
 
     if args.command == "inspect-experiment":
         experiment = load_experiment_config(args.experiment)
+        benchmarks = load_benchmarks(experiment)
         protocol = load_protocol_config(experiment.protocol)
         policies = load_policies(experiment.policy_configs)
         controls = load_control_catalog(experiment.control_catalog)
+        resolved_backbone = resolve_backbone(args.backbone or experiment.primary_backbone)
         payload = {
             "name": experiment.name,
             "description": experiment.description,
             "benchmark_configs": [str(path) for path in experiment.benchmark_configs],
-            "benchmarks": [benchmark.slug for benchmark in load_benchmarks(experiment)],
+            "benchmarks": [benchmark.slug for benchmark in benchmarks],
             "protocol": _serialize_protocol(protocol),
             "policies": [_serialize_policy(policy) for policy in policies],
             "controls": {name: _serialize_control(method) for name, method in sorted(controls.items())},
@@ -75,11 +81,12 @@ def main() -> None:
             "max_concurrent_requests": experiment.max_concurrent_requests,
             "requests_per_minute_limit": experiment.requests_per_minute_limit,
             "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
+            "workspace_defaults": workspace_defaults("selective_comm"),
             "primary_backbone": experiment.primary_backbone,
+            "resolved_backbone": _serialize_backbone(resolved_backbone),
+            "backbone_fit_warnings": describe_backbone_fit(experiment, resolved_backbone, benchmarks),
             "phases": experiment.raw["phases"],
         }
-        resolved_backbone = resolve_backbone(args.backbone or experiment.primary_backbone)
-        payload["resolved_backbone"] = _serialize_backbone(resolved_backbone)
         for phase_name in experiment.raw["phases"]:
             phase = phase_metadata(experiment, phase_name)
             payload.setdefault("resolved_by_phase", {})[phase_name] = {
@@ -92,12 +99,15 @@ def main() -> None:
     if args.command == "run":
         experiment = load_experiment_config(args.experiment)
         backbone_ref = args.backbone or experiment.primary_backbone
+        resolved_backbone = resolve_backbone(backbone_ref)
+        ensure_backbone_fit(experiment, resolved_backbone)
         run_dir = run_experiment(
             experiment=experiment,
             phase_name=args.phase,
-            backbone=resolve_backbone(backbone_ref),
+            backbone=resolved_backbone,
             run_root=args.runs_root,
             cache_path=args.cache_path,
+            resume_run_dir=args.resume_run_dir,
         )
         print(run_dir.as_posix())
         return
@@ -118,7 +128,6 @@ def main() -> None:
 
 
 def _serialize_protocol(protocol: object) -> dict[str, object]:
-    """把协议配置转换为可 JSON 输出结构。"""
     return {
         "agent_count": protocol.agent_count,
         "debate_rounds": protocol.debate_rounds,
@@ -130,18 +139,18 @@ def _serialize_protocol(protocol: object) -> dict[str, object]:
 
 
 def _serialize_policy(policy: object) -> dict[str, object]:
-    """把 trigger 策略转换为可 JSON 输出结构。"""
     return {
         "policy_name": policy.policy_name,
         "trigger_type": policy.trigger_type,
         "mean_conf_threshold": policy.mean_conf_threshold,
         "conf_spread_threshold": policy.conf_spread_threshold,
+        "claim_divergence_threshold": policy.claim_divergence_threshold,
+        "uncertainty_type_diversity_threshold": policy.uncertainty_type_diversity_threshold,
         "fail_open_to_always": policy.fail_open_to_always,
     }
 
 
 def _serialize_control(method: object) -> dict[str, object]:
-    """把控制方法转换为可 JSON 输出结构。"""
     return {
         "family": method.family,
         "budget_calls": method.budget_calls,
@@ -152,7 +161,6 @@ def _serialize_control(method: object) -> dict[str, object]:
 
 
 def _serialize_backbone(backbone: object) -> dict[str, object]:
-    """把解析后的 backbone 模型配置转换为可 JSON 输出结构。"""
     return {
         "name": backbone.name,
         "provider": backbone.provider,

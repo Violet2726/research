@@ -29,6 +29,7 @@ from experiment_core.structured_output import (
     OUTPUT_MODE_CORE,
     validate_structured_output,
 )
+from experiment_core.workspace import default_cache_path, default_runs_root
 from multi_agent_baselines.config import (
     ExperimentSetup,
     MultiAgentExperimentConfig,
@@ -157,11 +158,13 @@ def run_experiment(
     experiment: MultiAgentExperimentConfig,
     phase_name: str,
     backbone,
-    run_root: str | Path = "local/runs/multi_agent",
-    cache_path: str | Path = "cache/multi_agent_requests.sqlite",
+    run_root: str | Path | None = None,
+    cache_path: str | Path | None = None,
 ) -> Path:
     """执行一个多智能体 phase，并写出完整运行目录。"""
     load_dotenv(".env.local", override=False)
+    run_root = run_root or default_runs_root("multi_agent")
+    cache_path = cache_path or default_cache_path("multi_agent")
     benchmarks = load_benchmarks(experiment)
     phase = phase_metadata(experiment, phase_name)
     setups = _active_setups(experiment, phase_name)

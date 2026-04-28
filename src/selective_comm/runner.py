@@ -14,6 +14,7 @@ from functools import partial
 from hashlib import sha256
 from pathlib import Path
 import json
+import re
 from typing import Any
 from typing import Callable
 
@@ -29,14 +30,15 @@ from experiment_core.selective_signals import (
     confidence_display,
     decide_trigger_from_policy,
     normalize_confidence,
+    summarize_divergence_rows,
     summarize_confidence_rows,
 )
 from experiment_core.methods import MethodConfig
 from experiment_core.structured_output import (
     ARTIFACT_VERSION,
-    OUTPUT_MODE_SELECTIVE_COMM,
-    validate_structured_output,
+    parse_selective_output,
 )
+from experiment_core.workspace import default_cache_path, default_runs_root
 from selective_comm.config import (
     SelectiveCommExperimentConfig,
     SharedDebateProtocolConfig,
@@ -57,7 +59,94 @@ DISPLAY_NAME_MAP = {
     "disagreement_triggered": "disagreement",
     "confidence_triggered": "confidence",
     "hybrid_trigger": "hybrid",
+    "confidence_triggered_095": "confidence_095",
+    "hybrid_trigger_relaxed": "hybrid_relaxed",
+    "claim_divergence_triggered": "claim_divergence",
+    "voc_trigger_v2": "voc_v2",
 }
+
+
+def _looks_like_placeholder_visible_output(text: str) -> bool:
+    trimmed = text.strip()
+    if not trimmed:
+        return False
+    return re.fullmatch(r"\[\s*[\w\s,.\-]*\s*\]", trimmed, re.S) is not None
+
+
+def _clip_reasoning_text(value: str, max_chars: int = 180) -> str:
+    text = " ".join(value.split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3] + "..."
+
+
+def _extract_answer_phrase_from_reasoning(text: str) -> str | None:
+    patterns = [
+        r"(?i)\b(?:therefore|thus|so)?\s*,?\s*(?:the\s+)?(?:final\s+)?answer\s+(?:should\s+be|is)\s*[:\-]?\s*([^\n.]+)",
+        r"(?i)\b(?:the\s+)?correct\s+answer\s+(?:should\s+be|is)\s*[:\-]?\s*([^\n.]+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if not match:
+            continue
+        candidate = match.group(1).strip().strip("\"'`").rstrip(".")
+        if candidate and not _looks_like_placeholder_visible_output(candidate):
+            return candidate
+    return None
+
+
+def _recover_selective_output_from_reasoning_text(reasoning_text: str, dataset: str) -> dict[str, Any]:
+    cleaned = " ".join(reasoning_text.split())
+    if not cleaned:
+        raise ValueError("Provider reasoning text is empty.")
+
+    answer_phrase = _extract_answer_phrase_from_reasoning(cleaned)
+    final_answer = ""
+    if dataset in {"gsm8k", "gsm_symbolic", "math500"}:
+        if answer_phrase:
+            match = re.search(r"[-+]?\d[\d,]*(?:\.\d+)?", answer_phrase.replace(",", ""))
+            if match:
+                final_answer = match.group(0).replace(",", "")
+        if not final_answer:
+            raise ValueError("Could not recover numeric answer from reasoning text.")
+    elif dataset == "strategyqa":
+        if answer_phrase:
+            lowered = answer_phrase.lower()
+            if lowered.startswith("yes"):
+                final_answer = "yes"
+            elif lowered.startswith("no"):
+                final_answer = "no"
+        if not final_answer:
+            matches = re.findall(r"\b(?:yes|no)\b", cleaned.lower())
+            if matches:
+                final_answer = matches[-1]
+        if not final_answer:
+            raise ValueError("Could not recover yes/no answer from reasoning text.")
+    elif dataset == "hotpotqa":
+        if answer_phrase:
+            final_answer = answer_phrase.strip().strip("\"'")
+        if not final_answer:
+            raise ValueError("Could not recover text answer from reasoning text.")
+    else:
+        raise ValueError(f"Unsupported dataset for reasoning-text recovery: {dataset}")
+
+    default_uncertainty = "other"
+    if dataset in {"gsm8k", "gsm_symbolic", "math500"}:
+        default_uncertainty = "calculation"
+    elif dataset == "strategyqa":
+        default_uncertainty = "commonsense_gap"
+    elif dataset == "hotpotqa":
+        default_uncertainty = "multi_hop"
+
+    return {
+        "final_answer": final_answer,
+        "confidence_raw": None,
+        "reasoning": _clip_reasoning_text(cleaned),
+        "claim_span": final_answer,
+        "uncertainty_type": default_uncertainty,
+        "key_evidence": final_answer,
+        "uncertain_point": None,
+    }
 
 
 @dataclass(frozen=True)
@@ -90,19 +179,43 @@ class SampleResult:
     prediction_rows: list[dict[str, Any]]
 
 
+@dataclass(frozen=True)
+class ResumeSeedState:
+    """从旧 run 中提取出的可安全复用结果。"""
+
+    source_root: Path
+    source_run_id: str
+    completed_sample_keys: set[tuple[str, str]]
+    stage_a_turns: list[dict[str, Any]]
+    stage_b_turns: list[dict[str, Any]]
+    control_turns: list[dict[str, Any]]
+    trigger_rows: list[dict[str, Any]]
+    prediction_rows: list[dict[str, Any]]
+    initial_completed_calls: int
+    initial_completed_predictions: int
+
+
 def run_experiment(
     experiment: SelectiveCommExperimentConfig,
     phase_name: str,
     backbone,
-    run_root: str | Path = "local/runs/selective_comm",
-    cache_path: str | Path = "cache/selective_comm_requests.sqlite",
+    run_root: str | Path | None = None,
+    cache_path: str | Path | None = None,
+    resume_run_dir: str | Path | None = None,
 ) -> Path:
     """执行一个选择性通信 phase，并写出完整运行目录。"""
     load_dotenv(".env.local", override=False)
+    run_root = run_root or default_runs_root("selective_comm")
+    cache_path = cache_path or default_cache_path("selective_comm")
     benchmarks = load_benchmarks(experiment)
     protocol = load_protocol_config(experiment.protocol)
     policies = load_policies(experiment.policy_configs)
     controls = load_control_catalog(experiment.control_catalog)
+    resume_state = (
+        _load_resume_seed_state(Path(resume_run_dir), protocol, policies, controls)
+        if resume_run_dir is not None
+        else None
+    )
     provider = OpenAICompatibleProvider(backbone)
     cache = RequestCache(cache_path)
     limiter = SlidingWindowRateLimiter(
@@ -112,7 +225,13 @@ def run_experiment(
     run_id = build_run_id(experiment.name, phase_name, backbone.name)
     run_paths = _prepare_run_paths(run_root, experiment.name, phase_name, run_id)
     total_calls, total_predictions = _estimate_work(experiment, phase_name, benchmarks, protocol, controls)
-    progress = RunProgressTracker(run_paths.progress, total_calls, total_predictions)
+    progress = RunProgressTracker(
+        run_paths.progress,
+        total_calls,
+        total_predictions,
+        initial_completed_calls=resume_state.initial_completed_calls if resume_state is not None else 0,
+        initial_completed_predictions=resume_state.initial_completed_predictions if resume_state is not None else 0,
+    )
 
     manifest = {
         "run_id": run_id,
@@ -136,13 +255,17 @@ def run_experiment(
         "total_planned_calls": total_calls,
         "total_planned_predictions": total_predictions,
     }
+    if resume_state is not None:
+        manifest["resume_source_run_dir"] = resume_state.source_root.as_posix()
+        manifest["resume_source_run_id"] = resume_state.source_run_id
+        manifest["resume_completed_sample_count"] = len(resume_state.completed_sample_keys)
     run_paths.manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    all_stage_a_turns: list[dict[str, Any]] = []
-    all_stage_b_turns: list[dict[str, Any]] = []
-    all_control_turns: list[dict[str, Any]] = []
-    all_trigger_rows: list[dict[str, Any]] = []
-    all_prediction_rows: list[dict[str, Any]] = []
+    all_stage_a_turns: list[dict[str, Any]] = list(resume_state.stage_a_turns) if resume_state is not None else []
+    all_stage_b_turns: list[dict[str, Any]] = list(resume_state.stage_b_turns) if resume_state is not None else []
+    all_control_turns: list[dict[str, Any]] = list(resume_state.control_turns) if resume_state is not None else []
+    all_trigger_rows: list[dict[str, Any]] = list(resume_state.trigger_rows) if resume_state is not None else []
+    all_prediction_rows: list[dict[str, Any]] = list(resume_state.prediction_rows) if resume_state is not None else []
 
     with (
         run_paths.stage_a_turns.open("w", encoding="utf-8") as stage_a_handle,
@@ -151,9 +274,26 @@ def run_experiment(
         run_paths.trigger_decisions.open("w", encoding="utf-8") as trigger_handle,
         run_paths.policy_predictions.open("w", encoding="utf-8") as prediction_handle,
     ):
+        if resume_state is not None:
+            _write_seed_rows(
+                resume_state,
+                stage_a_handle=stage_a_handle,
+                stage_b_handle=stage_b_handle,
+                control_handle=control_handle,
+                trigger_handle=trigger_handle,
+                prediction_handle=prediction_handle,
+            )
         for benchmark in benchmarks:
             split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
             samples = select_samples(benchmark, split_name)
+            if resume_state is not None:
+                samples = [
+                    sample
+                    for sample in samples
+                    if (benchmark.slug, sample.sample_id) not in resume_state.completed_sample_keys
+                ]
+            if not samples:
+                continue
             _run_sample_batch(
                 run_id=run_id,
                 benchmark_slug=benchmark.slug,
@@ -189,11 +329,153 @@ def run_experiment(
     run_paths.policy_metrics.write_text(json.dumps(metrics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     run_paths.oracle_trigger_eval.write_text(json.dumps(oracle_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     run_paths.policy_diagnostics.write_text(json.dumps(diagnostics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    render_trigger_report(run_paths.root, publish_dir="local/reports/selective_comm")
+    render_trigger_report(run_paths.root)
     run_paths.run_validation.write_text(json.dumps(validate_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
     progress.mark_completed()
     cache.close()
     return run_paths.root
+
+
+def _write_seed_rows(
+    resume_state: ResumeSeedState,
+    *,
+    stage_a_handle,
+    stage_b_handle,
+    control_handle,
+    trigger_handle,
+    prediction_handle,
+) -> None:
+    """把旧 run 中已完成样本的结果复制到新 run。"""
+    for row in resume_state.stage_a_turns:
+        stage_a_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    stage_a_handle.flush()
+    for row in resume_state.stage_b_turns:
+        stage_b_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    stage_b_handle.flush()
+    for row in resume_state.control_turns:
+        control_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    control_handle.flush()
+    for row in resume_state.trigger_rows:
+        trigger_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    trigger_handle.flush()
+    for row in resume_state.prediction_rows:
+        prediction_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    prediction_handle.flush()
+
+
+def _load_resume_seed_state(
+    resume_root: Path,
+    protocol: SharedDebateProtocolConfig,
+    policies: list[TriggerPolicyConfig],
+    controls: dict[str, MethodConfig],
+) -> ResumeSeedState:
+    """从旧 run 中抽取“完整且无 request_fail”的样本结果，供新 run 复用。"""
+    manifest = _load_json_file(resume_root / "manifest.json")
+    source_run_id = str(manifest.get("run_id") or resume_root.name)
+    stage_a_turns = _load_jsonl_file(resume_root / "stage_a_turns.jsonl")
+    stage_b_turns = _load_jsonl_file(resume_root / "stage_b_turns.jsonl")
+    allowed_control_names = set(controls)
+    allowed_policy_names = {policy.policy_name for policy in policies}
+    allowed_prediction_methods = allowed_control_names | allowed_policy_names
+    control_turns = [
+        row
+        for row in _load_jsonl_file(resume_root / "control_turns.jsonl")
+        if str(row.get("method_name") or "") in allowed_control_names
+    ]
+    trigger_rows = [
+        row
+        for row in _load_jsonl_file(resume_root / "trigger_decisions.jsonl")
+        if str(row.get("policy_name") or "") in allowed_policy_names
+    ]
+    prediction_rows = [
+        row
+        for row in _load_jsonl_file(resume_root / "policy_predictions.jsonl")
+        if str(row.get("method_name") or "") in allowed_prediction_methods
+    ]
+
+    completed_sample_keys = _collect_completed_sample_keys(
+        stage_a_turns=stage_a_turns,
+        stage_b_turns=stage_b_turns,
+        control_turns=control_turns,
+        trigger_rows=trigger_rows,
+        prediction_rows=prediction_rows,
+        protocol=protocol,
+        policies=policies,
+        controls=controls,
+    )
+
+    def keep(row: dict[str, Any]) -> bool:
+        return (str(row.get("dataset")), str(row.get("sample_id"))) in completed_sample_keys
+
+    seeded_stage_a = [row for row in stage_a_turns if keep(row)]
+    seeded_stage_b = [row for row in stage_b_turns if keep(row)]
+    seeded_control = [row for row in control_turns if keep(row)]
+    seeded_trigger = [row for row in trigger_rows if keep(row)]
+    seeded_predictions = [row for row in prediction_rows if keep(row)]
+
+    return ResumeSeedState(
+        source_root=resume_root,
+        source_run_id=source_run_id,
+        completed_sample_keys=completed_sample_keys,
+        stage_a_turns=seeded_stage_a,
+        stage_b_turns=seeded_stage_b,
+        control_turns=seeded_control,
+        trigger_rows=seeded_trigger,
+        prediction_rows=seeded_predictions,
+        initial_completed_calls=len(seeded_stage_a) + len(seeded_stage_b) + len(seeded_control),
+        initial_completed_predictions=len(seeded_predictions),
+    )
+
+
+def _collect_completed_sample_keys(
+    *,
+    stage_a_turns: list[dict[str, Any]],
+    stage_b_turns: list[dict[str, Any]],
+    control_turns: list[dict[str, Any]],
+    trigger_rows: list[dict[str, Any]],
+    prediction_rows: list[dict[str, Any]],
+    protocol: SharedDebateProtocolConfig,
+    policies: list[TriggerPolicyConfig],
+    controls: dict[str, MethodConfig],
+) -> set[tuple[str, str]]:
+    """识别旧 run 中已经完整完成且没有 request_fail 的样本。"""
+    expected_stage_a = protocol.agent_count
+    expected_stage_b = protocol.agent_count * protocol.debate_rounds
+    expected_control = sum(method.budget_calls for method in controls.values())
+    expected_trigger = len(policies)
+    expected_predictions = len(policies) + len(controls)
+
+    stage_a_counts = _count_rows_by_sample(stage_a_turns)
+    stage_b_counts = _count_rows_by_sample(stage_b_turns)
+    control_counts = _count_rows_by_sample(control_turns)
+    trigger_counts = _count_rows_by_sample(trigger_rows)
+    prediction_counts = _count_rows_by_sample(prediction_rows)
+    failed_keys = _non_ok_sample_keys(stage_a_turns + stage_b_turns + control_turns)
+
+    candidate_keys = (
+        set(stage_a_counts)
+        | set(stage_b_counts)
+        | set(control_counts)
+        | set(trigger_counts)
+        | set(prediction_counts)
+    )
+
+    completed: set[tuple[str, str]] = set()
+    for key in candidate_keys:
+        if key in failed_keys:
+            continue
+        if stage_a_counts.get(key, 0) != expected_stage_a:
+            continue
+        if stage_b_counts.get(key, 0) != expected_stage_b:
+            continue
+        if control_counts.get(key, 0) != expected_control:
+            continue
+        if trigger_counts.get(key, 0) != expected_trigger:
+            continue
+        if prediction_counts.get(key, 0) != expected_predictions:
+            continue
+        completed.add(key)
+    return completed
 
 
 def _run_sample_batch(
@@ -329,13 +611,19 @@ def _run_sample(
     initial_answers = [row["normalized_answer"] for row in stage_a_turns]
     stage_a_vote, stage_a_vote_counts = aggregate_majority(initial_answers)
     stage_a_score = score_prediction(benchmark_slug, stage_a_vote, sample.reference_answer)
-    initial_disagreement = len(set(initial_answers)) > 1
 
     confidence_summary = summarize_confidence_rows(stage_a_turns)
+    divergence_summary = summarize_divergence_rows(stage_a_turns)
     invalid_confidence_agents = confidence_summary.invalid_agent_ids
     any_invalid_confidence = confidence_summary.any_invalid_confidence
     mean_confidence = confidence_summary.mean_confidence
     confidence_spread = confidence_summary.confidence_spread
+    answer_unique_count = divergence_summary.answer_unique_count
+    answer_divergence_score = divergence_summary.answer_divergence_score
+    claim_similarity_mean = divergence_summary.claim_similarity_mean
+    claim_divergence_score = divergence_summary.claim_divergence_score
+    uncertainty_type_diversity_score = divergence_summary.uncertainty_type_diversity_score
+    initial_disagreement = answer_divergence_score >= 0.5
 
     stage_a_prompt_tokens = sum(float(row["prompt_tokens"]) for row in stage_a_turns)
     stage_a_completion_tokens = sum(float(row["completion_tokens"]) for row in stage_a_turns)
@@ -357,6 +645,8 @@ def _run_sample(
                         "agent": f"agent_{sender['agent_id']}",
                         "answer": str(sender["validated_output"].get("final_answer", "")).strip(),
                         "confidence_raw": sender["confidence_raw_display"],
+                        "claim_span": sender["claim_span"] or "",
+                        "uncertainty_type": sender["uncertainty_type"] or "",
                         "reasoning": sender["reasoning"],
                     }
                 )
@@ -368,6 +658,8 @@ def _run_sample(
                 previous_answer=str(recipient_previous["validated_output"].get("final_answer", "")).strip(),
                 previous_confidence_raw=recipient_previous["confidence_raw_display"],
                 peer_messages=peer_messages,
+                previous_claim_span=recipient_previous["claim_span"],
+                previous_uncertainty_type=recipient_previous["uncertainty_type"],
                 prompt_version=experiment.prompt_version,
             )
             current_round.append(
@@ -416,6 +708,9 @@ def _run_sample(
         decision = decide_trigger_from_policy(
             policy=policy,
             initial_disagreement=initial_disagreement,
+            answer_divergence_score=answer_divergence_score,
+            claim_divergence_score=claim_divergence_score,
+            uncertainty_type_diversity_score=uncertainty_type_diversity_score,
             mean_confidence=mean_confidence,
             confidence_spread=confidence_spread,
             any_invalid_confidence=any_invalid_confidence,
@@ -446,6 +741,11 @@ def _run_sample(
             "fail_open_applied": fail_open_applied,
             "decision_reason": decision_reason,
             "initial_disagreement": initial_disagreement,
+            "answer_unique_count": answer_unique_count,
+            "answer_divergence_score": answer_divergence_score,
+            "claim_similarity_mean": claim_similarity_mean,
+            "claim_divergence_score": claim_divergence_score,
+            "uncertainty_type_diversity_score": uncertainty_type_diversity_score,
             "mean_confidence": mean_confidence,
             "confidence_spread": confidence_spread,
             "any_invalid_confidence": any_invalid_confidence,
@@ -480,6 +780,11 @@ def _run_sample(
                 "fail_open_applied": fail_open_applied,
                 "decision_reason": decision_reason,
                 "initial_disagreement": initial_disagreement,
+                "answer_unique_count": answer_unique_count,
+                "answer_divergence_score": answer_divergence_score,
+                "claim_similarity_mean": claim_similarity_mean,
+                "claim_divergence_score": claim_divergence_score,
+                "uncertainty_type_diversity_score": uncertainty_type_diversity_score,
                 "mean_confidence": mean_confidence,
                 "confidence_spread": confidence_spread,
                 "any_invalid_confidence": any_invalid_confidence,
@@ -527,6 +832,11 @@ def _run_sample(
             "fail_open_applied": False,
             "decision_reason": "shared_stage_a_vote",
             "initial_disagreement": initial_disagreement,
+            "answer_unique_count": answer_unique_count,
+            "answer_divergence_score": answer_divergence_score,
+            "claim_similarity_mean": claim_similarity_mean,
+            "claim_divergence_score": claim_divergence_score,
+            "uncertainty_type_diversity_score": uncertainty_type_diversity_score,
             "mean_confidence": mean_confidence,
             "confidence_spread": confidence_spread,
             "any_invalid_confidence": any_invalid_confidence,
@@ -658,6 +968,11 @@ def _run_control_method(
             "fail_open_applied": False,
             "decision_reason": "independent_control",
             "initial_disagreement": None,
+            "answer_unique_count": None,
+            "answer_divergence_score": None,
+            "claim_similarity_mean": None,
+            "claim_divergence_score": None,
+            "uncertainty_type_diversity_score": None,
             "mean_confidence": None,
             "confidence_spread": None,
             "any_invalid_confidence": None,
@@ -774,19 +1089,43 @@ def _execute_turn(
         output_status = "request_fail"
         final_answer = ""
     else:
-        try:
-            validated_output = validate_structured_output(response_payload["assistant_text"], OUTPUT_MODE_SELECTIVE_COMM)
+        validated_output = {}
+        output_status = "schema_fail"
+        final_answer = ""
+        assistant_text = str(response_payload.get("assistant_text") or "")
+        provider_reasoning_text = str(response_payload.get("provider_reasoning_text") or "")
+        parse_attempts: list[tuple[str, str]] = []
+        if _looks_like_placeholder_visible_output(assistant_text):
+            if provider_reasoning_text.strip():
+                parse_attempts.append((provider_reasoning_text, "reasoning_fallback"))
+            parse_attempts.append((assistant_text, "assistant_text"))
+        else:
+            parse_attempts.append((assistant_text, "assistant_text"))
+            if provider_reasoning_text.strip():
+                parse_attempts.append((provider_reasoning_text, "reasoning_fallback"))
+
+        for candidate_text, source in parse_attempts:
+            try:
+                if source == "reasoning_fallback":
+                    candidate_output = _recover_selective_output_from_reasoning_text(candidate_text, dataset)
+                else:
+                    candidate_output = parse_selective_output(candidate_text, dataset)
+            except Exception:
+                continue
+            candidate_answer = str(candidate_output.get("final_answer", "")).strip()
+            if not candidate_answer or _looks_like_placeholder_visible_output(candidate_answer):
+                continue
+            validated_output = candidate_output
             output_status = "ok"
             final_answer = validated_output["final_answer"]
-        except Exception:
-            validated_output = {}
-            output_status = "schema_fail"
-            final_answer = ""
+            break
 
     usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
     reasoning = str(validated_output.get("reasoning", "")).strip() if validated_output else ""
     confidence_raw = validated_output.get("confidence_raw") if validated_output else None
     confidence_value, confidence_valid, confidence_source = normalize_confidence(confidence_raw)
+    claim_span = validated_output.get("claim_span") if validated_output else None
+    uncertainty_type = validated_output.get("uncertainty_type") if validated_output else None
     key_evidence = validated_output.get("key_evidence") if validated_output else None
     uncertainty = validated_output.get("uncertain_point") if validated_output else None
     return {
@@ -821,6 +1160,8 @@ def _execute_turn(
         "confidence_value": confidence_value,
         "confidence_valid": confidence_valid,
         "confidence_source": confidence_source,
+        "claim_span": claim_span,
+        "uncertainty_type": uncertainty_type,
         "key_evidence": key_evidence,
         "uncertain_point": uncertainty,
     }
@@ -887,7 +1228,9 @@ def _build_oracle_payload(prediction_rows: list[dict[str, Any]]) -> dict[str, An
             continue
         mv_3_row = methods["mv_3"]
         always_row = methods["always_communicate"]
-        beneficial = float(always_row["score"]) > float(mv_3_row["score"])
+        helpful = float(always_row["score"]) > float(mv_3_row["score"])
+        harmful = float(always_row["score"]) < float(mv_3_row["score"])
+        oracle_label = "helpful" if helpful else "harmful" if harmful else "neutral"
         payload = {
             "dataset": dataset,
             "sample_id": sample_id,
@@ -895,8 +1238,14 @@ def _build_oracle_payload(prediction_rows: list[dict[str, Any]]) -> dict[str, An
             "question_preview": mv_3_row["question_preview"],
             "mv_3_score": mv_3_row["score"],
             "always_score": always_row["score"],
-            "beneficial_communication": beneficial,
+            "beneficial_communication": helpful,
+            "oracle_label": oracle_label,
             "initial_disagreement": always_row["initial_disagreement"],
+            "answer_unique_count": always_row.get("answer_unique_count"),
+            "answer_divergence_score": always_row.get("answer_divergence_score"),
+            "claim_similarity_mean": always_row.get("claim_similarity_mean"),
+            "claim_divergence_score": always_row.get("claim_divergence_score"),
+            "uncertainty_type_diversity_score": always_row.get("uncertainty_type_diversity_score"),
             "mean_confidence": always_row["mean_confidence"],
             "confidence_spread": always_row["confidence_spread"],
             "any_invalid_confidence": always_row["any_invalid_confidence"],
@@ -918,23 +1267,30 @@ def _build_oracle_payload(prediction_rows: list[dict[str, Any]]) -> dict[str, An
     for dataset in sorted({row["dataset"] for row in sample_rows} | {"overall"}):
         rows_for_dataset = sample_rows if dataset == "overall" else [row for row in sample_rows if row["dataset"] == dataset]
         total = len(rows_for_dataset)
-        beneficial_count = sum(1 for row in rows_for_dataset if row["beneficial_communication"])
+        helpful_count = sum(1 for row in rows_for_dataset if row["oracle_label"] == "helpful")
+        harmful_count = sum(1 for row in rows_for_dataset if row["oracle_label"] == "harmful")
+        neutral_count = sum(1 for row in rows_for_dataset if row["oracle_label"] == "neutral")
         for policy_name in policy_names:
             triggered_count = sum(1 for row in rows_for_dataset if row["policies"].get(policy_name, {}).get("triggered"))
-            true_trigger_count = sum(
+            helpful_trigger_count = sum(
                 1
                 for row in rows_for_dataset
-                if row["beneficial_communication"] and row["policies"].get(policy_name, {}).get("triggered")
+                if row["oracle_label"] == "helpful" and row["policies"].get(policy_name, {}).get("triggered")
             )
-            false_trigger_count = sum(
+            harmful_trigger_count = sum(
                 1
                 for row in rows_for_dataset
-                if (not row["beneficial_communication"]) and row["policies"].get(policy_name, {}).get("triggered")
+                if row["oracle_label"] == "harmful" and row["policies"].get(policy_name, {}).get("triggered")
+            )
+            neutral_trigger_count = sum(
+                1
+                for row in rows_for_dataset
+                if row["oracle_label"] == "neutral" and row["policies"].get(policy_name, {}).get("triggered")
             )
             missed_positive_count = sum(
                 1
                 for row in rows_for_dataset
-                if row["beneficial_communication"] and (not row["policies"].get(policy_name, {}).get("triggered"))
+                if row["oracle_label"] == "helpful" and (not row["policies"].get(policy_name, {}).get("triggered"))
             )
             summary_rows.append(
                 {
@@ -942,13 +1298,22 @@ def _build_oracle_payload(prediction_rows: list[dict[str, Any]]) -> dict[str, An
                     "policy_name": policy_name,
                     "display_name": DISPLAY_NAME_MAP.get(policy_name, policy_name),
                     "question_count": total,
-                    "beneficial_communication_count": beneficial_count,
-                    "beneficial_communication_rate": _ratio(beneficial_count, total),
+                    "beneficial_communication_count": helpful_count,
+                    "beneficial_communication_rate": _ratio(helpful_count, total),
+                    "helpful_count": helpful_count,
+                    "harmful_count": harmful_count,
+                    "neutral_count": neutral_count,
                     "trigger_count": triggered_count,
-                    "precision": _ratio(true_trigger_count, triggered_count),
-                    "recall": _ratio(true_trigger_count, beneficial_count),
-                    "false_trigger_rate": _ratio(false_trigger_count, total),
-                    "missed_beneficial_comm_rate": _ratio(missed_positive_count, beneficial_count),
+                    "helpful_trigger_count": helpful_trigger_count,
+                    "harmful_trigger_count": harmful_trigger_count,
+                    "neutral_trigger_count": neutral_trigger_count,
+                    "precision": _ratio(helpful_trigger_count, triggered_count),
+                    "recall": _ratio(helpful_trigger_count, helpful_count),
+                    "false_trigger_rate": _ratio(harmful_trigger_count + neutral_trigger_count, total),
+                    "missed_beneficial_comm_rate": _ratio(missed_positive_count, helpful_count),
+                    "helpful_recall": _ratio(helpful_trigger_count, helpful_count),
+                    "harmful_trigger_rate": _ratio(harmful_trigger_count, harmful_count),
+                    "neutral_waste_rate": _ratio(neutral_trigger_count, triggered_count),
                 }
             )
 
@@ -964,6 +1329,7 @@ def _build_policy_diagnostics(
     """构建策略诊断与共享前缀节省信息。"""
     oracle_rows = oracle_payload["summary_rows"]
     policy_rows: list[dict[str, Any]] = []
+    voc_policy_rows: list[dict[str, Any]] = []
     metric_lookup = {
         (row["dataset"], row["method_name"]): row
         for row in _build_metrics_payload(prediction_rows)["summary"]
@@ -991,11 +1357,31 @@ def _build_policy_diagnostics(
                 "acc_per_1k_tokens": metric_row["acc_per_1k_tokens"],
             }
         )
+        voc_policy_rows.append(
+            {
+                "dataset": row["dataset"],
+                "policy_name": row["policy_name"],
+                "display_name": row["display_name"],
+                "question_count": row["question_count"],
+                "helpful_recall": row["helpful_recall"],
+                "harmful_trigger_rate": row["harmful_trigger_rate"],
+                "neutral_waste_rate": row["neutral_waste_rate"],
+                "trigger_rate": metric_row["trigger_rate"],
+                "communication_tokens_mean": metric_row["communication_tokens_mean"],
+                "total_tokens_mean": metric_row["total_tokens_mean"],
+            }
+        )
 
     savings_rows: list[dict[str, Any]] = []
     stage_a_grouped = _group_stage_tokens(stage_a_turns)
     stage_b_grouped = _group_stage_tokens(stage_b_turns)
-    trigger_methods = ["always_communicate", "disagreement_triggered", "confidence_triggered", "hybrid_trigger"]
+    trigger_methods = sorted(
+        {
+            str(row["method_name"])
+            for row in prediction_rows
+            if row.get("method_kind") == "policy"
+        }
+    )
     for dataset in sorted(set(stage_a_grouped) | {"overall"}):
         if dataset == "overall":
             shared_actual_tokens = sum(stage_a_grouped.values()) + sum(stage_b_grouped.values())
@@ -1027,6 +1413,7 @@ def _build_policy_diagnostics(
     recommendation = _select_next_default_policy(metric_lookup)
     return {
         "policy_rows": policy_rows,
+        "voc_policy_rows": voc_policy_rows,
         "shared_prefix_rows": savings_rows,
         "recommended_next_default_policy": recommendation,
     }
@@ -1035,18 +1422,22 @@ def _build_policy_diagnostics(
 def _select_next_default_policy(metric_lookup: dict[tuple[str, str], dict[str, Any]]) -> dict[str, Any]:
     """按固定规则选择下一轮默认 trigger。"""
     always_row = metric_lookup.get(("overall", "always_communicate"))
-    hybrid_row = metric_lookup.get(("overall", "hybrid_trigger"))
-    if always_row is None or hybrid_row is None:
+    preferred_row = metric_lookup.get(("overall", "voc_trigger_v2"))
+    preferred_name = "voc_trigger_v2"
+    if preferred_row is None:
+        preferred_row = metric_lookup.get(("overall", "hybrid_trigger"))
+        preferred_name = "hybrid_trigger"
+    if always_row is None or preferred_row is None:
         return {
             "selected_policy": "disagreement_triggered",
             "reason": "missing_overall_rows",
         }
-    accuracy_drop = float(always_row["accuracy_mean"]) - float(hybrid_row["accuracy_mean"])
+    accuracy_drop = float(always_row["accuracy_mean"]) - float(preferred_row["accuracy_mean"])
     token_drop_ratio = 0.0
     if float(always_row["total_tokens_mean"]):
-        token_drop_ratio = 1 - float(hybrid_row["total_tokens_mean"]) / float(always_row["total_tokens_mean"])
+        token_drop_ratio = 1 - float(preferred_row["total_tokens_mean"]) / float(always_row["total_tokens_mean"])
     if accuracy_drop <= 0.05 and token_drop_ratio >= 0.15:
-        selected = "hybrid_trigger"
+        selected = preferred_name
         rule_passed = True
     else:
         selected = "disagreement_triggered"
@@ -1187,3 +1578,35 @@ def _ratio(numerator: int, denominator: int) -> float:
     if denominator == 0:
         return 0.0
     return round(numerator / denominator, 6)
+
+
+def _count_rows_by_sample(rows: list[dict[str, Any]]) -> dict[tuple[str, str], int]:
+    """按 `(dataset, sample_id)` 统计行数。"""
+    counts: dict[tuple[str, str], int] = {}
+    for row in rows:
+        key = (str(row.get("dataset")), str(row.get("sample_id")))
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _non_ok_sample_keys(rows: list[dict[str, Any]]) -> set[tuple[str, str]]:
+    """收集包含非 `ok` 输出的样本键。"""
+    return {
+        (str(row.get("dataset")), str(row.get("sample_id")))
+        for row in rows
+        if row.get("output_status") not in {None, "ok"}
+    }
+
+
+def _load_jsonl_file(path: Path) -> list[dict[str, Any]]:
+    """读取 UTF-8 JSONL 文件。"""
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _load_json_file(path: Path) -> dict[str, Any]:
+    """读取 UTF-8 JSON 文件。"""
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))

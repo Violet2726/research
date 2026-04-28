@@ -14,6 +14,7 @@ from typing import Any
 
 from comm_necessary.logic import METHOD_ORDER
 from experiment_core.analysis_reports import render_split_context_report, write_report
+from experiment_core.workspace import default_files_root, default_reports_root
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
@@ -33,9 +34,10 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
 
 def render_report(
     run_dir: str | Path,
-    publish_dir: str | Path = "local/reports/comm_necessary",
+    publish_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """渲染中文 Markdown 报告，并同步写入 files 汇总。"""
+    publish_dir = publish_dir or default_reports_root("comm_necessary")
     root = Path(run_dir)
     manifest = _load_json(root / "manifest.json")
     metrics = _load_json(root / "metrics.json")
@@ -50,7 +52,7 @@ def render_report(
     publish_path.parent.mkdir(parents=True, exist_ok=True)
     publish_path.write_text(markdown, encoding="utf-8")
 
-    summary_path = Path("files") / "HotpotQA通信必要性_smoke20结果汇总.md"
+    summary_path = Path(default_files_root()) / "HotpotQA通信必要性_smoke20结果汇总.md"
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(markdown, encoding="utf-8")
     return {

@@ -17,6 +17,7 @@ from typing import Any
 
 from free_mad_lite.logic import METHOD_ORDER
 from experiment_core.analysis_reports import render_frontier_report, write_report
+from experiment_core.workspace import default_reports_root
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
@@ -34,8 +35,9 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
     }
 
 
-def render_report(run_dir: str | Path, publish_dir: str | Path = "local/reports/free_mad_lite") -> dict[str, Any]:
+def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) -> dict[str, Any]:
     """渲染中文 Markdown 报告。"""
+    publish_dir = publish_dir or default_reports_root("free_mad_lite")
     root = Path(run_dir)
     manifest = _load_json(root / "manifest.json")
     metrics = _load_json(root / "metrics.json")

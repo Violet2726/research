@@ -15,14 +15,22 @@ import time
 class RunProgressTracker:
     """把长时间实验的进度快照持续写入磁盘。"""
 
-    def __init__(self, progress_path: Path, total_planned_calls: int, total_planned_predictions: int) -> None:
+    def __init__(
+        self,
+        progress_path: Path,
+        total_planned_calls: int,
+        total_planned_predictions: int,
+        *,
+        initial_completed_calls: int = 0,
+        initial_completed_predictions: int = 0,
+    ) -> None:
         self.progress_path = progress_path
         self.total_planned_calls = total_planned_calls
         self.total_planned_predictions = total_planned_predictions
         self.started_at = datetime.now(timezone.utc).isoformat()
         self.started_monotonic = time.monotonic()
-        self.completed_calls = 0
-        self.completed_predictions = 0
+        self.completed_calls = initial_completed_calls
+        self.completed_predictions = initial_completed_predictions
         self.cache_hits = 0
         self.network_calls = 0
         self.last_dataset: str | None = None

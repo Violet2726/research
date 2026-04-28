@@ -1,5 +1,5 @@
-name = "trigger-early-exit-v1"
-description = "Trigger and early-exit v1 with shared Stage A and shared Stage B for smoke20 selective communication analysis."
+name = "trigger_voc_v2"
+description = "VoC Trigger v2 smoke20 with black-box claim-span and uncertainty-type proxies on shared selective communication."
 benchmark_configs = [
   "configs/shared/benchmarks/gsm8k.toml",
   "configs/shared/benchmarks/strategyqa.toml",
@@ -11,18 +11,19 @@ policy_configs = [
   "configs/selective_comm/policies/disagreement_triggered.toml",
   "configs/selective_comm/policies/confidence_triggered.toml",
   "configs/selective_comm/policies/hybrid_trigger.toml",
+  "configs/selective_comm/policies/confidence_triggered_095.toml",
+  "configs/selective_comm/policies/hybrid_trigger_relaxed.toml",
+  "configs/selective_comm/policies/claim_divergence_triggered.toml",
+  "configs/selective_comm/policies/voc_trigger_v2.toml",
 ]
 control_catalog = "configs/selective_comm/controls/trigger_equal_budget.toml"
 global_seed = 42
-prompt_version = "selective_comm_trigger_json"
-max_concurrent_requests = 5
-requests_per_minute_limit = 50
-tokens_per_minute_limit = 1000000
-primary_backbone = "deepseek/deepseek-v4-flash"
+prompt_version = "selective_comm_voc_json_v2"
+max_concurrent_requests = 40
+requests_per_minute_limit = 450
+tokens_per_minute_limit = 1800000
+primary_backbone = "siliconflow/deepseek-ai/DeepSeek-V4-Flash"
 
 [phases.smoke20]
 split_suffix = "smoke20_seed42"
-
-[phases.pilot100]
-split_suffix = "pilot100_seed42"
 

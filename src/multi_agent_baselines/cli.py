@@ -9,6 +9,14 @@ from __future__ import annotations
 import argparse
 import json
 
+from dotenv import load_dotenv
+
+from experiment_core.workspace import (
+    default_cache_path,
+    default_reports_root,
+    default_runs_root,
+    workspace_defaults,
+)
 from multi_agent_baselines.config import (
     load_benchmarks,
     load_control_catalog,
@@ -25,6 +33,7 @@ from multi_agent_baselines.validation import validate_run
 
 def build_parser() -> argparse.ArgumentParser:
     """构建多智能体实验命令行解析器。"""
+    load_dotenv(".env.local", override=False)
     parser = argparse.ArgumentParser(description="Vanilla MAD multi-agent baseline runner.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -36,8 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--experiment", required=True)
     run.add_argument("--phase", required=True)
     run.add_argument("--backbone", required=True)
-    run.add_argument("--runs-root", default="local/runs/multi_agent")
-    run.add_argument("--cache-path", default="cache/multi_agent_requests.sqlite")
+    run.add_argument("--runs-root", default=default_runs_root("multi_agent"))
+    run.add_argument("--cache-path", default=default_cache_path("multi_agent"))
 
     summarize = subparsers.add_parser("summarize-run", help="Print a concise run summary from metrics.json.")
     summarize.add_argument("--run-dir", required=True)
@@ -50,7 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Generate paired Debate vs Vote analysis and a Chinese markdown report.",
     )
     debate_vs_vote.add_argument("--run-dir", required=True)
-    debate_vs_vote.add_argument("--publish-dir", default="local/reports/multi_agent")
+    debate_vs_vote.add_argument("--publish-dir", default=default_reports_root("multi_agent"))
 
     return parser
 
@@ -71,6 +80,7 @@ def main() -> None:
             "benchmarks": [benchmark.slug for benchmark in benchmarks],
             "control_catalog": str(experiment.control_catalog),
             "control_methods": {name: _serialize_control(method) for name, method in sorted(controls.items())},
+            "workspace_defaults": workspace_defaults("multi_agent"),
             "phases": experiment.raw["phases"],
             "setups": [
                 {

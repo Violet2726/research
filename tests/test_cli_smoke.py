@@ -39,6 +39,7 @@ def test_single_agent_inspect_cli() -> None:
         ],
     )
     assert payload["name"] == "main-baselines"
+    assert payload["workspace_defaults"]["experiment_cache_path"].endswith("single_agent_requests.sqlite")
 
 
 def test_multi_agent_inspect_cli() -> None:
@@ -65,6 +66,26 @@ def test_selective_comm_inspect_cli() -> None:
         ],
     )
     assert payload["name"] == "trigger-early-exit-v1"
+    assert payload["workspace_defaults"]["experiment_runs_root"].endswith("selective_comm")
+
+
+def test_selective_comm_voc_v2_inspect_cli() -> None:
+    payload = _run_cli(
+        selective_main,
+        [
+            "selective-cli",
+            "inspect-experiment",
+            "--experiment",
+            "configs/selective_comm/experiments/trigger_voc_v2.toml",
+        ],
+    )
+    assert payload["name"] == "trigger_voc_v2"
+    assert payload["prompt_version"] == "selective_comm_voc_json_v2"
+    assert len(payload["policies"]) == 8
+    assert payload["policies"][-1]["policy_name"] == "voc_trigger_v2"
+    assert payload["policies"][-1]["claim_divergence_threshold"] == 0.55
+    assert payload["policies"][-1]["uncertainty_type_diversity_threshold"] == 0.5
+    assert payload["backbone_fit_warnings"] == []
 
 
 def test_sparc_inspect_cli() -> None:
@@ -91,12 +112,13 @@ def test_sparc_aggregation_auditing_inspect_cli() -> None:
         ],
     )
     assert payload["name"] == "aggregation_auditing_ablation_v1"
-    assert payload["resolved_backbone"]["name"] == "dashscope/qwen-turbo-1101"
-    assert payload["max_concurrent_requests"] == 8
-    assert payload["requests_per_minute_limit"] == 600
+    assert payload["resolved_backbone"]["name"] == "deepseek/deepseek-v4-flash"
+    assert payload["max_concurrent_requests"] == 5
+    assert payload["requests_per_minute_limit"] == 50
     assert payload["tokens_per_minute_limit"] == 1000000
     assert payload["aggregation_methods"] == [
         "majority_vote",
+        "weighted_vote_fallback",
         "single_judge",
         "final_round_vote",
         "local_auditing",
@@ -115,7 +137,7 @@ def test_budget_comm_inspect_cli() -> None:
     )
     assert payload["name"] == "dala_lite_same_context_v1"
     assert payload["context_view"]["track_name"] == "same_context"
-    assert payload["resolved_backbone"]["name"] == "dashscope/qwen-turbo-1101"
+    assert payload["resolved_backbone"]["name"] == "deepseek/deepseek-v4-flash"
 
 
 def test_sid_lite_inspect_cli() -> None:
@@ -130,8 +152,8 @@ def test_sid_lite_inspect_cli() -> None:
     )
     assert payload["name"] == "sid_lite_v1"
     assert payload["methods"] == ["mv_3", "always_full", "compression_only", "sid_lite"]
-    assert payload["max_concurrent_requests"] == 3
-    assert payload["requests_per_minute_limit"] == 60
+    assert payload["max_concurrent_requests"] == 5
+    assert payload["requests_per_minute_limit"] == 50
     assert payload["tokens_per_minute_limit"] == 1000000
 
 
@@ -174,6 +196,6 @@ def test_comm_necessary_inspect_cli() -> None:
         "evidence_exchange",
         "full_packet_exchange",
     ]
-    assert payload["max_concurrent_requests"] == 4
-    assert payload["requests_per_minute_limit"] == 60
-    assert payload["tokens_per_minute_limit"] == 2000000
+    assert payload["max_concurrent_requests"] == 5
+    assert payload["requests_per_minute_limit"] == 50
+    assert payload["tokens_per_minute_limit"] == 1000000

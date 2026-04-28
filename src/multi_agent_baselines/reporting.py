@@ -15,6 +15,7 @@ import math
 import random
 from typing import Any
 
+from experiment_core.workspace import default_reports_root
 
 def load_metrics(run_dir: str | Path) -> dict[str, Any]:
     """读取多智能体运行目录中的 `metrics.json`。"""
@@ -38,9 +39,10 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
 
 def report_debate_vs_vote(
     run_dir: str | Path,
-    publish_dir: str | Path = "local/reports/multi_agent",
+    publish_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """生成 `Debate vs Vote` 的配对分析结果与 Markdown 报告。"""
+    publish_dir = publish_dir or default_reports_root("multi_agent")
     root = Path(run_dir)
     manifest = _load_json(root / "manifest.json")
     prediction_rows = _load_jsonl(root / "final_predictions.jsonl")

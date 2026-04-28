@@ -11,7 +11,7 @@ from experiment_core.config import load_benchmark_config, load_model_catalog, pa
 from experiment_core.datasets import generate_split_manifests, load_split_ids, select_samples
 from experiment_core.providers import _extract_message_channels, build_payload
 from experiment_core.rate_limits import SlidingWindowRateLimiter
-from experiment_core.selective_signals import decide_trigger, summarize_confidence_rows
+from experiment_core.selective_signals import decide_trigger, summarize_confidence_rows, summarize_divergence_rows
 from experiment_core.structured_output import (
     OUTPUT_MODE_BUDGET_BELIEF_UPDATE,
     OUTPUT_MODE_BUDGET_SOLVER,
@@ -21,12 +21,20 @@ from experiment_core.structured_output import (
     OUTPUT_MODE_SPARC_BELIEF_UPDATE,
     OUTPUT_MODE_SPARC_MESSAGE,
     OUTPUT_MODE_SPARC_SOLVER,
+    parse_selective_output,
     validate_structured_output,
+)
+from experiment_core.workspace import (
+    default_cache_path,
+    default_files_root,
+    default_reports_root,
+    default_runs_root,
+    workspace_defaults,
 )
 
 
 def test_parse_model_ref() -> None:
-    assert parse_model_ref("dashscope/qwen-turbo-1101") == ("dashscope", "qwen-turbo-1101")
+    assert parse_model_ref("deepseek/deepseek-v4-flash") == ("deepseek", "deepseek-v4-flash")
 
 
 def test_load_model_catalog() -> None:
@@ -45,6 +53,30 @@ def test_resolve_local_ollama_model_ref() -> None:
     assert resolved.supports_response_format is True
 
 
+def test_resolve_deepseek_model_ref() -> None:
+    resolved = resolve_model_ref("deepseek/deepseek-v4-flash")
+    assert resolved.provider == "deepseek"
+    assert resolved.model_id == "deepseek-v4-flash"
+    assert resolved.reasoning_effort == "none"
+    assert resolved.supports_response_format is True
+
+
+def test_workspace_defaults_follow_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RESEARCH_LOCAL_ROOT", "artifacts")
+    monkeypatch.setenv("RESEARCH_CACHE_ROOT", "tmp/cache")
+    monkeypatch.setenv("RESEARCH_FILES_ROOT", "notes")
+
+    assert default_runs_root("selective_comm") == "artifacts/runs/selective_comm"
+    assert default_reports_root("selective_comm") == "artifacts/reports/selective_comm"
+    assert default_cache_path("selective_comm") == "tmp/cache/selective_comm_requests.sqlite"
+    assert default_files_root() == "notes"
+
+    payload = workspace_defaults("selective_comm")
+    assert payload["local_root"] == "artifacts"
+    assert payload["experiment_reports_root"] == "artifacts/reports/selective_comm"
+    assert payload["experiment_cache_path"] == "tmp/cache/selective_comm_requests.sqlite"
+
+
 def test_build_payload_maps_thinking_control_by_provider() -> None:
     local_model = resolve_model_ref("local_ollama/qwen3:4b")
     local_payload = build_payload(
@@ -58,17 +90,17 @@ def test_build_payload_maps_thinking_control_by_provider() -> None:
     assert local_payload["reasoning_effort"] == "none"
     assert "enable_thinking" not in local_payload
 
-    dashscope_model = resolve_model_ref("dashscope/qwen-turbo-1101")
-    dashscope_payload = build_payload(
-        dashscope_model,
+    deepseek_model = resolve_model_ref("deepseek/deepseek-v4-flash")
+    deepseek_payload = build_payload(
+        deepseek_model,
         [{"role": "user", "content": "hi"}],
         temperature=0.0,
         top_p=1.0,
         max_output_tokens=16,
         seed=42,
     )
-    assert dashscope_payload["enable_thinking"] is False
-    assert "reasoning_effort" not in dashscope_payload
+    assert deepseek_payload["thinking"] == {"type": "disabled"}
+    assert "enable_thinking" not in deepseek_payload
 
 
 def test_validate_core_structured_output() -> None:
@@ -92,6 +124,8 @@ def test_validate_selective_structured_output() -> None:
                 "final_answer": "yes",
                 "confidence_raw": 0.4,
                 "reasoning": "short",
+                "claim_span": "supporting span",
+                "uncertainty_type": "evidence_selection",
                 "key_evidence": "one clue",
                 "uncertain_point": None,
             }
@@ -99,8 +133,70 @@ def test_validate_selective_structured_output() -> None:
         OUTPUT_MODE_SELECTIVE_COMM,
     )
     assert payload["confidence_raw"] == 0.4
+    assert payload["claim_span"] == "supporting span"
+    assert payload["uncertainty_type"] == "evidence_selection"
     assert payload["key_evidence"] == "one clue"
     assert payload["uncertain_point"] is None
+
+
+def test_validate_selective_structured_output_allows_missing_confidence() -> None:
+    payload = validate_structured_output(
+        json.dumps(
+            {
+                "final_answer": "42",
+                "claim_span": "5 times 8 plus 2",
+                "uncertainty_type": "calculation",
+            }
+        ),
+        OUTPUT_MODE_SELECTIVE_COMM,
+    )
+    assert payload["final_answer"] == "42"
+    assert payload["confidence_raw"] is None
+
+
+def test_validate_selective_structured_output_rejects_invalid_uncertainty_type() -> None:
+    with pytest.raises(ValueError):
+        validate_structured_output(
+            json.dumps(
+                {
+                    "final_answer": "yes",
+                    "confidence_raw": 0.4,
+                    "claim_span": "supporting span",
+                    "uncertainty_type": "bad_label",
+                }
+            ),
+            OUTPUT_MODE_SELECTIVE_COMM,
+        )
+
+
+def test_parse_selective_output_accepts_tagged_lines() -> None:
+    payload = parse_selective_output(
+        "\n".join(
+            [
+                "FINAL_ANSWER: 36",
+                "CLAIM_SPAN: 54 - 18 = 36",
+                "UNCERTAINTY_TYPE: calculation",
+                "CONFIDENCE: 0.82",
+                "REASON: students take the remaining seats",
+            ]
+        ),
+        dataset="gsm8k",
+    )
+    assert payload["final_answer"] == "36"
+    assert payload["claim_span"] == "54 - 18 = 36"
+    assert payload["uncertainty_type"] == "calculation"
+    assert payload["confidence_raw"] == "0.82"
+
+
+def test_parse_selective_output_recovers_from_free_form_math_text() -> None:
+    payload = parse_selective_output(
+        "To solve it, total seats are 72, admins use 18, parents use 18, so students are 36. The final answer is 36.",
+        dataset="gsm8k",
+    )
+    assert payload["final_answer"] == "36"
+    assert payload["claim_span"] == "36"
+    assert payload["uncertainty_type"] == "calculation"
+    assert payload["confidence_raw"] is None
 
 
 def test_validate_budget_solver_structured_output() -> None:
@@ -224,6 +320,86 @@ def test_selective_signal_summary_and_decision() -> None:
     assert decision.triggered is True
 
 
+def test_missing_confidence_is_not_counted_as_invalid() -> None:
+    summary = summarize_confidence_rows(
+        [
+            {"agent_id": 1, "confidence_valid": False, "confidence_value": None, "confidence_source": "missing"},
+            {"agent_id": 2, "confidence_valid": False, "confidence_value": None, "confidence_source": "missing"},
+            {"agent_id": 3, "confidence_valid": False, "confidence_value": None, "confidence_source": "missing"},
+        ]
+    )
+    assert summary.invalid_agent_ids == []
+    assert summary.any_invalid_confidence is False
+    assert summary.mean_confidence is None
+
+
+def test_selective_divergence_summary_and_claim_trigger() -> None:
+    summary = summarize_divergence_rows(
+        [
+            {
+                "normalized_answer": "A",
+                "claim_span": "shirt 17.5 shorts 24.5 total 42",
+                "uncertainty_type": "calculation",
+            },
+            {
+                "normalized_answer": "A",
+                "claim_span": "50 minus 42 leaves 8",
+                "uncertainty_type": "evidence_selection",
+            },
+            {
+                "normalized_answer": "A",
+                "claim_span": "50 minus 42 leaves 8",
+                "uncertainty_type": "evidence_selection",
+            },
+        ]
+    )
+    assert summary.answer_unique_count == 1
+    assert summary.answer_divergence_score == 0.0
+    assert 0.0 <= summary.claim_similarity_mean <= 1.0
+    assert summary.claim_divergence_score > 0.55
+    assert summary.uncertainty_type_diversity_score == 0.5
+    decision = decide_trigger(
+        trigger_type="claim_divergence_triggered",
+        initial_disagreement=False,
+        answer_divergence_score=summary.answer_divergence_score,
+        claim_divergence_score=summary.claim_divergence_score,
+        uncertainty_type_diversity_score=summary.uncertainty_type_diversity_score,
+        fail_open_to_always=False,
+    )
+    assert decision.triggered is True
+
+
+def test_voc_trigger_v2_requires_spread_for_confidence_only_case() -> None:
+    decision = decide_trigger(
+        trigger_type="voc_trigger_v2",
+        initial_disagreement=False,
+        answer_divergence_score=0.0,
+        claim_divergence_score=0.2,
+        uncertainty_type_diversity_score=0.0,
+        mean_confidence=0.94,
+        confidence_spread=0.05,
+        any_invalid_confidence=False,
+        fail_open_to_always=False,
+    )
+    assert decision.triggered is False
+
+
+def test_voc_trigger_v2_ignores_missing_confidence_when_other_signals_are_weak() -> None:
+    decision = decide_trigger(
+        trigger_type="voc_trigger_v2",
+        initial_disagreement=False,
+        answer_divergence_score=0.0,
+        claim_divergence_score=0.1,
+        uncertainty_type_diversity_score=0.0,
+        mean_confidence=None,
+        confidence_spread=None,
+        any_invalid_confidence=True,
+        fail_open_to_always=True,
+    )
+    assert decision.triggered is False
+    assert decision.fail_open_applied is False
+
+
 @pytest.mark.parametrize(
     ("raw_text", "mode"),
     [
@@ -233,7 +409,7 @@ def test_selective_signal_summary_and_decision() -> None:
         ('{"final_answer":"yes","reasoning_trace":"short","claim_span":"claim","key_evidence":"evidence","keyword_clues":[],"confidence_raw":0.8,"uncertain_point":null}', OUTPUT_MODE_BUDGET_SOLVER),
         ('{"final_answer":"yes","reasoning":"short"}{"final_answer":"no","reasoning":"alt"}', OUTPUT_MODE_CORE),
         ('{"reasoning":"short"}', OUTPUT_MODE_CORE),
-        ('{"final_answer":"yes"}', OUTPUT_MODE_SELECTIVE_COMM),
+        ('{"final_answer":"yes","uncertainty_type":"bad_label"}', OUTPUT_MODE_SELECTIVE_COMM),
         ('{"final_answer":"yes","unexpected":"field"}', OUTPUT_MODE_CORE),
     ],
 )

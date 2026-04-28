@@ -1,0 +1,7 @@
+policy_name = "voc_trigger_v2"
+trigger_type = "voc_trigger_v2"
+mean_conf_threshold = 0.95
+conf_spread_threshold = 0.10
+claim_divergence_threshold = 0.55
+uncertainty_type_diversity_threshold = 0.50
+fail_open_to_always = true

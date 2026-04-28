@@ -9,6 +9,14 @@ from __future__ import annotations
 import argparse
 import json
 
+from dotenv import load_dotenv
+
+from experiment_core.workspace import (
+    default_cache_path,
+    default_reports_root,
+    default_runs_root,
+    workspace_defaults,
+)
 from budget_comm.config import (
     load_auction_policy_config,
     load_benchmarks,
@@ -25,6 +33,7 @@ from budget_comm.validation import validate_run
 
 def build_parser() -> argparse.ArgumentParser:
     """构造 `budget_comm` 命令行参数解析器。"""
+    load_dotenv(".env.local", override=False)
     parser = argparse.ArgumentParser(description="Budget-aware DALA-lite experiment runner.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -36,8 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--experiment", required=True)
     run.add_argument("--phase", required=True)
     run.add_argument("--backbone", default=None)
-    run.add_argument("--runs-root", default="local/runs/budget_comm")
-    run.add_argument("--cache-path", default="cache/budget_comm_requests.sqlite")
+    run.add_argument("--runs-root", default=default_runs_root("budget_comm"))
+    run.add_argument("--cache-path", default=default_cache_path("budget_comm"))
 
     summarize = subparsers.add_parser("summarize-run", help="Print a concise budget_comm run summary.")
     summarize.add_argument("--run-dir", required=True)
@@ -47,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     report = subparsers.add_parser("report-run", help="Regenerate the Chinese budget_comm markdown report.")
     report.add_argument("--run-dir", required=True)
-    report.add_argument("--publish-dir", default="local/reports/budget_comm")
+    report.add_argument("--publish-dir", default=default_reports_root("budget_comm"))
 
     return parser
 
@@ -99,6 +108,7 @@ def main() -> None:
             "max_concurrent_requests": experiment.max_concurrent_requests,
             "requests_per_minute_limit": experiment.requests_per_minute_limit,
             "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
+            "workspace_defaults": workspace_defaults("budget_comm"),
             "primary_backbone": experiment.primary_backbone,
             "resolved_backbone": {
                 "name": resolved_backbone.name,

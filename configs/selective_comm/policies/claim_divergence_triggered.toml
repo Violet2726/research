@@ -1,0 +1,5 @@
+policy_name = "claim_divergence_triggered"
+trigger_type = "claim_divergence_triggered"
+claim_divergence_threshold = 0.55
+uncertainty_type_diversity_threshold = 0.50
+fail_open_to_always = true

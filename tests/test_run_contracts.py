@@ -13,7 +13,9 @@ from multi_agent_baselines.reporting import summarize_run as summarize_multi_age
 from multi_agent_baselines.validation import validate_run as validate_multi_agent
 from sparc.reporting import summarize_run as summarize_sparc
 from sparc.validation import validate_run as validate_sparc
+from selective_comm.config import load_control_catalog, load_policies, load_protocol_config
 from selective_comm.reporting import summarize_run as summarize_selective
+from selective_comm.runner import _load_resume_seed_state, _recover_selective_output_from_reasoning_text
 from selective_comm.validation import validate_run as validate_selective
 from sid_lite.reporting import summarize_run as summarize_sid
 from sid_lite.validation import validate_run as validate_sid
@@ -150,7 +152,10 @@ def test_selective_comm_validation_contract(tmp_path: Path) -> None:
     _touch_json(tmp_path / "policy_metrics.json", {"summary": [{"dataset": "gsm8k"}]})
     _touch_json(
         tmp_path / "policy_diagnostics.json",
-        {"recommended_next_default_policy": {"selected_policy": "hybrid_trigger"}},
+        {
+            "voc_policy_rows": [],
+            "recommended_next_default_policy": {"selected_policy": "voc_trigger_v2"},
+        },
     )
     _touch_json(tmp_path / "oracle_trigger_eval.json", {"summary_rows": []})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
@@ -158,6 +163,143 @@ def test_selective_comm_validation_contract(tmp_path: Path) -> None:
 
     assert summarize_selective(tmp_path)["row_count"] == 1
     assert validate_selective(tmp_path)["passed"] is True
+
+
+def test_selective_comm_resume_seed_state_keeps_only_complete_samples(tmp_path: Path) -> None:
+    protocol = load_protocol_config("configs/selective_comm/protocols/shared_3a_r1.toml")
+    policies = load_policies(
+        [
+            "configs/selective_comm/policies/always_communicate.toml",
+            "configs/selective_comm/policies/disagreement_triggered.toml",
+            "configs/selective_comm/policies/confidence_triggered.toml",
+            "configs/selective_comm/policies/hybrid_trigger.toml",
+        ]
+    )
+    controls = load_control_catalog("configs/selective_comm/controls/trigger_equal_budget.toml")
+    _touch_json(tmp_path / "manifest.json", {"run_id": "seed-run"})
+
+    stage_a_rows = [
+        {"dataset": "gsm8k", "sample_id": "ok", "output_status": "ok"},
+        {"dataset": "gsm8k", "sample_id": "ok", "output_status": "ok"},
+        {"dataset": "gsm8k", "sample_id": "ok", "output_status": "ok"},
+        {"dataset": "gsm8k", "sample_id": "bad", "output_status": "request_fail"},
+        {"dataset": "gsm8k", "sample_id": "bad", "output_status": "ok"},
+        {"dataset": "gsm8k", "sample_id": "bad", "output_status": "ok"},
+    ]
+    stage_b_rows = [
+        {"dataset": "gsm8k", "sample_id": sample_id, "output_status": "ok"}
+        for sample_id in ["ok", "ok", "ok", "bad", "bad", "bad"]
+    ]
+    control_rows = []
+    for sample_id in ["ok", "bad"]:
+        for method_name, budget_calls in [("mv_6", 6), ("sc_6", 6)]:
+            control_rows.extend(
+                {
+                    "dataset": "gsm8k",
+                    "sample_id": sample_id,
+                    "method_name": method_name,
+                    "output_status": "ok",
+                }
+                for _ in range(budget_calls)
+            )
+    trigger_rows = []
+    prediction_rows = []
+    for sample_id in ["ok", "bad"]:
+        for policy_name in [
+            "always_communicate",
+            "disagreement_triggered",
+            "confidence_triggered",
+            "hybrid_trigger",
+        ]:
+            trigger_rows.append({"dataset": "gsm8k", "sample_id": sample_id, "policy_name": policy_name})
+            prediction_rows.append(
+                {
+                    "dataset": "gsm8k",
+                    "sample_id": sample_id,
+                    "model_name": "deepseek/deepseek-v4-flash",
+                    "method_name": policy_name,
+                    "method_kind": "policy",
+                }
+            )
+        trigger_rows.append({"dataset": "gsm8k", "sample_id": sample_id, "policy_name": "voc_trigger_v2"})
+        prediction_rows.append(
+            {
+                "dataset": "gsm8k",
+                "sample_id": sample_id,
+                "model_name": "deepseek/deepseek-v4-flash",
+                "method_name": "voc_trigger_v2",
+                "method_kind": "policy",
+            }
+        )
+        for control_name in ["mv_3", "mv_6", "sc_6"]:
+            prediction_rows.append(
+                {
+                    "dataset": "gsm8k",
+                    "sample_id": sample_id,
+                    "model_name": "deepseek/deepseek-v4-flash",
+                    "method_name": control_name,
+                    "method_kind": "control",
+                }
+            )
+        prediction_rows.append(
+            {
+                "dataset": "gsm8k",
+                "sample_id": sample_id,
+                "model_name": "deepseek/deepseek-v4-flash",
+                "method_name": "bonus_control",
+                "method_kind": "control",
+            }
+        )
+    control_rows.append(
+        {
+            "dataset": "gsm8k",
+            "sample_id": "ok",
+            "method_name": "bonus_control",
+            "output_status": "ok",
+        }
+    )
+
+    _write_jsonl(tmp_path / "stage_a_turns.jsonl", stage_a_rows)
+    _write_jsonl(tmp_path / "stage_b_turns.jsonl", stage_b_rows)
+    _write_jsonl(tmp_path / "control_turns.jsonl", control_rows)
+    _write_jsonl(tmp_path / "trigger_decisions.jsonl", trigger_rows)
+    _write_jsonl(tmp_path / "policy_predictions.jsonl", prediction_rows)
+
+    state = _load_resume_seed_state(tmp_path, protocol, policies, controls)
+    assert state.source_run_id == "seed-run"
+    assert state.completed_sample_keys == {("gsm8k", "ok")}
+    assert len(state.stage_a_turns) == 3
+    assert len(state.stage_b_turns) == 3
+    assert len(state.control_turns) == 12
+    assert len(state.trigger_rows) == 4
+    assert len(state.prediction_rows) == 7
+    assert state.initial_completed_calls == 18
+    assert state.initial_completed_predictions == 7
+
+
+def test_selective_comm_reasoning_fallback_recovers_math_answer() -> None:
+    payload = _recover_selective_output_from_reasoning_text(
+        "The steps are straightforward. Final answer should be 68. Confidence 0.99.",
+        "gsm8k",
+    )
+    assert payload["final_answer"] == "68"
+    assert payload["claim_span"] == "68"
+
+
+def test_selective_comm_reasoning_fallback_recovers_strategy_answer() -> None:
+    payload = _recover_selective_output_from_reasoning_text(
+        "Avengers are Marvel, not DC. So the answer should be yes.",
+        "strategyqa",
+    )
+    assert payload["final_answer"] == "yes"
+
+
+def test_selective_comm_reasoning_fallback_recovers_hotpot_answer() -> None:
+    payload = _recover_selective_output_from_reasoning_text(
+        "Tivolis Koncertsal is at Tivoli Gardens, and the answer should be 15 August 1843.",
+        "hotpotqa",
+    )
+    assert payload["final_answer"] == "15 August 1843"
 
 
 def test_sparc_validation_contract(tmp_path: Path) -> None:

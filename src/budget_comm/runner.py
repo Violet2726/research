@@ -62,6 +62,7 @@ from experiment_core.structured_output import (
     OUTPUT_MODE_BUDGET_SOLVER,
     validate_structured_output,
 )
+from experiment_core.workspace import default_cache_path, default_runs_root
 
 
 @dataclass(frozen=True)
@@ -100,8 +101,8 @@ def run_experiment(
     experiment: BudgetCommExperimentConfig,
     phase_name: str,
     backbone,
-    run_root: str | Path = "local/runs/budget_comm",
-    cache_path: str | Path = "cache/budget_comm_requests.sqlite",
+    run_root: str | Path | None = None,
+    cache_path: str | Path | None = None,
 ) -> Path:
     """执行一个 `budget_comm` phase，并写出完整运行目录。
 
@@ -112,6 +113,8 @@ def run_experiment(
     from budget_comm.validation import validate_run
 
     load_dotenv(".env.local", override=False)
+    run_root = run_root or default_runs_root("budget_comm")
+    cache_path = cache_path or default_cache_path("budget_comm")
     benchmarks = load_benchmarks(experiment)
     protocol = load_protocol_config(experiment.protocol)
     auction_policy = load_auction_policy_config(experiment.auction_policy)
@@ -239,7 +242,7 @@ def run_experiment(
     run_paths.metrics.write_text(json.dumps(metrics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     run_paths.budget_diagnostics.write_text(json.dumps(diagnostics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     _export_paper_summary(run_paths.paper_summary, metrics_payload["summary"])
-    render_report(run_paths.root, publish_dir="local/reports/budget_comm")
+    render_report(run_paths.root)
     run_paths.run_validation.write_text(json.dumps(validate_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
     progress.mark_completed()
     cache.close()

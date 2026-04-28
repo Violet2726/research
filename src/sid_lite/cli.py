@@ -10,6 +10,14 @@ from dataclasses import asdict
 import argparse
 import json
 
+from dotenv import load_dotenv
+
+from experiment_core.workspace import (
+    default_cache_path,
+    default_reports_root,
+    default_runs_root,
+    workspace_defaults,
+)
 from sid_lite.config import (
     load_benchmarks,
     load_experiment_config,
@@ -23,6 +31,7 @@ from sid_lite.validation import validate_run
 
 
 def build_parser() -> argparse.ArgumentParser:
+    load_dotenv(".env.local", override=False)
     parser = argparse.ArgumentParser(description="SID-lite experiment runner.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -34,8 +43,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--experiment", required=True)
     run.add_argument("--phase", required=True)
     run.add_argument("--backbone", default=None)
-    run.add_argument("--runs-root", default="local/runs/sid_lite")
-    run.add_argument("--cache-path", default="cache/sid_lite_requests.sqlite")
+    run.add_argument("--runs-root", default=default_runs_root("sid_lite"))
+    run.add_argument("--cache-path", default=default_cache_path("sid_lite"))
 
     summarize = subparsers.add_parser("summarize-run", help="Print SID-lite summary.")
     summarize.add_argument("--run-dir", required=True)
@@ -45,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     report = subparsers.add_parser("report-run", help="Regenerate SID-lite report.")
     report.add_argument("--run-dir", required=True)
-    report.add_argument("--publish-dir", default="local/reports/sid_lite")
+    report.add_argument("--publish-dir", default=default_reports_root("sid_lite"))
     return parser
 
 
@@ -69,6 +78,7 @@ def main() -> None:
             "max_concurrent_requests": experiment.max_concurrent_requests,
             "requests_per_minute_limit": experiment.requests_per_minute_limit,
             "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
+            "workspace_defaults": workspace_defaults("sid_lite"),
             "primary_backbone": experiment.primary_backbone,
             "resolved_backbone": {
                 "name": backbone.name,

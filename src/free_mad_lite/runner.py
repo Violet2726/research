@@ -28,6 +28,7 @@ from experiment_core.rate_limits import SlidingWindowRateLimiter
 from experiment_core.runtime import RunProgressTracker, build_run_id
 from experiment_core.selective_signals import normalize_confidence
 from experiment_core.structured_output import ARTIFACT_VERSION
+from experiment_core.workspace import default_cache_path, default_runs_root
 from free_mad_lite.config import (
     FreeMadLiteExperimentConfig,
     FreeMadLiteProtocolConfig,
@@ -75,11 +76,13 @@ def run_experiment(
     experiment: FreeMadLiteExperimentConfig,
     phase_name: str,
     backbone: ResolvedModelConfig,
-    run_root: str | Path = "local/runs/free_mad_lite",
-    cache_path: str | Path = "cache/free_mad_lite_requests.sqlite",
+    run_root: str | Path | None = None,
+    cache_path: str | Path | None = None,
 ) -> Path:
     """执行一个 Free-MAD-lite phase，并写出完整运行目录。"""
     load_dotenv(".env.local", override=False)
+    run_root = run_root or default_runs_root("free_mad_lite")
+    cache_path = cache_path or default_cache_path("free_mad_lite")
     protocol = load_protocol_config(experiment.protocol)
     benchmarks = load_benchmarks(experiment)
     phase = phase_metadata(experiment, phase_name)
@@ -171,7 +174,7 @@ def run_experiment(
         run_paths.metrics.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
         run_paths.diagnostics.write_text(json.dumps(diagnostics, ensure_ascii=False, indent=2), encoding="utf-8")
         _write_paper_summary(run_paths.paper_summary, metrics)
-        render_report(run_paths.root, publish_dir="local/reports/free_mad_lite")
+        render_report(run_paths.root)
         run_paths.run_summary.write_text(json.dumps(summarize_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
         run_paths.run_validation.write_text(json.dumps(validate_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
         progress.mark_completed()

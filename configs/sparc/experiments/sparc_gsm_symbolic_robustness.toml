@@ -10,7 +10,7 @@ prompt_version = "sparc_v1_json"
 max_concurrent_requests = 5
 requests_per_minute_limit = 50
 tokens_per_minute_limit = 1000000
-primary_backbone = "dashscope/qwen-turbo-1101"
+primary_backbone = "deepseek/deepseek-v4-flash"
 confirmatory_backbone = "zhipu/glm-4.6v-flash"
 
 [sparc_v1]
@@ -24,3 +24,4 @@ split_overrides = { gsm_symbolic = "smoke20_seed42" }
 
 [phases.main]
 split_overrides = { gsm_symbolic = "robustness200_seed42" }
+

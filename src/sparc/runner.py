@@ -35,6 +35,7 @@ from experiment_core.structured_output import (
     OUTPUT_MODE_SPARC_SOLVER,
     validate_structured_output,
 )
+from experiment_core.workspace import default_cache_path, default_runs_root
 from sparc.config import (
     SparcExperimentConfig,
     SparcProtocolConfig,
@@ -111,11 +112,13 @@ def run_experiment(
     experiment: SparcExperimentConfig,
     phase_name: str,
     backbone,
-    run_root: str | Path = "local/runs/sparc",
-    cache_path: str | Path = "cache/sparc_requests.sqlite",
+    run_root: str | Path | None = None,
+    cache_path: str | Path | None = None,
 ) -> Path:
     """执行一个 SPARC phase，并写出完整运行目录。"""
     load_dotenv(".env.local", override=False)
+    run_root = run_root or default_runs_root("sparc")
+    cache_path = cache_path or default_cache_path("sparc")
     benchmarks = load_benchmarks(experiment)
     protocol = load_protocol_config(experiment.protocol)
     provider = OpenAICompatibleProvider(backbone)
@@ -209,7 +212,7 @@ def run_experiment(
     run_paths.metrics.write_text(json.dumps(metrics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     run_paths.diagnostics.write_text(json.dumps(diagnostics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     _export_paper_summary(run_paths.paper_summary, metrics_payload["summary"])
-    render_report(run_paths.root, publish_dir="local/reports/sparc")
+    render_report(run_paths.root)
     run_paths.run_validation.write_text(json.dumps(validate_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
     progress.mark_completed()
     cache.close()
@@ -1348,7 +1351,7 @@ def _resolve_trigger_selection(experiment: SparcExperimentConfig, backbone) -> d
         return {"selected_policy": experiment.fixed_trigger_policy or "always_communicate", "reason": "not_applicable"}
     default_policy = experiment.default_trigger_policy or "hybrid_trigger"
     fallback_policy = experiment.fallback_trigger_policy or "disagreement_triggered"
-    trigger_root = Path("local/runs/selective_comm/trigger-early-exit-v1/smoke20")
+    trigger_root = Path(default_runs_root("selective_comm")) / "trigger-early-exit-v1" / "smoke20"
     best_run_dir = None
     family_prefix = f"{backbone.provider}/{backbone.model_id.split('-', 1)[0]}"
     for manifest_path in trigger_root.rglob("manifest.json"):

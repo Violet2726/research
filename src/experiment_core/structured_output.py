@@ -30,6 +30,17 @@ OutputMode = Literal[
     "sparc_audit",
 ]
 
+UNCERTAINTY_TYPE_CHOICES = {
+    "none",
+    "calculation",
+    "evidence_selection",
+    "entity_linking",
+    "multi_hop",
+    "commonsense_gap",
+    "format_extraction",
+    "other",
+}
+
 
 def validate_structured_output(raw_text: str, output_mode: OutputMode) -> dict[str, Any]:
     """按指定输出模式校验一条模型响应。
@@ -63,6 +74,20 @@ def validate_structured_output(raw_text: str, output_mode: OutputMode) -> dict[s
     raise ValueError(f"Unsupported output mode: {output_mode}")
 
 
+def parse_selective_output(raw_text: str, dataset: str) -> dict[str, Any]:
+    """解析 selective_comm 输出。
+
+    新协议优先支持简短标签行格式，并在可能时接受 JSON；
+    对不完全遵守格式但仍能识别答案的文本，做最小化结构抽取。
+    """
+    cleaned = raw_text.strip()
+    if not cleaned:
+        raise ValueError("Assistant output is empty.")
+    if cleaned.startswith("{"):
+        return _validate_selective_output(_decode_json_object(cleaned), dataset=dataset)
+    return _coerce_selective_text_output(cleaned, dataset)
+
+
 def _validate_core_output(payload: dict[str, Any]) -> dict[str, Any]:
     """校验最基础的 `final_answer [+ reasoning]` 输出模式。"""
     allowed_keys = {"final_answer", "reasoning"}
@@ -82,11 +107,19 @@ def _validate_core_output(payload: dict[str, Any]) -> dict[str, Any]:
     return validated
 
 
-def _validate_selective_output(payload: dict[str, Any]) -> dict[str, Any]:
+def _validate_selective_output(payload: dict[str, Any], *, dataset: str | None = None) -> dict[str, Any]:
     """校验选择性通信实验使用的回答与置信度输出。"""
-    allowed_keys = {"final_answer", "reasoning", "confidence_raw", "key_evidence", "uncertain_point"}
+    allowed_keys = {
+        "final_answer",
+        "reasoning",
+        "confidence_raw",
+        "claim_span",
+        "uncertainty_type",
+        "key_evidence",
+        "uncertain_point",
+    }
     actual_keys = set(payload)
-    required_keys = {"final_answer", "confidence_raw"}
+    required_keys = {"final_answer"}
     missing = sorted(required_keys - actual_keys)
     if missing:
         raise ValueError(f"Assistant output is missing required keys: {missing}.")
@@ -97,19 +130,66 @@ def _validate_selective_output(payload: dict[str, Any]) -> dict[str, Any]:
 
     validated: dict[str, Any] = {
         "final_answer": _require_answer_value(payload.get("final_answer"), "final_answer"),
-        "confidence_raw": _require_confidence_raw(payload.get("confidence_raw")),
+        "confidence_raw": _optional_confidence_raw(payload.get("confidence_raw")),
     }
     if "reasoning" in payload:
         validated["reasoning"] = _require_non_empty_string(payload.get("reasoning"), "reasoning")
+    else:
+        validated["reasoning"] = validated["final_answer"]
+    if "claim_span" in payload:
+        validated["claim_span"] = _require_nullable_hint(payload.get("claim_span"), "claim_span")
+    else:
+        validated["claim_span"] = validated["final_answer"]
+    if "uncertainty_type" in payload:
+        validated["uncertainty_type"] = _require_uncertainty_type(payload.get("uncertainty_type"))
+    else:
+        validated["uncertainty_type"] = _default_uncertainty_type(dataset)
     if "key_evidence" in payload:
         validated["key_evidence"] = _require_nullable_hint(payload.get("key_evidence"), "key_evidence")
     else:
-        validated["key_evidence"] = None
+        validated["key_evidence"] = validated["claim_span"]
     if "uncertain_point" in payload:
         validated["uncertain_point"] = _require_nullable_hint(payload.get("uncertain_point"), "uncertain_point")
     else:
         validated["uncertain_point"] = None
     return validated
+
+
+def _coerce_selective_text_output(cleaned: str, dataset: str) -> dict[str, Any]:
+    """从标签行或自由文本中抽取最小 selective 结构。"""
+    final_answer = _extract_selective_final_answer(cleaned, dataset)
+    if final_answer is None:
+        raise ValueError("Selective output must contain a recoverable final answer.")
+
+    claim_span = _extract_labeled_value(
+        cleaned,
+        ["CLAIM_SPAN", "CLAIM SPAN", "CLAIMED_SPAN", "CLAIMS SPAN", "SUPPORTING SPAN", "CLAIM", "SPAN"],
+    )
+    confidence_raw = _extract_labeled_value(cleaned, ["CONFIDENCE", "CONF"])
+    uncertainty_type = _extract_labeled_value(
+        cleaned,
+        ["UNCERTAINTY_TYPE", "UNCERTAINTY TYPE", "UNCERTAINTY", "TYPE"],
+    )
+    reasoning = _extract_labeled_value(cleaned, ["REASON", "KEY REASON", "RATIONALE", "WHY"])
+
+    normalized_uncertainty = (
+        _normalize_uncertainty_type_candidate(uncertainty_type)
+        if uncertainty_type is not None
+        else _default_uncertainty_type(dataset)
+    )
+    normalized_claim = _clip_selective_field(claim_span or _infer_claim_span(cleaned, final_answer), 160)
+    normalized_reasoning = _clip_selective_field(reasoning or _infer_reasoning(cleaned, final_answer), 180)
+    normalized_answer = _clip_selective_field(final_answer, 160)
+
+    return {
+        "final_answer": normalized_answer,
+        "confidence_raw": _optional_confidence_raw(confidence_raw),
+        "reasoning": normalized_reasoning,
+        "claim_span": normalized_claim,
+        "uncertainty_type": normalized_uncertainty,
+        "key_evidence": normalized_claim,
+        "uncertain_point": None,
+    }
 
 
 def _validate_sparc_solver_output(payload: dict[str, Any]) -> dict[str, Any]:
@@ -345,6 +425,24 @@ def _require_confidence_raw(value: object) -> float | str:
     raise ValueError("confidence_raw must be a numeric value or numeric string.")
 
 
+def _require_uncertainty_type(value: object) -> str:
+    """要求 `uncertainty_type` 落在固定枚举内。"""
+    normalized = _require_non_empty_string(value, "uncertainty_type").lower()
+    if normalized not in UNCERTAINTY_TYPE_CHOICES:
+        raise ValueError(f"uncertainty_type must be one of {sorted(UNCERTAINTY_TYPE_CHOICES)}.")
+    return normalized
+
+
+def _normalize_uncertainty_type_candidate(value: object) -> str:
+    """宽松归一化 uncertainty type 文本。"""
+    if value is None:
+        return "other"
+    normalized = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in UNCERTAINTY_TYPE_CHOICES:
+        return normalized
+    return "other"
+
+
 def _require_keyword_clues(value: object) -> list[str]:
     """要求 `keyword_clues` 至少包含一个非空线索。"""
     if isinstance(value, str):
@@ -369,6 +467,127 @@ def _optional_confidence_raw(value: object) -> float | str | None:
     if isinstance(value, str) and not value.strip():
         return None
     return _require_confidence_raw(value)
+
+
+def _extract_labeled_value(text: str, labels: list[str]) -> str | None:
+    """提取 `LABEL: value` 形式的短字段。"""
+    import re
+
+    for label in labels:
+        escaped = re.escape(label).replace("\\ ", r"[\s_]+")
+        pattern = rf"(?im)^[\s`>*-]*\(?\s*{escaped}\s*(?:is|:)\s*(.+?)\)?\s*$"
+        match = re.search(pattern, text)
+        if match:
+            value = match.group(1).strip()
+            if value:
+                return _clean_extracted_value(value)
+    return None
+
+
+def _looks_like_placeholder_text(text: str) -> bool:
+    import re
+
+    trimmed = text.strip()
+    if not trimmed or "[" not in trimmed or "]" not in trimmed:
+        return False
+    return re.fullmatch(r"[\[\]\(\)\s,\d.\-]+", trimmed) is not None
+
+
+def _extract_answer_phrase(text: str) -> str | None:
+    import re
+
+    patterns = [
+        r"(?i)\b(?:therefore|thus|so)?\s*,?\s*(?:the\s+)?(?:final\s+)?answer\s+(?:should\s+be|is)\s*[:\-]?\s*([^\n.]+)",
+        r"(?i)\b(?:the\s+)?correct\s+answer\s+(?:should\s+be|is)\s*[:\-]?\s*([^\n.]+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if not match:
+            continue
+        candidate = _clean_extracted_value(match.group(1))
+        if candidate and not _looks_like_placeholder_text(candidate):
+            return candidate
+    return None
+
+
+def _extract_selective_final_answer(text: str, dataset: str) -> str | None:
+    """按数据集类型从文本中恢复答案。"""
+    import re
+
+    labeled = _extract_labeled_value(text, ["FINAL_ANSWER", "ANSWER", "FINAL"])
+    if labeled:
+        return labeled
+
+    if dataset in {"gsm8k", "gsm_symbolic", "math500"}:
+        match = re.search(r"(?i)(?:final answer\s*(?:is|[:：])|answer is)\s*([^\n.]+)", text)
+        if match:
+            return match.group(1).strip()
+        numeric_matches = re.findall(r"[-+]?\d[\d,]*(?:\.\d+)?", text.replace(",", ""))
+        if numeric_matches:
+            return numeric_matches[-1]
+        return None
+
+    if dataset == "strategyqa":
+        match = re.search(r"\b(yes|no)\b", text.strip().lower())
+        if match:
+            return match.group(1)
+        return None
+
+    if dataset == "hotpotqa":
+        match = re.search(r"(?i)(?:final answer\s*(?:is|[:：])|answer is)\s*([^\n.]+)", text)
+        if match:
+            return match.group(1).strip().strip("\"'")
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if lines:
+            return lines[-1].strip().strip("\"'")
+        return None
+
+    return None
+
+
+def _infer_claim_span(text: str, final_answer: str) -> str:
+    """生成最小 claim span。"""
+    if final_answer:
+        return final_answer.strip()
+    return ""
+
+
+def _infer_reasoning(text: str, final_answer: str) -> str:
+    """生成最小 reasoning 摘要。"""
+    trimmed = " ".join(text.split())
+    if not trimmed:
+        return final_answer
+    if len(trimmed) <= 160:
+        return trimmed
+    return trimmed[:157] + "..."
+
+
+def _default_uncertainty_type(dataset: str | None) -> str:
+    """为缺省场景提供稳定 uncertainty 类型。"""
+    if dataset in {"gsm8k", "gsm_symbolic", "math500"}:
+        return "calculation"
+    if dataset == "hotpotqa":
+        return "multi_hop"
+    if dataset == "strategyqa":
+        return "commonsense_gap"
+    return "other"
+
+
+def _clean_extracted_value(value: str) -> str:
+    """清理从标签行中提取出的值。"""
+    normalized = value.strip().strip("`")
+    normalized = normalized.strip("\"'")
+    normalized = normalized.rstrip(")")
+    normalized = normalized.rstrip(".")
+    return normalized.strip()
+
+
+def _clip_selective_field(value: str, max_chars: int) -> str:
+    """限制进入 selective 协议字段的文本长度。"""
+    trimmed = " ".join(str(value).split())
+    if len(trimmed) <= max_chars:
+        return trimmed
+    return trimmed[: max_chars - 3] + "..."
 
 
 def _optional_float(value: object, field_name: str) -> float | None:

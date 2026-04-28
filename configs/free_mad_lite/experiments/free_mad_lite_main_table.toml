@@ -18,7 +18,7 @@ prompt_version = "free_mad_lite_v1_json"
 max_concurrent_requests = 5
 requests_per_minute_limit = 50
 tokens_per_minute_limit = 1000000
-primary_backbone = "dashscope/qwen-turbo-1101"
+primary_backbone = "deepseek/deepseek-v4-flash"
 
 [phases.smoke20]
 split_overrides = { math500 = "smoke20_seed42", hotpotqa = "smoke20_seed42", mmlu_pro = "smoke20_seed42", gpqa_diamond = "smoke20_seed42" }
@@ -28,3 +28,4 @@ split_overrides = { math500 = "pilot100_seed42", hotpotqa = "pilot100_seed42", m
 
 [phases.main]
 split_overrides = { math500 = "full500_seed42", hotpotqa = "dev1000_seed42", mmlu_pro = "strat1200_seed42", gpqa_diamond = "full_seed42" }
+

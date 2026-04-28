@@ -45,6 +45,11 @@ from experiment_core.structured_output import (
     OUTPUT_MODE_CORE,
     validate_structured_output,
 )
+from experiment_core.workspace import (
+    default_cache_path,
+    default_reports_root,
+    default_runs_root,
+)
 from single_agent_baselines.config import (
     ExperimentConfig,
     phase_metadata,
@@ -109,8 +114,8 @@ def run_experiment(
     phase_name: str,
     models: list[ResolvedModelConfig],
     benchmarks: list[BenchmarkConfig],
-    run_root: str | Path = "local/runs/single_agent",
-    cache_path: str | Path = "cache/single_agent_requests.sqlite",
+    run_root: str | Path | None = None,
+    cache_path: str | Path | None = None,
 ) -> Path:
     """执行一个 `single_agent` phase，并产出完整运行目录。
 
@@ -118,6 +123,8 @@ def run_experiment(
     然后负责并发执行、缓存复用、题级聚合、指标汇总与产物落盘。
     """
     load_dotenv(".env.local", override=False)
+    run_root = run_root or default_runs_root("single_agent")
+    cache_path = cache_path or default_cache_path("single_agent")
     phase = phase_metadata(experiment, phase_name)
     method_catalog = load_method_catalog(experiment.method_catalog)
     methods = _phase_methods(experiment, phase_name, method_catalog)
@@ -207,7 +214,7 @@ def run_experiment(
 
     metrics_payload = _aggregate_metrics(all_predictions)
     run_paths.metrics.write_text(json.dumps(metrics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    _write_leaderboard(Path("local/reports/single_agent/leaderboard.csv"), all_predictions)
+    _write_leaderboard(Path(default_reports_root("single_agent")) / "leaderboard.csv", all_predictions)
     run_paths.run_summary.write_text(
         json.dumps(summarize_run(run_paths.root), ensure_ascii=False, indent=2),
         encoding="utf-8",

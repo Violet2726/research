@@ -16,8 +16,9 @@ prompt_version = "comm_necessary_hotpotqa_v1"
 max_concurrent_requests = 5
 requests_per_minute_limit = 50
 tokens_per_minute_limit = 1000000
-primary_backbone = "dashscope/qwen-turbo-1101"
+primary_backbone = "deepseek/deepseek-v4-flash"
 
 [phases.smoke20]
 split_suffix = "smoke20_seed42"
+
 

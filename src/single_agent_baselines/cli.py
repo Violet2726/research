@@ -10,6 +10,8 @@ import argparse
 import json
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from experiment_core.config import (
     DEFAULT_MODEL_CATALOG_PATH,
     load_benchmark_config,
@@ -18,6 +20,7 @@ from experiment_core.config import (
 )
 from experiment_core.datasets import generate_split_manifests
 from experiment_core.methods import load_method_catalog
+from experiment_core.workspace import default_cache_path, default_runs_root, workspace_defaults
 from single_agent_baselines.config import (
     load_experiment_config,
     required_benchmark_tags,
@@ -30,6 +33,7 @@ from single_agent_baselines.validation import validate_run
 
 def build_parser() -> argparse.ArgumentParser:
     """构建单智能体实验命令行解析器。"""
+    load_dotenv(".env.local", override=False)
     parser = argparse.ArgumentParser(description="Single-agent baseline experiment runner.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -57,8 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--experiment", required=True)
     run.add_argument("--phase", required=True)
     run.add_argument("--model", required=True)
-    run.add_argument("--runs-root", default="local/runs/single_agent")
-    run.add_argument("--cache-path", default="cache/single_agent_requests.sqlite")
+    run.add_argument("--runs-root", default=default_runs_root("single_agent"))
+    run.add_argument("--cache-path", default=default_cache_path("single_agent"))
 
     list_models = subparsers.add_parser("list-models", help="List registered models from the catalog.")
     list_models.add_argument("--catalog", default=str(DEFAULT_MODEL_CATALOG_PATH))
@@ -111,6 +115,7 @@ def main() -> None:
             "max_concurrent_requests": experiment.max_concurrent_requests,
             "requests_per_minute_limit": experiment.requests_per_minute_limit,
             "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
+            "workspace_defaults": workspace_defaults("single_agent"),
             "phases": experiment.raw["phases"],
             "methods": {name: _serialize_method(method) for name, method in sorted(methods.items())},
         }

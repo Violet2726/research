@@ -19,6 +19,7 @@ from experiment_core.analysis_reports import (
     render_trigger_diagnostic_report,
     write_report,
 )
+from experiment_core.workspace import default_reports_root
 
 
 METHOD_ORDER = [
@@ -27,6 +28,10 @@ METHOD_ORDER = [
     "disagreement_triggered",
     "confidence_triggered",
     "hybrid_trigger",
+    "confidence_triggered_095",
+    "hybrid_trigger_relaxed",
+    "claim_divergence_triggered",
+    "voc_trigger_v2",
     "mv_6",
     "sc_6",
 ]
@@ -49,9 +54,10 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
 
 def render_trigger_report(
     run_dir: str | Path,
-    publish_dir: str | Path = "local/reports/selective_comm",
+    publish_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """渲染并写出中文 trigger 报告。"""
+    publish_dir = publish_dir or default_reports_root("selective_comm")
     root = Path(run_dir)
     manifest = _load_json(root / "manifest.json")
     metrics = _load_json(root / "policy_metrics.json")
@@ -109,6 +115,7 @@ def _render_markdown(
     backbone = manifest.get("backbone", {})
     metric_rows = metrics.get("summary", [])
     policy_rows = diagnostics.get("policy_rows", [])
+    voc_policy_rows = diagnostics.get("voc_policy_rows", [])
     shared_prefix_rows = diagnostics.get("shared_prefix_rows", [])
     recommendation = diagnostics.get("recommended_next_default_policy", {})
 
@@ -183,7 +190,23 @@ def _render_markdown(
     lines.extend(
         [
             "",
-            "## 5. 数据集分表",
+            "## 5. VoC 诊断表",
+            "",
+            "| Policy | Helpful Recall | Harmful Trigger Rate | Neutral Waste Rate | Trigger Rate | Avg Comm Tokens | Avg Total Tokens |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for row in _ordered_policy_rows([row for row in voc_policy_rows if row.get("dataset") == "overall"]):
+        lines.append(
+            f"| `{row['display_name']}` | {row['helpful_recall']:.4f} | {row['harmful_trigger_rate']:.4f} | "
+            f"{row['neutral_waste_rate']:.4f} | {row['trigger_rate']:.4f} | "
+            f"{row['communication_tokens_mean']:.2f} | {row['total_tokens_mean']:.2f} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## 6. 数据集分表",
             "",
         ]
     )
@@ -218,7 +241,7 @@ def _render_markdown(
 
     lines.extend(
         [
-            "## 6. 失败案例",
+            "## 7. 失败案例",
             "",
         ]
     )
@@ -245,14 +268,14 @@ def _render_markdown(
 
     lines.extend(
         [
-            "## 7. 下一轮默认 trigger 建议",
+            "## 8. 下一轮默认 trigger 建议",
             "",
             f"- 推荐策略：`{recommendation.get('selected_policy', 'disagreement_triggered')}`",
             f"- 相对 `always_communicate` 的准确率下降：`{recommendation.get('accuracy_drop_vs_always', 0.0)}`",
             f"- 相对 `always_communicate` 的总 token 下降比例：`{recommendation.get('token_drop_ratio_vs_always', 0.0)}`",
             f"- 规则是否通过：`{recommendation.get('rule_passed', False)}`",
             "",
-            "## 8. 局限",
+            "## 9. 局限",
             "",
             "- 本轮只覆盖 `smoke20`，因此只报告描述性结果，不做统计显著性结论。",
             "- 当前只比较 trigger / early-exit，不比较消息内容压缩和局部审计。",
@@ -280,13 +303,18 @@ def _select_failure_cases(
         always_row = pred_lookup.get((dataset, sample_id, "always_communicate"))
         disagreement_row = pred_lookup.get((dataset, sample_id, "disagreement_triggered"))
         hybrid_row = pred_lookup.get((dataset, sample_id, "hybrid_trigger"))
+        voc_row = pred_lookup.get((dataset, sample_id, "voc_trigger_v2"))
         if mv_3_row is None or always_row is None:
             continue
         reason = None
-        if row["beneficial_communication"] and hybrid_row and not hybrid_row.get("triggered"):
+        if row.get("oracle_label") == "helpful" and voc_row and not voc_row.get("triggered"):
+            reason = "always_communicate 能纠错，但 voc_trigger_v2 在该题 early exit，漏掉了有益通信。"
+        elif row.get("oracle_label") == "harmful" and voc_row and voc_row.get("triggered"):
+            reason = "通信会把答案从对带错，但 voc_trigger_v2 仍然触发了通信。"
+        elif row.get("oracle_label") == "neutral" and disagreement_row and disagreement_row.get("triggered"):
+            reason = "通信没有带来正确性变化，但 disagreement_triggered 仍然进入了通信。"
+        elif row["beneficial_communication"] and hybrid_row and not hybrid_row.get("triggered"):
             reason = "always_communicate 能纠错，但 hybrid_trigger 在该题 early exit，漏掉了有益通信。"
-        elif not row["beneficial_communication"] and disagreement_row and disagreement_row.get("triggered"):
-            reason = "通信本身没有带来收益，但 disagreement_triggered 仍然进入了通信。"
         elif float(always_row["score"]) < float(mv_3_row["score"]):
             reason = "always_communicate 比无通信的 `mv_3` 更差，说明该题存在通信伤害。"
         if reason is None:

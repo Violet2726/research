@@ -1,0 +1,6 @@
+[methods.mv_3]
+family = "shared_majority_vote"
+budget_calls = 0
+temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256

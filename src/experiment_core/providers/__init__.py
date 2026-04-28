@@ -176,6 +176,9 @@ def _apply_thinking_control(config: ResolvedModelConfig, payload: dict[str, Any]
     if config.provider == "dashscope":
         payload["enable_thinking"] = config.reasoning_effort != "none"
         return
+    if config.provider == "siliconflow":
+        payload["enable_thinking"] = config.reasoning_effort != "none"
+        return
     if config.provider == "deepseek":
         payload["thinking"] = {"type": "disabled" if config.reasoning_effort == "none" else "enabled"}
         return

@@ -12,8 +12,8 @@ prompt_version = "sparc_v1_json"
 max_concurrent_requests = 5
 requests_per_minute_limit = 50
 tokens_per_minute_limit = 1000000
-primary_backbone = "dashscope/qwen-turbo-1101"
-confirmatory_backbone = "dashscope/qwen-turbo-1101"
+primary_backbone = "deepseek/deepseek-v4-flash"
+confirmatory_backbone = "deepseek/deepseek-v4-flash"
 
 [sparc_v1]
 default_trigger_policy = "hybrid_trigger"
@@ -23,3 +23,4 @@ fixed_message_modes = { gsm8k = "disagreement_step_only", strategyqa = "disagree
 
 [phases.smoke20]
 split_suffix = "smoke20_seed42"
+

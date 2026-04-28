@@ -1,5 +1,5 @@
-# SPARC 聚合 / 局部审计消融实验。
-# 该配置只固定候选生成流程，最终只比较裁决方式，避免和 trigger/content 变量混在一起。
+# SPARC 鑱氬悎 / 灞€閮ㄥ璁℃秷铻嶅疄楠屻€?
+# 璇ラ厤缃彧鍥哄畾鍊欓€夌敓鎴愭祦绋嬶紝鏈€缁堝彧姣旇緝瑁佸喅鏂瑰紡锛岄伩鍏嶅拰 trigger/content 鍙橀噺娣峰湪涓€璧枫€?
 name = "aggregation_auditing_ablation_v1"
 description = "SPARC smoke experiment for aggregation and local auditing ablation with paired candidates."
 experiment_kind = "auditing_ablation"
@@ -14,7 +14,7 @@ prompt_version = "sparc_v1_json"
 max_concurrent_requests = 5
 requests_per_minute_limit = 50
 tokens_per_minute_limit = 1000000
-primary_backbone = "dashscope/qwen-turbo-1101"
+primary_backbone = "deepseek/deepseek-v4-flash"
 
 [auditing_ablation]
 trigger_policy = "always_communicate"
@@ -23,3 +23,4 @@ aggregation_methods = ["majority_vote", "weighted_vote_fallback", "single_judge"
 
 [phases.smoke20]
 split_suffix = "smoke20_seed42"
+
