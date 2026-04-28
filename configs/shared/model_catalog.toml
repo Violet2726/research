@@ -6,6 +6,13 @@ tags = ["text", "reasoning", "general_qa", "provider_dashscope", "debate_vote_pr
 reasoning_effort = "none"
 max_retries = 8
 
+[models."deepseek/deepseek-v4-flash"]
+tags = ["text", "reasoning", "general_qa", "provider_deepseek", "budget_comm_primary"]
+reasoning_effort = "none"
+supports_response_format = true
+response_format = "json_object"
+default_max_output_tokens = 256
+
 [models."zhipu/glm-4.6v-flash"]
 tags = ["text", "reasoning", "general_qa", "vision", "provider_zhipu"]
 
