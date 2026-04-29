@@ -1,5 +1,5 @@
 name = "siliconflow"
-base_url = "https://api.siliconflow.com/v1"
+base_url = "https://api.siliconflow.cn/v1"
 api_key_env = "SILICONFLOW_API_KEY"
 chat_path = "/chat/completions"
 default_temperature = 0.0
