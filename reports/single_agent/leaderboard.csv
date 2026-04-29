@@ -1,0 +1,2 @@
+dataset,model_name,method_name,prediction_rows,questions_per_rerun,rerun_count,accuracy_mean,accuracy_std,prompt_tokens_mean,completion_tokens_mean,total_tokens_mean,calls_per_question_mean,latency_ms_mean,acc_per_1k_tokens,rows_with_request_failures,request_failures_total,rerun_accuracy_min,rerun_accuracy_max
+gsm8k,xiaomimimo/mimo-v2.5,cot_1,1,1,1,1.0,0.0,169.0,73.0,242.0,1.0,1788.5883999988437,4.132231404958678,0,0,1.0,1.0
