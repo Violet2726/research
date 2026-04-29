@@ -74,26 +74,26 @@ uv run selective-cli run \
 查看运行摘要：
 
 ```bash
-uv run selective-cli summarize-run --run-dir local/runs/selective_comm/<experiment>/<phase>/<run_id>
+uv run selective-cli summarize-run --run-dir runs/selective_comm/<experiment>/<phase>/<run_id>
 ```
 
 校验运行结果：
 
 ```bash
-uv run selective-cli validate-run --run-dir local/runs/selective_comm/<experiment>/<phase>/<run_id>
+uv run selective-cli validate-run --run-dir runs/selective_comm/<experiment>/<phase>/<run_id>
 ```
 
 重新生成 trigger 报告：
 
 ```bash
-uv run selective-cli report-trigger --run-dir local/runs/selective_comm/<experiment>/<phase>/<run_id>
+uv run selective-cli report-trigger --run-dir runs/selective_comm/<experiment>/<phase>/<run_id>
 ```
 
 ## 5. 输出产物
 
 默认运行目录：
 
-- `local/runs/selective_comm/<experiment>/<phase>/<run_id>/`
+- `runs/selective_comm/<experiment>/<phase>/<run_id>/`
 
 默认报告目录：
 

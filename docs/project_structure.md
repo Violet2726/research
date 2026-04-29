@@ -10,8 +10,8 @@
    具体实验实现层。每个包只依赖 `experiment_core`，不互相依赖。
 3. `configs/`
    配置层。共享配置放在 `configs/shared/`，实验专属配置放在各自子目录。
-4. `datasets/`、`files/`、`local/`、`cache/`
-   数据与工作目录层。分别承载原始数据、研究资料、运行输出与请求缓存。
+4. `datasets/`、`files/`、`runs/`、`local/`、`cache/`
+   数据与工作目录层。分别承载原始数据、研究资料、运行产物、本地报告与请求缓存。
 
 ## 2. 关键目录职责
 
@@ -63,7 +63,7 @@
 
 ### 默认值
 
-- `local/runs/<experiment_kind>/`
+- `runs/<experiment_kind>/`
 - `local/reports/<experiment_kind>/`
 - `cache/<experiment_kind>_requests.sqlite`
 - `files/`
@@ -71,6 +71,7 @@
 ### 环境变量覆盖
 
 - `RESEARCH_LOCAL_ROOT`
+- `RESEARCH_RUNS_ROOT`
 - `RESEARCH_CACHE_ROOT`
 - `RESEARCH_FILES_ROOT`
 
@@ -78,16 +79,17 @@
 
 ```powershell
 $env:RESEARCH_LOCAL_ROOT = "artifacts"
+$env:RESEARCH_RUNS_ROOT = "artifacts/runs"
 $env:RESEARCH_CACHE_ROOT = "artifacts/cache"
 $env:RESEARCH_FILES_ROOT = "artifacts/files"
 ```
 
 ## 5. `runs/` 与 `local/` 的关系
 
-- `runs/`：历史归档目录，适合保留已整理结果
-- `local/`：当前默认工作目录，适合日常运行与调试
+- `runs/`：默认运行产物目录，适合保留实验结果与归档
+- `local/`：默认本地报告目录，适合放发布产物与临时调试文件
 
-这样做的目的是把“版本库中长期保留的内容”和“本地高频变化的运行产物”分开。
+这样做的目的是把“实验运行产物”和“本地报告/辅助文件”分开，同时让 `runs/` 成为统一入口。
 
 ## 6. UTF-8 与文本规范
 

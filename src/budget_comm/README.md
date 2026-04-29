@@ -59,11 +59,11 @@ uv run budget-cli run \
 校验运行结果：
 
 ```bash
-uv run budget-cli validate-run --run-dir local/runs/budget_comm/<experiment>/<phase>/<run_id>
+uv run budget-cli validate-run --run-dir runs/budget_comm/<experiment>/<phase>/<run_id>
 ```
 
 重新生成报告：
 
 ```bash
-uv run budget-cli report-run --run-dir local/runs/budget_comm/<experiment>/<phase>/<run_id>
+uv run budget-cli report-run --run-dir runs/budget_comm/<experiment>/<phase>/<run_id>
 ```

@@ -76,26 +76,26 @@ uv run mad-cli run \
 查看运行摘要：
 
 ```bash
-uv run mad-cli summarize-run --run-dir local/runs/multi_agent/<run_id>
+uv run mad-cli summarize-run --run-dir runs/multi_agent/<run_id>
 ```
 
 校验运行结果：
 
 ```bash
-uv run mad-cli validate-run --run-dir local/runs/multi_agent/<run_id>
+uv run mad-cli validate-run --run-dir runs/multi_agent/<run_id>
 ```
 
 生成 Debate vs Vote 报告：
 
 ```bash
-uv run mad-cli report-debate-vs-vote --run-dir local/runs/multi_agent/<run_id>
+uv run mad-cli report-debate-vs-vote --run-dir runs/multi_agent/<run_id>
 ```
 
 ## 5. 输出产物
 
 默认运行目录：
 
-- `local/runs/multi_agent/<run_id>/`
+- `runs/multi_agent/<run_id>/`
 
 默认报告目录：
 

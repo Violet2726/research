@@ -80,32 +80,32 @@ uv run single-agent-cli run \
 查看运行摘要：
 
 ```bash
-uv run single-agent-cli summarize-run --run-dir local/runs/single_agent/<run_id>
+uv run single-agent-cli summarize-run --run-dir runs/single_agent/<run_id>
 ```
 
 导出论文表格：
 
 ```bash
-uv run single-agent-cli export-paper-tables --run-dir local/runs/single_agent/<run_id>
+uv run single-agent-cli export-paper-tables --run-dir runs/single_agent/<run_id>
 ```
 
 检查预算公平性：
 
 ```bash
-uv run single-agent-cli check-budget-fairness --run-dir local/runs/single_agent/<run_id>
+uv run single-agent-cli check-budget-fairness --run-dir runs/single_agent/<run_id>
 ```
 
 校验运行结果：
 
 ```bash
-uv run single-agent-cli validate-run --run-dir local/runs/single_agent/<run_id>
+uv run single-agent-cli validate-run --run-dir runs/single_agent/<run_id>
 ```
 
 ## 5. 输出产物
 
 默认运行目录：
 
-- `local/runs/single_agent/<run_id>/`
+- `runs/single_agent/<run_id>/`
 
 默认报告目录：
 

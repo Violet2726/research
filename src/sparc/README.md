@@ -29,5 +29,5 @@
 
 ## 3. 输出目录
 
-- 默认运行目录：`local/runs/sparc/`
+- 默认运行目录：`runs/sparc/`
 - 默认报告目录：`local/reports/sparc/`
