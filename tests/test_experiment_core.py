@@ -71,16 +71,19 @@ def test_resolve_xiaomimimo_model_ref() -> None:
 
 def test_workspace_defaults_follow_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("RESEARCH_LOCAL_ROOT", "artifacts")
+    monkeypatch.setenv("RESEARCH_RUNS_ROOT", "experiment-runs")
     monkeypatch.setenv("RESEARCH_CACHE_ROOT", "tmp/cache")
     monkeypatch.setenv("RESEARCH_FILES_ROOT", "notes")
 
-    assert default_runs_root("selective_comm") == "artifacts/runs/selective_comm"
+    assert default_runs_root("selective_comm") == "experiment-runs/selective_comm"
     assert default_reports_root("selective_comm") == "artifacts/reports/selective_comm"
     assert default_cache_path("selective_comm") == "tmp/cache/selective_comm_requests.sqlite"
     assert default_files_root() == "notes"
 
     payload = workspace_defaults("selective_comm")
     assert payload["local_root"] == "artifacts"
+    assert payload["runs_root"] == "experiment-runs"
+    assert payload["experiment_runs_root"] == "experiment-runs/selective_comm"
     assert payload["experiment_reports_root"] == "artifacts/reports/selective_comm"
     assert payload["experiment_cache_path"] == "tmp/cache/selective_comm_requests.sqlite"
 
