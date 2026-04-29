@@ -31,9 +31,10 @@ configs/
 
 datasets/                  本地基准数据
 files/                     研究笔记与汇总文档
-local/                     默认报告输出目录，已被 .gitignore 忽略
-cache/                     默认请求缓存目录，已被 .gitignore 忽略
 runs/                      默认运行输出目录，可同时保留归档结果
+reports/                   默认报告输出目录
+local/                     本地临时目录，已被 .gitignore 忽略
+cache/                     默认请求缓存目录，已被 .gitignore 忽略
 tests/                     测试
 docs/                      项目结构与约定说明
 ```
@@ -66,30 +67,30 @@ $env:PYTHONUTF8 = "1"
 默认输出现在统一由 `src/experiment_core/workspace.py` 管理：
 
 - 运行目录：`runs/<experiment_kind>/`
-- 报告目录：`local/reports/<experiment_kind>/`
+- 报告目录：`reports/<experiment_kind>/`
 - 请求缓存：`cache/<experiment_kind>_requests.sqlite`
 - 通用资料目录：`files/`
 
 可以用以下环境变量全局覆盖：
 
-- `RESEARCH_LOCAL_ROOT`
 - `RESEARCH_RUNS_ROOT`
+- `RESEARCH_REPORTS_ROOT`
 - `RESEARCH_CACHE_ROOT`
 - `RESEARCH_FILES_ROOT`
 
 例如：
 
 ```powershell
-$env:RESEARCH_LOCAL_ROOT = "artifacts"
 $env:RESEARCH_RUNS_ROOT = "artifacts/runs"
+$env:RESEARCH_REPORTS_ROOT = "artifacts/reports"
 $env:RESEARCH_CACHE_ROOT = "artifacts/cache"
 uv run selective-cli inspect-experiment --experiment configs/selective_comm/experiments/trigger_early_exit_v1.toml
 ```
 
 说明：
 
-- `local/` 与 `cache/` 已被 `.gitignore` 忽略，适合本地报告与缓存。
-- 根目录下的 `runs/` 现在也是默认运行目录；如需重定向请覆盖 `RESEARCH_RUNS_ROOT`。
+- `runs/` 与 `reports/` 现在都位于根目录，分别承载默认运行产物与默认报告产物。
+- `local/` 与 `cache/` 已被 `.gitignore` 忽略，适合放本地临时文件与缓存；如需重定向报告目录请覆盖 `RESEARCH_REPORTS_ROOT`。
 
 ## 常用命令
 
@@ -162,4 +163,4 @@ uv run selective-cli run --experiment configs/selective_comm/experiments/trigger
 - `experiment_core` 是唯一共享层。
 - 不同实验包之间禁止互相导入。
 - 共享 benchmark / provider / model catalog 统一放在 `configs/shared/`。
-- 默认输出应写入 `runs/`、`local/`、`cache/`、`files/` 这些统一工作目录，不要继续散落硬编码路径。
+- 默认输出应写入 `runs/`、`reports/`、`cache/`、`files/` 这些统一工作目录，不要继续散落硬编码路径。

@@ -307,7 +307,7 @@ def _score_like_dataset(dataset: str, predicted: str, gold: str) -> float:
 
 
 def _published_report_name(manifest: dict[str, Any]) -> str:
-    """构造写入 ``local/reports/`` 的报告文件名。"""
+    """构造写入 ``reports/`` 的报告文件名。"""
     created_at = manifest.get("created_at")
     try:
         created_date = datetime.fromisoformat(created_at).date().isoformat() if created_at else "unknown-date"

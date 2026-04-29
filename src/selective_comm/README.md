@@ -97,7 +97,7 @@ uv run selective-cli report-trigger --run-dir runs/selective_comm/<experiment>/<
 
 默认报告目录：
 
-- `local/reports/selective_comm/`
+- `reports/selective_comm/`
 
 一次完整运行通常包含：
 
@@ -128,7 +128,7 @@ uv run selective-cli report-trigger --run-dir runs/selective_comm/<experiment>/<
 
 报告会同步发布到：
 
-- `local/reports/selective_comm/`
+- `reports/selective_comm/`
 
 ## 6. 实验约定
 

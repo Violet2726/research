@@ -7,9 +7,9 @@ Backbone：`dashscope/qwen-turbo-1101`
 ## 1. 运行产物
 
 - SID-lite run：`local/runs/sid_lite/sid_lite_v1/smoke20/20260424T061208Z-sid_lite_v1-smoke20-dashscope-qwen-turbo-1101`
-- SID-lite report：`local/reports/sid_lite/2026-04-24-sid_lite_v1-smoke20-dashscope-qwen-turbo-1101-report.md`
+- SID-lite report：`reports/sid_lite/2026-04-24-sid_lite_v1-smoke20-dashscope-qwen-turbo-1101-report.md`
 - Free-MAD-lite run：`local/runs/free_mad_lite/free_mad_lite_v1/smoke20/20260424T063104Z-free_mad_lite_v1-smoke20-dashscope-qwen-turbo-1101`
-- Free-MAD-lite report：`local/reports/free_mad_lite/2026-04-24-free_mad_lite_v1-smoke20-dashscope-qwen-turbo-1101-report.md`
+- Free-MAD-lite report：`reports/free_mad_lite/2026-04-24-free_mad_lite_v1-smoke20-dashscope-qwen-turbo-1101-report.md`
 
 ## 2. 验证状态
 

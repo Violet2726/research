@@ -99,7 +99,7 @@ uv run mad-cli report-debate-vs-vote --run-dir runs/multi_agent/<run_id>
 
 默认报告目录：
 
-- `local/reports/multi_agent/`
+- `reports/multi_agent/`
 
 一次完整运行通常包含：
 
@@ -131,7 +131,7 @@ uv run mad-cli report-debate-vs-vote --run-dir runs/multi_agent/<run_id>
 
 并发布到：
 
-- `local/reports/multi_agent/`
+- `reports/multi_agent/`
 
 ## 6. 实验约定
 

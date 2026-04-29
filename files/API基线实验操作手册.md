@@ -157,7 +157,7 @@ uv run baseline-cli run --experiment configs/experiments/main-baselines.toml --p
 全局文件包括：
 
 - `cache/requests.sqlite`
-- `local/reports/leaderboard.csv`
+- `reports/leaderboard.csv`
 
 ## 8. 保持项目整洁的约定
 

@@ -297,7 +297,7 @@ def _ordered_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _published_report_name(manifest: dict[str, Any]) -> str:
-    """构造发布到 `local/reports/budget_comm` 的报告文件名。"""
+    """构造发布到 `reports/budget_comm` 的报告文件名。"""
     created_at = manifest.get("created_at")
     try:
         created_date = datetime.fromisoformat(created_at).date().isoformat() if created_at else "unknown-date"

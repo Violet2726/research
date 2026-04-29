@@ -109,7 +109,7 @@ uv run single-agent-cli validate-run --run-dir runs/single_agent/<run_id>
 
 默认报告目录：
 
-- `local/reports/single_agent/`
+- `reports/single_agent/`
 
 一次完整运行通常包含：
 
@@ -134,7 +134,7 @@ uv run single-agent-cli validate-run --run-dir runs/single_agent/<run_id>
 
 此外，runner 会更新：
 
-- `local/reports/single_agent/leaderboard.csv`
+- `reports/single_agent/leaderboard.csv`
 
 ## 6. 实验约定
 
