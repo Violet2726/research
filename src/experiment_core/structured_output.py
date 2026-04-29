@@ -84,8 +84,49 @@ def parse_selective_output(raw_text: str, dataset: str) -> dict[str, Any]:
     if not cleaned:
         raise ValueError("Assistant output is empty.")
     if cleaned.startswith("{"):
-        return _validate_selective_output(_decode_json_object(cleaned), dataset=dataset)
+        try:
+            payload = _normalize_selective_json_payload(_decode_json_object(cleaned))
+            return _validate_selective_output(payload, dataset=dataset)
+        except Exception:
+            pass
     return _coerce_selective_text_output(cleaned, dataset)
+
+
+def _normalize_selective_json_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize provider JSON keys like `FINAL_ANSWER` into the selective schema."""
+    key_aliases = {
+        "final_answer": "final_answer",
+        "answer": "final_answer",
+        "final": "final_answer",
+        "reasoning": "reasoning",
+        "reason": "reasoning",
+        "rationale": "reasoning",
+        "why": "reasoning",
+        "confidence_raw": "confidence_raw",
+        "confidence": "confidence_raw",
+        "conf": "confidence_raw",
+        "claim_span": "claim_span",
+        "claim": "claim_span",
+        "span": "claim_span",
+        "uncertainty_type": "uncertainty_type",
+        "uncertainty": "uncertainty_type",
+        "type": "uncertainty_type",
+        "key_evidence": "key_evidence",
+        "evidence": "key_evidence",
+        "uncertain_point": "uncertain_point",
+        "uncertainty_point": "uncertain_point",
+    }
+    normalized_payload: dict[str, Any] = {}
+    for key, value in payload.items():
+        if isinstance(key, str):
+            candidate = key.strip().lower().replace("-", "_").replace(" ", "_")
+            mapped_key = key_aliases.get(candidate)
+            if mapped_key is not None:
+                if mapped_key not in normalized_payload or candidate == mapped_key:
+                    normalized_payload[mapped_key] = value
+                continue
+        normalized_payload[key] = value
+    return normalized_payload
 
 
 def _validate_core_output(payload: dict[str, Any]) -> dict[str, Any]:
@@ -464,8 +505,12 @@ def _optional_confidence_raw(value: object) -> float | str | None:
     """读取可选的 `confidence_raw`；空串按缺失处理。"""
     if value is None:
         return None
-    if isinstance(value, str) and not value.strip():
-        return None
+    if isinstance(value, str):
+        normalized = value.strip()
+        if not normalized:
+            return None
+        if normalized.lower() in {"na", "n/a", "none", "null"}:
+            return None
     return _require_confidence_raw(value)
 
 
@@ -475,12 +520,12 @@ def _extract_labeled_value(text: str, labels: list[str]) -> str | None:
 
     for label in labels:
         escaped = re.escape(label).replace("\\ ", r"[\s_]+")
-        pattern = rf"(?im)^[\s`>*-]*\(?\s*{escaped}\s*(?:is|:)\s*(.+?)\)?\s*$"
-        match = re.search(pattern, text)
-        if match:
-            value = match.group(1).strip()
-            if value:
-                return _clean_extracted_value(value)
+        pattern = rf"(?im)^[\s`>*\-\{{\[\(]*[\"']?\s*{escaped}[\"']?\s*(?:is|:)\s*[\"']?(.+?)[\"']?\s*[,}}\]\)]?\s*$"
+        matches = list(re.finditer(pattern, text))
+        for match in reversed(matches):
+            value = _clean_extracted_value(match.group(1))
+            if value and not _looks_like_label_placeholder(value):
+                return value
     return None
 
 
@@ -522,7 +567,11 @@ def _extract_selective_final_answer(text: str, dataset: str) -> str | None:
         match = re.search(r"(?i)(?:final answer\s*(?:is|[:：])|answer is)\s*([^\n.]+)", text)
         if match:
             return match.group(1).strip()
-        numeric_matches = re.findall(r"[-+]?\d[\d,]*(?:\.\d+)?", text.replace(",", ""))
+        cutoff_text = re.split(r"(?i)\b(?:the output must have|return only the following|final_answer\s*:)\b", text, maxsplit=1)[0]
+        equals_matches = re.findall(r"=\s*([-+]?\d[\d,]*(?:\.\d+)?)", cutoff_text.replace(",", ""))
+        if equals_matches:
+            return equals_matches[-1]
+        numeric_matches = re.findall(r"[-+]?\d[\d,]*(?:\.\d+)?", cutoff_text.replace(",", ""))
         if numeric_matches:
             return numeric_matches[-1]
         return None
@@ -577,9 +626,25 @@ def _clean_extracted_value(value: str) -> str:
     """清理从标签行中提取出的值。"""
     normalized = value.strip().strip("`")
     normalized = normalized.strip("\"'")
-    normalized = normalized.rstrip(")")
+    normalized = normalized.rstrip(")}]")
     normalized = normalized.rstrip(".")
     return normalized.strip()
+
+
+def _looks_like_label_placeholder(value: str) -> bool:
+    """识别提示词模板中的占位符，避免把示例字段当成真实输出。"""
+    normalized = value.strip()
+    if not normalized:
+        return True
+    if normalized.startswith("<") and normalized.endswith(">"):
+        return True
+    lowered = normalized.lower()
+    return lowered in {
+        "answer",
+        "short supporting span",
+        "one short sentence",
+        "0-1 number or na",
+    }
 
 
 def _clip_selective_field(value: str, max_chars: int) -> str:

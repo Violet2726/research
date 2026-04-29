@@ -61,6 +61,14 @@ def test_resolve_deepseek_model_ref() -> None:
     assert resolved.supports_response_format is True
 
 
+def test_resolve_xiaomimimo_model_ref() -> None:
+    resolved = resolve_model_ref("xiaomimimo/mimo-v2.5")
+    assert resolved.provider == "xiaomimimo"
+    assert resolved.model_id == "mimo-v2.5"
+    assert resolved.reasoning_effort == "none"
+    assert resolved.supports_response_format is True
+
+
 def test_workspace_defaults_follow_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("RESEARCH_LOCAL_ROOT", "artifacts")
     monkeypatch.setenv("RESEARCH_CACHE_ROOT", "tmp/cache")
@@ -101,6 +109,32 @@ def test_build_payload_maps_thinking_control_by_provider() -> None:
     )
     assert deepseek_payload["thinking"] == {"type": "disabled"}
     assert "enable_thinking" not in deepseek_payload
+
+    xiaomimimo_model = resolve_model_ref("xiaomimimo/mimo-v2.5")
+    xiaomimimo_payload = build_payload(
+        xiaomimimo_model,
+        [{"role": "user", "content": "hi"}],
+        temperature=0.0,
+        top_p=1.0,
+        max_output_tokens=16,
+        seed=42,
+    )
+    assert xiaomimimo_payload["thinking"] == {"type": "disabled"}
+    assert "reasoning_effort" not in xiaomimimo_payload
+    assert "enable_thinking" not in xiaomimimo_payload
+    assert xiaomimimo_payload["response_format"] == {"type": "json_object"}
+
+    xiaomimimo_payload_no_format = build_payload(
+        xiaomimimo_model,
+        [{"role": "user", "content": "hi"}],
+        temperature=0.0,
+        top_p=1.0,
+        max_output_tokens=16,
+        seed=42,
+        use_response_format=False,
+    )
+    assert xiaomimimo_payload_no_format["thinking"] == {"type": "disabled"}
+    assert "response_format" not in xiaomimimo_payload_no_format
 
 
 def test_validate_core_structured_output() -> None:
@@ -195,6 +229,102 @@ def test_parse_selective_output_recovers_from_free_form_math_text() -> None:
     )
     assert payload["final_answer"] == "36"
     assert payload["claim_span"] == "36"
+    assert payload["uncertainty_type"] == "calculation"
+    assert payload["confidence_raw"] is None
+
+
+def test_parse_selective_output_prefers_last_real_label_after_thought_block() -> None:
+    payload = parse_selective_output(
+        "\n".join(
+            [
+                "{thought}",
+                "The model is planning its answer.",
+                "CONFIDENCE: <0-1 number or NA>",
+                "{/thought}",
+                "FINAL_ANSWER: 52",
+                "CLAIM_SPAN: 47, 52, 57 -> average 52",
+                "UNCERTAINTY_TYPE: none",
+                "CONFIDENCE: 1",
+                "REASON: Simple arithmetic.",
+            ]
+        ),
+        dataset="gsm8k",
+    )
+    assert payload["final_answer"] == "52"
+    assert payload["confidence_raw"] == "1"
+    assert payload["claim_span"] == "47, 52, 57 -> average 52"
+
+
+def test_parse_selective_output_recovers_from_truncated_thought_math() -> None:
+    payload = parse_selective_output(
+        "\n".join(
+            [
+                "{thought}",
+                "Total ounces = 2 glasses * 8 ounces/glass = 16 ounces.",
+                "Total calories = 16 ounces * 3 calories/ounce = 48 calories.",
+                "The output must have five lines:",
+                "FINAL_ANSWER: <answer>",
+            ]
+        ),
+        dataset="gsm8k",
+    )
+    assert payload["final_answer"] == "48"
+    assert payload["confidence_raw"] is None
+
+
+def test_parse_selective_output_accepts_json_with_tagged_keys() -> None:
+    payload = parse_selective_output(
+        json.dumps(
+            {
+                "FINAL_ANSWER": "5",
+                "CLAIM_SPAN": "2 children * 5 changes/day / 2",
+                "UNCERTAINTY_TYPE": "calculation",
+                "CONFIDENCE": 1.0,
+                "REASON": "Simple arithmetic with clear counts.",
+            }
+        ),
+        dataset="gsm8k",
+    )
+    assert payload["final_answer"] == "5"
+    assert payload["claim_span"] == "2 children * 5 changes/day / 2"
+    assert payload["uncertainty_type"] == "calculation"
+    assert payload["confidence_raw"] == 1.0
+    assert payload["reasoning"] == "Simple arithmetic with clear counts."
+
+
+def test_parse_selective_output_accepts_json_with_na_confidence() -> None:
+    payload = parse_selective_output(
+        json.dumps(
+            {
+                "FINAL_ANSWER": "14",
+                "CLAIM_SPAN": "28 remaining lollipops, 2 per bag -> 14 bags",
+                "UNCERTAINTY_TYPE": "calculation",
+                "CONFIDENCE": "NA",
+                "REASON": "Simple subtraction and division.",
+            }
+        ),
+        dataset="gsm8k",
+    )
+    assert payload["final_answer"] == "14"
+    assert payload["confidence_raw"] is None
+
+
+def test_parse_selective_output_recovers_from_truncated_json() -> None:
+    payload = parse_selective_output(
+        "\n".join(
+            [
+                "{",
+                '  "FINAL_ANSWER": "14",',
+                '  "CLAIM_SPAN": "28 remaining lollipops, 2 per bag -> 14 bags",',
+                '  "UNCERTAINTY_TYPE": "calculation",',
+                '  "CONFIDENCE": "NA",',
+                '  "REASON": "Simple subtraction',
+            ]
+        ),
+        dataset="gsm8k",
+    )
+    assert payload["final_answer"] == "14"
+    assert payload["claim_span"] == "28 remaining lollipops, 2 per bag -> 14 bags"
     assert payload["uncertainty_type"] == "calculation"
     assert payload["confidence_raw"] is None
 

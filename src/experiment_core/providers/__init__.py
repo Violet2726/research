@@ -141,6 +141,8 @@ def build_payload(
     top_p: float,
     max_output_tokens: int,
     seed: int | None,
+    *,
+    use_response_format: bool = True,
 ) -> dict[str, Any]:
     """把仓库内部的请求参数组合成 provider 侧 payload。"""
     payload: dict[str, Any] = {
@@ -153,7 +155,7 @@ def build_payload(
     if seed is not None:
         payload["seed"] = seed
     _apply_thinking_control(config, payload)
-    if config.supports_response_format and config.response_format:
+    if use_response_format and config.supports_response_format and config.response_format:
         payload["response_format"] = {"type": config.response_format}
     return payload
 
@@ -181,6 +183,12 @@ def _apply_thinking_control(config: ResolvedModelConfig, payload: dict[str, Any]
         return
     if config.provider == "deepseek":
         payload["thinking"] = {"type": "disabled" if config.reasoning_effort == "none" else "enabled"}
+        return
+    if config.provider == "xiaomimimo":
+        if config.reasoning_effort == "none":
+            payload["thinking"] = {"type": "disabled"}
+        else:
+            payload["reasoning_effort"] = config.reasoning_effort
         return
     payload["reasoning_effort"] = config.reasoning_effort
 

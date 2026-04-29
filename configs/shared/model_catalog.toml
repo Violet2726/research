@@ -18,6 +18,13 @@ default_max_output_tokens = 256
 [models."zhipu/glm-4.6v-flash"]
 tags = ["text", "reasoning", "general_qa", "vision", "provider_zhipu"]
 
+[models."xiaomimimo/mimo-v2.5"]
+tags = ["text", "reasoning", "general_qa", "provider_xiaomimimo"]
+reasoning_effort = "none"
+supports_response_format = true
+response_format = "json_object"
+default_max_output_tokens = 256
+
 [models."local_ollama/qwen2.5:3b-instruct"]
 tags = ["text", "reasoning", "general_qa", "provider_local_ollama", "local_gpu_4gb"]
 supports_response_format = true

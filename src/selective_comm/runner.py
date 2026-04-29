@@ -1029,6 +1029,7 @@ def _execute_turn(
         top_p=top_p,
         max_output_tokens=max_output_tokens,
         seed=seed,
+        use_response_format=False,
     )
     prompt_hash = _prompt_hash(messages)
     cache_key = _cache_key(
