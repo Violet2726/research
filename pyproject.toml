@@ -24,6 +24,7 @@ budget-cli = "budget_comm.cli:main"
 sid-lite-cli = "sid_lite.cli:main"
 free-mad-lite-cli = "free_mad_lite.cli:main"
 comm-necessary-cli = "comm_necessary.cli:main"
+cleanup-artifacts-cli = "experiment_core.artifact_cleanup:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
