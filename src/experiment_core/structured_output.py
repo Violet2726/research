@@ -19,6 +19,9 @@ OUTPUT_MODE_SPARC_SOLVER = "sparc_solver"
 OUTPUT_MODE_SPARC_MESSAGE = "sparc_message"
 OUTPUT_MODE_SPARC_BELIEF_UPDATE = "sparc_belief_update"
 OUTPUT_MODE_SPARC_AUDIT = "sparc_audit"
+OUTPUT_MODE_CUE_SOLVER = "cue_solver"
+OUTPUT_MODE_CUE_BELIEF_UPDATE = "cue_belief_update"
+OUTPUT_MODE_CUE_AUDIT = "cue_audit"
 OutputMode = Literal[
     "core",
     "selective_comm",
@@ -28,6 +31,9 @@ OutputMode = Literal[
     "sparc_message",
     "sparc_belief_update",
     "sparc_audit",
+    "cue_solver",
+    "cue_belief_update",
+    "cue_audit",
 ]
 
 UNCERTAINTY_TYPE_CHOICES = {
@@ -71,6 +77,12 @@ def validate_structured_output(raw_text: str, output_mode: OutputMode) -> dict[s
         return _validate_sparc_belief_update_output(payload)
     if output_mode == OUTPUT_MODE_SPARC_AUDIT:
         return _validate_sparc_audit_output(payload)
+    if output_mode == OUTPUT_MODE_CUE_SOLVER:
+        return _validate_cue_solver_output(payload)
+    if output_mode == OUTPUT_MODE_CUE_BELIEF_UPDATE:
+        return _validate_cue_belief_update_output(payload)
+    if output_mode == OUTPUT_MODE_CUE_AUDIT:
+        return _validate_cue_audit_output(payload)
     raise ValueError(f"Unsupported output mode: {output_mode}")
 
 
@@ -384,6 +396,43 @@ def _validate_sparc_audit_output(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _validate_cue_solver_output(payload: dict[str, Any]) -> dict[str, Any]:
+    allowed_keys = {
+        "final_answer",
+        "confidence",
+        "reasoning_sketch",
+        "uncertain_point",
+        "top_claims",
+        "evidence_items",
+        "counter_answer",
+    }
+    actual_keys = set(payload)
+    if "final_answer" not in payload:
+        raise ValueError('Assistant output must include "final_answer".')
+    if not actual_keys.issubset(allowed_keys):
+        raise ValueError(
+            f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}."
+        )
+    return {
+        "final_answer": _require_answer_value(payload.get("final_answer"), "final_answer"),
+        "confidence": _optional_float(payload.get("confidence"), "confidence"),
+        "reasoning_sketch": _require_nullable_hint(payload.get("reasoning_sketch"), "reasoning_sketch")
+        or _require_answer_value(payload.get("final_answer"), "final_answer"),
+        "uncertain_point": _require_nullable_hint(payload.get("uncertain_point"), "uncertain_point"),
+        "top_claims": _require_short_string_list(payload.get("top_claims"), "top_claims"),
+        "evidence_items": _require_short_string_list(payload.get("evidence_items"), "evidence_items"),
+        "counter_answer": _optional_answer_value(payload.get("counter_answer"), "counter_answer"),
+    }
+
+
+def _validate_cue_belief_update_output(payload: dict[str, Any]) -> dict[str, Any]:
+    return _validate_sparc_belief_update_output(payload)
+
+
+def _validate_cue_audit_output(payload: dict[str, Any]) -> dict[str, Any]:
+    return _validate_sparc_audit_output(payload)
+
+
 def _decode_json_object(cleaned: str) -> dict[str, Any]:
     """把模型文本解码为 JSON 对象，并拒绝非对象顶层结构。"""
     import json
@@ -672,6 +721,21 @@ def _optional_float(value: object, field_name: str) -> float | None:
         except ValueError as exc:
             raise ValueError(f"{field_name} must be numeric when provided as a string.") from exc
     raise ValueError(f"{field_name} must be a numeric value or null.")
+
+
+def _require_short_string_list(value: object, field_name: str) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        normalized = value.strip()
+        return [normalized] if normalized else []
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a string, list of strings, or null.")
+    normalized_items: list[str] = []
+    for item in value:
+        normalized = _require_non_empty_string(item, f"{field_name}[]")
+        normalized_items.append(normalized)
+    return normalized_items[:3]
 
 
 def _require_bool(value: object, field_name: str) -> bool:
