@@ -1,0 +1,30 @@
+name = "cue_v1"
+description = "CUE black-box utility-controlled communication with local auditing."
+benchmark_configs = [
+  "configs/shared/benchmarks/gsm8k.toml",
+  "configs/shared/benchmarks/math500.toml",
+  "configs/shared/benchmarks/strategyqa.toml",
+  "configs/shared/benchmarks/hotpotqa.toml",
+  "configs/shared/benchmarks/mmlu_pro.toml",
+]
+protocol = "configs/cue/protocols/shared_3a_r1.toml"
+policy_configs = [
+  "configs/cue/policies/always_communicate.toml",
+  "configs/cue/policies/disagreement_triggered.toml",
+  "configs/cue/policies/consensus_freeze.toml",
+  "configs/cue/policies/cue_v1.toml",
+]
+control_catalog = "configs/cue/controls/core_only.toml"
+global_seed = 42
+prompt_version = "cue_v1_json"
+max_concurrent_requests = 60
+requests_per_minute_limit = 90
+tokens_per_minute_limit = 9000000
+primary_backbone = "xiaomimimo/mimo-v2.5"
+
+[phases.smoke20]
+split_suffix = "smoke20_seed42"
+
+[phases.pilot100]
+split_suffix = "pilot100_seed42"
+

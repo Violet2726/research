@@ -1,0 +1,21 @@
+policy_name = "always_communicate"
+trigger_type = "always_communicate"
+tau = -1.0
+normalized_cost_divisor = 420
+cost_weight = 0.35
+collapse_weight = 0.25
+enable_audit = true
+freeze_confidence_threshold = 0.80
+freeze_claim_conflict_threshold = 0.25
+freeze_evidence_gap_threshold = 0.30
+correction_answer_entropy_weight = 0.30
+correction_low_confidence_weight = 0.20
+correction_confidence_spread_weight = 0.15
+correction_claim_conflict_weight = 0.20
+correction_fragile_consensus_weight = 0.15
+resolvability_specificity_weight = 0.60
+resolvability_evidence_overlap_weight = 0.40
+collapse_format_risk_weight = 0.40
+collapse_vagueness_risk_weight = 0.30
+collapse_majority_pressure_weight = 0.30
+
