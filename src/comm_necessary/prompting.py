@@ -1,13 +1,10 @@
-"""`comm_necessary` 提示词构造。
-
-本模块为 HotpotQA split-context 实验构造 Stage A 与 belief update prompt，
-要求模型同时输出答案与 supporting facts，便于后续分析通信对证据整合的帮助程度。
-"""
+"""Prompt builders for split-context communication-necessary experiments."""
 
 from __future__ import annotations
 
 from comm_necessary.dataset_views import HotpotView
 from experiment_core.datasets import DatasetSample
+from experiment_core.prompt_contracts import build_json_system_prompt, dataset_instruction_for_sample
 
 
 DEFAULT_PROMPT_VERSION = "comm_necessary_hotpotqa_v1"
@@ -19,12 +16,11 @@ def build_solver_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
-    """构造初始解题提示词。"""
     _assert_prompt_version(prompt_version)
     user_prompt = (
         f"You are agent_{view.agent_id} in a controlled HotpotQA communication experiment.\n"
         f"View kind: {view.view_kind}.\n"
-        "Answer the question using only the context visible to you.\n"
+        f"{dataset_instruction_for_sample(sample, context_scope='visible', hotpot_style='shortest_span')}\n"
         "If you cite evidence, use the exact paragraph title and sentence id shown as (0), (1), ... .\n\n"
         f"Question:\n{sample.question.strip()}\n\n"
         f"Visible context:\n{view.context_text}\n\n"
@@ -53,7 +49,6 @@ def build_belief_update_messages(
     method_name: str,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
-    """构造收到 peer packets 后的信念更新提示词。"""
     _assert_prompt_version(prompt_version)
     peer_block = "\n\n".join(
         f"{item['agent']} packet_mode={item['packet_mode']}\npacket={item['packet_text']}"
@@ -83,16 +78,17 @@ def build_belief_update_messages(
 
 
 def _system_prompt() -> str:
-    return (
-        "You are a careful HotpotQA reasoning agent.\n"
-        "Return strict JSON only; do not use markdown fences or extra keys.\n"
-        "final_answer must be a short answer span.\n"
-        "supporting_facts must use exact visible titles and integer sent_id values.\n"
-        "confidence_raw should be a number in [0, 1]."
+    return build_json_system_prompt(
+        "You are a careful HotpotQA reasoning agent.",
+        extra_rules=[
+            "Do not add extra keys.",
+            "final_answer must be a short answer span.",
+            "supporting_facts must use exact visible titles and integer sent_id values.",
+            "confidence_raw should be a number in [0, 1].",
+        ],
     )
 
 
 def _assert_prompt_version(prompt_version: str) -> None:
     if prompt_version != DEFAULT_PROMPT_VERSION:
         raise ValueError(f"Unsupported prompt_version: {prompt_version}")
-

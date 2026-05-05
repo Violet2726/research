@@ -42,7 +42,7 @@ from multi_agent.config import (
     phase_metadata,
 )
 from multi_agent.prompting import build_debate_messages, build_initial_messages
-from multi_agent.reporting import summarize_run
+from multi_agent.reporting import report_debate_vs_vote, summarize_run
 from multi_agent.validation import validate_run
 
 
@@ -293,6 +293,7 @@ def run_experiment(
     run_paths.debate_diagnostics.write_text(json.dumps(diagnostics, ensure_ascii=False, indent=2), encoding="utf-8")
     run_paths.cost_breakdown.write_text(json.dumps(cost_breakdown, ensure_ascii=False, indent=2), encoding="utf-8")
     run_paths.run_summary.write_text(json.dumps(summarize_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
+    report_debate_vs_vote(run_paths.root)
     run_paths.run_validation.write_text(json.dumps(validate_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
     progress.mark_completed()
     cache.close()

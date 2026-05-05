@@ -16,6 +16,7 @@ from typing import Any
 
 from budget_comm.logic import METHOD_ORDER
 from experiment_core.analysis_reports import render_frontier_report, write_report
+from experiment_core.reporting_utils import resolve_manifest_model_name
 from experiment_core.workspace import default_reports_root
 
 
@@ -69,7 +70,7 @@ def _render_markdown(
     run_dir: Path,
 ) -> str:
     """把 manifest、指标与诊断结果渲染成最终报告文本。"""
-    backbone = manifest.get("backbone", {})
+    backbone = {"name": resolve_manifest_model_name(manifest)}
     track_name = manifest.get("context_view", {}).get("track_name", "unknown")
     calibration = diagnostics.get("calibration", {})
     full_gate = diagnostics.get("full_dala_gate", {})

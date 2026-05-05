@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 from experiment_core.analysis_reports import render_frontier_report, write_report
+from experiment_core.reporting_utils import resolve_manifest_model_name
 from experiment_core.workspace import default_reports_root
 
 
@@ -64,7 +65,7 @@ def _render_markdown(
     oracle: dict[str, Any],
     run_dir: Path,
 ) -> str:
-    backbone = manifest.get("backbone", {})
+    backbone = {"name": resolve_manifest_model_name(manifest)}
     metric_rows = metrics.get("summary", [])
     policy_rows = diagnostics.get("policy_rows", [])
     overall_main_rows = _ordered_rows([row for row in metric_rows if row.get("dataset") == "overall"])

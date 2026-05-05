@@ -1,12 +1,9 @@
-"""多智能体基线提示词构造。
-
-本模块负责构造 Vanilla MAD 的初始作答 prompt 与 debate prompt，
-保持“先独立求解，再读取同伴反馈修正”的协议边界清晰。
-"""
+"""Prompt builders for multi-agent debate experiments."""
 
 from __future__ import annotations
 
 from experiment_core.datasets import DatasetSample
+from experiment_core.prompt_contracts import build_json_system_prompt, dataset_instruction_for_sample
 
 
 DEFAULT_PROMPT_VERSION = "multi_agent_debate_json"
@@ -28,8 +25,9 @@ def build_initial_messages(
     user_prompt += (
         'Return exactly one JSON object with key "final_answer". '
         'You may optionally include "reasoning". '
-        'Do not add any other keys. '
-        'Return JSON only.'
+        'If you include reasoning, keep it under 60 words. '
+        "Do not add any other keys. "
+        "Return JSON only."
     )
     return [
         {"role": "system", "content": _system_prompt(prompt_version)},
@@ -65,8 +63,9 @@ def build_debate_messages(
         f"{_revision_instruction(sample, prompt_version)} "
         'Return exactly one JSON object with key "final_answer". '
         'You may optionally include "reasoning". '
-        'Do not add any other keys. '
-        'Return JSON only.'
+        'If you include reasoning, keep it under 60 words. '
+        "Do not add any other keys. "
+        "Return JSON only."
     )
     return [
         {"role": "system", "content": _system_prompt(prompt_version)},
@@ -75,71 +74,37 @@ def build_debate_messages(
 
 
 def _system_prompt(prompt_version: str) -> str:
-    """返回指定 prompt 版本的 system prompt。"""
     if prompt_version == CONTROLLED_PROMPT_VERSION:
-        return (
-            "You are one reasoning agent in a controlled debate-vs-vote experiment.\n"
-            "Solve the task carefully using only the provided question and context.\n"
-            "Return a single JSON object only.\n"
-            "Do not use markdown fences.\n"
-            "Do not add natural-language text before or after the JSON object.\n"
-            "Do not add labels, category words, or explanatory suffixes to final_answer."
+        return build_json_system_prompt(
+            "You are one reasoning agent in a controlled debate-vs-vote experiment.",
+            extra_rules=[
+                "Solve the task carefully using only the provided question and context.",
+                "Keep optional reasoning compact and outcome-focused.",
+                "Do not add natural-language text before or after the JSON object.",
+                "Do not add labels, category words, or explanatory suffixes to final_answer.",
+            ],
         )
     if prompt_version != DEFAULT_PROMPT_VERSION:
         raise ValueError(f"Unsupported multi-agent prompt_version: {prompt_version}")
-    return (
-        "You are one reasoning agent in a controlled multi-agent debate experiment.\n"
-        "Solve the task carefully.\n"
-        "Return a single JSON object only.\n"
-        "Do not use markdown fences.\n"
-        "Do not add natural-language text before or after the JSON object."
+    return build_json_system_prompt(
+        "You are one reasoning agent in a controlled multi-agent debate experiment.",
+        extra_rules=[
+            "Solve the task carefully.",
+            "Keep optional reasoning compact and outcome-focused.",
+            "Do not add natural-language text before or after the JSON object.",
+        ],
     )
 
 
 def _dataset_instruction(sample: DatasetSample, prompt_version: str) -> str:
-    """返回数据集特定的答题约束。"""
-    if sample.dataset == "gsm8k":
-        return (
-            "Solve the math word problem carefully. "
-            "The final_answer must be only the final numeric answer without commas or units."
-        )
-    if sample.dataset == "gsm_symbolic":
-        return (
-            "Solve the math problem carefully. "
-            "The final_answer must be only the final numeric answer without commas or units."
-        )
-    if sample.dataset == "math500":
-        return (
-            "Solve the math problem carefully. "
-            "The final_answer must be only the final mathematical expression, with no explanation."
-        )
-    if sample.dataset == "strategyqa":
-        return (
-            'Answer with exactly "yes" or "no". '
-            'The final_answer must be exactly "yes" or "no".'
-        )
     if sample.dataset == "hotpotqa":
         if prompt_version == CONTROLLED_PROMPT_VERSION:
-            return (
-                "Answer the multi-hop question using only the provided context. "
-                "The final_answer must be the shortest judgeable text span. "
-                "Prefer copying the exact wording from the context when possible. "
-                "Do not add category words, parentheses, explanations, or extra qualifiers."
-            )
-        return (
-            "Answer the multi-hop question using only the provided context. "
-            "The final_answer should be a short text span."
-        )
-    if sample.dataset in {"mmlu_pro", "gpqa_diamond"}:
-        return (
-            "Choose the single best option. "
-            'The final_answer must be only the option letter, such as "A" or "B".'
-        )
-    raise ValueError(f"Unsupported dataset: {sample.dataset}")
+            return dataset_instruction_for_sample(sample, hotpot_style="shortest_span_copy")
+        return dataset_instruction_for_sample(sample, hotpot_style="short_span")
+    return dataset_instruction_for_sample(sample)
 
 
 def _revision_instruction(sample: DatasetSample, prompt_version: str) -> str:
-    """返回 debate 阶段的修正原则。"""
     if sample.dataset == "hotpotqa" and prompt_version == CONTROLLED_PROMPT_VERSION:
         return (
             "Revise your answer only if peer arguments reveal a concrete mistake or provide stronger textual evidence. "

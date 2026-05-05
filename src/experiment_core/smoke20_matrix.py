@@ -23,6 +23,9 @@ from cue.config import resolve_model as resolve_cue_model
 from cue.runner import run_experiment as run_cue_experiment
 from cue.validation import validate_run as validate_cue_run
 from experiment_core.config import load_benchmark_config, resolve_model_ref
+from experiment_core.faithful_acceptance import render_acceptance_summary
+from experiment_core.faithful_analysis import render_faithful_analysis
+from experiment_core.matrix_specs import get_experiment_matrix_spec
 from experiment_core.workspace import default_runs_root, workspace_defaults
 from free_mad_lite.config import load_experiment_config as load_free_mad_experiment_config
 from free_mad_lite.config import resolve_model as resolve_free_mad_model
@@ -55,6 +58,7 @@ DEFAULT_MODEL_REF = "xiaomimimo/mimo-v2.5"
 DEFAULT_MAX_CONCURRENT_REQUESTS = 60
 DEFAULT_REQUESTS_PER_MINUTE = 90
 DEFAULT_TOKENS_PER_MINUTE = 9000000
+MATRIX_EXPERIMENT_KIND = "smoke20_matrix"
 
 EXCLUDED_CONFIGS = {
     "configs/multi_agent/experiments/vanilla_mad_minimal.toml": "development_or_minimal_config",
@@ -109,6 +113,11 @@ class MatrixEntry:
     experiment_name: str
     description: str
     phase_name: str
+    evaluation_track: str
+    primary_method_name: str
+    best_no_comm_candidates: list[str]
+    full_comm_reference: str | None
+    full_context_reference: str | None
     status: str
     excluded_reason: str | None = None
     run_dir: str | None = None
@@ -140,14 +149,14 @@ class OrchestratorPaths:
     published_summary: Path
 
 
-def discover_smoke20_configs(config_root: str | Path = "configs") -> list[DiscoveredConfig]:
+def discover_phase_configs(phase_name: str, config_root: str | Path = "configs") -> list[DiscoveredConfig]:
     discovered: list[DiscoveredConfig] = []
     for path in sorted(Path(config_root).rglob("*.toml")):
         if "experiments" not in path.parts:
             continue
         payload = _load_toml(path)
         phases = payload.get("phases", {})
-        if DEFAULT_PHASE not in phases:
+        if phase_name not in phases:
             continue
         discovered.append(
             DiscoveredConfig(
@@ -163,12 +172,13 @@ def discover_smoke20_configs(config_root: str | Path = "configs") -> list[Discov
 def build_run_matrix(
     overrides: RuntimeOverrides,
 ) -> MatrixBuild:
-    discovered = discover_smoke20_configs()
+    discovered = discover_phase_configs(overrides.phase_name)
 
     entries: list[MatrixEntry] = []
     semantic_entries: list[MatrixEntry] = []
     for item in discovered:
         if item.config_path in EXCLUDED_CONFIGS:
+            spec = get_experiment_matrix_spec(item.config_path)
             entries.append(
                 MatrixEntry(
                     family=item.family,
@@ -176,17 +186,28 @@ def build_run_matrix(
                     experiment_name=item.experiment_name,
                     description=item.description,
                     phase_name=overrides.phase_name,
+                    evaluation_track=spec.evaluation_track,
+                    primary_method_name=spec.primary_method_name,
+                    best_no_comm_candidates=list(spec.best_no_comm_candidates),
+                    full_comm_reference=spec.full_comm_reference,
+                    full_context_reference=spec.full_context_reference,
                     status="excluded",
                     excluded_reason=EXCLUDED_CONFIGS[item.config_path],
                 )
             )
             continue
+        spec = get_experiment_matrix_spec(item.config_path)
         entry = MatrixEntry(
             family=item.family,
             config_path=item.config_path,
             experiment_name=item.experiment_name,
             description=item.description,
             phase_name=overrides.phase_name,
+            evaluation_track=spec.evaluation_track,
+            primary_method_name=spec.primary_method_name,
+            best_no_comm_candidates=list(spec.best_no_comm_candidates),
+            full_comm_reference=spec.full_comm_reference,
+            full_context_reference=spec.full_context_reference,
             status="pending",
         )
         entries.append(entry)
@@ -246,9 +267,10 @@ def run_smoke20_matrix(
     overrides: RuntimeOverrides,
     *,
     state_root: str | Path | None = None,
+    reference_state_path_or_root: str | Path | None = None,
 ) -> Path:
     matrix = build_run_matrix(overrides)
-    paths = _prepare_orchestrator_paths(state_root)
+    paths = _prepare_orchestrator_paths(state_root, overrides.phase_name)
     family_blocked: set[str] = set()
     _write_matrix_state(paths, matrix)
 
@@ -281,6 +303,11 @@ def run_smoke20_matrix(
         _write_matrix_state(paths, matrix)
 
     _write_matrix_state(paths, matrix)
+    render_faithful_analysis(
+        paths.root,
+        reference_state_path_or_root=reference_state_path_or_root,
+    )
+    render_acceptance_summary(paths.root)
     return paths.root
 
 
@@ -383,9 +410,9 @@ def _validate_entry(family: str, run_dir: Path) -> dict[str, Any]:
     return payload
 
 
-def _prepare_orchestrator_paths(state_root: str | Path | None) -> OrchestratorPaths:
-    root_base = Path(state_root or default_runs_root("smoke20_matrix"))
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-smoke20-mimo-v2.5")
+def _prepare_orchestrator_paths(state_root: str | Path | None, phase_name: str) -> OrchestratorPaths:
+    root_base = Path(state_root or default_runs_root(MATRIX_EXPERIMENT_KIND))
+    run_id = datetime.now(timezone.utc).strftime(f"%Y%m%dT%H%M%SZ-{phase_name}-mimo-v2.5")
     root = root_base / run_id
     root.mkdir(parents=True, exist_ok=True)
     return OrchestratorPaths(
@@ -422,7 +449,7 @@ def _write_matrix_state(paths: OrchestratorPaths, matrix: MatrixBuild) -> None:
 
 def _render_matrix_report(matrix: MatrixBuild, counts: dict[str, int]) -> str:
     lines = [
-        "# smoke20 mimo-v2.5 matrix",
+        f"# {matrix.overrides.phase_name} mimo-v2.5 matrix",
         "",
         f"- generated_at: `{datetime.now(timezone.utc).isoformat()}`",
         f"- overrides: `{matrix.overrides.model_ref}` / `{matrix.overrides.max_concurrent_requests}` / `{matrix.overrides.requests_per_minute_limit}` / `{matrix.overrides.tokens_per_minute_limit}`",
@@ -465,11 +492,13 @@ def _safe_load_json(path: str | Path) -> dict[str, Any] | None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run the unified smoke20 mimo-v2.5 experiment matrix.")
+    parser = argparse.ArgumentParser(description="Run the unified faithful mimo-v2.5 experiment matrix.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    inspect_cmd = subparsers.add_parser("inspect-matrix", help="Print the resolved smoke20 matrix.")
-    run_cmd = subparsers.add_parser("run", help="Run the pending smoke20 matrix entries sequentially.")
+    inspect_cmd = subparsers.add_parser("inspect-matrix", help="Print the resolved phase matrix.")
+    run_cmd = subparsers.add_parser("run", help="Run the pending phase matrix entries sequentially.")
+    analyze_cmd = subparsers.add_parser("analyze-faithful", help="Render faithful analysis for an existing matrix run.")
+    acceptance_cmd = subparsers.add_parser("evaluate-acceptance", help="Render acceptance summary for an existing matrix run.")
 
     for command in (inspect_cmd, run_cmd):
         command.add_argument("--phase", default=DEFAULT_PHASE)
@@ -478,27 +507,31 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--requests-per-minute-limit", type=int, default=DEFAULT_REQUESTS_PER_MINUTE)
         command.add_argument("--tokens-per-minute-limit", type=int, default=DEFAULT_TOKENS_PER_MINUTE)
 
-    run_cmd.add_argument("--state-root", default=default_runs_root("smoke20_matrix"))
+    run_cmd.add_argument("--state-root", default=default_runs_root(MATRIX_EXPERIMENT_KIND))
+    run_cmd.add_argument("--reference-state-path")
+    analyze_cmd.add_argument("--state-path", required=True)
+    analyze_cmd.add_argument("--reference-state-path")
+    acceptance_cmd.add_argument("--analysis-path", required=True)
     return parser
 
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-    overrides = RuntimeOverrides(
-        phase_name=args.phase,
-        model_ref=args.model,
-        max_concurrent_requests=args.max_concurrent_requests,
-        requests_per_minute_limit=args.requests_per_minute_limit,
-        tokens_per_minute_limit=args.tokens_per_minute_limit,
-    )
 
     if args.command == "inspect-matrix":
+        overrides = RuntimeOverrides(
+            phase_name=args.phase,
+            model_ref=args.model,
+            max_concurrent_requests=args.max_concurrent_requests,
+            requests_per_minute_limit=args.requests_per_minute_limit,
+            tokens_per_minute_limit=args.tokens_per_minute_limit,
+        )
         matrix = build_run_matrix(overrides)
         payload = {
             "overrides": asdict(overrides),
             "counts": matrix.counts,
-            "workspace_defaults": workspace_defaults("smoke20_matrix"),
+            "workspace_defaults": workspace_defaults(MATRIX_EXPERIMENT_KIND),
             "entries": [asdict(entry) for entry in matrix.entries],
             "semantic_entries": [asdict(entry) for entry in matrix.semantic_entries],
         }
@@ -506,8 +539,32 @@ def main() -> None:
         return
 
     if args.command == "run":
-        run_dir = run_smoke20_matrix(overrides, state_root=args.state_root)
+        overrides = RuntimeOverrides(
+            phase_name=args.phase,
+            model_ref=args.model,
+            max_concurrent_requests=args.max_concurrent_requests,
+            requests_per_minute_limit=args.requests_per_minute_limit,
+            tokens_per_minute_limit=args.tokens_per_minute_limit,
+        )
+        run_dir = run_smoke20_matrix(
+            overrides,
+            state_root=args.state_root,
+            reference_state_path_or_root=args.reference_state_path,
+        )
         print(run_dir.as_posix())
+        return
+
+    if args.command == "analyze-faithful":
+        paths = render_faithful_analysis(
+            args.state_path,
+            reference_state_path_or_root=args.reference_state_path,
+        )
+        print(json.dumps(paths, ensure_ascii=False, indent=2))
+        return
+
+    if args.command == "evaluate-acceptance":
+        paths = render_acceptance_summary(args.analysis_path)
+        print(json.dumps(paths, ensure_ascii=False, indent=2))
         return
 
     parser.error(f"Unsupported command: {args.command}")

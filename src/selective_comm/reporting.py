@@ -19,6 +19,7 @@ from experiment_core.analysis_reports import (
     render_trigger_diagnostic_report,
     write_report,
 )
+from experiment_core.reporting_utils import resolve_manifest_model_name
 from experiment_core.workspace import default_reports_root
 
 
@@ -112,7 +113,7 @@ def _render_markdown(
     run_dir: Path,
 ) -> str:
     """渲染中文 Markdown 报告。"""
-    backbone = manifest.get("backbone", {})
+    backbone = {"name": resolve_manifest_model_name(manifest)}
     metric_rows = metrics.get("summary", [])
     policy_rows = diagnostics.get("policy_rows", [])
     voc_policy_rows = diagnostics.get("voc_policy_rows", [])

@@ -22,6 +22,29 @@ def test_build_run_matrix_counts_expected() -> None:
     assert semantic_counts["pending"] == 20
     assert entry_counts["excluded"] == 2
     assert matrix.counts["semantic_unique_targets"] == 20
+    cue_entry = next(entry for entry in matrix.semantic_entries if entry.experiment_name == "cue_v1")
+    assert cue_entry.evaluation_track == "same_context"
+    assert cue_entry.primary_method_name == "cue_v1"
+    assert cue_entry.best_no_comm_candidates == ["mv_3"]
+
+
+def test_build_run_matrix_counts_expected_for_pilot100() -> None:
+    overrides = RuntimeOverrides(phase_name="pilot100")
+    matrix = build_run_matrix(overrides)
+    semantic_counts = Counter(entry.status for entry in matrix.semantic_entries)
+    entry_counts = Counter(entry.status for entry in matrix.entries)
+
+    assert len(matrix.semantic_entries) == 20
+    assert semantic_counts["pending"] == 20
+    assert entry_counts["excluded"] == 1
+    assert matrix.counts["semantic_unique_targets"] == 20
+    split_entry = next(
+        entry
+        for entry in matrix.semantic_entries
+        if entry.experiment_name == "hotpotqa_split_evidence_v1"
+    )
+    assert split_entry.phase_name == "pilot100"
+    assert split_entry.evaluation_track == "split_context"
 
 
 def test_apply_runtime_overrides_clears_single_agent_smoke20_tag_constraints() -> None:

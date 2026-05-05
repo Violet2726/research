@@ -15,6 +15,7 @@ import math
 import random
 from typing import Any
 
+from experiment_core.reporting_utils import resolve_manifest_model_name
 from experiment_core.workspace import default_reports_root
 
 def load_metrics(run_dir: str | Path) -> dict[str, Any]:
@@ -195,7 +196,7 @@ def _render_debate_vs_vote_report(
     run_dir: Path,
 ) -> str:
     """渲染中文 Markdown 正式报告。"""
-    backbone = manifest.get("backbone", {})
+    backbone = {"name": resolve_manifest_model_name(manifest)}
     lines = [
         "# Debate vs Vote 对照实验报告",
         "",

@@ -15,7 +15,7 @@ primary_model_ref = "xiaomimimo/mimo-v2.5"
 name = "mad_3a_r1"
 protocol = "configs/multi_agent/protocols/vanilla_mad_r1.toml"
 roster = "configs/multi_agent/rosters/homogeneous_3agent.toml"
-matched_controls = []
+matched_controls = ["mv_6", "sc_6"]
 
 [phases.smoke20]
 split_overrides = { gsm8k = "smoke20_seed42", hotpotqa = "smoke20_seed42" }

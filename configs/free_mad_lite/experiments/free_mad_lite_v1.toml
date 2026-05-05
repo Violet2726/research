@@ -22,4 +22,7 @@ primary_model_ref = "deepseek/deepseek-v4-flash"
 [phases.smoke20]
 split_suffix = "smoke20_seed42"
 
+[phases.pilot100]
+split_suffix = "pilot100_seed42"
+
 

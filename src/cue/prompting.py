@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from experiment_core.datasets import DatasetSample
+from experiment_core.prompt_contracts import build_json_system_prompt, dataset_instruction_for_sample
 
 
 DEFAULT_PROMPT_VERSION = "cue_v1_json"
@@ -115,40 +116,28 @@ def build_audit_messages(
 
 
 def _solver_system_prompt() -> str:
-    return (
-        "You are one reasoning agent in a controlled CUE experiment.\n"
-        "Return strict JSON only.\n"
-        "Do not use markdown fences.\n"
-        "confidence should prefer a numeric value in [0, 1]."
+    return build_json_system_prompt(
+        "You are one reasoning agent in a controlled CUE experiment.",
+        extra_rules=["confidence should prefer a numeric value in [0, 1]."],
     )
 
 
 def _communication_system_prompt() -> str:
-    return (
-        "You are one reasoning agent receiving compact peer evidence.\n"
-        "Return strict JSON only.\n"
-        "Do not restate the full solution.\n"
-        "Only report whether you change the answer and why."
+    return build_json_system_prompt(
+        "You are one reasoning agent receiving compact peer evidence.",
+        extra_rules=[
+            "Do not restate the full solution.",
+            "Only report whether you change the answer and why.",
+        ],
     )
 
 
 def _audit_system_prompt() -> str:
-    return (
-        "You are a cautious local auditor.\n"
-        "Use abstain when the local evidence is insufficient.\n"
-        "Return strict JSON only."
+    return build_json_system_prompt(
+        "You are a cautious local auditor.",
+        extra_rules=["Use abstain when the local evidence is insufficient."],
     )
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
-    if sample.dataset in {"gsm8k", "gsm_symbolic"}:
-        return "Solve the math problem carefully. The final answer must be only the final numeric answer without units."
-    if sample.dataset == "math500":
-        return "Solve the math problem carefully. The final answer must be only the final mathematical expression."
-    if sample.dataset == "strategyqa":
-        return 'Answer with exactly "yes" or "no".'
-    if sample.dataset == "hotpotqa":
-        return "Answer the multi-hop question using only the provided context. The final answer must be the shortest judgeable text span."
-    if sample.dataset in {"mmlu_pro", "gpqa_diamond"}:
-        return 'Choose the single best option. The final answer must be only the option letter such as "A".'
-    raise ValueError(f"Unsupported dataset: {sample.dataset}")
+    return dataset_instruction_for_sample(sample, hotpot_style="shortest_span")

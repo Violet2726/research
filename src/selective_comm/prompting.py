@@ -1,12 +1,13 @@
-"""选择性通信实验提示词构造。
-
-本模块负责构造共享前缀实验中的 Stage A 与 Stage B prompt。
-当前主协议采用“标签行输出”，避免数学模型在 JSON 模式下漂移成大段自由文本。
-"""
+"""Prompt builders for selective-communication experiments."""
 
 from __future__ import annotations
 
 from experiment_core.datasets import DatasetSample
+from experiment_core.prompt_contracts import (
+    build_json_system_prompt,
+    build_tagged_lines_system_prompt,
+    dataset_instruction_for_sample,
+)
 
 
 DEFAULT_PROMPT_VERSION = "selective_comm_trigger_json"
@@ -77,7 +78,7 @@ def _build_initial_messages(sample: DatasetSample, agent_id: int) -> list[dict[s
         "Use concise text. confidence_raw should be a numeric confidence."
     )
     return [
-        {"role": "system", "content": _system_prompt()},
+        {"role": "system", "content": _json_system_prompt()},
         {"role": "user", "content": user_prompt},
     ]
 
@@ -117,7 +118,7 @@ def _build_initial_messages_v2(sample: DatasetSample, agent_id: int) -> list[dic
         "- Do not output JSON."
     )
     return [
-        {"role": "system", "content": _system_prompt()},
+        {"role": "system", "content": _tagged_lines_system_prompt()},
         {"role": "user", "content": user_prompt},
     ]
 
@@ -154,7 +155,7 @@ def _build_debate_messages(
         "uncertain_point, and key_evidence."
     )
     return [
-        {"role": "system", "content": _system_prompt()},
+        {"role": "system", "content": _json_system_prompt()},
         {"role": "user", "content": user_prompt},
     ]
 
@@ -170,6 +171,7 @@ def _build_debate_messages_v2(
     previous_uncertainty_type: str | None,
     peer_messages: list[dict[str, str]],
 ) -> list[dict[str, str]]:
+    del previous_reasoning
     uncertainty_choices = " | ".join(
         [
             "none",
@@ -210,54 +212,33 @@ def _build_debate_messages_v2(
         "Do not output JSON."
     )
     return [
-        {"role": "system", "content": _system_prompt()},
+        {"role": "system", "content": _tagged_lines_system_prompt()},
         {"role": "user", "content": user_prompt},
     ]
 
 
-def _system_prompt() -> str:
-    return (
-        "You are one reasoning agent in a trigger and early-exit experiment.\n"
-        "Return compact tagged lines only.\n"
-        "Do not use markdown fences.\n"
-        "Prefer a short final answer and a short supporting span.\n"
-        "If confidence is unavailable, you may write NA."
+def _json_system_prompt() -> str:
+    return build_json_system_prompt(
+        "You are one reasoning agent in a trigger and early-exit experiment.",
+        extra_rules=[
+            "Prefer a short final answer and a short supporting span.",
+            "If confidence is unavailable, you may write NA.",
+        ],
+    )
+
+
+def _tagged_lines_system_prompt() -> str:
+    return build_tagged_lines_system_prompt(
+        "You are one reasoning agent in a trigger and early-exit experiment.",
+        extra_rules=[
+            "Prefer a short final answer and a short supporting span.",
+            "If confidence is unavailable, you may write NA.",
+        ],
     )
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
-    if sample.dataset == "gsm8k":
-        return (
-            "Solve the math word problem carefully. "
-            "The final_answer must be only the final numeric answer without commas or units."
-        )
-    if sample.dataset == "gsm_symbolic":
-        return (
-            "Solve the math problem carefully. "
-            "The final_answer must be only the final numeric answer without commas or units."
-        )
-    if sample.dataset == "math500":
-        return (
-            "Solve the math problem carefully. "
-            "The final_answer must be only the final mathematical expression, with no explanation."
-        )
-    if sample.dataset == "strategyqa":
-        return (
-            'Answer with exactly "yes" or "no". '
-            'The final_answer must be exactly "yes" or "no".'
-        )
-    if sample.dataset == "hotpotqa":
-        return (
-            "Answer the multi-hop question using only the provided context. "
-            "The final_answer must be the shortest judgeable text span. "
-            "Prefer exact wording from the context when possible."
-        )
-    if sample.dataset in {"mmlu_pro", "gpqa_diamond"}:
-        return (
-            "Choose the single best option. "
-            'The final_answer must be only the option letter, such as "A" or "B".'
-        )
-    raise ValueError(f"Unsupported dataset: {sample.dataset}")
+    return dataset_instruction_for_sample(sample, hotpot_style="shortest_span_copy")
 
 
 def _revision_instruction() -> str:

@@ -14,6 +14,7 @@ from typing import Any
 
 from comm_necessary.logic import METHOD_ORDER
 from experiment_core.analysis_reports import render_split_context_report, write_report
+from experiment_core.reporting_utils import resolve_manifest_model_name
 from experiment_core.workspace import default_files_root, default_reports_root
 
 
@@ -71,7 +72,7 @@ def _render_markdown(
     predictions: list[dict[str, Any]],
     run_dir: Path,
 ) -> str:
-    backbone = manifest.get("backbone", {})
+    backbone = {"name": resolve_manifest_model_name(manifest)}
     overall_rows = _ordered_rows([row for row in metrics.get("summary", []) if row.get("dataset") == "overall"])
     lines = [
         "# HotpotQA 通信必要性 Smoke20 报告",

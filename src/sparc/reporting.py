@@ -19,6 +19,7 @@ from experiment_core.analysis_reports import (
     render_frontier_report,
     write_report,
 )
+from experiment_core.reporting_utils import resolve_manifest_model_name
 from experiment_core.workspace import default_reports_root
 
 
@@ -107,7 +108,7 @@ def _render_content_report(
         "",
         f"- 实验名：`{manifest.get('experiment')}`",
         f"- Phase：`{manifest.get('phase')}`",
-        f"- Backbone：`{manifest.get('backbone', {}).get('name')}`",
+        f"- Backbone：`{resolve_manifest_model_name(manifest)}`",
         f"- 运行目录：`{run_dir.as_posix()}`",
         "- 本轮固定 `always_communicate`，仅比较消息内容，不混入 trigger 和 auditing 变量。",
         "- 数据集固定为 `GSM8K + StrategyQA + HotpotQA` 的 `smoke20_seed42`。",
@@ -195,7 +196,7 @@ def _render_auditing_report(
         "",
         f"- 实验名：`{manifest.get('experiment')}`",
         f"- Phase：`{manifest.get('phase')}`",
-        f"- Backbone：`{manifest.get('backbone', {}).get('name')}`",
+        f"- Backbone：`{resolve_manifest_model_name(manifest)}`",
         f"- 运行目录：`{run_dir.as_posix()}`",
         "- 本轮固定消息内容，只比较最终聚合与局部审计方式。",
         "",
@@ -253,7 +254,7 @@ def _render_sparc_report(
         "",
         f"- 实验名：`{manifest.get('experiment')}`",
         f"- Phase：`{manifest.get('phase')}`",
-        f"- Backbone：`{manifest.get('backbone', {}).get('name')}`",
+        f"- Backbone：`{resolve_manifest_model_name(manifest)}`",
         f"- 运行目录：`{run_dir.as_posix()}`",
         f"- 选中的 trigger 策略：`{trigger_selection.get('selected_policy')}`",
         f"- trigger 选择原因：`{trigger_selection.get('reason')}`",
@@ -430,7 +431,7 @@ def _published_report_name(manifest: dict[str, Any]) -> str:
         created_date = "unknown-date"
     experiment = str(manifest.get("experiment", "sparc")).replace("/", "-")
     phase = str(manifest.get("phase", "phase")).replace("/", "-")
-    backbone_name = str(manifest.get("backbone", {}).get("name", "backbone")).replace("/", "-")
+    backbone_name = resolve_manifest_model_name(manifest).replace("/", "-")
     return f"{created_date}-{experiment}-{phase}-{backbone_name}-report.md"
 
 

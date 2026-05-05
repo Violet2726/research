@@ -1,13 +1,9 @@
-"""SID-lite 提示词构造。
-
-本模块为 SID-lite 的两个阶段构造结构化 prompt：
-Stage A 负责产出答案、证据与置信度，
-Stage B 在读取压缩消息后仅输出“是否改答”的最小更新信息。
-"""
+"""Prompt builders for SID-lite experiments."""
 
 from __future__ import annotations
 
 from experiment_core.datasets import DatasetSample
+from experiment_core.prompt_contracts import build_json_system_prompt, dataset_instruction_for_sample
 
 
 DEFAULT_PROMPT_VERSION = "sid_lite_v1_json"
@@ -19,7 +15,6 @@ def build_solver_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
-    """构造 Stage A 初始解题提示词。"""
     _ensure_prompt_version(prompt_version)
     user_prompt = (
         f"You are agent_{agent_id} in Stage A of a SID-lite experiment.\n"
@@ -50,7 +45,6 @@ def build_belief_update_messages(
     packet_mode: str,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
-    """构造一轮 belief update 提示词。"""
     _ensure_prompt_version(prompt_version)
     peer_block = "\n\n".join(
         f"{item['agent']} packet_mode={item['packet_mode']}\npacket={item['packet_text']}"
@@ -84,46 +78,24 @@ def _ensure_prompt_version(prompt_version: str) -> None:
 
 
 def _solver_system_prompt() -> str:
-    return (
-        "You are one reasoning agent in a controlled SID-lite mechanism experiment.\n"
-        "Return strict JSON only. Do not use markdown fences. Do not add extra keys.\n"
-        "Confidence is a self-reported black-box proxy because logits and attention are unavailable."
+    return build_json_system_prompt(
+        "You are one reasoning agent in a controlled SID-lite mechanism experiment.",
+        extra_rules=[
+            "Do not add extra keys.",
+            "Confidence is a self-reported black-box proxy because logits and attention are unavailable.",
+        ],
     )
 
 
 def _belief_system_prompt() -> str:
-    return (
-        "You are one reasoning agent receiving SID-lite peer messages.\n"
-        "Return strict JSON only. Do not restate the whole solution. Only update for concrete reasons."
+    return build_json_system_prompt(
+        "You are one reasoning agent receiving SID-lite peer messages.",
+        extra_rules=[
+            "Do not restate the whole solution.",
+            "Only update for concrete reasons.",
+        ],
     )
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
-    if sample.dataset == "gsm8k":
-        return (
-            "Solve the math word problem carefully. "
-            "The final_answer must be only the final numeric answer without commas or units."
-        )
-    if sample.dataset == "gsm_symbolic":
-        return (
-            "Solve the math problem carefully. "
-            "The final_answer must be only the final numeric answer without commas or units."
-        )
-    if sample.dataset == "math500":
-        return (
-            "Solve the math problem carefully. "
-            "The final_answer must be only the final mathematical expression, with no explanation."
-        )
-    if sample.dataset == "strategyqa":
-        return 'Answer with exactly "yes" or "no". The final_answer must be exactly "yes" or "no".'
-    if sample.dataset == "hotpotqa":
-        return (
-            "Answer the multi-hop question using only the provided context. "
-            "The final_answer must be the shortest judgeable text span."
-        )
-    if sample.dataset in {"mmlu_pro", "gpqa_diamond"}:
-        return (
-            "Choose the single best option. "
-            'The final_answer must be only the option letter, such as "A" or "B".'
-        )
-    raise ValueError(f"Unsupported dataset: {sample.dataset}")
+    return dataset_instruction_for_sample(sample, hotpot_style="shortest_span")

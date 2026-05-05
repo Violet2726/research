@@ -1,14 +1,11 @@
-"""Free-MAD-lite 提示词构造。
-
-本模块为初始求解、单轮 anti-conformity 辩论和轨迹裁决器分别生成 prompt，
-把“反从众修正”和“轨迹级最终裁决”明确拆开。
-"""
+"""Prompt builders for Free-MAD-lite experiments."""
 
 from __future__ import annotations
 
 from hashlib import sha256
 
 from experiment_core.datasets import DatasetSample
+from experiment_core.prompt_contracts import build_json_system_prompt, dataset_instruction_for_sample
 
 
 DEFAULT_PROMPT_VERSION = "free_mad_lite_v1_json"
@@ -20,7 +17,6 @@ def build_initial_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
-    """构造初始候选提示词。"""
     _ensure_prompt_version(prompt_version)
     user_prompt = (
         f"You are agent_{agent_id} in a Free-MAD-lite experiment.\n"
@@ -49,7 +45,6 @@ def build_debate_messages(
     peer_messages: list[dict[str, str]],
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
-    """构造 vanilla 或 anti-conformity 单轮 debate 提示词。"""
     _ensure_prompt_version(prompt_version)
     if mode not in {"vanilla", "anti_conformity"}:
         raise ValueError(f"Unsupported Free-MAD-lite debate mode: {mode}")
@@ -85,7 +80,6 @@ def build_trajectory_judge_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
-    """构造轨迹级裁决提示词。"""
     _ensure_prompt_version(prompt_version)
     trajectory_block = "\n\n".join(
         f"Agent {item['agent_id']}:\n"
@@ -115,7 +109,6 @@ def build_trajectory_judge_messages(
 
 
 def anti_conformity_prompt_hash() -> str:
-    """记录 anti-conformity 指令哈希，便于审计 prompt 版本。"""
     return sha256(_anti_conformity_instruction().encode("utf-8")).hexdigest()
 
 
@@ -125,16 +118,16 @@ def _ensure_prompt_version(prompt_version: str) -> None:
 
 
 def _base_system_prompt() -> str:
-    return (
-        "You are one reasoning agent in a controlled multi-agent debate experiment.\n"
-        "Return strict JSON only. Do not use markdown fences. Do not add extra keys."
+    return build_json_system_prompt(
+        "You are one reasoning agent in a controlled multi-agent debate experiment.",
+        extra_rules=["Do not add extra keys."],
     )
 
 
 def _judge_system_prompt() -> str:
-    return (
-        "You are a trajectory-level judge for a controlled Free-MAD-lite experiment.\n"
-        "Return strict JSON only. Prefer evidence and reasoning stability over conformity."
+    return build_json_system_prompt(
+        "You are a trajectory-level judge for a controlled Free-MAD-lite experiment.",
+        extra_rules=["Prefer evidence and reasoning stability over conformity."],
     )
 
 
@@ -150,31 +143,4 @@ def _anti_conformity_instruction() -> str:
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
-    if sample.dataset == "gsm8k":
-        return (
-            "Solve the math word problem carefully. "
-            "The final_answer must be only the final numeric answer without commas or units."
-        )
-    if sample.dataset == "gsm_symbolic":
-        return (
-            "Solve the math problem carefully. "
-            "The final_answer must be only the final numeric answer without commas or units."
-        )
-    if sample.dataset == "math500":
-        return (
-            "Solve the math problem carefully. "
-            "The final_answer must be only the final mathematical expression, with no explanation."
-        )
-    if sample.dataset == "strategyqa":
-        return 'Answer with exactly "yes" or "no". The final_answer must be exactly "yes" or "no".'
-    if sample.dataset == "hotpotqa":
-        return (
-            "Answer the multi-hop question using only the provided context. "
-            "The final_answer must be the shortest judgeable text span."
-        )
-    if sample.dataset in {"mmlu_pro", "gpqa_diamond"}:
-        return (
-            "Choose the single best option. "
-            'The final_answer must be only the option letter, such as "A" or "B".'
-        )
-    raise ValueError(f"Unsupported dataset: {sample.dataset}")
+    return dataset_instruction_for_sample(sample, hotpot_style="shortest_span")

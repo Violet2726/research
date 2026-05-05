@@ -17,6 +17,7 @@ from typing import Any
 
 from free_mad_lite.logic import METHOD_ORDER
 from experiment_core.analysis_reports import render_frontier_report, write_report
+from experiment_core.reporting_utils import resolve_manifest_model_name
 from experiment_core.workspace import default_reports_root
 
 
@@ -65,7 +66,7 @@ def _render_markdown(
     predictions: list[dict[str, Any]],
     run_dir: Path,
 ) -> str:
-    backbone = manifest.get("backbone", {})
+    backbone = {"name": resolve_manifest_model_name(manifest)}
     overall_rows = _ordered_rows([row for row in metrics.get("summary", []) if row.get("dataset") == "overall"])
     ci_text = _bootstrap_ci_text(predictions, "free_mad_lite_llm_trajectory", "vanilla_mad_r1_final_vote")
     lines = [

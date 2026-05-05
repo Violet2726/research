@@ -1,14 +1,10 @@
-"""`budget_comm` 提示词构造。
-
-本模块把 DALA-lite 实验中的两个关键阶段拆成两套提示词：
-1. Stage A：agent 在私有视图上独立求解，并显式产出可压缩的结构化字段；
-2. Stage B：agent 读取预算筛选后的 peer packet，再决定是否修正答案。
-"""
+"""Prompt builders for budget-aware communication experiments."""
 
 from __future__ import annotations
 
 from budget_comm.dataset_views import ContextView
 from experiment_core.datasets import DatasetSample
+from experiment_core.prompt_contracts import build_json_system_prompt, dataset_instruction_for_sample
 
 
 DEFAULT_PROMPT_VERSION = "budget_comm_dala_lite_v1"
@@ -20,7 +16,6 @@ def build_solver_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
-    """构造 Stage A solver 提示词。"""
     if prompt_version != DEFAULT_PROMPT_VERSION:
         raise ValueError(f"Unsupported budget_comm prompt_version: {prompt_version}")
     user_prompt = (
@@ -57,7 +52,6 @@ def build_belief_update_messages(
     round_budget_tokens: int | None,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
-    """构造 Stage B belief update 提示词。"""
     if prompt_version != DEFAULT_PROMPT_VERSION:
         raise ValueError(f"Unsupported budget_comm prompt_version: {prompt_version}")
     peer_block = "\n\n".join(
@@ -93,58 +87,30 @@ def build_belief_update_messages(
 
 
 def _solver_system_prompt() -> str:
-    """返回 Stage A 的 system prompt。"""
-    return (
-        "You are one reasoning agent in a controlled DALA-lite experiment.\n"
-        "Return strict JSON only.\n"
-        "Do not use markdown fences.\n"
-        "Do not add extra keys.\n"
-        "Keep keyword_clues short and concrete.\n"
-        "confidence_raw should prefer a numeric value in [0, 1]."
+    return build_json_system_prompt(
+        "You are one reasoning agent in a controlled DALA-lite experiment.",
+        extra_rules=[
+            "Do not add extra keys.",
+            "Keep keyword_clues short and concrete.",
+            "confidence_raw should prefer a numeric value in [0, 1].",
+        ],
     )
 
 
 def _belief_update_system_prompt() -> str:
-    """返回 Stage B 的 system prompt。"""
-    return (
-        "You are one reasoning agent receiving budget-selected peer packets.\n"
-        "Return strict JSON only.\n"
-        "Do not use markdown fences.\n"
-        "Do not restate the full solution.\n"
-        "Only update the answer if there is a concrete reason."
+    return build_json_system_prompt(
+        "You are one reasoning agent receiving budget-selected peer packets.",
+        extra_rules=[
+            "Do not restate the full solution.",
+            "Only update the answer if there is a concrete reason.",
+        ],
     )
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
-    """返回数据集特定的答题约束。"""
-    if sample.dataset == "gsm8k":
-        return (
-            "Solve the math word problem carefully. "
-            "The final_answer must be only the final numeric answer without commas or units."
-        )
-    if sample.dataset == "gsm_symbolic":
-        return (
-            "Solve the math problem carefully. "
-            "The final_answer must be only the final numeric answer without commas or units."
-        )
-    if sample.dataset == "math500":
-        return (
-            "Solve the math problem carefully. "
-            "The final_answer must be only the final mathematical expression, with no explanation."
-        )
-    if sample.dataset == "strategyqa":
-        return (
-            'Answer with exactly "yes" or "no". '
-            'The final_answer must be exactly "yes" or "no".'
-        )
-    if sample.dataset == "hotpotqa":
-        return (
-            "Answer the multi-hop question using only the context visible to you. "
-            "The final_answer must be the shortest judgeable text span."
-        )
-    if sample.dataset in {"mmlu_pro", "gpqa_diamond"}:
-        return (
-            "Choose the single best option using only the context visible to you. "
-            'The final_answer must be only the option letter, such as "A" or "B".'
-        )
-    raise ValueError(f"Unsupported dataset: {sample.dataset}")
+    return dataset_instruction_for_sample(
+        sample,
+        context_scope="visible",
+        hotpot_style="shortest_span",
+        multiple_choice_scope="visible",
+    )

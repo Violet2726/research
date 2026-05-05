@@ -1,12 +1,9 @@
-"""SPARC 提示词构造。
-
-本模块为 solver、debate、single judge 与 auditor 分别构造 prompt，
-显式区分内容压缩、触发通信和局部审计几个阶段的输出契约。
-"""
+"""Prompt builders for SPARC experiments."""
 
 from __future__ import annotations
 
 from experiment_core.datasets import DatasetSample
+from experiment_core.prompt_contracts import build_json_system_prompt, dataset_instruction_for_sample
 
 
 DEFAULT_PROMPT_VERSION = "sparc_v1_json"
@@ -134,71 +131,41 @@ def build_audit_messages(
 
 
 def _solver_system_prompt() -> str:
-    return (
-        "You are one reasoning agent in a controlled SPARC experiment.\n"
-        "Return strict JSON only.\n"
-        "Do not use markdown fences.\n"
-        "Keep every field concise.\n"
-        "confidence_raw should prefer a numeric value in [0, 1]."
+    return build_json_system_prompt(
+        "You are one reasoning agent in a controlled SPARC experiment.",
+        extra_rules=[
+            "Keep every field concise.",
+            "confidence_raw should prefer a numeric value in [0, 1].",
+        ],
     )
 
 
 def _debate_system_prompt() -> str:
-    return (
-        "You are one reasoning agent receiving compressed peer packets.\n"
-        "Return strict JSON only.\n"
-        "Do not use markdown fences.\n"
-        "Do not restate the whole solution.\n"
-        "Only report whether your answer changed and why."
+    return build_json_system_prompt(
+        "You are one reasoning agent receiving compressed peer packets.",
+        extra_rules=[
+            "Do not restate the whole solution.",
+            "Only report whether your answer changed and why.",
+        ],
     )
 
 
 def _judge_system_prompt() -> str:
-    return (
-        "You are a concise judge for controlled research experiments.\n"
-        "Return strict JSON only.\n"
-        "Do not add explanations outside the JSON object."
+    return build_json_system_prompt(
+        "You are a concise judge for controlled research experiments.",
+        extra_rules=["Do not add explanations outside the JSON object."],
     )
 
 
 def _audit_system_prompt() -> str:
-    return (
-        "You are a local auditor for SPARC.\n"
-        "You only see two candidate packets and must not imagine missing debate context.\n"
-        "Return strict JSON only.\n"
-        "Use abstain when the local evidence is insufficient."
+    return build_json_system_prompt(
+        "You are a local auditor for SPARC.",
+        extra_rules=[
+            "You only see two candidate packets and must not imagine missing debate context.",
+            "Use abstain when the local evidence is insufficient.",
+        ],
     )
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
-    if sample.dataset == "gsm8k":
-        return (
-            "Solve the math word problem carefully. "
-            "The final answer must be only the final numeric answer without commas or units."
-        )
-    if sample.dataset == "gsm_symbolic":
-        return (
-            "Solve the math problem carefully. "
-            "The final answer must be only the final numeric answer without commas or units."
-        )
-    if sample.dataset == "math500":
-        return (
-            "Solve the math problem carefully. "
-            "The final answer must be only the final mathematical expression, with no explanation."
-        )
-    if sample.dataset == "strategyqa":
-        return (
-            'Answer with exactly "yes" or "no". '
-            'The final answer must be exactly "yes" or "no".'
-        )
-    if sample.dataset == "hotpotqa":
-        return (
-            "Answer the multi-hop question using only the provided context. "
-            "The final answer must be the shortest judgeable text span."
-        )
-    if sample.dataset in {"mmlu_pro", "gpqa_diamond"}:
-        return (
-            "Choose the single best option. "
-            'The final answer must be only the option letter, such as "A" or "B".'
-        )
-    raise ValueError(f"Unsupported dataset: {sample.dataset}")
+    return dataset_instruction_for_sample(sample, hotpot_style="shortest_span")
