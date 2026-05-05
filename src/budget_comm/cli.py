@@ -24,7 +24,7 @@ from budget_comm.config import (
     load_experiment_config,
     load_protocol_config,
     phase_metadata,
-    resolve_backbone,
+    resolve_model,
 )
 from budget_comm.reporting import render_report, summarize_run
 from budget_comm.runner import run_experiment
@@ -39,12 +39,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     inspect = subparsers.add_parser("inspect-experiment", help="Show the resolved budget_comm experiment configuration.")
     inspect.add_argument("--experiment", required=True)
-    inspect.add_argument("--backbone", default=None)
+    inspect.add_argument("--model", default=None)
 
     run = subparsers.add_parser("run", help="Execute one configured budget_comm experiment phase.")
     run.add_argument("--experiment", required=True)
     run.add_argument("--phase", required=True)
-    run.add_argument("--backbone", default=None)
+    run.add_argument("--model", default=None)
     run.add_argument("--runs-root", default=default_runs_root("budget_comm"))
     run.add_argument("--cache-path", default=default_cache_path("budget_comm"))
 
@@ -71,7 +71,7 @@ def main() -> None:
         protocol = load_protocol_config(experiment.protocol)
         auction_policy = load_auction_policy_config(experiment.auction_policy)
         context_view = load_context_view_config(experiment.context_view)
-        resolved_backbone = resolve_backbone(args.backbone or experiment.primary_backbone)
+        resolved_model = resolve_model(args.model or experiment.primary_model_ref)
         payload = {
             "name": experiment.name,
             "description": experiment.description,
@@ -109,12 +109,12 @@ def main() -> None:
             "requests_per_minute_limit": experiment.requests_per_minute_limit,
             "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
             "workspace_defaults": workspace_defaults("budget_comm"),
-            "primary_backbone": experiment.primary_backbone,
-            "resolved_backbone": {
-                "name": resolved_backbone.name,
-                "provider": resolved_backbone.provider,
-                "model_id": resolved_backbone.model_id,
-                "tags": resolved_backbone.tags,
+            "primary_model_ref": experiment.primary_model_ref,
+            "resolved_model": {
+                "name": resolved_model.name,
+                "provider": resolved_model.provider,
+                "model_id": resolved_model.model_id,
+                "tags": resolved_model.tags,
             },
             "phases": {
                 phase_name: phase_metadata(experiment, phase_name)
@@ -126,7 +126,7 @@ def main() -> None:
 
     if args.command == "run":
         experiment = load_experiment_config(args.experiment)
-        backbone = resolve_backbone(args.backbone or experiment.primary_backbone)
+        backbone = resolve_model(args.model or experiment.primary_model_ref)
         run_dir = run_experiment(
             experiment=experiment,
             phase_name=args.phase,

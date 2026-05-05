@@ -1,4 +1,4 @@
-name = "local-ollama-cot1-full-c120"
+name = "local_ollama_cot1_full_c120"
 description = "Local Ollama full-run cot_1 on GSM8K, StrategyQA, and HotpotQA with max_concurrent_requests=5."
 method_catalog = "configs/single_agent/methods/common.toml"
 benchmark_configs = [
@@ -10,6 +10,7 @@ global_seed = 42
 reruns_per_method = 1
 prompt_version = "single_agent_reasoning_json_v1"
 max_concurrent_requests = 5
+primary_model_ref = "local_ollama/qwen3:4b"
 [phases.full]
 methods = ["cot_1"]
 split_overrides = { gsm8k = "dev300_seed42", strategyqa = "dev_full_229_seed42", hotpotqa = "dev300_seed42" }

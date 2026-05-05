@@ -17,7 +17,7 @@ from experiment_core.workspace import (
     default_runs_root,
     workspace_defaults,
 )
-from sparc.config import load_benchmarks, load_experiment_config, load_protocol_config, phase_metadata, resolve_backbone
+from sparc.config import load_benchmarks, load_experiment_config, load_protocol_config, phase_metadata, resolve_model
 from sparc.reporting import render_report, summarize_run
 from sparc.runner import run_experiment
 from sparc.validation import validate_run
@@ -30,12 +30,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     inspect = subparsers.add_parser("inspect-experiment", help="Show the resolved SPARC experiment configuration.")
     inspect.add_argument("--experiment", required=True)
-    inspect.add_argument("--backbone", default=None)
+    inspect.add_argument("--model", default=None)
 
     run = subparsers.add_parser("run", help="Execute one configured SPARC experiment phase.")
     run.add_argument("--experiment", required=True)
     run.add_argument("--phase", required=True)
-    run.add_argument("--backbone", default=None)
+    run.add_argument("--model", default=None)
     run.add_argument("--runs-root", default=default_runs_root("sparc"))
     run.add_argument("--cache-path", default=default_cache_path("sparc"))
 
@@ -60,7 +60,7 @@ def main() -> None:
     if args.command == "inspect-experiment":
         experiment = load_experiment_config(args.experiment)
         protocol = load_protocol_config(experiment.protocol)
-        resolved_backbone = resolve_backbone(args.backbone or experiment.primary_backbone)
+        resolved_model = resolve_model(args.model or experiment.primary_model_ref)
         payload = {
             "name": experiment.name,
             "description": experiment.description,
@@ -81,13 +81,13 @@ def main() -> None:
             "requests_per_minute_limit": experiment.requests_per_minute_limit,
             "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
             "workspace_defaults": workspace_defaults("sparc"),
-            "primary_backbone": experiment.primary_backbone,
-            "confirmatory_backbone": experiment.confirmatory_backbone,
-            "resolved_backbone": {
-                "name": resolved_backbone.name,
-                "provider": resolved_backbone.provider,
-                "model_id": resolved_backbone.model_id,
-                "tags": resolved_backbone.tags,
+            "primary_model_ref": experiment.primary_model_ref,
+            "confirmatory_model_ref": experiment.confirmatory_model_ref,
+            "resolved_model": {
+                "name": resolved_model.name,
+                "provider": resolved_model.provider,
+                "model_id": resolved_model.model_id,
+                "tags": resolved_model.tags,
             },
             "fixed_trigger_policy": experiment.fixed_trigger_policy,
             "message_modes": experiment.message_modes,
@@ -106,7 +106,7 @@ def main() -> None:
 
     if args.command == "run":
         experiment = load_experiment_config(args.experiment)
-        backbone = resolve_backbone(args.backbone or experiment.primary_backbone)
+        backbone = resolve_model(args.model or experiment.primary_model_ref)
         run_dir = run_experiment(
             experiment=experiment,
             phase_name=args.phase,

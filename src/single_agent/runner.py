@@ -43,22 +43,22 @@ from experiment_core.runtime import RunProgressTracker, build_run_id
 from experiment_core.structured_output import (
     ARTIFACT_VERSION,
     OUTPUT_MODE_CORE,
-    validate_structured_output,
+    validate_or_recover_structured_output,
 )
 from experiment_core.workspace import (
     default_cache_path,
     default_reports_root,
     default_runs_root,
 )
-from single_agent_baselines.config import (
+from single_agent.config import (
     ExperimentConfig,
     phase_metadata,
     required_benchmark_tags,
     required_model_tags,
 )
-from single_agent_baselines.prompting import build_messages
-from single_agent_baselines.reporting import budget_fairness_check, export_paper_tables, summarize_run
-from single_agent_baselines.validation import validate_run
+from single_agent.prompting import build_messages
+from single_agent.reporting import budget_fairness_check, export_paper_tables, summarize_run
+from single_agent.validation import validate_run
 
 
 @dataclass(frozen=True)
@@ -128,8 +128,9 @@ def run_experiment(
     phase = phase_metadata(experiment, phase_name)
     method_catalog = load_method_catalog(experiment.method_catalog)
     methods = _phase_methods(experiment, phase_name, method_catalog)
-    run_id = build_run_id(experiment.name, phase_name)
-    run_paths = _prepare_run_paths(run_root, run_id)
+    primary_model = models[0] if models else None
+    run_id = build_run_id(experiment.name, phase_name, primary_model.name if primary_model is not None else "")
+    run_paths = _prepare_run_paths(run_root, experiment.name, phase_name, run_id)
     cache = RequestCache(cache_path)
     rate_limiter = SlidingWindowRateLimiter(
         requests_per_minute=experiment.requests_per_minute_limit,
@@ -153,6 +154,11 @@ def run_experiment(
     manifest = {
         "run_id": run_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "family_name": "single_agent",
+        "experiment_name": experiment.name,
+        "phase_name": phase_name,
+        "primary_model_ref": experiment.primary_model_ref,
+        "resolved_model": asdict(primary_model) if primary_model is not None else None,
         "experiment": experiment.name,
         "phase": phase_name,
         "description": experiment.description,
@@ -427,7 +433,11 @@ def _execute_call(
         final_answer = ""
     else:
         try:
-            validated_output = validate_structured_output(response_payload["assistant_text"], OUTPUT_MODE_CORE)
+            validated_output = validate_or_recover_structured_output(
+                str(response_payload.get("assistant_text") or ""),
+                OUTPUT_MODE_CORE,
+                provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
+            )
             output_status = "ok"
             final_answer = validated_output["final_answer"]
         except Exception:
@@ -551,9 +561,9 @@ def _write_leaderboard(path: Path, predictions: list[dict[str, Any]]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _prepare_run_paths(run_root: str | Path, run_id: str) -> RunPaths:
+def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> RunPaths:
     """创建运行目录，并返回其中所有固定产物路径。"""
-    root = Path(run_root) / run_id
+    root = Path(run_root) / experiment_name / phase_name / run_id
     root.mkdir(parents=True, exist_ok=True)
     return RunPaths(
         root=root,

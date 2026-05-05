@@ -19,11 +19,7 @@ def validate_run(run_dir: str | Path, compare_run_dir: str | Path | None = None)
     root = Path(run_dir)
     manifest = _load_json(root / "manifest.json")
     experiment_kind = manifest.get("experiment_kind", "")
-    report_name = {
-        "content_ablation": "content_ablation_report.md",
-        "auditing_ablation": "auditing_ablation_report.md",
-        "sparc_v1": "sparc_v1_report.md",
-    }.get(experiment_kind, "report.md")
+    report_name = "report.md"
     required = [
         "manifest.json",
         "stage_a_turns.jsonl",
@@ -279,4 +275,5 @@ def _load_json(path: Path) -> dict[str, Any]:
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    with path.open("r", encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]

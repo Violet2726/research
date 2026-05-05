@@ -23,7 +23,7 @@ from free_mad_lite.config import (
     load_experiment_config,
     load_protocol_config,
     phase_metadata,
-    resolve_backbone,
+    resolve_model,
 )
 from free_mad_lite.prompting import anti_conformity_prompt_hash
 from free_mad_lite.reporting import render_report, summarize_run
@@ -38,12 +38,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     inspect = subparsers.add_parser("inspect-experiment", help="Show resolved Free-MAD-lite config.")
     inspect.add_argument("--experiment", required=True)
-    inspect.add_argument("--backbone", default=None)
+    inspect.add_argument("--model", default=None)
 
     run = subparsers.add_parser("run", help="Execute one Free-MAD-lite phase.")
     run.add_argument("--experiment", required=True)
     run.add_argument("--phase", required=True)
-    run.add_argument("--backbone", default=None)
+    run.add_argument("--model", default=None)
     run.add_argument("--runs-root", default=default_runs_root("free_mad_lite"))
     run.add_argument("--cache-path", default=default_cache_path("free_mad_lite"))
 
@@ -66,7 +66,7 @@ def main() -> None:
     if args.command == "inspect-experiment":
         experiment = load_experiment_config(args.experiment)
         protocol = load_protocol_config(experiment.protocol)
-        backbone = resolve_backbone(args.backbone or experiment.primary_backbone)
+        backbone = resolve_model(args.model or experiment.primary_model_ref)
         payload = {
             "name": experiment.name,
             "description": experiment.description,
@@ -81,8 +81,8 @@ def main() -> None:
             "requests_per_minute_limit": experiment.requests_per_minute_limit,
             "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
             "workspace_defaults": workspace_defaults("free_mad_lite"),
-            "primary_backbone": experiment.primary_backbone,
-            "resolved_backbone": {
+            "primary_model_ref": experiment.primary_model_ref,
+            "resolved_model": {
                 "name": backbone.name,
                 "provider": backbone.provider,
                 "model_id": backbone.model_id,
@@ -98,7 +98,7 @@ def main() -> None:
 
     if args.command == "run":
         experiment = load_experiment_config(args.experiment)
-        backbone = resolve_backbone(args.backbone or experiment.primary_backbone)
+        backbone = resolve_model(args.model or experiment.primary_model_ref)
         run_dir = run_experiment(
             experiment=experiment,
             phase_name=args.phase,

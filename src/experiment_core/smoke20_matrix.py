@@ -1,0 +1,517 @@
+from __future__ import annotations
+
+import argparse
+import copy
+from collections import Counter
+from dataclasses import asdict, dataclass, replace
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+import tomllib
+from typing import Any
+
+from budget_comm.config import load_experiment_config as load_budget_experiment_config
+from budget_comm.config import resolve_model as resolve_budget_model
+from budget_comm.runner import run_experiment as run_budget_experiment
+from budget_comm.validation import validate_run as validate_budget_run
+from comm_necessary.config import load_experiment_config as load_comm_necessary_experiment_config
+from comm_necessary.config import resolve_model as resolve_comm_necessary_model
+from comm_necessary.runner import run_experiment as run_comm_necessary_experiment
+from comm_necessary.validation import validate_run as validate_comm_necessary_run
+from cue.config import load_experiment_config as load_cue_experiment_config
+from cue.config import resolve_model as resolve_cue_model
+from cue.runner import run_experiment as run_cue_experiment
+from cue.validation import validate_run as validate_cue_run
+from experiment_core.config import load_benchmark_config, resolve_model_ref
+from experiment_core.workspace import default_runs_root, workspace_defaults
+from free_mad_lite.config import load_experiment_config as load_free_mad_experiment_config
+from free_mad_lite.config import resolve_model as resolve_free_mad_model
+from free_mad_lite.runner import run_experiment as run_free_mad_experiment
+from free_mad_lite.validation import validate_run as validate_free_mad_run
+from multi_agent.config import load_experiment_config as load_multi_agent_experiment_config
+from multi_agent.config import resolve_model as resolve_multi_agent_model
+from multi_agent.runner import run_experiment as run_multi_agent_experiment
+from multi_agent.validation import validate_run as validate_multi_agent_run
+from selective_comm.config import load_experiment_config as load_selective_experiment_config
+from selective_comm.config import resolve_model as resolve_selective_model
+from selective_comm.runner import run_experiment as run_selective_experiment
+from selective_comm.validation import validate_run as validate_selective_run
+from sid_lite.config import load_experiment_config as load_sid_experiment_config
+from sid_lite.config import resolve_model as resolve_sid_model
+from sid_lite.runner import run_experiment as run_sid_experiment
+from sid_lite.validation import validate_run as validate_sid_run
+from single_agent.config import ExperimentConfig as SingleAgentExperimentConfig
+from single_agent.config import load_experiment_config as load_single_agent_experiment_config
+from single_agent.runner import run_experiment as run_single_agent_experiment
+from single_agent.validation import validate_run as validate_single_agent_run
+from sparc.config import load_experiment_config as load_sparc_experiment_config
+from sparc.config import resolve_model as resolve_sparc_model
+from sparc.runner import run_experiment as run_sparc_experiment
+from sparc.validation import validate_run as validate_sparc_run
+
+
+DEFAULT_PHASE = "smoke20"
+DEFAULT_MODEL_REF = "xiaomimimo/mimo-v2.5"
+DEFAULT_MAX_CONCURRENT_REQUESTS = 60
+DEFAULT_REQUESTS_PER_MINUTE = 90
+DEFAULT_TOKENS_PER_MINUTE = 9000000
+
+EXCLUDED_CONFIGS = {
+    "configs/multi_agent/experiments/vanilla_mad_minimal.toml": "development_or_minimal_config",
+    "configs/single_agent/experiments/local_ollama_smoke.toml": "local_only_dev_config",
+}
+
+RUN_ORDER = [
+    "configs/single_agent/experiments/main_baselines.toml",
+    "configs/multi_agent/experiments/debate_vs_vote_controlled.toml",
+    "configs/free_mad_lite/experiments/free_mad_lite_v1.toml",
+    "configs/budget_comm/experiments/dala_lite_same_context_v1.toml",
+    "configs/comm_necessary/experiments/hotpotqa_split_evidence_v1.toml",
+    "configs/sid_lite/experiments/sid_lite_v1.toml",
+    "configs/selective_comm/experiments/trigger_early_exit_v1.toml",
+    "configs/sparc/experiments/sparc_v1_smoke.toml",
+    "configs/single_agent/experiments/main_table_same_context.toml",
+    "configs/single_agent/experiments/robustness.toml",
+    "configs/multi_agent/experiments/vanilla_mad_clean_smoke.toml",
+    "configs/budget_comm/experiments/dala_lite_split_context_v1.toml",
+    "configs/comm_necessary/experiments/hotpotqa_split500_main.toml",
+    "configs/sparc/experiments/content_ablation_v1.toml",
+    "configs/sparc/experiments/auditing_ablation_v1.toml",
+    "configs/sparc/experiments/aggregation_auditing_ablation_v1.toml",
+    "configs/cue/experiments/cue_v1.toml",
+    "configs/selective_comm/experiments/trigger_voc_v2.toml",
+    "configs/selective_comm/experiments/trigger_voc_v2_core_only.toml",
+    "configs/selective_comm/experiments/trigger_voc_v2_equal_budget_gsm_strategy.toml",
+]
+
+
+@dataclass(frozen=True)
+class RuntimeOverrides:
+    phase_name: str = DEFAULT_PHASE
+    model_ref: str = DEFAULT_MODEL_REF
+    max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS
+    requests_per_minute_limit: int = DEFAULT_REQUESTS_PER_MINUTE
+    tokens_per_minute_limit: int = DEFAULT_TOKENS_PER_MINUTE
+
+
+@dataclass(frozen=True)
+class DiscoveredConfig:
+    family: str
+    config_path: str
+    experiment_name: str
+    description: str
+
+
+@dataclass
+class MatrixEntry:
+    family: str
+    config_path: str
+    experiment_name: str
+    description: str
+    phase_name: str
+    status: str
+    excluded_reason: str | None = None
+    run_dir: str | None = None
+    validation_passed: bool | None = None
+    review_passed: bool | None = None
+    review_notes: str = ""
+
+
+@dataclass(frozen=True)
+class MatrixBuild:
+    overrides: RuntimeOverrides
+    entries: list[MatrixEntry]
+    semantic_entries: list[MatrixEntry]
+    counts: dict[str, int]
+
+
+@dataclass(frozen=True)
+class ReviewResult:
+    passed: bool
+    notes: str
+
+
+@dataclass(frozen=True)
+class OrchestratorPaths:
+    root: Path
+    matrix: Path
+    state: Path
+    report: Path
+    published_summary: Path
+
+
+def discover_smoke20_configs(config_root: str | Path = "configs") -> list[DiscoveredConfig]:
+    discovered: list[DiscoveredConfig] = []
+    for path in sorted(Path(config_root).rglob("*.toml")):
+        if "experiments" not in path.parts:
+            continue
+        payload = _load_toml(path)
+        phases = payload.get("phases", {})
+        if DEFAULT_PHASE not in phases:
+            continue
+        discovered.append(
+            DiscoveredConfig(
+                family=path.parts[1],
+                config_path=path.as_posix(),
+                experiment_name=str(payload["name"]),
+                description=str(payload.get("description", "")),
+            )
+        )
+    return discovered
+
+
+def build_run_matrix(
+    overrides: RuntimeOverrides,
+) -> MatrixBuild:
+    discovered = discover_smoke20_configs()
+
+    entries: list[MatrixEntry] = []
+    semantic_entries: list[MatrixEntry] = []
+    for item in discovered:
+        if item.config_path in EXCLUDED_CONFIGS:
+            entries.append(
+                MatrixEntry(
+                    family=item.family,
+                    config_path=item.config_path,
+                    experiment_name=item.experiment_name,
+                    description=item.description,
+                    phase_name=overrides.phase_name,
+                    status="excluded",
+                    excluded_reason=EXCLUDED_CONFIGS[item.config_path],
+                )
+            )
+            continue
+        entry = MatrixEntry(
+            family=item.family,
+            config_path=item.config_path,
+            experiment_name=item.experiment_name,
+            description=item.description,
+            phase_name=overrides.phase_name,
+            status="pending",
+        )
+        entries.append(entry)
+        semantic_entries.append(entry)
+
+    counts = Counter(entry.status for entry in semantic_entries)
+    counts.update(
+        {
+            "excluded": sum(1 for entry in entries if entry.status == "excluded"),
+            "semantic_unique_targets": len(semantic_entries),
+        }
+    )
+
+    expected_order = {path: index for index, path in enumerate(RUN_ORDER)}
+    semantic_entries.sort(key=lambda entry: expected_order.get(entry.config_path, 10_000))
+    entries.sort(key=lambda entry: expected_order.get(entry.config_path, 10_000))
+    return MatrixBuild(overrides=overrides, entries=entries, semantic_entries=semantic_entries, counts=dict(counts))
+
+
+def review_run_health(run_dir: str | Path, family: str) -> ReviewResult:
+    root = Path(run_dir)
+    progress = _safe_load_json(root / "progress.json") or {}
+    if str(progress.get("status") or "") != "completed":
+        return ReviewResult(False, "progress_not_completed")
+
+    validation = _safe_load_json(root / "run_validation.json") or {}
+    if not bool(validation.get("passed")):
+        return ReviewResult(False, "validation_not_passed")
+
+    metrics_name = "policy_metrics.json" if family in {"cue", "selective_comm"} else "metrics.json"
+    metrics_payload = _safe_load_json(root / metrics_name) or {}
+    summary_rows = metrics_payload.get("summary", []) if isinstance(metrics_payload, dict) else []
+    if not summary_rows:
+        return ReviewResult(False, f"missing_summary_rows:{metrics_name}")
+
+    question_counts = [
+        int(
+            row.get("question_count")
+            or row.get("questions_per_rerun")
+            or row.get("prediction_rows")
+            or 0
+        )
+        for row in summary_rows
+        if isinstance(row, dict)
+    ]
+    if not question_counts or max(question_counts) <= 0:
+        return ReviewResult(False, "empty_question_counts")
+
+    token_totals = [float(row.get("total_tokens_mean") or 0.0) for row in summary_rows if isinstance(row, dict)]
+    if token_totals and max(token_totals) <= 0.0:
+        return ReviewResult(False, "zero_total_tokens")
+
+    return ReviewResult(True, "validation_passed_and_metrics_nonempty")
+
+
+def run_smoke20_matrix(
+    overrides: RuntimeOverrides,
+    *,
+    state_root: str | Path | None = None,
+) -> Path:
+    matrix = build_run_matrix(overrides)
+    paths = _prepare_orchestrator_paths(state_root)
+    family_blocked: set[str] = set()
+    _write_matrix_state(paths, matrix)
+
+    entries_by_config = {entry.config_path: entry for entry in matrix.semantic_entries}
+    for config_path in RUN_ORDER:
+        entry = entries_by_config.get(config_path)
+        if entry is None or entry.status != "pending":
+            continue
+        if entry.family in family_blocked:
+            entry.review_notes = "family_blocked_after_previous_failure"
+            continue
+
+        entry.status = "running"
+        _write_matrix_state(paths, matrix)
+        try:
+            run_dir = _execute_entry(entry, overrides)
+            validation = _validate_entry(entry.family, run_dir)
+            review = review_run_health(run_dir, entry.family)
+            entry.run_dir = run_dir.as_posix()
+            entry.validation_passed = bool(validation.get("passed"))
+            entry.review_passed = review.passed
+            entry.review_notes = review.notes
+            entry.status = "completed" if entry.validation_passed and entry.review_passed else "rerun-needed"
+            if entry.status != "completed":
+                family_blocked.add(entry.family)
+        except Exception as exc:
+            entry.status = "failed"
+            entry.review_notes = f"runner_error:{exc}"
+            family_blocked.add(entry.family)
+        _write_matrix_state(paths, matrix)
+
+    _write_matrix_state(paths, matrix)
+    return paths.root
+
+
+def _execute_entry(entry: MatrixEntry, overrides: RuntimeOverrides) -> Path:
+    family = entry.family
+    config_path = entry.config_path
+    if family == "single_agent":
+        experiment = load_single_agent_experiment_config(config_path)
+        overridden = apply_runtime_overrides(family, experiment, overrides)
+        model = resolve_model_ref(overrides.model_ref)
+        benchmarks = [load_benchmark_config(path) for path in overridden.benchmark_configs]
+        return run_single_agent_experiment(
+            experiment=overridden,
+            phase_name=overrides.phase_name,
+            models=[model],
+            benchmarks=benchmarks,
+        )
+
+    loader_map = {
+        "budget_comm": load_budget_experiment_config,
+        "comm_necessary": load_comm_necessary_experiment_config,
+        "cue": load_cue_experiment_config,
+        "free_mad_lite": load_free_mad_experiment_config,
+        "multi_agent": load_multi_agent_experiment_config,
+        "selective_comm": load_selective_experiment_config,
+        "sid_lite": load_sid_experiment_config,
+        "sparc": load_sparc_experiment_config,
+    }
+    resolver_map = {
+        "budget_comm": resolve_budget_model,
+        "comm_necessary": resolve_comm_necessary_model,
+        "cue": resolve_cue_model,
+        "free_mad_lite": resolve_free_mad_model,
+        "multi_agent": resolve_multi_agent_model,
+        "selective_comm": resolve_selective_model,
+        "sid_lite": resolve_sid_model,
+        "sparc": resolve_sparc_model,
+    }
+    runner_map = {
+        "budget_comm": run_budget_experiment,
+        "comm_necessary": run_comm_necessary_experiment,
+        "cue": run_cue_experiment,
+        "free_mad_lite": run_free_mad_experiment,
+        "multi_agent": run_multi_agent_experiment,
+        "selective_comm": run_selective_experiment,
+        "sid_lite": run_sid_experiment,
+        "sparc": run_sparc_experiment,
+    }
+    experiment = loader_map[family](config_path)
+    overridden = apply_runtime_overrides(family, experiment, overrides)
+    backbone = resolver_map[family](overrides.model_ref)
+    return runner_map[family](
+        experiment=overridden,
+        phase_name=overrides.phase_name,
+        backbone=backbone,
+    )
+
+
+def apply_runtime_overrides(family: str, experiment: Any, overrides: RuntimeOverrides) -> Any:
+    raw = copy.deepcopy(experiment.raw)
+    raw["max_concurrent_requests"] = overrides.max_concurrent_requests
+    raw["requests_per_minute_limit"] = overrides.requests_per_minute_limit
+    raw["tokens_per_minute_limit"] = overrides.tokens_per_minute_limit
+
+    replace_kwargs: dict[str, Any] = {
+        "max_concurrent_requests": overrides.max_concurrent_requests,
+        "requests_per_minute_limit": overrides.requests_per_minute_limit,
+        "tokens_per_minute_limit": overrides.tokens_per_minute_limit,
+        "raw": raw,
+    }
+
+    if hasattr(experiment, "primary_model_ref"):
+        raw["primary_model_ref"] = overrides.model_ref
+        replace_kwargs["primary_model_ref"] = overrides.model_ref
+
+    if family == "single_agent":
+        raw.setdefault("phases", {}).setdefault(overrides.phase_name, {})
+        raw["phases"][overrides.phase_name]["required_model_tags"] = []
+        raw["phases"][overrides.phase_name]["benchmark_required_tags"] = {}
+        replace_kwargs["required_model_tags"] = []
+        replace_kwargs["benchmark_required_tags"] = {}
+
+    return replace(experiment, **replace_kwargs)
+
+
+def _validate_entry(family: str, run_dir: Path) -> dict[str, Any]:
+    validators = {
+        "budget_comm": validate_budget_run,
+        "comm_necessary": validate_comm_necessary_run,
+        "cue": validate_cue_run,
+        "free_mad_lite": validate_free_mad_run,
+        "multi_agent": validate_multi_agent_run,
+        "selective_comm": validate_selective_run,
+        "sid_lite": validate_sid_run,
+        "single_agent": validate_single_agent_run,
+        "sparc": validate_sparc_run,
+    }
+    payload = validators[family](run_dir)
+    (Path(run_dir) / "run_validation.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
+def _prepare_orchestrator_paths(state_root: str | Path | None) -> OrchestratorPaths:
+    root_base = Path(state_root or default_runs_root("smoke20_matrix"))
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-smoke20-mimo-v2.5")
+    root = root_base / run_id
+    root.mkdir(parents=True, exist_ok=True)
+    return OrchestratorPaths(
+        root=root,
+        matrix=root / "matrix.json",
+        state=root / "state.json",
+        report=root / "matrix_status.md",
+        published_summary=Path("reports") / "summary" / f"{run_id}.md",
+    )
+
+
+def _write_matrix_state(paths: OrchestratorPaths, matrix: MatrixBuild) -> None:
+    counts = Counter(entry.status for entry in matrix.semantic_entries)
+    counts.update(
+        {
+            "excluded": sum(1 for entry in matrix.entries if entry.status == "excluded"),
+            "semantic_unique_targets": len(matrix.semantic_entries),
+        }
+    )
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "overrides": asdict(matrix.overrides),
+        "counts": dict(counts),
+        "entries": [asdict(entry) for entry in matrix.entries],
+        "semantic_entries": [asdict(entry) for entry in matrix.semantic_entries],
+    }
+    paths.matrix.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    paths.state.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    report_text = _render_matrix_report(matrix, dict(counts))
+    paths.report.write_text(report_text, encoding="utf-8")
+    paths.published_summary.parent.mkdir(parents=True, exist_ok=True)
+    paths.published_summary.write_text(report_text, encoding="utf-8")
+
+
+def _render_matrix_report(matrix: MatrixBuild, counts: dict[str, int]) -> str:
+    lines = [
+        "# smoke20 mimo-v2.5 matrix",
+        "",
+        f"- generated_at: `{datetime.now(timezone.utc).isoformat()}`",
+        f"- overrides: `{matrix.overrides.model_ref}` / `{matrix.overrides.max_concurrent_requests}` / `{matrix.overrides.requests_per_minute_limit}` / `{matrix.overrides.tokens_per_minute_limit}`",
+        f"- counts: `{json.dumps(counts, ensure_ascii=False)}`",
+        "",
+        "| family | config | status | run_dir | notes |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for entry in matrix.entries:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    entry.family,
+                    Path(entry.config_path).name,
+                    entry.status,
+                    entry.run_dir or "",
+                    entry.review_notes or entry.excluded_reason or "",
+                ]
+            )
+            + " |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _load_toml(path: str | Path) -> dict[str, Any]:
+    with Path(path).open("rb") as handle:
+        return tomllib.load(handle)
+
+
+def _safe_load_json(path: str | Path) -> dict[str, Any] | None:
+    target = Path(path)
+    if not target.exists():
+        return None
+    try:
+        return json.loads(target.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run the unified smoke20 mimo-v2.5 experiment matrix.")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    inspect_cmd = subparsers.add_parser("inspect-matrix", help="Print the resolved smoke20 matrix.")
+    run_cmd = subparsers.add_parser("run", help="Run the pending smoke20 matrix entries sequentially.")
+
+    for command in (inspect_cmd, run_cmd):
+        command.add_argument("--phase", default=DEFAULT_PHASE)
+        command.add_argument("--model", default=DEFAULT_MODEL_REF)
+        command.add_argument("--max-concurrent-requests", type=int, default=DEFAULT_MAX_CONCURRENT_REQUESTS)
+        command.add_argument("--requests-per-minute-limit", type=int, default=DEFAULT_REQUESTS_PER_MINUTE)
+        command.add_argument("--tokens-per-minute-limit", type=int, default=DEFAULT_TOKENS_PER_MINUTE)
+
+    run_cmd.add_argument("--state-root", default=default_runs_root("smoke20_matrix"))
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    overrides = RuntimeOverrides(
+        phase_name=args.phase,
+        model_ref=args.model,
+        max_concurrent_requests=args.max_concurrent_requests,
+        requests_per_minute_limit=args.requests_per_minute_limit,
+        tokens_per_minute_limit=args.tokens_per_minute_limit,
+    )
+
+    if args.command == "inspect-matrix":
+        matrix = build_run_matrix(overrides)
+        payload = {
+            "overrides": asdict(overrides),
+            "counts": matrix.counts,
+            "workspace_defaults": workspace_defaults("smoke20_matrix"),
+            "entries": [asdict(entry) for entry in matrix.entries],
+            "semantic_entries": [asdict(entry) for entry in matrix.semantic_entries],
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+
+    if args.command == "run":
+        run_dir = run_smoke20_matrix(overrides, state_root=args.state_root)
+        print(run_dir.as_posix())
+        return
+
+    parser.error(f"Unsupported command: {args.command}")
+
+
+if __name__ == "__main__":
+    main()

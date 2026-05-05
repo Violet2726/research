@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from experiment_core.datasets import DatasetSample
-from single_agent_baselines.prompting import DEFAULT_PROMPT_VERSION, build_messages
+from single_agent.prompting import DEFAULT_PROMPT_VERSION, build_messages
 
 
 def _sample(dataset: str) -> DatasetSample:

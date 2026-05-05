@@ -47,6 +47,11 @@ from experiment_core.evaluation import normalize_prediction
 from experiment_core.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
 from experiment_core.rate_limits import SlidingWindowRateLimiter
 from experiment_core.runtime import RunProgressTracker, build_run_id
+from experiment_core.structured_output import (
+    OUTPUT_MODE_COMM_NECESSARY_BELIEF,
+    OUTPUT_MODE_COMM_NECESSARY_SOLVER,
+    validate_or_recover_structured_output,
+)
 from experiment_core.workspace import default_cache_path, default_runs_root
 
 
@@ -729,7 +734,11 @@ def _execute_turn(
         output_status = "request_fail"
     else:
         try:
-            validated_output = _validate_output(str(response_payload.get("assistant_text") or ""), output_mode)
+            validated_output = _validate_output(
+                str(response_payload.get("assistant_text") or ""),
+                output_mode,
+                provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
+            )
             output_status = "ok"
         except Exception:
             validated_output = {}
@@ -777,22 +786,23 @@ def _execute_turn(
     return row
 
 
-def _validate_output(raw_text: str, output_mode: str) -> dict[str, Any]:
+def _validate_output(raw_text: str, output_mode: str, *, provider_reasoning_text: str = "") -> dict[str, Any]:
     """对模型 JSON 做宽容解析，降低小样本烟测中的格式噪声。"""
     if output_mode not in {"solver", "belief"}:
         raise ValueError(f"Unsupported output_mode: {output_mode}")
-    payload = _decode_json_object(raw_text)
-    final_answer = _textish(payload.get("final_answer") or payload.get("new_answer"))
-    if not final_answer:
-        raise ValueError("final_answer is required.")
-    confidence_raw = payload.get("confidence_raw")
+    structured_mode = OUTPUT_MODE_COMM_NECESSARY_SOLVER if output_mode == "solver" else OUTPUT_MODE_COMM_NECESSARY_BELIEF
+    payload = validate_or_recover_structured_output(
+        raw_text,
+        structured_mode,
+        provider_reasoning_text=provider_reasoning_text,
+    )
     return {
         "changed_answer": payload.get("changed_answer") if isinstance(payload.get("changed_answer"), bool) else False,
-        "final_answer": final_answer,
+        "final_answer": _textish(payload.get("final_answer")),
         "reasoning_trace": _textish(payload.get("reasoning_trace") or payload.get("reasoning")),
         "evidence_summary": _textish(payload.get("evidence_summary") or payload.get("key_evidence")),
         "supporting_facts": support_facts_to_jsonable(normalize_supporting_facts(payload.get("supporting_facts"))),
-        "confidence_raw": _normalize_confidence_raw(confidence_raw),
+        "confidence_raw": _normalize_confidence_raw(payload.get("confidence_raw")),
     }
 
 
@@ -959,7 +969,7 @@ def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: s
         diagnostics=root / "diagnostics.json",
         progress=root / "progress.json",
         run_validation=root / "run_validation.json",
-        report_markdown=root / "comm_necessary_report.md",
+        report_markdown=root / "report.md",
         paper_summary=root / "paper_summary.csv",
     )
 

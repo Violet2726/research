@@ -1,4 +1,4 @@
-name = "vanilla-mad-minimal"
+name = "vanilla_mad_minimal"
 description = "Minimal Vanilla MAD reproduction for clean debate-vs-vote comparisons."
 benchmark_configs = [
   "configs/shared/benchmarks/gsm8k.toml",
@@ -11,6 +11,7 @@ prompt_version = "multi_agent_debate_json"
 max_concurrent_requests = 5
 requests_per_minute_limit = 50
 tokens_per_minute_limit = 1000000
+primary_model_ref = "xiaomimimo/mimo-v2.5"
 [[setups]]
 name = "mad_2a_r1"
 protocol = "configs/multi_agent/protocols/vanilla_mad_r1.toml"

@@ -1,4 +1,4 @@
-name = "debate-vs-vote-controlled"
+name = "debate_vs_vote_controlled"
 description = "Controlled paired comparison between direct vote and debate-then-vote on the same initial candidates."
 benchmark_configs = [
   "configs/shared/benchmarks/gsm8k.toml",
@@ -10,6 +10,7 @@ prompt_version = "multi_agent_controlled_json"
 max_concurrent_requests = 5
 requests_per_minute_limit = 50
 tokens_per_minute_limit = 1000000
+primary_model_ref = "xiaomimimo/mimo-v2.5"
 [[setups]]
 name = "mad_3a_r1"
 protocol = "configs/multi_agent/protocols/vanilla_mad_r1.toml"

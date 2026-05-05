@@ -66,7 +66,7 @@ def render_trigger_report(
     predictions = _load_jsonl(root / "policy_predictions.jsonl")
 
     markdown = _render_markdown(manifest, metrics, diagnostics, oracle, predictions, root)
-    local_report_path = root / "trigger_report.md"
+    local_report_path = root / "report.md"
     local_report_path.write_text(markdown, encoding="utf-8")
     write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="Selective Communication Frontier"))
     write_report(root / "trigger_diagnostics.md", render_trigger_diagnostic_report(_analysis_trigger_rows(diagnostics), title="Selective Communication Trigger Diagnostics"))
@@ -369,4 +369,5 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     """读取 UTF-8 JSONL 文件。"""
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    with path.open("r", encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]

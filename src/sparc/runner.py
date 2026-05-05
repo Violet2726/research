@@ -33,7 +33,7 @@ from experiment_core.structured_output import (
     OUTPUT_MODE_SPARC_AUDIT,
     OUTPUT_MODE_SPARC_BELIEF_UPDATE,
     OUTPUT_MODE_SPARC_SOLVER,
-    validate_structured_output,
+    validate_or_recover_structured_output,
 )
 from experiment_core.workspace import default_cache_path, default_runs_root
 from sparc.config import (
@@ -128,7 +128,7 @@ def run_experiment(
         tokens_per_minute=experiment.tokens_per_minute_limit,
     )
     run_id = build_run_id(experiment.name, phase_name, backbone.name)
-    run_paths = _prepare_run_paths(run_root, experiment.experiment_kind, run_id)
+    run_paths = _prepare_run_paths(run_root, experiment.name, phase_name, run_id)
     total_calls, total_predictions = _estimate_work(experiment, phase_name, benchmarks, protocol)
     progress = RunProgressTracker(run_paths.progress, total_calls, total_predictions)
     trigger_selection = _resolve_trigger_selection(experiment, backbone)
@@ -136,6 +136,12 @@ def run_experiment(
     manifest = {
         "run_id": run_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "family_name": "sparc",
+        "experiment_name": experiment.name,
+        "phase_name": phase_name,
+        "primary_model_ref": experiment.primary_model_ref,
+        "confirmatory_model_ref": experiment.confirmatory_model_ref,
+        "resolved_model": asdict(backbone),
         "experiment": experiment.name,
         "description": experiment.description,
         "experiment_kind": experiment.experiment_kind,
@@ -148,9 +154,12 @@ def run_experiment(
         "max_concurrent_requests": experiment.max_concurrent_requests,
         "requests_per_minute_limit": experiment.requests_per_minute_limit,
         "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
-        "primary_backbone": experiment.primary_backbone,
-        "confirmatory_backbone": experiment.confirmatory_backbone,
-        "backbone": asdict(backbone),
+        "family_name": "sparc",
+        "experiment_name": experiment.name,
+        "phase_name": phase_name,
+        "primary_model_ref": experiment.primary_model_ref,
+        "confirmatory_model_ref": experiment.confirmatory_model_ref,
+        "resolved_model": asdict(backbone),
         "benchmarks": [asdict(benchmark) for benchmark in benchmarks],
         "message_modes": experiment.message_modes,
         "fixed_message_modes": experiment.fixed_message_modes,
@@ -1351,7 +1360,7 @@ def _resolve_trigger_selection(experiment: SparcExperimentConfig, backbone) -> d
         return {"selected_policy": experiment.fixed_trigger_policy or "always_communicate", "reason": "not_applicable"}
     default_policy = experiment.default_trigger_policy or "hybrid_trigger"
     fallback_policy = experiment.fallback_trigger_policy or "disagreement_triggered"
-    trigger_root = Path(default_runs_root("selective_comm")) / "trigger-early-exit-v1" / "smoke20"
+    trigger_root = Path(default_runs_root("selective_comm")) / "trigger_early_exit_v1" / "smoke20"
     best_run_dir = None
     family_prefix = f"{backbone.provider}/{backbone.model_id.split('-', 1)[0]}"
     for manifest_path in trigger_root.rglob("manifest.json"):
@@ -1448,8 +1457,8 @@ def _estimate_work(
     return total_calls, total_predictions
 
 
-def _prepare_run_paths(run_root: str | Path, experiment_kind: str, run_id: str) -> RunPaths:
-    root = Path(run_root) / experiment_kind / run_id
+def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> RunPaths:
+    root = Path(run_root) / experiment_name / phase_name / run_id
     root.mkdir(parents=True, exist_ok=True)
     return RunPaths(
         root=root,
@@ -1463,7 +1472,7 @@ def _prepare_run_paths(run_root: str | Path, experiment_kind: str, run_id: str) 
         diagnostics=root / "diagnostics.json",
         progress=root / "progress.json",
         run_validation=root / "run_validation.json",
-        report_markdown=root / REPORT_NAME_BY_KIND[experiment_kind],
+        report_markdown=root / "report.md",
         paper_summary=root / "paper_summary.csv",
     )
 
@@ -1604,7 +1613,11 @@ def _execute_turn(
         answer_for_normalization = ""
     else:
         try:
-            validated_output = validate_structured_output(response_payload["assistant_text"], output_mode)  # type: ignore[arg-type]
+            validated_output = validate_or_recover_structured_output(
+                str(response_payload.get("assistant_text") or ""),
+                output_mode,  # type: ignore[arg-type]
+                provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
+            )
             output_status = "ok"
             answer_for_normalization = _answer_for_output_mode(validated_output, output_mode)
         except Exception:

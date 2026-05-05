@@ -40,10 +40,11 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "prediction_rows": len(prediction_rows),
         "methods": dict(methods),
         "paired_analysis_present": (root / "paired_debate_vs_vote.json").exists(),
-        "paired_report_present": (root / "debate_vs_vote_report.md").exists(),
+        "paired_report_present": (root / "report.md").exists(),
     }
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     """读取 UTF-8 JSONL 文件。"""
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    with path.open("r", encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]

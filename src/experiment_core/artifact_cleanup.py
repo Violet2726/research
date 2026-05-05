@@ -13,10 +13,10 @@ import shutil
 from budget_comm.validation import validate_run as validate_budget_comm
 from comm_necessary.validation import validate_run as validate_comm_necessary
 from free_mad_lite.validation import validate_run as validate_free_mad_lite
-from multi_agent_baselines.validation import validate_run as validate_multi_agent
+from multi_agent.validation import validate_run as validate_multi_agent
 from selective_comm.validation import validate_run as validate_selective_comm
 from sid_lite.validation import validate_run as validate_sid_lite
-from single_agent_baselines.validation import validate_run as validate_single_agent
+from single_agent.validation import validate_run as validate_single_agent
 from sparc.validation import validate_run as validate_sparc
 
 

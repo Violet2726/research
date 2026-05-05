@@ -27,7 +27,12 @@ from experiment_core.providers import OpenAICompatibleProvider, ProviderRequestE
 from experiment_core.rate_limits import SlidingWindowRateLimiter
 from experiment_core.runtime import RunProgressTracker, build_run_id
 from experiment_core.selective_signals import normalize_confidence
-from experiment_core.structured_output import ARTIFACT_VERSION
+from experiment_core.structured_output import (
+    ARTIFACT_VERSION,
+    OUTPUT_MODE_SPARC_BELIEF_UPDATE,
+    OUTPUT_MODE_SPARC_SOLVER,
+    validate_or_recover_structured_output,
+)
 from experiment_core.workspace import default_cache_path, default_runs_root
 from sid_lite.config import SidLiteExperimentConfig, SidLiteProtocolConfig, load_benchmarks, load_protocol_config, phase_metadata
 from sid_lite.logic import (
@@ -652,7 +657,11 @@ def _execute_turn(
         output_status = "request_fail"
     else:
         try:
-            validated_output = _validate_output(str(response_payload.get("assistant_text") or ""), output_mode)
+            validated_output = _validate_output(
+                str(response_payload.get("assistant_text") or ""),
+                output_mode,
+                provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
+            )
             output_status = "ok"
         except Exception:
             validated_output = {}
@@ -700,29 +709,19 @@ def _execute_turn(
     return row
 
 
-def _validate_output(raw_text: str, output_mode: str) -> dict[str, Any]:
-    payload = _decode_json_object(raw_text)
+def _validate_output(raw_text: str, output_mode: str, *, provider_reasoning_text: str = "") -> dict[str, Any]:
     if output_mode == "solver":
-        final_answer = _require_textish(payload.get("final_answer"), "final_answer")
-        return {
-            "final_answer": final_answer,
-            "reasoning_trace": _optional_text(payload.get("reasoning_trace") or payload.get("reasoning")),
-            "claim_span": _optional_text(payload.get("claim_span")),
-            "key_evidence": _optional_text(payload.get("key_evidence")),
-            "uncertain_point": _optional_text(payload.get("uncertain_point")),
-            "confidence_raw": payload.get("confidence_raw"),
-        }
+        return validate_or_recover_structured_output(
+            raw_text,
+            OUTPUT_MODE_SPARC_SOLVER,
+            provider_reasoning_text=provider_reasoning_text,
+        )
     if output_mode == "belief":
-        changed = payload.get("changed_answer")
-        if not isinstance(changed, bool):
-            changed = False
-        return {
-            "changed_answer": changed,
-            "new_answer": _optional_text(payload.get("new_answer")),
-            "confidence_delta": _optional_float(payload.get("confidence_delta")),
-            "reason_for_change": _optional_text(payload.get("reason_for_change")),
-            "remaining_disagreement": _optional_text(payload.get("remaining_disagreement")),
-        }
+        return validate_or_recover_structured_output(
+            raw_text,
+            OUTPUT_MODE_SPARC_BELIEF_UPDATE,
+            provider_reasoning_text=provider_reasoning_text,
+        )
     raise ValueError(f"Unsupported SID-lite output mode: {output_mode}")
 
 
@@ -884,7 +883,7 @@ def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: s
         progress=root / "progress.json",
         run_summary=root / "run_summary.json",
         run_validation=root / "run_validation.json",
-        report_markdown=root / "sid_lite_report.md",
+        report_markdown=root / "report.md",
         paper_summary=root / "paper_summary.csv",
     )
 

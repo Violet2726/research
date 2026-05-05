@@ -25,7 +25,7 @@ REQUIRED_FILES = [
     "metrics.json",
     "diagnostics.json",
     "progress.json",
-    "comm_necessary_report.md",
+    "report.md",
     "paper_summary.csv",
 ]
 
@@ -234,5 +234,6 @@ def _load_json(path: Path) -> dict[str, Any]:
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    with path.open("r", encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]
 

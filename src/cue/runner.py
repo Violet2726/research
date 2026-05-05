@@ -7,7 +7,6 @@ from functools import partial
 from hashlib import sha256
 from pathlib import Path
 import json
-import re
 from typing import Any
 
 from dotenv import load_dotenv
@@ -50,7 +49,7 @@ from experiment_core.structured_output import (
     OUTPUT_MODE_CUE_AUDIT,
     OUTPUT_MODE_CUE_BELIEF_UPDATE,
     OUTPUT_MODE_CUE_SOLVER,
-    validate_structured_output,
+    validate_or_recover_structured_output,
 )
 from experiment_core.workspace import default_cache_path, default_runs_root
 from experiment_core.methods import MethodConfig
@@ -216,8 +215,11 @@ def run_experiment(
         "max_concurrent_requests": experiment.max_concurrent_requests,
         "requests_per_minute_limit": experiment.requests_per_minute_limit,
         "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
-        "primary_backbone": experiment.primary_backbone,
-        "backbone": asdict(backbone),
+        "family_name": "cue",
+        "experiment_name": experiment.name,
+        "phase_name": phase_name,
+        "primary_model_ref": experiment.primary_model_ref,
+        "resolved_model": asdict(backbone),
         "benchmarks": [asdict(benchmark) for benchmark in benchmarks],
         "total_planned_calls": total_calls,
         "total_planned_predictions": total_predictions,
@@ -915,23 +917,12 @@ def _execute_turn(
         output_status = "request_fail"
         final_answer = ""
     else:
-        validated_output = {}
-        output_status = "schema_fail"
-        final_answer = ""
-        parse_candidates = [
-            str(response_payload.get("assistant_text") or ""),
-            str(response_payload.get("provider_reasoning_text") or ""),
-        ]
-        for candidate_text in parse_candidates:
-            if not candidate_text.strip():
-                continue
-            try:
-                validated_output = validate_structured_output(candidate_text, output_mode)
-            except Exception:
-                recovered = _recover_cue_output_from_partial_text(candidate_text, output_mode)
-                if recovered is None:
-                    continue
-                validated_output = recovered
+        try:
+            validated_output = validate_or_recover_structured_output(
+                str(response_payload.get("assistant_text") or ""),
+                output_mode,
+                provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
+            )
             output_status = "ok"
             if output_mode == OUTPUT_MODE_CUE_SOLVER:
                 final_answer = str(validated_output.get("final_answer") or "")
@@ -939,7 +930,10 @@ def _execute_turn(
                 final_answer = str(validated_output.get("new_answer") or "")
             elif output_mode == OUTPUT_MODE_CUE_AUDIT:
                 final_answer = str(validated_output.get("verified_answer") or "")
-            break
+        except Exception:
+            validated_output = {}
+            output_status = "schema_fail"
+            final_answer = ""
 
     usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
     confidence_raw = validated_output.get("confidence") if output_mode == OUTPUT_MODE_CUE_SOLVER and validated_output else None
@@ -1183,7 +1177,7 @@ def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: s
         oracle_trigger_eval=root / "oracle_trigger_eval.json",
         progress=root / "progress.json",
         run_validation=root / "run_validation.json",
-        cue_report=root / "cue_report.md",
+        cue_report=root / "report.md",
     )
 
 
@@ -1282,86 +1276,3 @@ def _ratio(numerator: int, denominator: int) -> float:
     if denominator == 0:
         return 0.0
     return round(numerator / denominator, 6)
-
-
-def _recover_cue_output_from_partial_text(raw_text: str, output_mode: str) -> dict[str, Any] | None:
-    text = raw_text.strip()
-    if not text:
-        return None
-    if output_mode == OUTPUT_MODE_CUE_SOLVER:
-        final_answer = _extract_json_answer_field(text, "final_answer")
-        if not final_answer:
-            return None
-        payload = {
-            "final_answer": final_answer,
-            "confidence": _extract_json_number_field(text, "confidence"),
-            "reasoning_sketch": _extract_json_string_field(text, "reasoning_sketch") or final_answer,
-            "uncertain_point": _extract_json_string_field(text, "uncertain_point"),
-            "top_claims": _extract_json_string_list_field(text, "top_claims"),
-            "evidence_items": _extract_json_string_list_field(text, "evidence_items"),
-            "counter_answer": _extract_json_string_field(text, "counter_answer"),
-        }
-        return validate_structured_output(json.dumps(payload, ensure_ascii=False), output_mode)
-    if output_mode == OUTPUT_MODE_CUE_BELIEF_UPDATE:
-        changed_answer = _extract_json_bool_field(text, "changed_answer")
-        if changed_answer is None:
-            return None
-        payload = {
-            "changed_answer": changed_answer,
-            "new_answer": _extract_json_answer_field(text, "new_answer"),
-            "confidence_delta": _extract_json_number_field(text, "confidence_delta"),
-            "reason_for_change": _extract_json_string_field(text, "reason_for_change"),
-            "remaining_disagreement": _extract_json_string_field(text, "remaining_disagreement"),
-        }
-        return validate_structured_output(json.dumps(payload, ensure_ascii=False), output_mode)
-    if output_mode == OUTPUT_MODE_CUE_AUDIT:
-        decision = _extract_json_string_field(text, "decision")
-        if not decision:
-            return None
-        payload = {
-            "decision": decision,
-            "verified_answer": _extract_json_answer_field(text, "verified_answer"),
-            "rationale": _extract_json_string_field(text, "rationale") or "Recovered partial rationale.",
-        }
-        return validate_structured_output(json.dumps(payload, ensure_ascii=False), output_mode)
-    return None
-
-
-def _extract_json_string_field(text: str, field_name: str) -> str | None:
-    match = re.search(rf'"{re.escape(field_name)}"\s*:\s*"([^"]*)', text, re.S)
-    if not match:
-        return None
-    value = match.group(1).strip().strip(",")
-    return value or None
-
-
-def _extract_json_answer_field(text: str, field_name: str) -> str | None:
-    string_value = _extract_json_string_field(text, field_name)
-    if string_value:
-        return string_value
-    match = re.search(rf'"{re.escape(field_name)}"\s*:\s*([-+]?\d[\d,]*(?:\.\d+)?)"?', text)
-    if match:
-        return match.group(1).replace(",", "")
-    return None
-
-
-def _extract_json_number_field(text: str, field_name: str) -> float | None:
-    match = re.search(rf'"{re.escape(field_name)}"\s*:\s*(-?\d+(?:\.\d+)?)', text)
-    if not match:
-        return None
-    return float(match.group(1))
-
-
-def _extract_json_bool_field(text: str, field_name: str) -> bool | None:
-    match = re.search(rf'"{re.escape(field_name)}"\s*:\s*(true|false)', text, re.I)
-    if not match:
-        return None
-    return match.group(1).lower() == "true"
-
-
-def _extract_json_string_list_field(text: str, field_name: str) -> list[str]:
-    match = re.search(rf'"{re.escape(field_name)}"\s*:\s*\[(.*?)', text, re.S)
-    if not match:
-        return []
-    segment = match.group(1)
-    return [item.strip() for item in re.findall(r'"([^"]+)"', segment)[:3] if item.strip()]

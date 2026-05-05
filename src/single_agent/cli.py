@@ -21,14 +21,14 @@ from experiment_core.config import (
 from experiment_core.datasets import generate_split_manifests
 from experiment_core.methods import load_method_catalog
 from experiment_core.workspace import default_cache_path, default_runs_root, workspace_defaults
-from single_agent_baselines.config import (
+from single_agent.config import (
     load_experiment_config,
     required_benchmark_tags,
     required_model_tags,
 )
-from single_agent_baselines.reporting import budget_fairness_check, export_paper_tables, summarize_run
-from single_agent_baselines.runner import run_experiment
-from single_agent_baselines.validation import validate_run
+from single_agent.reporting import budget_fairness_check, export_paper_tables, summarize_run
+from single_agent.runner import run_experiment
+from single_agent.validation import validate_run
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -60,7 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     run = subparsers.add_parser("run", help="Execute one configured experiment phase.")
     run.add_argument("--experiment", required=True)
     run.add_argument("--phase", required=True)
-    run.add_argument("--model", required=True)
+    run.add_argument("--model", default=None)
     run.add_argument("--runs-root", default=default_runs_root("single_agent"))
     run.add_argument("--cache-path", default=default_cache_path("single_agent"))
 
@@ -115,29 +115,29 @@ def main() -> None:
             "max_concurrent_requests": experiment.max_concurrent_requests,
             "requests_per_minute_limit": experiment.requests_per_minute_limit,
             "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
+            "primary_model_ref": experiment.primary_model_ref,
             "workspace_defaults": workspace_defaults("single_agent"),
             "phases": experiment.raw["phases"],
             "methods": {name: _serialize_method(method) for name, method in sorted(methods.items())},
         }
-        if args.model:
-            resolved_model = resolve_model_ref(args.model)
-            payload["resolved_model"] = _serialize_model(resolved_model)
-            payload["resolved_requirements_by_phase"] = {
-                phase_name: {
-                    "required_model_tags": required_model_tags(experiment, phase_name),
-                    "benchmark_required_tags": {
-                        benchmark_slug: required_benchmark_tags(experiment, phase_name, benchmark_slug)
-                        for benchmark_slug in benchmark_slugs
-                    },
-                }
-                for phase_name in experiment.raw["phases"]
+        resolved_model = resolve_model_ref(args.model or experiment.primary_model_ref)
+        payload["resolved_model"] = _serialize_model(resolved_model)
+        payload["resolved_requirements_by_phase"] = {
+            phase_name: {
+                "required_model_tags": required_model_tags(experiment, phase_name),
+                "benchmark_required_tags": {
+                    benchmark_slug: required_benchmark_tags(experiment, phase_name, benchmark_slug)
+                    for benchmark_slug in benchmark_slugs
+                },
             }
+            for phase_name in experiment.raw["phases"]
+        }
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
 
     if args.command == "run":
         experiment = load_experiment_config(args.experiment)
-        resolved_model = resolve_model_ref(args.model)
+        resolved_model = resolve_model_ref(args.model or experiment.primary_model_ref)
         benchmarks = [load_benchmark_config(path) for path in experiment.benchmark_configs]
         run_dir = run_experiment(
             experiment=experiment,

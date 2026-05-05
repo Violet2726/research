@@ -29,7 +29,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "metrics.json",
         "budget_diagnostics.json",
         "progress.json",
-        "dala_lite_report.md",
+        "report.md",
         "paper_summary.csv",
     ]
     missing = [name for name in required if not (root / name).exists()]
@@ -262,4 +262,5 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     """读取 UTF-8 JSONL；不存在时返回空列表。"""
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    with path.open("r", encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]

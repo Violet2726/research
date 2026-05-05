@@ -15,6 +15,9 @@ from experiment_core.selective_signals import decide_trigger, summarize_confiden
 from experiment_core.structured_output import (
     OUTPUT_MODE_BUDGET_BELIEF_UPDATE,
     OUTPUT_MODE_BUDGET_SOLVER,
+    OUTPUT_MODE_COMM_NECESSARY_BELIEF,
+    OUTPUT_MODE_COMM_NECESSARY_SOLVER,
+    OUTPUT_MODE_CUE_SOLVER,
     OUTPUT_MODE_CORE,
     OUTPUT_MODE_SELECTIVE_COMM,
     OUTPUT_MODE_SPARC_AUDIT,
@@ -22,6 +25,7 @@ from experiment_core.structured_output import (
     OUTPUT_MODE_SPARC_MESSAGE,
     OUTPUT_MODE_SPARC_SOLVER,
     parse_selective_output,
+    validate_or_recover_structured_output,
     validate_structured_output,
 )
 from experiment_core.workspace import (
@@ -154,6 +158,15 @@ def test_validate_core_structured_output() -> None:
     assert payload["reasoning"] == "short"
 
 
+def test_validate_or_recover_core_output_from_truncated_json() -> None:
+    payload = validate_or_recover_structured_output(
+        '{"final_answer": 42, "reasoning": "simple arithmetic"',
+        OUTPUT_MODE_CORE,
+    )
+    assert payload["final_answer"] == "42"
+    assert payload["reasoning"] == "simple arithmetic"
+
+
 def test_validate_selective_structured_output() -> None:
     payload = validate_structured_output(
         json.dumps(
@@ -189,6 +202,17 @@ def test_validate_selective_structured_output_allows_missing_confidence() -> Non
     )
     assert payload["final_answer"] == "42"
     assert payload["confidence_raw"] is None
+
+
+def test_validate_or_recover_selective_output_uses_reasoning_fallback() -> None:
+    payload = validate_or_recover_structured_output(
+        "[answer]",
+        OUTPUT_MODE_SELECTIVE_COMM,
+        dataset="gsm8k",
+        provider_reasoning_text="Therefore, the final answer is 36.",
+    )
+    assert payload["final_answer"] == "36"
+    assert payload["uncertainty_type"] == "calculation"
 
 
 def test_validate_selective_structured_output_rejects_invalid_uncertainty_type() -> None:
@@ -351,6 +375,26 @@ def test_validate_budget_solver_structured_output() -> None:
     assert payload["confidence_raw"] == 0.8
 
 
+def test_validate_or_recover_budget_solver_from_partial_json() -> None:
+    payload = validate_or_recover_structured_output(
+        '{"final_answer": 50, "confidence_raw": 0.8, "keyword_clues": ["50"], "reasoning_trace": "done"',
+        OUTPUT_MODE_BUDGET_SOLVER,
+    )
+    assert payload["final_answer"] == "50"
+    assert payload["confidence_raw"] == 0.8
+    assert payload["keyword_clues"] == ["50"]
+
+
+def test_validate_or_recover_budget_solver_defaults_missing_confidence() -> None:
+    payload = validate_or_recover_structured_output(
+        '{"final_answer":"82","reasoning_trace":"done","claim_span":"capacity math","key_evidence":"5000-3755"}',
+        OUTPUT_MODE_BUDGET_SOLVER,
+    )
+    assert payload["final_answer"] == "82"
+    assert payload["confidence_raw"] == 0.5
+    assert payload["keyword_clues"] == ["capacity math"]
+
+
 def test_validate_budget_belief_update_structured_output() -> None:
     payload = validate_structured_output(
         json.dumps(
@@ -366,6 +410,52 @@ def test_validate_budget_belief_update_structured_output() -> None:
     )
     assert payload["changed_answer"] is False
     assert payload["new_answer"] == "no"
+
+
+def test_validate_comm_necessary_solver_structured_output() -> None:
+    payload = validate_structured_output(
+        json.dumps(
+            {
+                "final_answer": "Scott Adkins",
+                "reasoning_trace": "Actor match from visible evidence.",
+                "evidence_summary": "Universal Soldier and Holby City overlap.",
+                "supporting_facts": [{"title": "Scott Adkins", "sent_id": 0}],
+                "confidence_raw": 0.6,
+            }
+        ),
+        OUTPUT_MODE_COMM_NECESSARY_SOLVER,
+    )
+    assert payload["final_answer"] == "Scott Adkins"
+    assert payload["supporting_facts"] == [{"title": "Scott Adkins", "sent_id": 0}]
+
+
+def test_validate_or_recover_comm_necessary_belief_from_partial_json() -> None:
+    payload = validate_or_recover_structured_output(
+        '{"changed_answer": false, "final_answer": "Saoirse Ronan", "reasoning_trace": "peer confirms", '
+        '"supporting_facts":[{"title":"Billy Howle","sent_id":2}], "confidence_raw": 0.7',
+        OUTPUT_MODE_COMM_NECESSARY_BELIEF,
+    )
+    assert payload["changed_answer"] is False
+    assert payload["final_answer"] == "Saoirse Ronan"
+    assert payload["supporting_facts"] == [{"title": "Billy Howle", "sent_id": 2}]
+
+
+def test_validate_or_recover_core_soft_rejection_fail_opens() -> None:
+    payload = validate_or_recover_structured_output(
+        "The request was rejected because it was considered high risk",
+        OUTPUT_MODE_CORE,
+    )
+    assert payload["final_answer"] == "unknown"
+    assert payload["reasoning"] == "provider_soft_rejection"
+
+
+def test_validate_or_recover_comm_necessary_soft_rejection_fail_opens() -> None:
+    payload = validate_or_recover_structured_output(
+        "The request was rejected because it was considered high risk",
+        OUTPUT_MODE_COMM_NECESSARY_SOLVER,
+    )
+    assert payload["final_answer"] == "unknown"
+    assert payload["supporting_facts"] == []
 
 
 def test_validate_sparc_solver_structured_output() -> None:
@@ -384,6 +474,16 @@ def test_validate_sparc_solver_structured_output() -> None:
     )
     assert payload["final_answer"] == "42"
     assert payload["confidence_raw"] == 0.7
+
+
+def test_validate_or_recover_cue_solver_from_partial_json() -> None:
+    payload = validate_or_recover_structured_output(
+        '{"final_answer": 50, "confidence": 0.6, "top_claims": ["50"], "evidence_items": ["calc"], "reasoning_sketch": "done"',
+        OUTPUT_MODE_CUE_SOLVER,
+    )
+    assert payload["final_answer"] == "50"
+    assert payload["confidence"] == 0.6
+    assert payload["top_claims"] == ["50"]
 
 
 def test_validate_sparc_message_structured_output() -> None:

@@ -46,7 +46,7 @@ def render_report(
     diagnostics = _load_json(root / "budget_diagnostics.json")
     predictions = _load_jsonl(root / "final_predictions.jsonl")
     markdown = _render_markdown(manifest, metrics, diagnostics, predictions, root)
-    local_report_path = root / "dala_lite_report.md"
+    local_report_path = root / "report.md"
     local_report_path.write_text(markdown, encoding="utf-8")
     write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="Budget Communication Frontier"))
 
@@ -336,4 +336,5 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     """读取 UTF-8 JSONL 文件；不存在时返回空列表。"""
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    with path.open("r", encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]

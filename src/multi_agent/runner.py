@@ -27,10 +27,10 @@ from experiment_core.runtime import RunProgressTracker, build_run_id
 from experiment_core.structured_output import (
     ARTIFACT_VERSION,
     OUTPUT_MODE_CORE,
-    validate_structured_output,
+    validate_or_recover_structured_output,
 )
 from experiment_core.workspace import default_cache_path, default_runs_root
-from multi_agent_baselines.config import (
+from multi_agent.config import (
     ExperimentSetup,
     MultiAgentExperimentConfig,
     ProtocolConfig,
@@ -41,9 +41,9 @@ from multi_agent_baselines.config import (
     load_roster_config,
     phase_metadata,
 )
-from multi_agent_baselines.prompting import build_debate_messages, build_initial_messages
-from multi_agent_baselines.reporting import summarize_run
-from multi_agent_baselines.validation import validate_run
+from multi_agent.prompting import build_debate_messages, build_initial_messages
+from multi_agent.reporting import summarize_run
+from multi_agent.validation import validate_run
 
 
 @dataclass(frozen=True)
@@ -177,13 +177,18 @@ def run_experiment(
         tokens_per_minute=experiment.tokens_per_minute_limit,
     )
     run_id = build_run_id(experiment.name, phase_name, backbone.name)
-    run_paths = _prepare_run_paths(run_root, run_id)
+    run_paths = _prepare_run_paths(run_root, experiment.name, phase_name, run_id)
     total_calls, total_predictions = _estimate_work(experiment, phase_name, benchmarks, setups, matched_control_names, controls)
     progress = RunProgressTracker(run_paths.progress, total_calls, total_predictions)
 
     manifest = {
         "run_id": run_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "family_name": "multi_agent",
+        "experiment_name": experiment.name,
+        "phase_name": phase_name,
+        "primary_model_ref": experiment.primary_model_ref,
+        "resolved_model": asdict(backbone),
         "experiment": experiment.name,
         "description": experiment.description,
         "phase": phase_name,
@@ -787,7 +792,11 @@ def _execute_turn(
         final_answer = ""
     else:
         try:
-            validated_output = validate_structured_output(response_payload["assistant_text"], OUTPUT_MODE_CORE)
+            validated_output = validate_or_recover_structured_output(
+                str(response_payload.get("assistant_text") or ""),
+                OUTPUT_MODE_CORE,
+                provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
+            )
             output_status = "ok"
             final_answer = validated_output["final_answer"]
         except Exception:
@@ -997,9 +1006,9 @@ def _load_selected_samples(benchmark, split_name: str) -> list[DatasetSample]:
     return select_samples(benchmark, split_name)
 
 
-def _prepare_run_paths(run_root: str | Path, run_id: str) -> RunPaths:
+def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> RunPaths:
     """创建多智能体运行目录和固定产物路径。"""
-    root = Path(run_root) / run_id
+    root = Path(run_root) / experiment_name / phase_name / run_id
     root.mkdir(parents=True, exist_ok=True)
     return RunPaths(
         root=root,

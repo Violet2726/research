@@ -9,18 +9,19 @@ from comm_necessary.reporting import summarize_run as summarize_comm_necessary
 from comm_necessary.validation import validate_run as validate_comm_necessary
 from free_mad_lite.reporting import summarize_run as summarize_free_mad
 from free_mad_lite.validation import validate_run as validate_free_mad
-from multi_agent_baselines.reporting import summarize_run as summarize_multi_agent
-from multi_agent_baselines.validation import validate_run as validate_multi_agent
+from multi_agent.reporting import summarize_run as summarize_multi_agent
+from multi_agent.validation import validate_run as validate_multi_agent
 from sparc.reporting import summarize_run as summarize_sparc
 from sparc.validation import validate_run as validate_sparc
 from selective_comm.config import load_control_catalog, load_policies, load_protocol_config
 from selective_comm.reporting import summarize_run as summarize_selective
-from selective_comm.runner import _load_resume_seed_state, _recover_selective_output_from_reasoning_text
+from selective_comm.runner import _load_resume_seed_state
 from selective_comm.validation import validate_run as validate_selective
 from sid_lite.reporting import summarize_run as summarize_sid
 from sid_lite.validation import validate_run as validate_sid
-from single_agent_baselines.reporting import budget_fairness_check, summarize_run as summarize_single_agent
-from single_agent_baselines.validation import validate_run as validate_single_agent
+from single_agent.reporting import budget_fairness_check, summarize_run as summarize_single_agent
+from single_agent.validation import validate_run as validate_single_agent
+from experiment_core.structured_output import _recover_selective_output_from_reasoning_text
 
 
 def test_single_agent_reporting_and_validation_use_method_name(tmp_path: Path) -> None:
@@ -159,7 +160,7 @@ def test_selective_comm_validation_contract(tmp_path: Path) -> None:
     )
     _touch_json(tmp_path / "oracle_trigger_eval.json", {"summary_rows": []})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "trigger_report.md").write_text("# report\n", encoding="utf-8")
+    (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
 
     assert summarize_selective(tmp_path)["row_count"] == 1
     assert validate_selective(tmp_path)["passed"] is True
@@ -330,7 +331,7 @@ def test_sparc_validation_contract(tmp_path: Path) -> None:
     _touch_json(tmp_path / "diagnostics.json", {"recommended_next_default": {"method_name": "full_cot"}})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
     (tmp_path / "paper_summary.csv").write_text("dataset,model_name,method_name,accuracy_mean,communication_tokens_mean,total_tokens_mean,calls_per_question_mean,acc_per_1k_tokens\n", encoding="utf-8")
-    (tmp_path / "content_ablation_report.md").write_text("# report\n", encoding="utf-8")
+    (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
 
     assert summarize_sparc(tmp_path)["row_count"] == 1
     assert validate_sparc(tmp_path)["passed"] is True
@@ -368,7 +369,7 @@ def test_sparc_auditing_ablation_paired_design_contract(tmp_path: Path) -> None:
     _touch_json(tmp_path / "diagnostics.json", {"recommended_next_default": {"method_name": "local_auditing"}})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
     (tmp_path / "paper_summary.csv").write_text("dataset,model_name,method_name,accuracy_mean,communication_tokens_mean,total_tokens_mean,calls_per_question_mean,acc_per_1k_tokens\n", encoding="utf-8")
-    (tmp_path / "auditing_ablation_report.md").write_text("# report\n", encoding="utf-8")
+    (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
 
     validation = validate_sparc(tmp_path)
     assert validation["passed"] is True
@@ -485,7 +486,7 @@ def test_budget_comm_validation_contract(tmp_path: Path) -> None:
     _touch_json(tmp_path / "metrics.json", {"summary": [{"dataset": "overall"}]})
     _touch_json(tmp_path / "budget_diagnostics.json", {"full_dala_gate": {"ready_for_full_dala": False}})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "dala_lite_report.md").write_text("# report\n", encoding="utf-8")
+    (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
     (tmp_path / "paper_summary.csv").write_text("dataset,track_name,model_name,method_name,accuracy_mean,communication_tokens_mean,total_tokens_mean,calls_per_question_mean,acc_per_1k_tokens\n", encoding="utf-8")
 
     assert summarize_budget(tmp_path)["row_count"] == 1
@@ -521,7 +522,7 @@ def test_sid_lite_validation_contract(tmp_path: Path) -> None:
     _touch_json(tmp_path / "metrics.json", {"summary": [{"dataset": "overall"}]})
     _touch_json(tmp_path / "diagnostics.json", {"sid_early_exit_rate": 1.0})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "sid_lite_report.md").write_text("# report\n", encoding="utf-8")
+    (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
 
     assert summarize_sid(tmp_path)["row_count"] == 1
     assert validate_sid(tmp_path)["passed"] is True
@@ -567,7 +568,7 @@ def test_free_mad_lite_validation_contract(tmp_path: Path) -> None:
     _touch_json(tmp_path / "metrics.json", {"summary": [{"dataset": "overall"}]})
     _touch_json(tmp_path / "diagnostics.json", {"judge_fallback_rate": 0.0})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "free_mad_lite_report.md").write_text("# report\n", encoding="utf-8")
+    (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
 
     assert summarize_free_mad(tmp_path)["row_count"] == 1
     assert validate_free_mad(tmp_path)["passed"] is True
@@ -698,7 +699,7 @@ def test_comm_necessary_validation_contract(tmp_path: Path) -> None:
     _touch_json(tmp_path / "metrics.json", {"summary": [{"dataset": "overall"}]})
     _touch_json(tmp_path / "diagnostics.json", {"key_deltas": []})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "comm_necessary_report.md").write_text("# report\n", encoding="utf-8")
+    (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
     (tmp_path / "paper_summary.csv").write_text("dataset,model_name,method_name,answer_em_mean\n", encoding="utf-8")
     hotpot_dir = tmp_path / "hotpot_predictions"
     hotpot_dir.mkdir()

@@ -26,7 +26,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "policy_diagnostics.json",
         "oracle_trigger_eval.json",
         "progress.json",
-        "trigger_report.md",
+        "report.md",
     ]
     missing = [name for name in required if not (root / name).exists()]
 
@@ -180,7 +180,8 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     """读取 UTF-8 JSONL 文件。"""
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    with path.open("r", encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]
 
 
 def _load_json(path: Path) -> dict[str, Any]:

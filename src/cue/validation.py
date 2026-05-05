@@ -18,7 +18,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "policy_diagnostics.json",
         "oracle_trigger_eval.json",
         "progress.json",
-        "cue_report.md",
+        "report.md",
     ]
     missing = [name for name in required if not (root / name).exists()]
     stage_a_rows = _load_jsonl(root / "stage_a_turns.jsonl")
@@ -61,5 +61,5 @@ def _validate_stage_a_hashes(prediction_rows: list[dict[str, Any]]) -> dict[str,
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-
+    with path.open("r", encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]

@@ -69,7 +69,7 @@ def report_debate_vs_vote(
     paired_json_path.write_text(json.dumps(paired_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     markdown = _render_debate_vs_vote_report(manifest, dataset_rows, root)
-    local_report_path = root / "debate_vs_vote_report.md"
+    local_report_path = root / "report.md"
     local_report_path.write_text(markdown, encoding="utf-8")
 
     publish_path = Path(publish_dir) / _published_report_name(manifest)
@@ -326,7 +326,8 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     """读取 UTF-8 JSONL 文件。"""
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    with path.open("r", encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]
 
 
 def _mean(values) -> float:

@@ -16,16 +16,17 @@ dependencies = [
 ]
 
 [project.scripts]
-single-agent-cli = "single_agent_baselines.cli:main"
-mad-cli = "multi_agent_baselines.cli:main"
-selective-cli = "selective_comm.cli:main"
-sparc-cli = "sparc.cli:main"
-budget-cli = "budget_comm.cli:main"
-sid-lite-cli = "sid_lite.cli:main"
-free-mad-lite-cli = "free_mad_lite.cli:main"
-comm-necessary-cli = "comm_necessary.cli:main"
-cue-cli = "cue.cli:main"
-cleanup-artifacts-cli = "experiment_core.artifact_cleanup:main"
+single_agent_cli = "single_agent.cli:main"
+multi_agent_cli = "multi_agent.cli:main"
+selective_comm_cli = "selective_comm.cli:main"
+sparc_cli = "sparc.cli:main"
+budget_comm_cli = "budget_comm.cli:main"
+sid_lite_cli = "sid_lite.cli:main"
+free_mad_lite_cli = "free_mad_lite.cli:main"
+comm_necessary_cli = "comm_necessary.cli:main"
+cue_cli = "cue.cli:main"
+cleanup_artifacts_cli = "experiment_core.artifact_cleanup:main"
+smoke20_matrix_cli = "experiment_core.smoke20_matrix:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

@@ -20,11 +20,12 @@ prompt_version = "cue_v1_json"
 max_concurrent_requests = 60
 requests_per_minute_limit = 90
 tokens_per_minute_limit = 9000000
-primary_backbone = "xiaomimimo/mimo-v2.5"
+primary_model_ref = "xiaomimimo/mimo-v2.5"
 
 [phases.smoke20]
 split_suffix = "smoke20_seed42"
 
 [phases.pilot100]
 split_suffix = "pilot100_seed42"
+
 

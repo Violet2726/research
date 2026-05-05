@@ -60,7 +60,7 @@ from experiment_core.structured_output import (
     ARTIFACT_VERSION,
     OUTPUT_MODE_BUDGET_BELIEF_UPDATE,
     OUTPUT_MODE_BUDGET_SOLVER,
-    validate_structured_output,
+    validate_or_recover_structured_output,
 )
 from experiment_core.workspace import default_cache_path, default_runs_root
 
@@ -172,8 +172,11 @@ def run_experiment(
         "max_concurrent_requests": experiment.max_concurrent_requests,
         "requests_per_minute_limit": experiment.requests_per_minute_limit,
         "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
-        "primary_backbone": experiment.primary_backbone,
-        "backbone": asdict(backbone),
+        "family_name": "budget_comm",
+        "experiment_name": experiment.name,
+        "phase_name": phase_name,
+        "primary_model_ref": experiment.primary_model_ref,
+        "resolved_model": asdict(backbone),
         "protocol": asdict(protocol),
         "auction_policy": asdict(auction_policy),
         "context_view": asdict(context_view_config),
@@ -960,7 +963,7 @@ def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: s
         budget_diagnostics=root / "budget_diagnostics.json",
         progress=root / "progress.json",
         run_validation=root / "run_validation.json",
-        report_markdown=root / "dala_lite_report.md",
+        report_markdown=root / "report.md",
         paper_summary=root / "paper_summary.csv",
     )
 
@@ -1090,7 +1093,11 @@ def _execute_turn(
         answer_for_normalization = ""
     else:
         try:
-            validated_output = validate_structured_output(response_payload["assistant_text"], output_mode)  # type: ignore[arg-type]
+            validated_output = validate_or_recover_structured_output(
+                str(response_payload.get("assistant_text") or ""),
+                output_mode,  # type: ignore[arg-type]
+                provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
+            )
             output_status = "ok"
             if output_mode == OUTPUT_MODE_BUDGET_BELIEF_UPDATE:
                 answer_for_normalization = str(validated_output.get("new_answer") or "")
@@ -1099,18 +1106,9 @@ def _execute_turn(
         except Exception:
             # `budget_comm` 对截断 JSON 做一次保守修复，
             # 尽量把“轻微格式问题”与“真正逻辑错误”区分开来。
-            repaired_output = _repair_budget_output(response_payload["assistant_text"], output_mode)
-            if repaired_output is not None:
-                validated_output = repaired_output
-                output_status = "ok"
-                if output_mode == OUTPUT_MODE_BUDGET_BELIEF_UPDATE:
-                    answer_for_normalization = str(validated_output.get("new_answer") or "")
-                else:
-                    answer_for_normalization = str(validated_output.get("final_answer") or "")
-            else:
-                validated_output = {}
-                output_status = "schema_fail"
-                answer_for_normalization = ""
+            validated_output = {}
+            output_status = "schema_fail"
+            answer_for_normalization = ""
 
     usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
     row = {

@@ -11,7 +11,7 @@ from pathlib import Path
 import json
 from typing import Any
 
-from single_agent_baselines.reporting import budget_fairness_check
+from single_agent.reporting import budget_fairness_check
 
 
 def validate_run(
@@ -132,4 +132,5 @@ def _validate_prediction_counts(prediction_rows: list[dict[str, Any]]) -> dict[s
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     """读取 UTF-8 JSONL 文件。"""
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    with path.open("r", encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]

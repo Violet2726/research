@@ -31,6 +31,7 @@ class ExperimentConfig:
     max_concurrent_requests: int
     requests_per_minute_limit: int | None
     tokens_per_minute_limit: int | None
+    primary_model_ref: str
     raw: dict[str, Any]
 
 
@@ -54,6 +55,7 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         max_concurrent_requests=int(payload["max_concurrent_requests"]),
         requests_per_minute_limit=_optional_int(payload, "requests_per_minute_limit"),
         tokens_per_minute_limit=_optional_int(payload, "tokens_per_minute_limit"),
+        primary_model_ref=str(payload["primary_model_ref"]),
         raw=payload,
     )
 

@@ -14,7 +14,6 @@ from functools import partial
 from hashlib import sha256
 from pathlib import Path
 import json
-import re
 from typing import Any
 from typing import Callable
 
@@ -36,7 +35,8 @@ from experiment_core.selective_signals import (
 from experiment_core.methods import MethodConfig
 from experiment_core.structured_output import (
     ARTIFACT_VERSION,
-    parse_selective_output,
+    OUTPUT_MODE_SELECTIVE_COMM,
+    validate_or_recover_structured_output,
 )
 from experiment_core.workspace import default_cache_path, default_runs_root
 from selective_comm.config import (
@@ -64,90 +64,6 @@ DISPLAY_NAME_MAP = {
     "claim_divergence_triggered": "claim_divergence",
     "voc_trigger_v2": "voc_v2",
 }
-
-
-def _looks_like_placeholder_visible_output(text: str) -> bool:
-    trimmed = text.strip()
-    if not trimmed:
-        return False
-    return re.fullmatch(r"\[\s*[\w\s,.\-]*\s*\]", trimmed, re.S) is not None
-
-
-def _clip_reasoning_text(value: str, max_chars: int = 180) -> str:
-    text = " ".join(value.split())
-    if len(text) <= max_chars:
-        return text
-    return text[: max_chars - 3] + "..."
-
-
-def _extract_answer_phrase_from_reasoning(text: str) -> str | None:
-    patterns = [
-        r"(?i)\b(?:therefore|thus|so)?\s*,?\s*(?:the\s+)?(?:final\s+)?answer\s+(?:should\s+be|is)\s*[:\-]?\s*([^\n.]+)",
-        r"(?i)\b(?:the\s+)?correct\s+answer\s+(?:should\s+be|is)\s*[:\-]?\s*([^\n.]+)",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if not match:
-            continue
-        candidate = match.group(1).strip().strip("\"'`").rstrip(".")
-        if candidate and not _looks_like_placeholder_visible_output(candidate):
-            return candidate
-    return None
-
-
-def _recover_selective_output_from_reasoning_text(reasoning_text: str, dataset: str) -> dict[str, Any]:
-    cleaned = " ".join(reasoning_text.split())
-    if not cleaned:
-        raise ValueError("Provider reasoning text is empty.")
-
-    answer_phrase = _extract_answer_phrase_from_reasoning(cleaned)
-    final_answer = ""
-    if dataset in {"gsm8k", "gsm_symbolic", "math500"}:
-        if answer_phrase:
-            match = re.search(r"[-+]?\d[\d,]*(?:\.\d+)?", answer_phrase.replace(",", ""))
-            if match:
-                final_answer = match.group(0).replace(",", "")
-        if not final_answer:
-            raise ValueError("Could not recover numeric answer from reasoning text.")
-    elif dataset == "strategyqa":
-        if answer_phrase:
-            lowered = answer_phrase.lower()
-            if lowered.startswith("yes"):
-                final_answer = "yes"
-            elif lowered.startswith("no"):
-                final_answer = "no"
-        if not final_answer:
-            matches = re.findall(r"\b(?:yes|no)\b", cleaned.lower())
-            if matches:
-                final_answer = matches[-1]
-        if not final_answer:
-            raise ValueError("Could not recover yes/no answer from reasoning text.")
-    elif dataset == "hotpotqa":
-        if answer_phrase:
-            final_answer = answer_phrase.strip().strip("\"'")
-        if not final_answer:
-            raise ValueError("Could not recover text answer from reasoning text.")
-    else:
-        raise ValueError(f"Unsupported dataset for reasoning-text recovery: {dataset}")
-
-    default_uncertainty = "other"
-    if dataset in {"gsm8k", "gsm_symbolic", "math500"}:
-        default_uncertainty = "calculation"
-    elif dataset == "strategyqa":
-        default_uncertainty = "commonsense_gap"
-    elif dataset == "hotpotqa":
-        default_uncertainty = "multi_hop"
-
-    return {
-        "final_answer": final_answer,
-        "confidence_raw": None,
-        "reasoning": _clip_reasoning_text(cleaned),
-        "claim_span": final_answer,
-        "uncertainty_type": default_uncertainty,
-        "key_evidence": final_answer,
-        "uncertain_point": None,
-    }
-
 
 @dataclass(frozen=True)
 class RunPaths:
@@ -249,8 +165,11 @@ def run_experiment(
         "max_concurrent_requests": experiment.max_concurrent_requests,
         "requests_per_minute_limit": experiment.requests_per_minute_limit,
         "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
-        "primary_backbone": experiment.primary_backbone,
-        "backbone": asdict(backbone),
+        "family_name": "selective_comm",
+        "experiment_name": experiment.name,
+        "phase_name": phase_name,
+        "primary_model_ref": experiment.primary_model_ref,
+        "resolved_model": asdict(backbone),
         "benchmarks": [asdict(benchmark) for benchmark in benchmarks],
         "total_planned_calls": total_calls,
         "total_planned_predictions": total_predictions,
@@ -1090,36 +1009,19 @@ def _execute_turn(
         output_status = "request_fail"
         final_answer = ""
     else:
-        validated_output = {}
-        output_status = "schema_fail"
-        final_answer = ""
-        assistant_text = str(response_payload.get("assistant_text") or "")
-        provider_reasoning_text = str(response_payload.get("provider_reasoning_text") or "")
-        parse_attempts: list[tuple[str, str]] = []
-        if _looks_like_placeholder_visible_output(assistant_text):
-            if provider_reasoning_text.strip():
-                parse_attempts.append((provider_reasoning_text, "reasoning_fallback"))
-            parse_attempts.append((assistant_text, "assistant_text"))
-        else:
-            parse_attempts.append((assistant_text, "assistant_text"))
-            if provider_reasoning_text.strip():
-                parse_attempts.append((provider_reasoning_text, "reasoning_fallback"))
-
-        for candidate_text, source in parse_attempts:
-            try:
-                if source == "reasoning_fallback":
-                    candidate_output = _recover_selective_output_from_reasoning_text(candidate_text, dataset)
-                else:
-                    candidate_output = parse_selective_output(candidate_text, dataset)
-            except Exception:
-                continue
-            candidate_answer = str(candidate_output.get("final_answer", "")).strip()
-            if not candidate_answer or _looks_like_placeholder_visible_output(candidate_answer):
-                continue
-            validated_output = candidate_output
+        try:
+            validated_output = validate_or_recover_structured_output(
+                str(response_payload.get("assistant_text") or ""),
+                OUTPUT_MODE_SELECTIVE_COMM,
+                dataset=dataset,
+                provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
+            )
             output_status = "ok"
-            final_answer = validated_output["final_answer"]
-            break
+            final_answer = str(validated_output.get("final_answer") or "")
+        except Exception:
+            validated_output = {}
+            output_status = "schema_fail"
+            final_answer = ""
 
     usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
     reasoning = str(validated_output.get("reasoning", "")).strip() if validated_output else ""
@@ -1504,7 +1406,7 @@ def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: s
         oracle_trigger_eval=root / "oracle_trigger_eval.json",
         progress=root / "progress.json",
         run_validation=root / "run_validation.json",
-        trigger_report=root / "trigger_report.md",
+        trigger_report=root / "report.md",
     )
 
 
@@ -1603,7 +1505,8 @@ def _load_jsonl_file(path: Path) -> list[dict[str, Any]]:
     """读取 UTF-8 JSONL 文件。"""
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    with path.open("r", encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]
 
 
 def _load_json_file(path: Path) -> dict[str, Any]:

@@ -1,5 +1,5 @@
-name = "trigger_voc_v2_mimo_v2_5_equal_budget_gsm_strategy"
-description = "VoC Trigger v2 on Xiaomi MiMo-V2.5 with equal-budget controls on GSM8K, StrategyQA, and HotpotQA."
+name = "trigger_voc_v2_core_only"
+description = "VoC Trigger v2 on Xiaomi MiMo-V2.5 with shared trigger policies and mv_3 control only."
 benchmark_configs = [
   "configs/shared/benchmarks/gsm8k.toml",
   "configs/shared/benchmarks/strategyqa.toml",
@@ -11,13 +11,13 @@ policy_configs = [
   "configs/selective_comm/policies/disagreement_triggered.toml",
   "configs/selective_comm/policies/voc_trigger_v2.toml",
 ]
-control_catalog = "configs/selective_comm/controls/trigger_equal_budget.toml"
+control_catalog = "configs/selective_comm/controls/trigger_core_only.toml"
 global_seed = 42
 prompt_version = "selective_comm_voc_json_v2"
 max_concurrent_requests = 24
 requests_per_minute_limit = 90
 tokens_per_minute_limit = 9000000
-primary_backbone = "xiaomimimo/mimo-v2.5"
+primary_model_ref = "xiaomimimo/mimo-v2.5"
 
 [phases.smoke20]
 split_suffix = "smoke20_seed42"

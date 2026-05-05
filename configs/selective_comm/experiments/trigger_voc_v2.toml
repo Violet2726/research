@@ -1,5 +1,5 @@
 name = "trigger_voc_v2"
-description = "VoC Trigger v2 smoke20 with black-box claim-span and uncertainty-type proxies on shared selective communication."
+description = "VoC Trigger v2 on Xiaomi MiMo-V2.5 with black-box claim-span and uncertainty-type proxies on shared selective communication."
 benchmark_configs = [
   "configs/shared/benchmarks/gsm8k.toml",
   "configs/shared/benchmarks/strategyqa.toml",
@@ -19,11 +19,13 @@ policy_configs = [
 control_catalog = "configs/selective_comm/controls/trigger_equal_budget.toml"
 global_seed = 42
 prompt_version = "selective_comm_voc_json_v2"
-max_concurrent_requests = 40
-requests_per_minute_limit = 450
-tokens_per_minute_limit = 1800000
-primary_backbone = "siliconflow/deepseek-ai/DeepSeek-V4-Flash"
+max_concurrent_requests = 60
+requests_per_minute_limit = 90
+tokens_per_minute_limit = 9000000
+primary_model_ref = "xiaomimimo/mimo-v2.5"
 
 [phases.smoke20]
 split_suffix = "smoke20_seed42"
 
+[phases.pilot100]
+split_suffix = "pilot100_seed42"

@@ -20,7 +20,7 @@ from selective_comm.config import (
     load_policies,
     load_protocol_config,
     phase_metadata,
-    resolve_backbone,
+    resolve_model,
 )
 from selective_comm.reporting import render_trigger_report, summarize_run
 from selective_comm.runner import run_experiment
@@ -34,12 +34,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     inspect = subparsers.add_parser("inspect-experiment", help="Show the resolved selective communication experiment configuration.")
     inspect.add_argument("--experiment", required=True)
-    inspect.add_argument("--backbone", default=None)
+    inspect.add_argument("--model", default=None)
 
     run = subparsers.add_parser("run", help="Execute one configured selective communication phase.")
     run.add_argument("--experiment", required=True)
     run.add_argument("--phase", required=True)
-    run.add_argument("--backbone", default=None)
+    run.add_argument("--model", default=None)
     run.add_argument("--runs-root", default=default_runs_root("selective_comm"))
     run.add_argument("--cache-path", default=default_cache_path("selective_comm"))
     run.add_argument("--resume-run-dir", default=None)
@@ -67,7 +67,7 @@ def main() -> None:
         protocol = load_protocol_config(experiment.protocol)
         policies = load_policies(experiment.policy_configs)
         controls = load_control_catalog(experiment.control_catalog)
-        resolved_backbone = resolve_backbone(args.backbone or experiment.primary_backbone)
+        resolved_model = resolve_model(args.model or experiment.primary_model_ref)
         payload = {
             "name": experiment.name,
             "description": experiment.description,
@@ -82,9 +82,9 @@ def main() -> None:
             "requests_per_minute_limit": experiment.requests_per_minute_limit,
             "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
             "workspace_defaults": workspace_defaults("selective_comm"),
-            "primary_backbone": experiment.primary_backbone,
-            "resolved_backbone": _serialize_backbone(resolved_backbone),
-            "backbone_fit_warnings": describe_backbone_fit(experiment, resolved_backbone, benchmarks),
+            "primary_model_ref": experiment.primary_model_ref,
+            "resolved_model": _serialize_model(resolved_model),
+            "model_fit_warnings": describe_backbone_fit(experiment, resolved_model, benchmarks),
             "phases": experiment.raw["phases"],
         }
         for phase_name in experiment.raw["phases"]:
@@ -98,13 +98,13 @@ def main() -> None:
 
     if args.command == "run":
         experiment = load_experiment_config(args.experiment)
-        backbone_ref = args.backbone or experiment.primary_backbone
-        resolved_backbone = resolve_backbone(backbone_ref)
-        ensure_backbone_fit(experiment, resolved_backbone)
+        model_ref = args.model or experiment.primary_model_ref
+        resolved_model = resolve_model(model_ref)
+        ensure_backbone_fit(experiment, resolved_model)
         run_dir = run_experiment(
             experiment=experiment,
             phase_name=args.phase,
-            backbone=resolved_backbone,
+            backbone=resolved_model,
             run_root=args.runs_root,
             cache_path=args.cache_path,
             resume_run_dir=args.resume_run_dir,
@@ -160,7 +160,7 @@ def _serialize_control(method: object) -> dict[str, object]:
     }
 
 
-def _serialize_backbone(backbone: object) -> dict[str, object]:
+def _serialize_model(backbone: object) -> dict[str, object]:
     return {
         "name": backbone.name,
         "provider": backbone.provider,

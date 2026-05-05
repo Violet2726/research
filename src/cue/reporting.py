@@ -43,7 +43,7 @@ def render_cue_report(run_dir: str | Path, publish_dir: str | Path | None = None
     diagnostics = _load_json(root / "policy_diagnostics.json")
     oracle = _load_json(root / "oracle_trigger_eval.json")
     markdown = _render_markdown(manifest, metrics, diagnostics, oracle, root)
-    local_report_path = root / "cue_report.md"
+    local_report_path = root / "report.md"
     local_report_path.write_text(markdown, encoding="utf-8")
     write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="CUE Frontier"))
     publish_path = Path(publish_dir) / _published_report_name(manifest)
@@ -168,4 +168,3 @@ def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
-

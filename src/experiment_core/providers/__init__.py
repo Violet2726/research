@@ -1,9 +1,4 @@
-"""共享的 OpenAI 兼容 provider 客户端。
-
-本模块把不同 provider 的 OpenAI-compatible 接口收敛成统一调用面，
-负责构造请求、处理重试、抽取文本通道和估算 usage，
-让上层 runner 不需要重复关心 HTTP 细节。
-"""
+"""Shared OpenAI-compatible provider client."""
 
 from __future__ import annotations
 
@@ -20,7 +15,7 @@ from experiment_core.config import ResolvedModelConfig
 
 @dataclass(frozen=True)
 class ProviderResponse:
-    """标准化后的 provider 响应。"""
+    """Normalized provider response."""
 
     http_status: int
     raw_payload: dict[str, Any]
@@ -37,7 +32,7 @@ class ProviderResponse:
 
 @dataclass(frozen=True)
 class ProviderRequestError(RuntimeError):
-    """对上层暴露的 provider 请求异常。"""
+    """Provider request failure surfaced to runners."""
 
     message: str
     http_status: int | None
@@ -49,7 +44,7 @@ class ProviderRequestError(RuntimeError):
 
 
 class OpenAICompatibleProvider:
-    """最小化的 OpenAI-compatible provider 封装。"""
+    """Minimal OpenAI-compatible provider wrapper."""
 
     def __init__(self, config: ResolvedModelConfig) -> None:
         self.config = config
@@ -62,7 +57,7 @@ class OpenAICompatibleProvider:
         self.api_key = api_key
 
     def chat_completion(self, payload: dict[str, Any]) -> ProviderResponse:
-        """执行一次聊天补全请求，并在必要时做有限重试。"""
+        """Execute one chat-completion request with bounded retries."""
         url = self.config.base_url.rstrip("/") + self.config.chat_path
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -70,17 +65,24 @@ class OpenAICompatibleProvider:
         }
         timeout = httpx.Timeout(self.config.timeout_seconds)
         last_error: Exception | None = None
+        active_payload = payload
+        sanitized_retry_used = False
 
         for attempt in range(self.config.max_retries + 1):
             started = time.perf_counter()
             try:
                 with httpx.Client(timeout=timeout) as client:
-                    response = client.post(url, headers=headers, json=payload)
+                    response = client.post(url, headers=headers, json=active_payload)
                 latency_ms = (time.perf_counter() - started) * 1000
                 response.raise_for_status()
                 body = response.json()
                 usage_reported = body.get("usage")
                 assistant_text, provider_reasoning_text = _extract_message_channels(body)
+                if _looks_like_provider_soft_rejection(assistant_text) and not sanitized_retry_used:
+                    active_payload = _sanitize_payload_messages(active_payload)
+                    sanitized_retry_used = True
+                    time.sleep(_retry_delay_seconds(None, attempt))
+                    continue
                 response_id = body.get("id")
                 provider_request_id = (
                     response.headers.get("x-request-id")
@@ -94,7 +96,7 @@ class OpenAICompatibleProvider:
                     provider_reasoning_text=provider_reasoning_text,
                     finish_reason=_extract_finish_reason(body),
                     usage_reported=usage_reported,
-                    usage_estimated=_estimate_usage(payload, assistant_text),
+                    usage_estimated=_estimate_usage(active_payload, assistant_text),
                     usage_source="reported" if usage_reported else "estimated",
                     latency_ms=latency_ms,
                     provider_request_id=provider_request_id,
@@ -114,7 +116,7 @@ class OpenAICompatibleProvider:
                         response_text=response_text,
                         provider_request_id=provider_request_id,
                     ) from exc
-                time.sleep(min(2**attempt, 8))
+                time.sleep(_retry_delay_seconds(exc.response, attempt))
             except (httpx.ConnectError, httpx.ReadTimeout, httpx.RemoteProtocolError) as exc:
                 last_error = exc
                 if attempt == self.config.max_retries:
@@ -144,7 +146,7 @@ def build_payload(
     *,
     use_response_format: bool = True,
 ) -> dict[str, Any]:
-    """把仓库内部的请求参数组合成 provider 侧 payload。"""
+    """Map internal request parameters to provider payloads."""
     payload: dict[str, Any] = {
         "model": config.model_id,
         "messages": messages,
@@ -161,7 +163,7 @@ def build_payload(
 
 
 def estimate_request_tokens(payload: dict[str, Any]) -> int:
-    """用轻量近似规则估算一次请求会消耗的 token。"""
+    """Estimate request tokens with a lightweight heuristic."""
     prompt_chars = len(json.dumps(payload.get("messages", []), ensure_ascii=False))
     prompt_tokens = max(1, prompt_chars // 4)
     completion_tokens = int(payload.get("max_tokens") or 0)
@@ -169,7 +171,6 @@ def estimate_request_tokens(payload: dict[str, Any]) -> int:
 
 
 def _apply_thinking_control(config: ResolvedModelConfig, payload: dict[str, Any]) -> None:
-    """把仓库级推理控制策略映射到 provider 特定字段。"""
     if config.reasoning_effort is None:
         return
     if config.provider == "local_ollama":
@@ -194,7 +195,6 @@ def _apply_thinking_control(config: ResolvedModelConfig, payload: dict[str, Any]
 
 
 def _extract_message_channels(body: dict[str, Any]) -> tuple[str, str]:
-    """从 provider 返回体中抽取主回答文本与推理文本通道。"""
     choices = body.get("choices") or []
     if not choices:
         return "", ""
@@ -206,8 +206,46 @@ def _extract_message_channels(body: dict[str, Any]) -> tuple[str, str]:
     return assistant_text, provider_reasoning_text
 
 
+def _looks_like_provider_soft_rejection(text: str) -> bool:
+    normalized = " ".join((text or "").split()).lower()
+    if not normalized:
+        return False
+    return normalized in {
+        "the request was rejected because it was considered high risk",
+        "request rejected because it was considered high risk",
+    }
+
+
+def _sanitize_payload_messages(payload: dict[str, Any]) -> dict[str, Any]:
+    messages = payload.get("messages", [])
+    sanitized_messages: list[dict[str, Any]] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        content = str(message.get("content", ""))
+        ascii_content = content.encode("ascii", "ignore").decode("ascii")
+        ascii_content = " ".join(ascii_content.split())
+        sanitized_messages.append(
+            {
+                "role": str(message.get("role", "user")),
+                "content": ascii_content,
+            }
+        )
+    return {**payload, "messages": sanitized_messages}
+
+
+def _retry_delay_seconds(response: httpx.Response | None, attempt: int) -> float:
+    if response is not None:
+        retry_after = response.headers.get("retry-after")
+        if retry_after:
+            try:
+                return max(float(retry_after), 0.0)
+            except ValueError:
+                pass
+    return min(2**attempt, 8)
+
+
 def _extract_text_field(content: object) -> str:
-    """把 provider 可能返回的多种文本字段结构压平成纯文本。"""
     if isinstance(content, str):
         return content
     if isinstance(content, list):
@@ -231,7 +269,6 @@ def _extract_text_field(content: object) -> str:
 
 
 def _extract_finish_reason(body: dict[str, Any]) -> str | None:
-    """抽取首个 choice 的 finish reason。"""
     choices = body.get("choices") or []
     if not choices:
         return None
@@ -239,7 +276,6 @@ def _extract_finish_reason(body: dict[str, Any]) -> str | None:
 
 
 def _estimate_usage(payload: dict[str, Any], assistant_text: str) -> dict[str, int]:
-    """在 provider 未显式返回 usage 时做保守估算。"""
     prompt_chars = len(json.dumps(payload, ensure_ascii=False))
     completion_chars = len(assistant_text)
     return {

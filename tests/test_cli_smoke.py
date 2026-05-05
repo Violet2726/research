@@ -4,14 +4,14 @@ import io
 import json
 from contextlib import redirect_stdout
 
-from multi_agent_baselines.cli import main as multi_agent_main
+from multi_agent.cli import main as multi_agent_main
 from budget_comm.cli import main as budget_main
 from comm_necessary.cli import main as comm_necessary_main
 from free_mad_lite.cli import main as free_mad_main
 from sparc.cli import main as sparc_main
 from selective_comm.cli import main as selective_main
 from sid_lite.cli import main as sid_lite_main
-from single_agent_baselines.cli import main as single_agent_main
+from single_agent.cli import main as single_agent_main
 
 
 def _run_cli(main_func, argv: list[str]) -> dict[str, object]:
@@ -32,13 +32,13 @@ def test_single_agent_inspect_cli() -> None:
     payload = _run_cli(
         single_agent_main,
         [
-            "single-agent-cli",
+            "single_agent_cli",
             "inspect-experiment",
             "--experiment",
-            "configs/single_agent/experiments/main-baselines.toml",
+            "configs/single_agent/experiments/main_baselines.toml",
         ],
     )
-    assert payload["name"] == "main-baselines"
+    assert payload["name"] == "main_baselines"
     assert payload["workspace_defaults"]["experiment_cache_path"].endswith("single_agent_requests.sqlite")
 
 
@@ -46,26 +46,26 @@ def test_multi_agent_inspect_cli() -> None:
     payload = _run_cli(
         multi_agent_main,
         [
-            "mad-cli",
+            "multi_agent_cli",
             "inspect-experiment",
             "--experiment",
             "configs/multi_agent/experiments/vanilla_mad_minimal.toml",
         ],
     )
-    assert payload["name"] == "vanilla-mad-minimal"
+    assert payload["name"] == "vanilla_mad_minimal"
 
 
 def test_selective_comm_inspect_cli() -> None:
     payload = _run_cli(
         selective_main,
         [
-            "selective-cli",
+            "selective_comm_cli",
             "inspect-experiment",
             "--experiment",
             "configs/selective_comm/experiments/trigger_early_exit_v1.toml",
         ],
     )
-    assert payload["name"] == "trigger-early-exit-v1"
+    assert payload["name"] == "trigger_early_exit_v1"
     assert payload["workspace_defaults"]["experiment_runs_root"].endswith("selective_comm")
 
 
@@ -73,7 +73,7 @@ def test_selective_comm_voc_v2_inspect_cli() -> None:
     payload = _run_cli(
         selective_main,
         [
-            "selective-cli",
+            "selective_comm_cli",
             "inspect-experiment",
             "--experiment",
             "configs/selective_comm/experiments/trigger_voc_v2.toml",
@@ -85,14 +85,14 @@ def test_selective_comm_voc_v2_inspect_cli() -> None:
     assert payload["policies"][-1]["policy_name"] == "voc_trigger_v2"
     assert payload["policies"][-1]["claim_divergence_threshold"] == 0.55
     assert payload["policies"][-1]["uncertainty_type_diversity_threshold"] == 0.5
-    assert payload["backbone_fit_warnings"] == []
+    assert payload["model_fit_warnings"] == []
 
 
 def test_sparc_inspect_cli() -> None:
     payload = _run_cli(
         sparc_main,
         [
-            "sparc-cli",
+            "sparc_cli",
             "inspect-experiment",
             "--experiment",
             "configs/sparc/experiments/content_ablation_v1.toml",
@@ -105,14 +105,14 @@ def test_sparc_aggregation_auditing_inspect_cli() -> None:
     payload = _run_cli(
         sparc_main,
         [
-            "sparc-cli",
+            "sparc_cli",
             "inspect-experiment",
             "--experiment",
             "configs/sparc/experiments/aggregation_auditing_ablation_v1.toml",
         ],
     )
     assert payload["name"] == "aggregation_auditing_ablation_v1"
-    assert payload["resolved_backbone"]["name"] == "deepseek/deepseek-v4-flash"
+    assert payload["resolved_model"]["name"] == "deepseek/deepseek-v4-flash"
     assert payload["max_concurrent_requests"] == 5
     assert payload["requests_per_minute_limit"] == 50
     assert payload["tokens_per_minute_limit"] == 1000000
@@ -129,7 +129,7 @@ def test_budget_comm_inspect_cli() -> None:
     payload = _run_cli(
         budget_main,
         [
-            "budget-cli",
+            "budget_comm_cli",
             "inspect-experiment",
             "--experiment",
             "configs/budget_comm/experiments/dala_lite_same_context_v1.toml",
@@ -137,14 +137,14 @@ def test_budget_comm_inspect_cli() -> None:
     )
     assert payload["name"] == "dala_lite_same_context_v1"
     assert payload["context_view"]["track_name"] == "same_context"
-    assert payload["resolved_backbone"]["name"] == "deepseek/deepseek-v4-flash"
+    assert payload["resolved_model"]["name"] == "deepseek/deepseek-v4-flash"
 
 
 def test_sid_lite_inspect_cli() -> None:
     payload = _run_cli(
         sid_lite_main,
         [
-            "sid-lite-cli",
+            "sid_lite_cli",
             "inspect-experiment",
             "--experiment",
             "configs/sid_lite/experiments/sid_lite_v1.toml",
@@ -161,7 +161,7 @@ def test_free_mad_lite_inspect_cli() -> None:
     payload = _run_cli(
         free_mad_main,
         [
-            "free-mad-lite-cli",
+            "free_mad_lite_cli",
             "inspect-experiment",
             "--experiment",
             "configs/free_mad_lite/experiments/free_mad_lite_v1.toml",
@@ -182,7 +182,7 @@ def test_comm_necessary_inspect_cli() -> None:
     payload = _run_cli(
         comm_necessary_main,
         [
-            "comm-necessary-cli",
+            "comm_necessary_cli",
             "inspect-experiment",
             "--experiment",
             "configs/comm_necessary/experiments/hotpotqa_split_evidence_v1.toml",

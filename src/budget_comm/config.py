@@ -68,7 +68,7 @@ class BudgetCommExperimentConfig:
     max_concurrent_requests: int
     requests_per_minute_limit: int | None
     tokens_per_minute_limit: int | None
-    primary_backbone: str
+    primary_model_ref: str
     raw: dict[str, Any]
 
 
@@ -134,7 +134,7 @@ def load_experiment_config(path: str | Path) -> BudgetCommExperimentConfig:
         max_concurrent_requests=int(payload["max_concurrent_requests"]),
         requests_per_minute_limit=_optional_int(payload, "requests_per_minute_limit"),
         tokens_per_minute_limit=_optional_int(payload, "tokens_per_minute_limit"),
-        primary_backbone=str(payload["primary_backbone"]),
+        primary_model_ref=str(payload["primary_model_ref"]),
         raw=payload,
     )
 
@@ -149,7 +149,7 @@ def load_benchmarks(experiment: BudgetCommExperimentConfig) -> list[BenchmarkCon
     return [load_benchmark_config(path) for path in experiment.benchmark_configs]
 
 
-def resolve_backbone(model_ref: str) -> ResolvedModelConfig:
+def resolve_model(model_ref: str) -> ResolvedModelConfig:
     """解析 `budget_comm` 使用的 backbone 模型。"""
     return resolve_model_ref(model_ref)
 

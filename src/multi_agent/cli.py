@@ -17,18 +17,18 @@ from experiment_core.workspace import (
     default_runs_root,
     workspace_defaults,
 )
-from multi_agent_baselines.config import (
+from multi_agent.config import (
     load_benchmarks,
     load_control_catalog,
     load_experiment_config,
     load_protocol_config,
     load_roster_config,
     phase_metadata,
-    resolve_backbone,
+    resolve_model,
 )
-from multi_agent_baselines.reporting import report_debate_vs_vote, summarize_run
-from multi_agent_baselines.runner import run_experiment
-from multi_agent_baselines.validation import validate_run
+from multi_agent.reporting import report_debate_vs_vote, summarize_run
+from multi_agent.runner import run_experiment
+from multi_agent.validation import validate_run
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -39,12 +39,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     inspect = subparsers.add_parser("inspect-experiment", help="Show the resolved multi-agent experiment configuration.")
     inspect.add_argument("--experiment", required=True)
-    inspect.add_argument("--backbone", default=None)
+    inspect.add_argument("--model", default=None)
 
     run = subparsers.add_parser("run", help="Execute one configured multi-agent experiment phase.")
     run.add_argument("--experiment", required=True)
     run.add_argument("--phase", required=True)
-    run.add_argument("--backbone", required=True)
+    run.add_argument("--model", default=None)
     run.add_argument("--runs-root", default=default_runs_root("multi_agent"))
     run.add_argument("--cache-path", default=default_cache_path("multi_agent"))
 
@@ -81,6 +81,7 @@ def main() -> None:
             "control_catalog": str(experiment.control_catalog),
             "control_methods": {name: _serialize_control(method) for name, method in sorted(controls.items())},
             "workspace_defaults": workspace_defaults("multi_agent"),
+            "primary_model_ref": experiment.primary_model_ref,
             "phases": experiment.raw["phases"],
             "setups": [
                 {
@@ -94,8 +95,7 @@ def main() -> None:
                 for setup in experiment.setups
             ],
         }
-        if args.backbone:
-            payload["resolved_backbone"] = _serialize_backbone(resolve_backbone(args.backbone))
+        payload["resolved_model"] = _serialize_model(resolve_model(args.model or experiment.primary_model_ref))
         for phase_name in experiment.raw["phases"]:
             phase = phase_metadata(experiment, phase_name)
             payload.setdefault("resolved_by_phase", {})[phase_name] = {
@@ -108,7 +108,7 @@ def main() -> None:
 
     if args.command == "run":
         experiment = load_experiment_config(args.experiment)
-        backbone = resolve_backbone(args.backbone)
+        backbone = resolve_model(args.model or experiment.primary_model_ref)
         run_dir = run_experiment(
             experiment=experiment,
             phase_name=args.phase,
@@ -161,7 +161,7 @@ def _serialize_control(method) -> dict[str, object]:
     }
 
 
-def _serialize_backbone(backbone) -> dict[str, object]:
+def _serialize_model(backbone) -> dict[str, object]:
     """把解析后的 backbone 模型配置转换为可 JSON 输出结构。"""
     return {
         "name": backbone.name,

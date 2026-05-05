@@ -1,9 +1,4 @@
-"""滑动窗口限流器。
-
-实验 runner 会在真正发出网络请求之前，先占用一次请求额度和 token 额度，
-从而把多线程并发约束在 provider 的 RPM / TPM 配额范围内。
-这里使用轻量的滑动窗口实现，强调可解释性与可复现性，而不是极致吞吐。
-"""
+"""Shared sliding-window rate limiter."""
 
 from __future__ import annotations
 
@@ -13,7 +8,7 @@ import time
 
 
 class SlidingWindowRateLimiter:
-    """同时约束 RPM 与 TPM 的轻量限流器。"""
+    """Thread-safe limiter for request-per-minute and token-per-minute quotas."""
 
     def __init__(
         self,
@@ -27,48 +22,58 @@ class SlidingWindowRateLimiter:
         self.request_events: deque[float] = deque()
         self.token_events: deque[tuple[float, int]] = deque()
         self.condition = threading.Condition()
+        self.last_request_admission: float | None = None
+        self.request_spacing_seconds = self._compute_request_spacing_seconds()
 
     def acquire(self, estimated_tokens: int) -> None:
-        """阻塞直到当前请求可以安全进入窗口。"""
+        """Block until the next request can safely enter the global window."""
         with self.condition:
             while True:
                 now = time.monotonic()
                 self._evict_expired(now)
-
                 request_wait = self._request_wait_seconds(now)
                 token_wait = self._token_wait_seconds(now, estimated_tokens)
                 wait_seconds = max(request_wait, token_wait)
                 if wait_seconds <= 0:
                     self.request_events.append(now)
                     self.token_events.append((now, estimated_tokens))
+                    self.last_request_admission = now
                     self.condition.notify_all()
                     return
                 self.condition.wait(timeout=wait_seconds)
 
+    def _compute_request_spacing_seconds(self) -> float:
+        if not self.requests_per_minute:
+            return 0.0
+        effective_requests_per_minute = self.requests_per_minute
+        if self.requests_per_minute > 10:
+            effective_requests_per_minute = max(1, self.requests_per_minute - 2)
+        return self.window_seconds / effective_requests_per_minute
+
     def _evict_expired(self, now: float) -> None:
-        """移除滑动窗口之外的旧事件。"""
         while self.request_events and now - self.request_events[0] >= self.window_seconds:
             self.request_events.popleft()
         while self.token_events and now - self.token_events[0][0] >= self.window_seconds:
             self.token_events.popleft()
 
     def _request_wait_seconds(self, now: float) -> float:
-        """计算还需等待多久才能满足 RPM 限制。"""
+        spacing_wait = 0.0
+        if self.last_request_admission is not None and self.request_spacing_seconds > 0:
+            spacing_wait = max(0.0, self.request_spacing_seconds - (now - self.last_request_admission))
         if not self.requests_per_minute:
-            return 0.0
+            return spacing_wait
         if len(self.request_events) < self.requests_per_minute:
-            return 0.0
+            return spacing_wait
         oldest = self.request_events[0]
-        return max(0.0, self.window_seconds - (now - oldest))
+        window_wait = max(0.0, self.window_seconds - (now - oldest))
+        return max(spacing_wait, window_wait)
 
     def _token_wait_seconds(self, now: float, estimated_tokens: int) -> float:
-        """计算还需等待多久才能满足 TPM 限制。"""
         if not self.tokens_per_minute:
             return 0.0
         total_tokens = sum(tokens for _, tokens in self.token_events)
         if total_tokens + estimated_tokens <= self.tokens_per_minute:
             return 0.0
-
         excess = total_tokens + estimated_tokens - self.tokens_per_minute
         released = 0
         for timestamp, tokens in self.token_events:

@@ -7,8 +7,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 EXPERIMENT_PACKAGES = {
-    "single_agent_baselines",
-    "multi_agent_baselines",
+    "single_agent",
+    "multi_agent",
     "selective_comm",
     "sparc",
     "budget_comm",
@@ -38,9 +38,16 @@ def test_no_cross_experiment_imports() -> None:
 
 
 def test_no_legacy_package_imports() -> None:
+    legacy_markers = (
+        "api_baselines",
+        "experiment_common",
+        "single_agent_baselines",
+        "multi_agent_baselines",
+        "smoke20_orchestrator",
+    )
     violations: list[str] = []
     for path in SRC.rglob("*.py"):
         text = path.read_text(encoding="utf-8")
-        if "api_baselines" in text or "experiment_common" in text:
+        if any(marker in text for marker in legacy_markers):
             violations.append(str(path))
     assert not violations, "\n".join(violations)

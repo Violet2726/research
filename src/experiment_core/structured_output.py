@@ -22,6 +22,8 @@ OUTPUT_MODE_SPARC_AUDIT = "sparc_audit"
 OUTPUT_MODE_CUE_SOLVER = "cue_solver"
 OUTPUT_MODE_CUE_BELIEF_UPDATE = "cue_belief_update"
 OUTPUT_MODE_CUE_AUDIT = "cue_audit"
+OUTPUT_MODE_COMM_NECESSARY_SOLVER = "comm_necessary_solver"
+OUTPUT_MODE_COMM_NECESSARY_BELIEF = "comm_necessary_belief"
 OutputMode = Literal[
     "core",
     "selective_comm",
@@ -34,6 +36,8 @@ OutputMode = Literal[
     "cue_solver",
     "cue_belief_update",
     "cue_audit",
+    "comm_necessary_solver",
+    "comm_necessary_belief",
 ]
 
 UNCERTAINTY_TYPE_CHOICES = {
@@ -83,7 +87,53 @@ def validate_structured_output(raw_text: str, output_mode: OutputMode) -> dict[s
         return _validate_cue_belief_update_output(payload)
     if output_mode == OUTPUT_MODE_CUE_AUDIT:
         return _validate_cue_audit_output(payload)
+    if output_mode == OUTPUT_MODE_COMM_NECESSARY_SOLVER:
+        return _validate_comm_necessary_solver_output(payload)
+    if output_mode == OUTPUT_MODE_COMM_NECESSARY_BELIEF:
+        return _validate_comm_necessary_belief_output(payload)
     raise ValueError(f"Unsupported output mode: {output_mode}")
+
+
+def validate_or_recover_structured_output(
+    assistant_text: str,
+    output_mode: OutputMode,
+    *,
+    dataset: str | None = None,
+    provider_reasoning_text: str | None = None,
+) -> dict[str, Any]:
+    """Validate one response, then fall back to shared recovery heuristics when possible."""
+    candidate_errors: list[str] = []
+    for candidate_text, source in _structured_output_candidates(
+        assistant_text=assistant_text,
+        provider_reasoning_text=provider_reasoning_text,
+        output_mode=output_mode,
+    ):
+        if output_mode == OUTPUT_MODE_SELECTIVE_COMM:
+            if dataset is None:
+                raise ValueError("dataset is required for selective output recovery.")
+            try:
+                if source == "reasoning_fallback":
+                    return _recover_selective_output_from_reasoning_text(candidate_text, dataset)
+                return parse_selective_output(candidate_text, dataset)
+            except Exception as exc:
+                candidate_errors.append(f"{source}: {exc}")
+                continue
+        try:
+            return validate_structured_output(candidate_text, output_mode)
+        except Exception as exc:
+            candidate_errors.append(f"{source}: {exc}")
+            recovered = _recover_partial_json_output(candidate_text, output_mode)
+            if recovered is not None:
+                return recovered
+    soft_rejection_fallback = _recover_soft_rejection_output(
+        assistant_text=assistant_text,
+        provider_reasoning_text=provider_reasoning_text,
+        output_mode=output_mode,
+        dataset=dataset,
+    )
+    if soft_rejection_fallback is not None:
+        return soft_rejection_fallback
+    raise ValueError("Structured output recovery failed: " + " | ".join(candidate_errors[-4:]))
 
 
 def parse_selective_output(raw_text: str, dataset: str) -> dict[str, Any]:
@@ -433,6 +483,77 @@ def _validate_cue_audit_output(payload: dict[str, Any]) -> dict[str, Any]:
     return _validate_sparc_audit_output(payload)
 
 
+def _validate_comm_necessary_solver_output(payload: dict[str, Any]) -> dict[str, Any]:
+    allowed_keys = {
+        "final_answer",
+        "reasoning_trace",
+        "reasoning",
+        "evidence_summary",
+        "key_evidence",
+        "supporting_facts",
+        "confidence_raw",
+    }
+    actual_keys = set(payload)
+    if "final_answer" not in payload:
+        raise ValueError('Assistant output must include "final_answer".')
+    if not actual_keys.issubset(allowed_keys):
+        raise ValueError(
+            f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}."
+        )
+    return {
+        "final_answer": _require_answer_value(payload.get("final_answer"), "final_answer"),
+        "reasoning_trace": _require_nullable_hint(
+            payload.get("reasoning_trace", payload.get("reasoning")),
+            "reasoning_trace",
+        ),
+        "evidence_summary": _require_nullable_hint(
+            payload.get("evidence_summary", payload.get("key_evidence")),
+            "evidence_summary",
+        ),
+        "supporting_facts": _normalize_supporting_facts_payload(payload.get("supporting_facts")),
+        "confidence_raw": _optional_confidence_raw(payload.get("confidence_raw")),
+    }
+
+
+def _validate_comm_necessary_belief_output(payload: dict[str, Any]) -> dict[str, Any]:
+    allowed_keys = {
+        "changed_answer",
+        "final_answer",
+        "new_answer",
+        "reasoning_trace",
+        "reasoning",
+        "evidence_summary",
+        "key_evidence",
+        "supporting_facts",
+        "confidence_raw",
+    }
+    actual_keys = set(payload)
+    changed_answer = payload.get("changed_answer")
+    if changed_answer is not None and not isinstance(changed_answer, bool):
+        raise ValueError("changed_answer must be a boolean when present.")
+    candidate_answer = payload.get("final_answer", payload.get("new_answer"))
+    if candidate_answer is None:
+        raise ValueError('Assistant output must include "final_answer" or "new_answer".')
+    if not actual_keys.issubset(allowed_keys):
+        raise ValueError(
+            f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}."
+        )
+    return {
+        "changed_answer": bool(changed_answer),
+        "final_answer": _require_answer_value(candidate_answer, "final_answer"),
+        "reasoning_trace": _require_nullable_hint(
+            payload.get("reasoning_trace", payload.get("reasoning")),
+            "reasoning_trace",
+        ),
+        "evidence_summary": _require_nullable_hint(
+            payload.get("evidence_summary", payload.get("key_evidence")),
+            "evidence_summary",
+        ),
+        "supporting_facts": _normalize_supporting_facts_payload(payload.get("supporting_facts")),
+        "confidence_raw": _optional_confidence_raw(payload.get("confidence_raw")),
+    }
+
+
 def _decode_json_object(cleaned: str) -> dict[str, Any]:
     """把模型文本解码为 JSON 对象，并拒绝非对象顶层结构。"""
     import json
@@ -441,6 +562,387 @@ def _decode_json_object(cleaned: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("Assistant output must be a JSON object.")
     return payload
+
+
+def _structured_output_candidates(
+    *,
+    assistant_text: str,
+    provider_reasoning_text: str | None,
+    output_mode: OutputMode,
+) -> list[tuple[str, str]]:
+    assistant = str(assistant_text or "").strip()
+    reasoning = str(provider_reasoning_text or "").strip()
+    if output_mode == OUTPUT_MODE_SELECTIVE_COMM and _looks_like_placeholder_visible_output(assistant):
+        ordered = [(reasoning, "reasoning_fallback"), (assistant, "assistant_text")]
+    else:
+        ordered = [(assistant, "assistant_text"), (reasoning, "reasoning_fallback")]
+    return [(text, source) for text, source in ordered if text]
+
+
+def _looks_like_placeholder_visible_output(text: str) -> bool:
+    import re
+
+    trimmed = text.strip()
+    if not trimmed:
+        return False
+    return re.fullmatch(r"\[\s*[\w\s,.\-]*\s*\]", trimmed, re.S) is not None
+
+
+def _clip_reasoning_text(value: str, max_chars: int = 180) -> str:
+    text = " ".join(value.split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3] + "..."
+
+
+def _extract_answer_phrase_from_reasoning(text: str) -> str | None:
+    import re
+
+    patterns = [
+        r"(?i)\b(?:therefore|thus|so)?\s*,?\s*(?:the\s+)?(?:final\s+)?answer\s+(?:should\s+be|is)\s*[:\-]?\s*([^\n.]+)",
+        r"(?i)\b(?:the\s+)?correct\s+answer\s+(?:should\s+be|is)\s*[:\-]?\s*([^\n.]+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if not match:
+            continue
+        candidate = match.group(1).strip().strip("\"'`").rstrip(".")
+        if candidate and not _looks_like_placeholder_visible_output(candidate):
+            return candidate
+    return None
+
+
+def _recover_selective_output_from_reasoning_text(reasoning_text: str, dataset: str) -> dict[str, Any]:
+    import re
+
+    cleaned = " ".join(reasoning_text.split())
+    if not cleaned:
+        raise ValueError("Provider reasoning text is empty.")
+
+    answer_phrase = _extract_answer_phrase_from_reasoning(cleaned)
+    final_answer = ""
+    if dataset in {"gsm8k", "gsm_symbolic", "math500"}:
+        if answer_phrase:
+            match = re.search(r"[-+]?\d[\d,]*(?:\.\d+)?", answer_phrase.replace(",", ""))
+            if match:
+                final_answer = match.group(0).replace(",", "")
+        if not final_answer:
+            raise ValueError("Could not recover numeric answer from reasoning text.")
+    elif dataset == "strategyqa":
+        if answer_phrase:
+            lowered = answer_phrase.lower()
+            if lowered.startswith("yes"):
+                final_answer = "yes"
+            elif lowered.startswith("no"):
+                final_answer = "no"
+        if not final_answer:
+            matches = re.findall(r"\b(?:yes|no)\b", cleaned.lower())
+            if matches:
+                final_answer = matches[-1]
+        if not final_answer:
+            raise ValueError("Could not recover yes/no answer from reasoning text.")
+    elif dataset == "hotpotqa":
+        if answer_phrase:
+            final_answer = answer_phrase.strip().strip("\"'")
+        if not final_answer:
+            raise ValueError("Could not recover text answer from reasoning text.")
+    else:
+        raise ValueError(f"Unsupported dataset for reasoning-text recovery: {dataset}")
+
+    return {
+        "final_answer": final_answer,
+        "confidence_raw": None,
+        "reasoning": _clip_reasoning_text(cleaned),
+        "claim_span": final_answer,
+        "uncertainty_type": _default_uncertainty_type(dataset),
+        "key_evidence": final_answer,
+        "uncertain_point": None,
+    }
+
+
+def _recover_partial_json_output(raw_text: str, output_mode: OutputMode) -> dict[str, Any] | None:
+    if output_mode == OUTPUT_MODE_CORE:
+        return _recover_core_output(raw_text)
+    if output_mode == OUTPUT_MODE_BUDGET_SOLVER:
+        return _recover_budget_solver_output(raw_text)
+    if output_mode in {OUTPUT_MODE_BUDGET_BELIEF_UPDATE, OUTPUT_MODE_SPARC_BELIEF_UPDATE, OUTPUT_MODE_CUE_BELIEF_UPDATE}:
+        return _recover_belief_update_output(raw_text, output_mode)
+    if output_mode in {OUTPUT_MODE_COMM_NECESSARY_SOLVER, OUTPUT_MODE_COMM_NECESSARY_BELIEF}:
+        return _recover_comm_necessary_output(raw_text, output_mode)
+    if output_mode == OUTPUT_MODE_SPARC_SOLVER:
+        return _recover_sparc_solver_output(raw_text)
+    if output_mode == OUTPUT_MODE_SPARC_MESSAGE:
+        return _recover_sparc_message_output(raw_text)
+    if output_mode in {OUTPUT_MODE_SPARC_AUDIT, OUTPUT_MODE_CUE_AUDIT}:
+        return _recover_audit_output(raw_text, output_mode)
+    if output_mode == OUTPUT_MODE_CUE_SOLVER:
+        return _recover_cue_solver_output(raw_text)
+    return None
+
+
+def _recover_core_output(raw_text: str) -> dict[str, Any] | None:
+    final_answer = _extract_json_answer_field(raw_text, "final_answer")
+    reasoning = _extract_json_string_field(raw_text, "reasoning")
+    if not final_answer:
+        final_answer = _extract_answer_phrase_from_reasoning(raw_text)
+    if not final_answer:
+        final_answer = _extract_answer_guess_from_text(raw_text)
+    if not final_answer:
+        return None
+    payload: dict[str, Any] = {"final_answer": final_answer}
+    if reasoning:
+        payload["reasoning"] = reasoning
+    return validate_structured_output(_encode_recovered_payload(payload), OUTPUT_MODE_CORE)
+
+
+def _recover_budget_solver_output(raw_text: str) -> dict[str, Any] | None:
+    final_answer = _extract_json_answer_field(raw_text, "final_answer")
+    if not final_answer:
+        return None
+    confidence_raw = _extract_json_number_field(raw_text, "confidence_raw")
+    if confidence_raw is None:
+        confidence_raw = _extract_json_string_field(raw_text, "confidence_raw")
+    if confidence_raw is None:
+        confidence_raw = 0.5
+    claim_span = _extract_json_string_field(raw_text, "claim_span")
+    key_evidence = _extract_json_string_field(raw_text, "key_evidence")
+    keyword_clues = _extract_json_string_list_field(raw_text, "keyword_clues")
+    if not keyword_clues:
+        fallback_clue = claim_span or key_evidence or final_answer
+        keyword_clues = [fallback_clue]
+    payload = {
+        "final_answer": final_answer,
+        "reasoning_trace": _extract_json_string_field(raw_text, "reasoning_trace")
+        or _extract_json_string_field(raw_text, "reasoning_sketch")
+        or _extract_json_string_field(raw_text, "reasoning")
+        or final_answer,
+        "claim_span": claim_span,
+        "key_evidence": key_evidence,
+        "keyword_clues": keyword_clues,
+        "confidence_raw": confidence_raw,
+        "uncertain_point": _extract_json_string_field(raw_text, "uncertain_point"),
+    }
+    return validate_structured_output(_encode_recovered_payload(payload), OUTPUT_MODE_BUDGET_SOLVER)
+
+
+def _recover_comm_necessary_output(raw_text: str, output_mode: OutputMode) -> dict[str, Any] | None:
+    final_answer = _extract_json_answer_field(raw_text, "final_answer") or _extract_json_answer_field(raw_text, "new_answer")
+    if not final_answer:
+        return None
+    payload = {
+        "final_answer": final_answer,
+        "reasoning_trace": _extract_json_string_field(raw_text, "reasoning_trace")
+        or _extract_json_string_field(raw_text, "reasoning"),
+        "evidence_summary": _extract_json_string_field(raw_text, "evidence_summary")
+        or _extract_json_string_field(raw_text, "key_evidence"),
+        "supporting_facts": _extract_json_array_field(raw_text, "supporting_facts") or [],
+        "confidence_raw": _extract_json_number_field(raw_text, "confidence_raw")
+        or _extract_json_string_field(raw_text, "confidence_raw"),
+    }
+    if output_mode == OUTPUT_MODE_COMM_NECESSARY_BELIEF:
+        payload["changed_answer"] = _extract_json_bool_field(raw_text, "changed_answer") or False
+    return validate_structured_output(_encode_recovered_payload(payload), output_mode)
+
+
+def _recover_belief_update_output(raw_text: str, output_mode: OutputMode) -> dict[str, Any] | None:
+    changed_answer = _extract_json_bool_field(raw_text, "changed_answer")
+    if changed_answer is None:
+        return None
+    new_answer = _extract_json_answer_field(raw_text, "new_answer")
+    if changed_answer and new_answer is None:
+        return None
+    payload = {
+        "changed_answer": changed_answer,
+        "new_answer": new_answer,
+        "confidence_delta": _extract_json_number_field(raw_text, "confidence_delta"),
+        "reason_for_change": _extract_json_string_field(raw_text, "reason_for_change"),
+        "remaining_disagreement": _extract_json_string_field(raw_text, "remaining_disagreement"),
+    }
+    return validate_structured_output(_encode_recovered_payload(payload), output_mode)
+
+
+def _recover_sparc_solver_output(raw_text: str) -> dict[str, Any] | None:
+    final_answer = _extract_json_answer_field(raw_text, "final_answer")
+    if not final_answer:
+        return None
+    payload = {
+        "final_answer": final_answer,
+        "reasoning_trace": _extract_json_string_field(raw_text, "reasoning_trace")
+        or _extract_json_string_field(raw_text, "reasoning_sketch")
+        or _extract_json_string_field(raw_text, "reasoning"),
+        "claim_span": _extract_json_string_field(raw_text, "claim_span"),
+        "confidence_raw": _extract_json_number_field(raw_text, "confidence_raw")
+        or _extract_json_string_field(raw_text, "confidence_raw"),
+        "uncertain_point": _extract_json_string_field(raw_text, "uncertain_point"),
+        "key_evidence": _extract_json_string_field(raw_text, "key_evidence"),
+    }
+    return validate_structured_output(_encode_recovered_payload(payload), OUTPUT_MODE_SPARC_SOLVER)
+
+
+def _recover_sparc_message_output(raw_text: str) -> dict[str, Any] | None:
+    final_answer = _extract_json_answer_field(raw_text, "final_answer")
+    if not final_answer:
+        return None
+    payload = {
+        "final_answer": final_answer,
+        "reasoning_trace": _extract_json_string_field(raw_text, "reasoning_trace")
+        or _extract_json_string_field(raw_text, "reasoning"),
+        "confidence_raw": _extract_json_number_field(raw_text, "confidence_raw")
+        or _extract_json_string_field(raw_text, "confidence_raw"),
+        "claim_span": _extract_json_string_field(raw_text, "claim_span"),
+        "key_evidence": _extract_json_string_field(raw_text, "key_evidence"),
+    }
+    return validate_structured_output(_encode_recovered_payload(payload), OUTPUT_MODE_SPARC_MESSAGE)
+
+
+def _recover_audit_output(raw_text: str, output_mode: OutputMode) -> dict[str, Any] | None:
+    decision = _extract_json_string_field(raw_text, "decision")
+    if not decision:
+        return None
+    payload = {
+        "decision": decision,
+        "verified_answer": _extract_json_answer_field(raw_text, "verified_answer"),
+        "rationale": _extract_json_string_field(raw_text, "rationale") or "Recovered partial rationale.",
+    }
+    return validate_structured_output(_encode_recovered_payload(payload), output_mode)
+
+
+def _recover_cue_solver_output(raw_text: str) -> dict[str, Any] | None:
+    final_answer = _extract_json_answer_field(raw_text, "final_answer")
+    if not final_answer:
+        return None
+    confidence = _extract_json_number_field(raw_text, "confidence")
+    if confidence is None:
+        confidence = _extract_json_string_field(raw_text, "confidence")
+    payload = {
+        "final_answer": final_answer,
+        "confidence": confidence,
+        "reasoning_sketch": _extract_json_string_field(raw_text, "reasoning_sketch") or final_answer,
+        "uncertain_point": _extract_json_string_field(raw_text, "uncertain_point"),
+        "top_claims": _extract_json_string_list_field(raw_text, "top_claims"),
+        "evidence_items": _extract_json_string_list_field(raw_text, "evidence_items"),
+        "counter_answer": _extract_json_answer_field(raw_text, "counter_answer"),
+    }
+    return validate_structured_output(_encode_recovered_payload(payload), OUTPUT_MODE_CUE_SOLVER)
+
+
+def _encode_recovered_payload(payload: dict[str, Any]) -> str:
+    import json
+
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _extract_json_string_field(raw_text: str, field_name: str) -> str | None:
+    import re
+
+    pattern = rf'"{re.escape(field_name)}"\s*:\s*"((?:\\.|[^"\\])*)"'
+    match = re.search(pattern, raw_text, flags=re.DOTALL)
+    if not match:
+        return None
+    return bytes(match.group(1), "utf-8").decode("unicode_escape").strip() or None
+
+
+def _extract_json_string_list_field(raw_text: str, field_name: str) -> list[str]:
+    import re
+
+    pattern = rf'"{re.escape(field_name)}"\s*:\s*\[(.*?)\]'
+    match = re.search(pattern, raw_text, flags=re.DOTALL)
+    if not match:
+        return []
+    list_body = match.group(1)
+    items = re.findall(r'"((?:\\.|[^"\\])*)"', list_body)
+    result: list[str] = []
+    for item in items[:3]:
+        normalized = bytes(item, "utf-8").decode("unicode_escape").strip()
+        if normalized:
+            result.append(normalized)
+    return result
+
+
+def _extract_json_array_field(raw_text: str, field_name: str) -> object | None:
+    import json
+    import re
+
+    match = re.search(rf'"{re.escape(field_name)}"\s*:\s*\[', raw_text, flags=re.DOTALL)
+    if not match:
+        return None
+    start = match.end() - 1
+    depth = 0
+    in_string = False
+    escape = False
+    end = None
+    for index in range(start, len(raw_text)):
+        char = raw_text[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            continue
+        if char == "[":
+            depth += 1
+            continue
+        if char == "]":
+            depth -= 1
+            if depth == 0:
+                end = index
+                break
+    if end is None:
+        return None
+    try:
+        return json.loads(raw_text[start : end + 1])
+    except Exception:
+        return None
+
+
+def _extract_json_number_field(raw_text: str, field_name: str) -> float | None:
+    import re
+
+    pattern = rf'"{re.escape(field_name)}"\s*:\s*(-?\d+(?:\.\d+)?)'
+    match = re.search(pattern, raw_text)
+    if not match:
+        return None
+    return float(match.group(1))
+
+
+def _extract_json_bool_field(raw_text: str, field_name: str) -> bool | None:
+    import re
+
+    pattern = rf'"{re.escape(field_name)}"\s*:\s*(true|false)'
+    match = re.search(pattern, raw_text, flags=re.IGNORECASE)
+    if not match:
+        return None
+    return match.group(1).lower() == "true"
+
+
+def _extract_json_answer_field(raw_text: str, field_name: str) -> str | None:
+    import re
+
+    string_value = _extract_json_string_field(raw_text, field_name)
+    if string_value is not None:
+        return string_value
+    pattern = rf'"{re.escape(field_name)}"\s*:\s*([-+]?\d[\d,]*(?:\.\d+)?)'
+    match = re.search(pattern, raw_text)
+    if not match:
+        return None
+    return match.group(1).replace(",", "")
+
+
+def _extract_answer_guess_from_text(raw_text: str) -> str | None:
+    import re
+
+    yes_no = re.findall(r"\b(?:yes|no)\b", raw_text.lower())
+    if yes_no:
+        return yes_no[-1]
+    numbers = re.findall(r"[-+]?\d[\d,]*(?:\.\d+)?", raw_text.replace(",", ""))
+    if numbers:
+        return numbers[-1].replace(",", "")
+    return None
 
 
 def _require_non_empty_string(value: object, field_name: str) -> str:
@@ -736,6 +1238,134 @@ def _require_short_string_list(value: object, field_name: str) -> list[str]:
         normalized = _require_non_empty_string(item, f"{field_name}[]")
         normalized_items.append(normalized)
     return normalized_items[:3]
+
+
+def _normalize_supporting_facts_payload(value: object) -> list[dict[str, Any]]:
+    normalized_rows: list[dict[str, Any]] = []
+    if value is None:
+        return normalized_rows
+    raw_items = value if isinstance(value, list) else [value]
+    for item in raw_items:
+        title: object | None = None
+        sent_id: object | None = None
+        if isinstance(item, dict):
+            title = item.get("title")
+            sent_id = item.get("sent_id", item.get("sentence_id"))
+        elif isinstance(item, (list, tuple)) and len(item) >= 2:
+            title = item[0]
+            sent_id = item[1]
+        normalized_title = str(title or "").strip()
+        if not normalized_title:
+            continue
+        try:
+            normalized_sent_id = int(str(sent_id).strip())
+        except (TypeError, ValueError):
+            continue
+        normalized_rows.append({"title": normalized_title, "sent_id": normalized_sent_id})
+    return normalized_rows[:6]
+
+
+def _recover_soft_rejection_output(
+    *,
+    assistant_text: str,
+    provider_reasoning_text: str | None,
+    output_mode: OutputMode,
+    dataset: str | None,
+) -> dict[str, Any] | None:
+    candidate_texts = [str(assistant_text or ""), str(provider_reasoning_text or "")]
+    if not any(_looks_like_soft_rejection_text(text) for text in candidate_texts):
+        return None
+    if output_mode == OUTPUT_MODE_CORE:
+        return {"final_answer": "unknown", "reasoning": "provider_soft_rejection"}
+    if output_mode == OUTPUT_MODE_SELECTIVE_COMM:
+        return {
+            "final_answer": "unknown",
+            "confidence_raw": None,
+            "reasoning": "provider_soft_rejection",
+            "claim_span": "provider_soft_rejection",
+            "uncertainty_type": _default_uncertainty_type(dataset),
+            "key_evidence": "provider_soft_rejection",
+            "uncertain_point": None,
+        }
+    if output_mode == OUTPUT_MODE_BUDGET_SOLVER:
+        return {
+            "final_answer": "unknown",
+            "reasoning_trace": "provider_soft_rejection",
+            "claim_span": "provider_soft_rejection",
+            "key_evidence": "provider_soft_rejection",
+            "keyword_clues": ["provider_soft_rejection"],
+            "confidence_raw": 0.0,
+            "uncertain_point": None,
+        }
+    if output_mode in {OUTPUT_MODE_BUDGET_BELIEF_UPDATE, OUTPUT_MODE_SPARC_BELIEF_UPDATE, OUTPUT_MODE_CUE_BELIEF_UPDATE}:
+        return {
+            "changed_answer": False,
+            "new_answer": None,
+            "confidence_delta": None,
+            "reason_for_change": "provider_soft_rejection",
+            "remaining_disagreement": None,
+        }
+    if output_mode == OUTPUT_MODE_SPARC_SOLVER:
+        return {
+            "final_answer": "unknown",
+            "reasoning_trace": "provider_soft_rejection",
+            "claim_span": "provider_soft_rejection",
+            "confidence_raw": 0.0,
+            "uncertain_point": None,
+            "key_evidence": "provider_soft_rejection",
+        }
+    if output_mode == OUTPUT_MODE_SPARC_MESSAGE:
+        return {
+            "final_answer": "unknown",
+            "reasoning_trace": "provider_soft_rejection",
+            "confidence_raw": 0.0,
+            "claim_span": "provider_soft_rejection",
+            "key_evidence": "provider_soft_rejection",
+        }
+    if output_mode in {OUTPUT_MODE_SPARC_AUDIT, OUTPUT_MODE_CUE_AUDIT}:
+        return {
+            "decision": "abstain",
+            "verified_answer": None,
+            "rationale": "provider_soft_rejection",
+        }
+    if output_mode == OUTPUT_MODE_CUE_SOLVER:
+        return {
+            "final_answer": "unknown",
+            "confidence": 0.0,
+            "reasoning_sketch": "provider_soft_rejection",
+            "uncertain_point": None,
+            "top_claims": ["provider_soft_rejection"],
+            "evidence_items": [],
+            "counter_answer": None,
+        }
+    if output_mode == OUTPUT_MODE_COMM_NECESSARY_SOLVER:
+        return {
+            "final_answer": "unknown",
+            "reasoning_trace": "provider_soft_rejection",
+            "evidence_summary": "provider_soft_rejection",
+            "supporting_facts": [],
+            "confidence_raw": 0.0,
+        }
+    if output_mode == OUTPUT_MODE_COMM_NECESSARY_BELIEF:
+        return {
+            "changed_answer": False,
+            "final_answer": "unknown",
+            "reasoning_trace": "provider_soft_rejection",
+            "evidence_summary": "provider_soft_rejection",
+            "supporting_facts": [],
+            "confidence_raw": 0.0,
+        }
+    return None
+
+
+def _looks_like_soft_rejection_text(text: str) -> bool:
+    normalized = " ".join(str(text or "").split()).lower()
+    if not normalized:
+        return False
+    return normalized in {
+        "the request was rejected because it was considered high risk",
+        "request rejected because it was considered high risk",
+    }
 
 
 def _require_bool(value: object, field_name: str) -> bool:

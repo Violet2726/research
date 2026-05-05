@@ -54,8 +54,7 @@ def render_report(
     diagnostics = _load_json(root / "diagnostics.json")
     predictions = _load_jsonl(root / "final_predictions.jsonl")
     markdown = _render_markdown(manifest, metrics, diagnostics, predictions, root)
-    report_name = REPORT_NAME_BY_KIND.get(str(manifest.get("experiment_kind")), "sparc_report.md")
-    local_report_path = root / report_name
+    local_report_path = root / "report.md"
     local_report_path.write_text(markdown, encoding="utf-8")
     write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="SPARC Frontier"))
     write_report(root / "audit_diagnostics.md", render_audit_diagnostic_report(metrics.get("summary", []), title="SPARC Audit Diagnostics"))
@@ -444,7 +443,8 @@ def _load_json(path: Path) -> dict[str, Any]:
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    with path.open("r", encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]
 
 
 def _mean(values) -> float:
