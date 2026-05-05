@@ -1,4 +1,4 @@
 dataset,model_name,method_name,prediction_rows,questions_per_rerun,rerun_count,accuracy_mean,accuracy_std,prompt_tokens_mean,completion_tokens_mean,total_tokens_mean,calls_per_question_mean,latency_ms_mean,acc_per_1k_tokens,rows_with_request_failures,request_failures_total,rerun_accuracy_min,rerun_accuracy_max
-gsm8k,xiaomimimo/mimo-v2.5,cot_1,20,20,1,1.0,0.0,153.25,84.85,238.1,1.0,2976.12961998675,4.199916001679966,0,0,1.0,1.0
-hotpotqa,xiaomimimo/mimo-v2.5,cot_1,20,20,1,0.65,0.0,1515.65,81.5,1597.15,1.0,2038.1585199967958,0.40697492408352376,0,0,0.65,0.65
-strategyqa,xiaomimimo/mimo-v2.5,cot_1,20,20,1,0.7,0.0,110.6,60.8,171.4,1.0,2798.3824100112543,4.084014002333722,0,0,0.7,0.7
+gsm8k,xiaomimimo/mimo-v2.5,cot_1,20,20,1,1.0,0.0,159.25,85.35,244.6,1.0,1549.4581950246356,4.088307440719542,0,0,1.0,1.0
+hotpotqa,xiaomimimo/mimo-v2.5,cot_1,20,20,1,0.7,0.0,1521.85,89.1,1610.95,1.0,2069.115899980534,0.4345262112418138,0,0,0.7,0.7
+strategyqa,xiaomimimo/mimo-v2.5,cot_1,20,20,1,0.7,0.0,119.6,61.2,180.8,1.0,2638.314279995393,3.8716814159292032,0,0,0.7,0.7

@@ -5,13 +5,13 @@
 - 实验名：`dala_lite_same_context_v1`
 - 轨道：`same_context`
 - Phase：`smoke20`
-- Backbone：`None`
-- 运行目录：`runs/budget_comm/dala_lite_same_context_v1/smoke20/20260505T050230Z-dala_lite_same_context_v1-smoke20-xiaomimimo-mimo-v2.5`
+- Backbone：`xiaomimimo/mimo-v2.5`
+- 运行目录：`runs/budget_comm/dala_lite_same_context_v1/smoke20/20260505T090136Z-dala_lite_same_context_v1-smoke20-xiaomimimo-mimo-v2.5`
 - 方法固定为：`mv_3`、`all_to_all_full`、`budget_random`、`budget_confidence`、`dala_lite`。
 
 ## 2. 预算冻结
 
-- `gsm8k`：校准样本数=`5`，`p50(all_to_all_full_comm_tokens)`=`167`，`round_budget_tokens`=`66`。
+- `gsm8k`：校准样本数=`5`，`p50(all_to_all_full_comm_tokens)`=`170`，`round_budget_tokens`=`68`。
 - `strategyqa`：校准样本数=`5`，`p50(all_to_all_full_comm_tokens)`=`201`，`round_budget_tokens`=`80`。
 - `hotpotqa`：校准样本数=`5`，`p50(all_to_all_full_comm_tokens)`=`315`，`round_budget_tokens`=`126`。
 
@@ -19,21 +19,21 @@
 
 | Method | Accuracy | Avg Comm Tokens | Avg Total Tokens | Calls / Q | Acc / 1K Tokens |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `mv_3` | 0.6000 | 0.00 | 2617.27 | 3.00 | 0.229247 |
-| `all_to_all_full` | 0.6667 | 232.83 | 5768.98 | 6.00 | 0.115561 |
-| `budget_random` | 0.7167 | 65.77 | 5331.42 | 6.00 | 0.134423 |
-| `budget_confidence` | 0.7167 | 64.52 | 5333.07 | 6.00 | 0.134382 |
-| `dala_lite` | 0.7167 | 60.93 | 5316.88 | 6.00 | 0.134791 |
+| `mv_3` | 0.6167 | 0.00 | 2618.38 | 3.00 | 0.235514 |
+| `all_to_all_full` | 0.6833 | 229.27 | 5753.30 | 6.00 | 0.118772 |
+| `budget_random` | 0.7000 | 66.77 | 5350.07 | 6.00 | 0.130839 |
+| `budget_confidence` | 0.7000 | 65.47 | 5343.37 | 6.00 | 0.131004 |
+| `dala_lite` | 0.6833 | 59.30 | 5322.45 | 6.00 | 0.128387 |
 
 ## 4. 机制表
 
 | Method | Winner Set Size | Budget Utilization | Full Ratio | Summary Ratio | Keywords Ratio | Silence Ratio | Corrected | Harmed |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | `mv_3` | 0.0000 | - | 0.0000 | 0.0000 | 0.0000 | 1.0000 | 0 | 0 |
-| `all_to_all_full` | 3.0000 | - | 1.0000 | 0.0000 | 0.0000 | 0.0000 | 5 | 1 |
-| `budget_random` | 1.0333 | 0.7161 | 0.3444 | 0.0000 | 0.0000 | 0.6556 | 7 | 0 |
-| `budget_confidence` | 1.0333 | 0.6987 | 0.3444 | 0.0000 | 0.0000 | 0.6556 | 7 | 0 |
-| `dala_lite` | 1.0000 | 0.6698 | 0.2778 | 0.0000 | 0.0556 | 0.6667 | 8 | 1 |
+| `all_to_all_full` | 3.0000 | - | 1.0000 | 0.0000 | 0.0000 | 0.0000 | 4 | 0 |
+| `budget_random` | 1.0833 | 0.7245 | 0.3611 | 0.0000 | 0.0000 | 0.6389 | 5 | 0 |
+| `budget_confidence` | 1.0833 | 0.7067 | 0.3611 | 0.0000 | 0.0000 | 0.6389 | 5 | 0 |
+| `dala_lite` | 0.9333 | 0.6398 | 0.2611 | 0.0000 | 0.0500 | 0.6889 | 4 | 0 |
 
 ## 5. 数据集分表
 
@@ -41,11 +41,11 @@
 
 | Method | Accuracy | Avg Comm Tokens | Avg Total Tokens | Acc / 1K Tokens |
 | --- | ---: | ---: | ---: | ---: |
-| `mv_3` | 0.5000 | 0.00 | 1300.60 | 0.384438 |
-| `all_to_all_full` | 0.7000 | 167.10 | 3170.10 | 0.220813 |
-| `budget_random` | 0.8000 | 42.70 | 2696.00 | 0.296736 |
-| `budget_confidence` | 0.8000 | 40.35 | 2697.05 | 0.296620 |
-| `dala_lite` | 0.7500 | 40.15 | 2675.05 | 0.280369 |
+| `mv_3` | 0.5500 | 0.00 | 1303.95 | 0.421795 |
+| `all_to_all_full` | 0.7500 | 156.40 | 3123.05 | 0.240150 |
+| `budget_random` | 0.7500 | 45.70 | 2751.95 | 0.272534 |
+| `budget_confidence` | 0.7500 | 43.20 | 2727.95 | 0.274932 |
+| `dala_lite` | 0.6500 | 35.25 | 2691.75 | 0.241479 |
 
 ### hotpotqa
 
@@ -71,6 +71,26 @@
 
 ### Case 1
 
+- 数据集：`gsm8k`
+- 样本：`gsm8k-00618`
+- 问题预览：The school auditorium has 4 rows of seats. There are 18 seats in each row. One-fourth of the seats were occupied by t...
+- 金标：`36`
+- `all_to_all_full`：`36` / score=`1.0`
+- `dala_lite`：`24` / score=`0.0`
+- 说明：dala_lite 在该题上弱于 all_to_all_full。
+
+### Case 2
+
+- 数据集：`gsm8k`
+- 样本：`gsm8k-00945`
+- 问题预览：James loves to go swimming and has to swim across a 20-mile lake. He can swim at a pace of 2 miles per hour. He swims...
+- 金标：`17`
+- `all_to_all_full`：`17` / score=`1.0`
+- `dala_lite`：`18` / score=`0.0`
+- 说明：dala_lite 在该题上弱于 all_to_all_full。
+
+### Case 3
+
 - 数据集：`strategyqa`
 - 样本：`a5f8af1dd0e9c46c47be`
 - 问题预览：Does Orange County, California require airplanes to be quiet?
@@ -81,18 +101,18 @@
 
 ## 7. 探索性区间
 
-- `dala_lite` 相对 `all_to_all_full` 的 overall accuracy delta 95% bootstrap CI：[0.000000, 0.116667]（探索性）
+- `dala_lite` 相对 `all_to_all_full` 的 overall accuracy delta 95% bootstrap CI：[-0.066667, 0.066667]（探索性）
 
 ## 8. Full DALA 进入门槛
 
-- 是否满足进入条件：`True`
-- 原因：`all_conditions_met`
+- 是否满足进入条件：`False`
+- 原因：`gate_not_met`
 - `dala_accuracy_gap_vs_all_to_all_full_le_3pp`：`True`
-- `dala_beats_budget_confidence_on_acc_per_1k`：`True`
-- `dala_beats_budget_random_on_acc_per_1k`：`True`
+- `dala_beats_budget_confidence_on_acc_per_1k`：`False`
+- `dala_beats_budget_random_on_acc_per_1k`：`False`
 - `dala_communication_le_60pct_of_all_to_all_full`：`True`
-- `accuracy_gap_vs_all_to_all_full`：`-0.05`
-- `communication_ratio_vs_all_to_all_full`：`0.261704`
+- `accuracy_gap_vs_all_to_all_full`：`0.0`
+- `communication_ratio_vs_all_to_all_full`：`0.258651`
 
 ## 9. 局限
 

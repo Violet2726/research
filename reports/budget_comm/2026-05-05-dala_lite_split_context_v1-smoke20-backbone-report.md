@@ -5,8 +5,8 @@
 - 实验名：`dala_lite_split_context_v1`
 - 轨道：`split_context`
 - Phase：`smoke20`
-- Backbone：`None`
-- 运行目录：`runs/budget_comm/dala_lite_split_context_v1/smoke20/20260505T054055Z-dala_lite_split_context_v1-smoke20-xiaomimimo-mimo-v2.5`
+- Backbone：`xiaomimimo/mimo-v2.5`
+- 运行目录：`runs/budget_comm/dala_lite_split_context_v1/smoke20/20260505T095500Z-dala_lite_split_context_v1-smoke20-xiaomimimo-mimo-v2.5`
 - 方法固定为：`mv_3`、`all_to_all_full`、`budget_random`、`budget_confidence`、`dala_lite`。
 
 ## 2. 预算冻结
