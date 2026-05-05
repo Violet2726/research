@@ -1,45 +1,56 @@
 # Research Experiments
 
-统一共享核心层的研究实验仓库，当前包含以下实验线：
+统一的研究实验仓库，面向单智能体、多智能体、选择性通信、预算约束通信和局部审计等推理实验。
 
-- `single_agent_baselines`：单智能体 CoT / Self-Consistency / Majority Vote 基线
-- `multi_agent_baselines`：标准多智能体 debate 基线
-- `selective_comm`：触发式通信与 early-exit 实验
-- `sparc`：内容压缩、局部审计与 SPARC 主实验
-- `budget_comm`：DALA-lite 风格的预算约束通信实验
+## 当前实验线
+
+- `single_agent`：单智能体 CoT / Self-Consistency / Majority Vote 基线
+- `multi_agent`：标准多智能体 debate 与 vote 对照
+- `selective_comm`：trigger / early-exit 选择性通信
+- `sparc`：内容裁剪、局部审计与聚合消融
+- `budget_comm`：预算约束通信与 auction / knapsack 风格分配
 - `sid_lite`：SID-lite 机制验证
 - `free_mad_lite`：Free-MAD-lite 机制验证
 - `comm_necessary`：HotpotQA split-context 通信必要性实验
+- `cue`：Communication Utility Estimation 黑盒选择性通信框架
 
-## 项目结构
+## 目录概览
 
 ```text
 src/
-  experiment_core/         共享运行时、provider、缓存、评测、结构化输出与路径配置
-  single_agent_baselines/  单智能体实验
-  multi_agent_baselines/   多智能体实验
-  selective_comm/          选择性通信实验
-  sparc/                   SPARC 实验
-  budget_comm/             预算约束通信实验
-  sid_lite/                SID-lite 实验
-  free_mad_lite/           Free-MAD-lite 实验
-  comm_necessary/          通信必要性实验
+  experiment_core/   唯一共享核心层
+  single_agent/      单智能体实验
+  multi_agent/       多智能体实验
+  selective_comm/    选择性通信实验
+  sparc/             SPARC 相关实验
+  budget_comm/       预算约束通信实验
+  sid_lite/          SID-lite 实验
+  free_mad_lite/     Free-MAD-lite 实验
+  comm_necessary/    通信必要性实验
+  cue/               CUE 实验
 
 configs/
-  shared/                  benchmark、split、provider、model catalog
-  */                       各实验线自己的 experiment / protocol / policy 配置
+  shared/            benchmark / provider / model catalog
+  <family>/          各实验线自己的 experiments / protocols / policies
 
-datasets/                  本地基准数据
-files/                     研究笔记与汇总文档
-runs/                      默认运行输出目录，可同时保留归档结果
-reports/                   默认报告输出目录
-local/                     本地临时目录，已被 .gitignore 忽略
-cache/                     默认请求缓存目录，已被 .gitignore 忽略
-tests/                     测试
-docs/                      项目结构与约定说明
+datasets/            本地基准数据
+docs/                仓库级设计说明
+files/               研究笔记与参考资料
+runs/                默认运行产物
+reports/             默认发布报告
+tests/               回归测试
 ```
 
-更详细的目录职责见 [docs/project_structure.md](/d:/user/research/docs/project_structure.md:1)。
+更详细的结构说明见 [docs/project_structure.md](docs/project_structure.md)。
+
+## 仓库约定
+
+- 共享能力只放在 `src/experiment_core/`。
+- 不同实验包之间不直接互相导入。
+- 公共配置字段统一使用 `primary_model_ref`。
+- 默认运行目录统一为 `runs/<family>/<experiment>/<phase>/<run_id>/`。
+- 默认报告目录统一为 `reports/<family>/`，跨家族汇总放在 `reports/summary/`。
+- 文本文件统一使用 UTF-8。
 
 ## 安装
 
@@ -48,13 +59,9 @@ uv sync
 Copy-Item .env.example .env.local
 ```
 
-在 `.env.local` 中填入需要的 API Key。只提交 `.env.example`，不要提交真实密钥。
+将需要的 API Key 写入 `.env.local`。只提交 `.env.example`，不要提交真实密钥。
 
-## UTF-8 约定
-
-- 仓库新增了 `.editorconfig`，统一要求文本文件使用 `UTF-8`、`LF`、末尾换行。
-- Python 读写文本时统一显式使用 `encoding="utf-8"`。
-- Windows PowerShell 如果出现中文显示乱码，建议先执行：
+如果 Windows PowerShell 出现中文乱码，先执行：
 
 ```powershell
 [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -62,105 +69,77 @@ Copy-Item .env.example .env.local
 $env:PYTHONUTF8 = "1"
 ```
 
-## 输出目录配置
+## 常用命令
 
-默认输出现在统一由 `src/experiment_core/workspace.py` 管理：
+查看单智能体实验配置：
 
-- 运行目录：`runs/<experiment_kind>/`
-- 报告目录：`reports/<experiment_kind>/`
-- 请求缓存：`cache/<experiment_kind>_requests.sqlite`
-- 通用资料目录：`files/`
+```powershell
+uv run single_agent_cli inspect-experiment --experiment configs/single_agent/experiments/main_baselines.toml
+```
 
-可以用以下环境变量全局覆盖：
+运行单智能体 `smoke20`：
+
+```powershell
+uv run single_agent_cli run --experiment configs/single_agent/experiments/main_baselines.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
+```
+
+查看多智能体实验配置：
+
+```powershell
+uv run multi_agent_cli inspect-experiment --experiment configs/multi_agent/experiments/debate_vs_vote_controlled.toml
+```
+
+运行选择性通信实验：
+
+```powershell
+uv run selective_comm_cli run --experiment configs/selective_comm/experiments/trigger_early_exit_v1.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
+```
+
+运行 CUE：
+
+```powershell
+uv run cue_cli run --experiment configs/cue/experiments/cue_v1.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
+```
+
+查看全量 `smoke20` 矩阵：
+
+```powershell
+uv run smoke20_matrix_cli inspect-matrix
+```
+
+按统一模型与限流运行全量 `smoke20`：
+
+```powershell
+uv run smoke20_matrix_cli run --model xiaomimimo/mimo-v2.5 --phase smoke20
+```
+
+清理失效产物：
+
+```powershell
+uv run cleanup_artifacts_cli --dry-run
+```
+
+## 运行时目录覆盖
+
+默认工作目录由 `src/experiment_core/workspace.py` 统一管理，可通过环境变量覆盖：
 
 - `RESEARCH_RUNS_ROOT`
 - `RESEARCH_REPORTS_ROOT`
 - `RESEARCH_CACHE_ROOT`
 - `RESEARCH_FILES_ROOT`
 
-例如：
+示例：
 
 ```powershell
 $env:RESEARCH_RUNS_ROOT = "artifacts/runs"
 $env:RESEARCH_REPORTS_ROOT = "artifacts/reports"
 $env:RESEARCH_CACHE_ROOT = "artifacts/cache"
-uv run selective-cli inspect-experiment --experiment configs/selective_comm/experiments/trigger_early_exit_v1.toml
+uv run selective_comm_cli inspect-experiment --experiment configs/selective_comm/experiments/trigger_early_exit_v1.toml
 ```
 
-说明：
+## 文档入口
 
-- `runs/` 与 `reports/` 现在都位于根目录，分别承载默认运行产物与默认报告产物。
-- `local/` 与 `cache/` 已被 `.gitignore` 忽略，适合放本地临时文件与缓存；如需重定向报告目录请覆盖 `RESEARCH_REPORTS_ROOT`。
-
-## 常用命令
-
-生成冻结 split：
-
-```powershell
-uv run single-agent-cli generate-splits
-```
-
-查看模型目录：
-
-```powershell
-uv run single-agent-cli list-models
-```
-
-查看单智能体实验配置：
-
-```powershell
-uv run single-agent-cli inspect-experiment --experiment configs/single_agent/experiments/main-baselines.toml
-```
-
-运行单智能体实验：
-
-```powershell
-uv run single-agent-cli run --experiment configs/single_agent/experiments/main-baselines.toml --phase smoke20 --model deepseek/deepseek-v4-flash
-```
-
-查看多智能体实验配置：
-
-```powershell
-uv run mad-cli inspect-experiment --experiment configs/multi_agent/experiments/vanilla_mad_minimal.toml --backbone deepseek/deepseek-v4-flash
-```
-
-运行多智能体实验：
-
-```powershell
-uv run mad-cli run --experiment configs/multi_agent/experiments/vanilla_mad_minimal.toml --phase smoke20 --backbone deepseek/deepseek-v4-flash
-```
-
-查看选择性通信实验配置：
-
-```powershell
-uv run selective-cli inspect-experiment --experiment configs/selective_comm/experiments/trigger_early_exit_v1.toml
-```
-
-运行选择性通信实验：
-
-```powershell
-uv run selective-cli run --experiment configs/selective_comm/experiments/trigger_early_exit_v1.toml --phase smoke20
-```
-
-其他实验线的命令入口：
-
-- `sparc-cli`
-- `budget-cli`
-- `sid-lite-cli`
-- `free-mad-lite-cli`
-- `comm-necessary-cli`
-
-各实验线的专属说明位于：
-
-- [src/single_agent_baselines/README.md](/d:/user/research/src/single_agent_baselines/README.md:1)
-- [src/multi_agent_baselines/README.md](/d:/user/research/src/multi_agent_baselines/README.md:1)
-- [src/selective_comm/README.md](/d:/user/research/src/selective_comm/README.md:1)
-- [src/sparc/README.md](/d:/user/research/src/sparc/README.md:1)
-- [src/budget_comm/README.md](/d:/user/research/src/budget_comm/README.md:1)
-
-## 开发约束
-
-- `experiment_core` 是唯一共享层。
-- 不同实验包之间禁止互相导入。
-- 共享 benchmark / provider / model catalog 统一放在 `configs/shared/`。
-- 默认输出应写入 `runs/`、`reports/`、`cache/`、`files/` 这些统一工作目录，不要继续散落硬编码路径。
+- [src/README.md](src/README.md)
+- [src/experiment_core/README.md](src/experiment_core/README.md)
+- [configs/README.md](configs/README.md)
+- [docs/README.md](docs/README.md)

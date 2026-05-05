@@ -1,13 +1,13 @@
-# `configs/sid_lite` 目录说明
+# configs/sid_lite
 
-这个目录存放 SID-lite 实验的配置。
+SID-lite 实验配置根目录。
 
-## 当前子目录
+## 目录组成
 
 - `experiments/`：实验入口配置
-- `protocols/`：协议配置
+- `protocols/`：Stage A、压缩通信与 belief update 协议
 
 ## 维护约定
 
-- 实验入口负责方法集合与阶段编排
-- 协议文件负责共享的 agent 与 token 参数
+- 方法列表、退出规则和 token 上限通过配置控制。
+- 不在 experiment 文件里复制共享 benchmark / provider 细节。

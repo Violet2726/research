@@ -1,17 +1,24 @@
-# `comm_necessary` 目录说明
+# comm_necessary
 
-`comm_necessary/` 用于运行 HotpotQA split-context 通信必要性实验，重点研究不同通信强度对答案与 supporting facts 的影响。
+`comm_necessary` 用于运行 HotpotQA split-context 通信必要性实验。
 
-## 主要文件
+## 入口
 
-- `config.py`：实验与协议配置解析
-- `dataset_views.py`：构造 split-context 与 full-context 视图
-- `logic.py`：通信包构造、聚合与 HotpotQA 评分
-- `runner.py`：主执行流程
-- `reporting.py`：摘要与正式报告
-- `validation.py`：运行结果校验
-- `cli.py`：命令行入口
+- CLI：`comm_necessary_cli`
+- 配置：`configs/comm_necessary/`
+- 运行目录：`runs/comm_necessary/<experiment>/<phase>/<run_id>/`
+- 报告目录：`reports/comm_necessary/`
 
-## 对应配置
+## 常用命令
 
-- `configs/comm_necessary/`
+```powershell
+uv run comm_necessary_cli inspect-experiment --experiment configs/comm_necessary/experiments/hotpotqa_split_evidence_v1.toml
+uv run comm_necessary_cli run --experiment configs/comm_necessary/experiments/hotpotqa_split500_main.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
+uv run comm_necessary_cli report-run --run-dir runs/comm_necessary/hotpotqa_split500_main/smoke20/<run_id>
+```
+
+## 维护约定
+
+- full-context 与 split-context 视图都通过共享数据读取和本家族视图层生成。
+- supporting facts、答案聚合和通信包恢复逻辑保持在这一家族内聚。
+- 结构化输出失败时先走共享恢复，再做 HotpotQA 专属兜底。

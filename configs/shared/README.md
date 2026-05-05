@@ -1,14 +1,14 @@
-# `configs/shared` 目录说明
+# configs/shared
 
-这个目录存放跨实验共享的配置资源。
+`configs/shared/` 存放跨实验复用的共享配置。
 
 ## 当前内容
 
-- `benchmarks/`：benchmark 定义与冻结 split
+- `benchmarks/`：benchmark 定义与 frozen split 配置
 - `providers/`：provider 默认配置
-- `model_catalog.toml`：模型目录、标签与覆盖项
+- `model_catalog.toml`：模型目录、标签和覆盖项
 
 ## 维护约定
 
-- 任何实验线都可以引用这里的内容
-- 新增共享 benchmark 或 provider 时，优先先补这里
+- 新 benchmark、provider 或模型标签优先补到这里。
+- 共享配置一旦被多个实验家族引用，就不要再复制到家族目录里。

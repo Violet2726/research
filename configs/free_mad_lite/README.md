@@ -1,13 +1,13 @@
-# `configs/free_mad_lite` 目录说明
+# configs/free_mad_lite
 
-这个目录存放 Free-MAD-lite 实验的配置。
+Free-MAD-lite 实验配置根目录。
 
-## 当前子目录
+## 目录组成
 
 - `experiments/`：实验入口配置
-- `protocols/`：agent 数量与辩论轮次配置
+- `protocols/`：单轮 debate、trajectory judging 和 fallback 协议
 
 ## 维护约定
 
-- 实验入口负责组合 benchmark、协议、方法列表与阶段
-- 协议文件尽量稳定，便于多版本实验复用
+- anti-conformity 与 trajectory judging 的差异放在 protocol 层表达。
+- experiment 层只负责选择协议、phase 和 benchmark。

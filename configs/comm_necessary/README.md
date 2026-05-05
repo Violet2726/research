@@ -1,13 +1,13 @@
-# `configs/comm_necessary` 目录说明
+# configs/comm_necessary
 
-这个目录存放 HotpotQA 通信必要性实验的配置。
+HotpotQA split-context 通信必要性实验配置根目录。
 
-## 当前子目录
+## 目录组成
 
 - `experiments/`：实验入口配置
-- `protocols/`：通信协议与 token cap 配置
+- `protocols/`：不同通信包粒度与聚合协议
 
 ## 维护约定
 
-- 实验入口负责组合 benchmark、协议与阶段
-- 协议文件负责约束不同通信方式的消息规模
+- full-context、split-context 和 evidence packet 差异优先体现在 protocol 或 view 层。
+- supporting facts 相关字段保持稳定，避免同义字段漂移。

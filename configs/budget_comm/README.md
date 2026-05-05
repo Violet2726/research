@@ -1,19 +1,15 @@
-# budget_comm 配置说明
+# configs/budget_comm
 
-## 目录
+预算约束通信实验配置根目录。
 
-- `experiments/`
-  顶层实验声明。
-- `protocols/`
-  共享 Stage A / Stage B 协议配置。
-- `policies/`
-  DALA-lite v1 的 value density 与 packet cap 配置。
-- `views/`
-  same-context / split-context 视图轨道配置。
+## 目录组成
 
-## 当前实验
+- `experiments/`：实验入口配置
+- `protocols/`：solver / belief update 协议
+- `policies/`：auction / tier / gate 相关策略
+- `views/`：same-context / split-context 数据视图
 
-- `dala_lite_same_context_v1.toml`
-  GSM8K + StrategyQA + HotpotQA 的 same-context smoke20。
-- `dala_lite_split_context_v1.toml`
-  StrategyQA + HotpotQA 的 split-context smoke20。
+## 维护约定
+
+- experiment 层声明视图与预算方案，策略细节下沉到 policy / protocol。
+- same-context 与 split-context 保持同名结构，方便 paired comparison。

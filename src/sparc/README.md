@@ -1,33 +1,24 @@
-# SPARC 实验说明
+# sparc
 
-## 1. 模块定位
+`sparc` 用于运行 SPARC 主实验、内容消融和局部审计消融。
 
-`sparc` 用于运行 SPARC v1 smoke 相关实验：
+## 入口
 
-- communication content ablation
-- aggregation / local auditing ablation
-- SPARC v1 端到端 smoke
+- CLI：`sparc_cli`
+- 配置：`configs/sparc/`
+- 运行目录：`runs/sparc/<experiment>/<phase>/<run_id>/`
+- 报告目录：`reports/sparc/`
 
-该包依赖共享层 `experiment_core`，不依赖其他实验包。
+## 常用命令
 
-## 2. 目录结构
+```powershell
+uv run sparc_cli inspect-experiment --experiment configs/sparc/experiments/sparc_v1_smoke.toml
+uv run sparc_cli run --experiment configs/sparc/experiments/content_ablation_v1.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
+uv run sparc_cli report-run --run-dir runs/sparc/content_ablation_v1/smoke20/<run_id>
+```
 
-- `config.py`
-  负责加载实验、协议和 backbone 配置。
-- `logic.py`
-  负责消息裁剪、退化规则、审计候选选择等纯逻辑。
-- `prompting.py`
-  负责 solver、belief update、judge 和 auditor 的提示词。
-- `runner.py`
-  主执行链路，负责共享 Stage A / Stage B、审计和结果落盘。
-- `reporting.py`
-  负责渲染中文报告和论文汇总表。
-- `validation.py`
-  负责关键运行约束校验。
-- `cli.py`
-  命令行入口，对外暴露 `sparc-cli`。
+## 维护约定
 
-## 3. 输出目录
-
-- 默认运行目录：`runs/sparc/`
-- 默认报告目录：`reports/sparc/`
+- 路径、experiment 名和报告入口都统一使用规范化后的 `snake_case`。
+- 聚合、局部审计和消息内容消融都通过 experiment / protocol 配置切换。
+- 共享的解析与 provider 恢复逻辑走 `experiment_core`。

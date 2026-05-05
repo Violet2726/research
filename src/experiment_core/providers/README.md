@@ -1,14 +1,15 @@
-# `providers` 目录说明
+# experiment_core.providers
 
-这个目录存放模型 provider 的统一访问封装。
+这里放共享 provider 适配层。
 
-## 当前职责
+## 责任
 
-- 读取 `ResolvedModelConfig`
-- 组装兼容 OpenAI Chat Completions 的请求
-- 处理超时、重试、用量估算与文本通道抽取
+- 统一请求入口
+- 统一重试、限流协同与错误归一化
+- 统一缓存键依赖字段
+- 统一 provider 级软拒答恢复策略
 
 ## 维护约定
 
-- 新增 provider 行为时，优先通过配置和映射扩展
-- 尽量保持上层 runner 不感知具体 HTTP 细节
+- 不在实验家族里复制 provider 重试逻辑。
+- 新增 provider 兼容修复时，优先在这里做共享实现。
