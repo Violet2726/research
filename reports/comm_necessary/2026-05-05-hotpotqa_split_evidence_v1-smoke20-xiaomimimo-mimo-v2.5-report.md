@@ -2,10 +2,10 @@
 
 ## 1. 实验概览
 
-- 实验名：`hotpotqa_split500_main`
+- 实验名：`hotpotqa_split_evidence_v1`
 - Phase：`smoke20`
-- Backbone：`dashscope/qwen-turbo-1101`
-- 运行目录：`local/runs/comm_necessary/hotpotqa_split500_main/smoke20/20260426T080346Z-hotpotqa_split500_main-smoke20-dashscope-qwen-turbo-1101`
+- Backbone：`xiaomimimo/mimo-v2.5`
+- 运行目录：`runs/comm_necessary/hotpotqa_split_evidence_v1/smoke20/20260505T050231Z-hotpotqa_split_evidence_v1-smoke20-xiaomimimo-mimo-v2.5`
 - 任务：HotpotQA split-context evidence exchange；smoke20 只作工程验证和方向性证据。
 - 方法：`full_context_single`、`split_no_comm_mv3`、`answer_only_exchange`、`evidence_exchange`、`full_packet_exchange`。
 
@@ -13,19 +13,19 @@
 
 | Method | Ans EM | Ans F1 | Sup F1 | Joint F1 | Title Recall | Comm Tokens | Total Tokens | Calls / Q |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `full_context_single` | 0.5500 | 0.6542 | 0.4917 | 0.3235 | 0.6000 | 0.00 | 1886.90 | 1.00 |
-| `split_no_comm_mv3` | 0.2500 | 0.3150 | 0.3275 | 0.1726 | 0.3750 | 0.00 | 2686.55 | 3.00 |
-| `answer_only_exchange` | 0.3000 | 0.3859 | 0.4401 | 0.1960 | 0.6000 | 85.20 | 5751.05 | 6.00 |
-| `evidence_exchange` | 0.4000 | 0.4859 | 0.3992 | 0.2383 | 0.5750 | 350.20 | 6021.90 | 6.00 |
-| `full_packet_exchange` | 0.4000 | 0.4859 | 0.3906 | 0.2560 | 0.5500 | 602.50 | 6264.60 | 6.00 |
+| `full_context_single` | 0.6000 | 0.6829 | 0.7288 | 0.5239 | 0.8000 | 0.00 | 1947.10 | 1.00 |
+| `split_no_comm_mv3` | 0.2500 | 0.3692 | 0.5312 | 0.1976 | 0.5250 | 0.00 | 2965.15 | 3.00 |
+| `answer_only_exchange` | 0.4000 | 0.5192 | 0.5772 | 0.3266 | 0.6500 | 78.70 | 6535.85 | 6.00 |
+| `evidence_exchange` | 0.4000 | 0.5192 | 0.5629 | 0.3115 | 0.6000 | 426.50 | 6858.45 | 6.00 |
+| `full_packet_exchange` | 0.4500 | 0.5692 | 0.5611 | 0.3792 | 0.6500 | 1076.50 | 7502.65 | 6.00 |
 
 ## 3. 关键 Delta
 
 | Comparison | Ans EM Δ | Sup F1 Δ | Joint F1 Δ | Comm Tokens Δ |
 | --- | ---: | ---: | ---: | ---: |
-| `evidence_exchange - split_no_comm_mv3` | 0.1500 | 0.0717 | 0.0656 | 350.20 |
-| `full_packet_exchange - answer_only_exchange` | 0.1000 | -0.0496 | 0.0600 | 517.30 |
-| `full_context_single - evidence_exchange` | 0.1500 | 0.0925 | 0.0853 | -350.20 |
+| `evidence_exchange - split_no_comm_mv3` | 0.1500 | 0.0317 | 0.1139 | 426.50 |
+| `full_packet_exchange - answer_only_exchange` | 0.0500 | -0.0162 | 0.0526 | 997.80 |
+| `full_context_single - evidence_exchange` | 0.2000 | 0.1660 | 0.2124 | -426.50 |
 
 ## 4. 机制与校验摘要
 
@@ -40,11 +40,11 @@
 
 | Method | Ans EM | Sup F1 | Joint F1 | Comm Tokens | Total Tokens |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `full_context_single` | 0.5500 | 0.4917 | 0.3235 | 0.00 | 1886.90 |
-| `split_no_comm_mv3` | 0.2500 | 0.3275 | 0.1726 | 0.00 | 2686.55 |
-| `answer_only_exchange` | 0.3000 | 0.4401 | 0.1960 | 85.20 | 5751.05 |
-| `evidence_exchange` | 0.4000 | 0.3992 | 0.2383 | 350.20 | 6021.90 |
-| `full_packet_exchange` | 0.4000 | 0.3906 | 0.2560 | 602.50 | 6264.60 |
+| `full_context_single` | 0.6000 | 0.7288 | 0.5239 | 0.00 | 1947.10 |
+| `split_no_comm_mv3` | 0.2500 | 0.5312 | 0.1976 | 0.00 | 2965.15 |
+| `answer_only_exchange` | 0.4000 | 0.5772 | 0.3266 | 78.70 | 6535.85 |
+| `evidence_exchange` | 0.4000 | 0.5629 | 0.3115 | 426.50 | 6858.45 |
+| `full_packet_exchange` | 0.4500 | 0.5611 | 0.3792 | 1076.50 | 7502.65 |
 
 ## 6. 资料来源
 

@@ -2,11 +2,11 @@
 
 ## 1. 实验范围与公平性说明
 
-- 实验名：`trigger_voc_v2_mimo_v2_5_equal_budget_gsm_strategy`
+- 实验名：`trigger_voc_v2_core_only`
 - Phase：`smoke20`
-- Backbone：`xiaomimimo/mimo-v2.5`
+- Backbone：`None`
 - Prompt Version：`selective_comm_voc_json_v2`
-- 运行目录：`local/runs/selective_comm/trigger_voc_v2_mimo_v2_5_equal_budget_gsm_strategy/smoke20/20260429T033541Z-trigger_voc_v2_mimo_v2_5_equal_budget_gsm_strategy-smoke20-xiaomimimo-mimo-v2.5`
+- 运行目录：`runs/selective_comm/trigger_voc_v2_core_only/smoke20/20260505T053922Z-trigger_voc_v2_core_only-smoke20-xiaomimimo-mimo-v2.5`
 - 数据集：`GSM8K + StrategyQA + HotpotQA`，当前轮次只解释 `smoke20`。
 - 共享前缀设计：4 个 trigger 策略共享同一份 Stage A 与同一份 Stage B，不重复发 4 套网络请求。
 - 方法边界：本轮只回答“何时通信 / 何时 early exit”，不混入消息内容压缩和局部审计。
@@ -26,8 +26,6 @@
 | `always` | 0.8000 | 1445.33 | 3923.77 | 0.203886 |
 | `disagreement` | 0.8000 | 685.20 | 3163.63 | 0.252874 |
 | `voc_v2` | 0.8000 | 838.38 | 3316.82 | 0.241195 |
-| `mv_6` | 0.6500 | 0.00 | 4935.33 | 0.131703 |
-| `sc_6` | 0.7000 | 0.00 | 4942.30 | 0.141634 |
 
 ## 4. Trigger 诊断表
 
@@ -55,8 +53,6 @@
 | `always` | 0.8500 | 1617.20 | 2819.65 | 0.301456 |
 | `disagreement` | 0.8500 | 1025.30 | 2227.75 | 0.381551 |
 | `voc_v2` | 0.8500 | 1025.30 | 2227.75 | 0.381551 |
-| `mv_6` | 0.5000 | 0.00 | 2331.10 | 0.214491 |
-| `sc_6` | 0.5000 | 0.00 | 2349.10 | 0.212847 |
 
 | Policy | Trigger Rate | Early Exit Rate | Oracle Precision | Oracle Recall |
 | --- | ---: | ---: | ---: | ---: |
@@ -72,8 +68,6 @@
 | `always` | 0.7500 | 1423.05 | 6694.50 | 0.112032 |
 | `disagreement` | 0.7500 | 438.20 | 5709.65 | 0.131357 |
 | `voc_v2` | 0.7500 | 579.10 | 5850.55 | 0.128193 |
-| `mv_6` | 0.7000 | 0.00 | 10548.30 | 0.066361 |
-| `sc_6` | 0.7500 | 0.00 | 10552.40 | 0.071074 |
 
 | Policy | Trigger Rate | Early Exit Rate | Oracle Precision | Oracle Recall |
 | --- | ---: | ---: | ---: | ---: |
@@ -89,8 +83,6 @@
 | `always` | 0.8000 | 1295.75 | 2257.15 | 0.354429 |
 | `disagreement` | 0.8000 | 592.10 | 1553.50 | 0.514966 |
 | `voc_v2` | 0.8000 | 910.75 | 1872.15 | 0.427316 |
-| `mv_6` | 0.7500 | 0.00 | 1926.60 | 0.389287 |
-| `sc_6` | 0.8500 | 0.00 | 1925.40 | 0.441467 |
 
 | Policy | Trigger Rate | Early Exit Rate | Oracle Precision | Oracle Recall |
 | --- | ---: | ---: | ---: | ---: |
