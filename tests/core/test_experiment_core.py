@@ -358,6 +358,41 @@ def test_parse_selective_output_recovers_from_truncated_json() -> None:
     assert payload["confidence_raw"] is None
 
 
+def test_validate_comm_necessary_solver_output_allows_empty_final_answer_as_abstention() -> None:
+    payload = validate_structured_output(
+        json.dumps(
+            {
+                "final_answer": "",
+                "reasoning_trace": "Visible evidence does not connect the entities.",
+                "evidence_summary": "No grounded answer in this shard.",
+                "supporting_facts": [],
+                "confidence_raw": 0.0,
+            }
+        ),
+        OUTPUT_MODE_COMM_NECESSARY_SOLVER,
+    )
+    assert payload["final_answer"] is None
+    assert payload["evidence_summary"] == "No grounded answer in this shard."
+
+
+def test_validate_comm_necessary_belief_output_normalizes_empty_answer_to_no_change() -> None:
+    payload = validate_structured_output(
+        json.dumps(
+            {
+                "changed_answer": True,
+                "final_answer": "",
+                "reasoning_trace": "Peer packets still do not ground an answer.",
+                "evidence_summary": "Insufficient cross-shard evidence.",
+                "supporting_facts": [],
+                "confidence_raw": 0.0,
+            }
+        ),
+        OUTPUT_MODE_COMM_NECESSARY_BELIEF,
+    )
+    assert payload["changed_answer"] is False
+    assert payload["final_answer"] is None
+
+
 def test_validate_budget_solver_structured_output() -> None:
     payload = validate_structured_output(
         json.dumps(

@@ -444,8 +444,7 @@ def _run_belief_updates(
             if int(packet["agent_id"]) != recipient_id
         ]
         previous = stage_a_by_agent[recipient_id]
-        rows.append(
-            _execute_turn(
+        row = _execute_turn(
                 run_id=run_id,
                 dataset=dataset,
                 split_name=split_name,
@@ -480,7 +479,8 @@ def _run_belief_updates(
                     "own_packet_text": packet_by_agent[recipient_id]["packet_text"],
                 },
             )
-        )
+        _apply_belief_answer_fallback(row, previous)
+        rows.append(row)
     trace_hash = _trace_hash(rows, ["agent_id", "normalized_answer", "supporting_facts", "output_status", "method_name"])
     for row in rows:
         row["stage_b_trace_hash"] = trace_hash
@@ -583,6 +583,42 @@ def _build_prediction_rows(
             )
         )
     return rows
+
+
+def _apply_belief_answer_fallback(row: dict[str, Any], previous_row: dict[str, Any]) -> None:
+    """Keep the prior belief when Stage B returns no grounded answer.
+
+    Belief-update methods are defined as revisions over an existing Stage A
+    answer. When the model emits a structurally valid JSON object but leaves
+    `final_answer` empty, the least-assumptive interpretation is "no grounded
+    revision beyond the previous belief", not a hard schema failure.
+    """
+    if str(row.get("output_status") or "") != "ok":
+        return
+    if str(row.get("normalized_answer") or ""):
+        return
+
+    previous_answer = str(previous_row.get("normalized_answer") or "")
+    previous_raw_answer = str(previous_row.get("final_answer_raw") or previous_answer)
+    previous_supporting_facts = support_facts_to_jsonable(
+        normalize_supporting_facts(previous_row.get("supporting_facts"))
+    )
+
+    row["changed_answer"] = False
+    if previous_answer:
+        row["prediction"] = previous_answer
+        row["normalized_answer"] = previous_answer
+        row["final_answer_raw"] = previous_raw_answer
+        row["supporting_facts"] = previous_supporting_facts
+        row["belief_fallback"] = "kept_previous_answer_after_empty_belief_output"
+        validated_output = row.get("validated_output")
+        if isinstance(validated_output, dict):
+            validated_output["changed_answer"] = False
+            validated_output["final_answer"] = previous_raw_answer
+            if not validated_output.get("supporting_facts"):
+                validated_output["supporting_facts"] = previous_supporting_facts
+    else:
+        row["belief_fallback"] = "abstained_without_prior_answer"
 
 
 def _prediction_row(

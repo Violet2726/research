@@ -329,6 +329,61 @@ def run_faithful_matrix(
     return paths.root
 
 
+def resume_faithful_matrix(
+    state_path_or_root: str | Path,
+    *,
+    reference_state_path_or_root: str | Path | None = None,
+) -> Path:
+    """Resume a previously interrupted faithful matrix run in-place."""
+    matrix, paths = _load_existing_matrix_state(state_path_or_root)
+
+    for entry in matrix.semantic_entries:
+        if entry.status == "running":
+            entry.status = "rerun-needed"
+            if not entry.review_notes:
+                entry.review_notes = "interrupted_previous_run"
+
+    family_blocked: set[str] = set()
+    _write_matrix_state(paths, matrix)
+
+    entries_by_config = {entry.config_path: entry for entry in matrix.semantic_entries}
+    resumable_statuses = {"pending", "rerun-needed", "failed", "running"}
+    for config_path in RUN_ORDER:
+        entry = entries_by_config.get(config_path)
+        if entry is None or entry.status not in resumable_statuses:
+            continue
+        if entry.family in family_blocked:
+            entry.review_notes = "family_blocked_after_previous_failure"
+            continue
+
+        entry.status = "running"
+        _write_matrix_state(paths, matrix)
+        try:
+            run_dir = _execute_entry(entry, matrix.overrides)
+            validation = _validate_entry(entry.family, run_dir)
+            review = review_run_health(run_dir, entry.family)
+            entry.run_dir = run_dir.as_posix()
+            entry.validation_passed = bool(validation.get("passed"))
+            entry.review_passed = review.passed
+            entry.review_notes = review.notes
+            entry.status = "completed" if entry.validation_passed and entry.review_passed else "rerun-needed"
+            if entry.status != "completed":
+                family_blocked.add(entry.family)
+        except Exception as exc:
+            entry.status = "failed"
+            entry.review_notes = f"runner_error:{exc}"
+            family_blocked.add(entry.family)
+        _write_matrix_state(paths, matrix)
+
+    _write_matrix_state(paths, matrix)
+    render_faithful_analysis(
+        paths.root,
+        reference_state_path_or_root=reference_state_path_or_root,
+    )
+    render_acceptance_summary(paths.root)
+    return paths.root
+
+
 def _execute_entry(entry: MatrixEntry, overrides: RuntimeOverrides) -> Path:
     family = entry.family
     config_path = entry.config_path
@@ -444,6 +499,33 @@ def _prepare_orchestrator_paths(state_root: str | Path | None, overrides: Runtim
     )
 
 
+def _existing_orchestrator_paths(root: Path) -> OrchestratorPaths:
+    return OrchestratorPaths(
+        root=root,
+        matrix=root / "matrix.json",
+        state=root / "state.json",
+        report=root / "matrix_status.md",
+        published_summary=Path("reports") / "summary" / f"{root.name}.md",
+    )
+
+
+def _load_existing_matrix_state(state_path_or_root: str | Path) -> tuple[MatrixBuild, OrchestratorPaths]:
+    state_path = Path(state_path_or_root)
+    if state_path.is_dir():
+        state_path = state_path / "state.json"
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    overrides = RuntimeOverrides(**payload["overrides"])
+    entries = [MatrixEntry(**entry) for entry in payload.get("entries", [])]
+    semantic_entries = [MatrixEntry(**entry) for entry in payload.get("semantic_entries", [])]
+    matrix = MatrixBuild(
+        overrides=overrides,
+        entries=entries,
+        semantic_entries=semantic_entries,
+        counts=dict(payload.get("counts", {})),
+    )
+    return matrix, _existing_orchestrator_paths(state_path.parent)
+
+
 def _write_matrix_state(paths: OrchestratorPaths, matrix: MatrixBuild) -> None:
     counts = Counter(entry.status for entry in matrix.semantic_entries)
     counts.update(
@@ -519,6 +601,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     inspect_cmd = subparsers.add_parser("inspect-matrix", help="Print the resolved faithful matrix.")
     run_cmd = subparsers.add_parser("run", help="Run the pending faithful matrix entries sequentially.")
+    resume_cmd = subparsers.add_parser("resume", help="Resume a faithful-matrix run with pending or rerun-needed entries.")
     analyze_cmd = subparsers.add_parser("analyze-faithful", help="Render faithful analysis for an existing faithful-matrix run.")
     acceptance_cmd = subparsers.add_parser("evaluate-acceptance", help="Render acceptance summary for an existing faithful-matrix run.")
 
@@ -531,6 +614,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_cmd.add_argument("--state-root", default=default_runs_root(MATRIX_EXPERIMENT_KIND))
     run_cmd.add_argument("--reference-state-path")
+    resume_cmd.add_argument("--state-path", required=True)
+    resume_cmd.add_argument("--reference-state-path")
     analyze_cmd.add_argument("--state-path", required=True)
     analyze_cmd.add_argument("--reference-state-path")
     acceptance_cmd.add_argument("--analysis-path", required=True)
@@ -572,6 +657,14 @@ def main() -> None:
         run_dir = run_faithful_matrix(
             overrides,
             state_root=args.state_root,
+            reference_state_path_or_root=args.reference_state_path,
+        )
+        print(run_dir.as_posix())
+        return
+
+    if args.command == "resume":
+        run_dir = resume_faithful_matrix(
+            args.state_path,
             reference_state_path_or_root=args.reference_state_path,
         )
         print(run_dir.as_posix())

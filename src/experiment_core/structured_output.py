@@ -501,7 +501,10 @@ def _validate_comm_necessary_solver_output(payload: dict[str, Any]) -> dict[str,
             f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}."
         )
     return {
-        "final_answer": _require_answer_value(payload.get("final_answer"), "final_answer"),
+        # Split-context shards may genuinely lack enough evidence for a grounded
+        # answer span. In that case we keep the answer empty and let downstream
+        # aggregation treat the turn as an abstention instead of a schema error.
+        "final_answer": _optional_answer_value(payload.get("final_answer"), "final_answer"),
         "reasoning_trace": _require_nullable_hint(
             payload.get("reasoning_trace", payload.get("reasoning")),
             "reasoning_trace",
@@ -531,16 +534,22 @@ def _validate_comm_necessary_belief_output(payload: dict[str, Any]) -> dict[str,
     changed_answer = payload.get("changed_answer")
     if changed_answer is not None and not isinstance(changed_answer, bool):
         raise ValueError("changed_answer must be a boolean when present.")
-    candidate_answer = payload.get("final_answer", payload.get("new_answer"))
-    if candidate_answer is None:
+    if "final_answer" not in payload and "new_answer" not in payload:
         raise ValueError('Assistant output must include "final_answer" or "new_answer".')
     if not actual_keys.issubset(allowed_keys):
         raise ValueError(
             f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}."
         )
+    normalized_answer = _optional_answer_value(
+        payload.get("final_answer", payload.get("new_answer")),
+        "final_answer",
+    )
+    normalized_changed_answer = bool(changed_answer)
+    if normalized_answer is None:
+        normalized_changed_answer = False
     return {
-        "changed_answer": bool(changed_answer),
-        "final_answer": _require_answer_value(candidate_answer, "final_answer"),
+        "changed_answer": normalized_changed_answer,
+        "final_answer": normalized_answer,
         "reasoning_trace": _require_nullable_hint(
             payload.get("reasoning_trace", payload.get("reasoning")),
             "reasoning_trace",
@@ -727,20 +736,26 @@ def _recover_budget_solver_output(raw_text: str) -> dict[str, Any] | None:
 
 def _recover_comm_necessary_output(raw_text: str, output_mode: OutputMode) -> dict[str, Any] | None:
     final_answer = _extract_json_answer_field(raw_text, "final_answer") or _extract_json_answer_field(raw_text, "new_answer")
-    if not final_answer:
+    reasoning_trace = _extract_json_string_field(raw_text, "reasoning_trace") or _extract_json_string_field(raw_text, "reasoning")
+    evidence_summary = _extract_json_string_field(raw_text, "evidence_summary") or _extract_json_string_field(raw_text, "key_evidence")
+    supporting_facts = _extract_json_array_field(raw_text, "supporting_facts") or []
+    confidence_raw = _extract_json_number_field(raw_text, "confidence_raw")
+    if confidence_raw is None:
+        confidence_raw = _extract_json_string_field(raw_text, "confidence_raw")
+    changed_answer = _extract_json_bool_field(raw_text, "changed_answer")
+
+    has_recoverable_content = bool(final_answer or reasoning_trace or evidence_summary or supporting_facts or confidence_raw is not None or changed_answer is not None)
+    if not has_recoverable_content:
         return None
     payload = {
-        "final_answer": final_answer,
-        "reasoning_trace": _extract_json_string_field(raw_text, "reasoning_trace")
-        or _extract_json_string_field(raw_text, "reasoning"),
-        "evidence_summary": _extract_json_string_field(raw_text, "evidence_summary")
-        or _extract_json_string_field(raw_text, "key_evidence"),
-        "supporting_facts": _extract_json_array_field(raw_text, "supporting_facts") or [],
-        "confidence_raw": _extract_json_number_field(raw_text, "confidence_raw")
-        or _extract_json_string_field(raw_text, "confidence_raw"),
+        "final_answer": final_answer or "",
+        "reasoning_trace": reasoning_trace,
+        "evidence_summary": evidence_summary,
+        "supporting_facts": supporting_facts,
+        "confidence_raw": confidence_raw,
     }
     if output_mode == OUTPUT_MODE_COMM_NECESSARY_BELIEF:
-        payload["changed_answer"] = _extract_json_bool_field(raw_text, "changed_answer") or False
+        payload["changed_answer"] = bool(changed_answer) if final_answer else False
     return validate_structured_output(_encode_recovered_payload(payload), output_mode)
 
 

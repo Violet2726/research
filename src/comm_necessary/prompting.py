@@ -30,7 +30,9 @@ def build_solver_messages(
         '"evidence_summary":"short evidence summary",'
         '"supporting_facts":[{"title":"Paragraph title","sent_id":0}],'
         '"confidence_raw":0.0}.\n'
-        "If evidence is incomplete, still answer with your best short span and cite only visible sentence ids.\n"
+        "If evidence supports a grounded answer span, return your best short answer.\n"
+        'If your visible evidence does not support any grounded answer, set "final_answer" to "" and leave '
+        '"supporting_facts" empty instead of inventing one.\n'
         "Return JSON only."
     )
     return [
@@ -71,6 +73,8 @@ def build_belief_update_messages(
         '"evidence_summary":"short revised evidence summary",'
         '"supporting_facts":[{"title":"Paragraph title","sent_id":0}],'
         '"confidence_raw":0.0}.\n'
+        "If peer packets do not justify changing your belief, keep your previous grounded answer and use changed_answer=false.\n"
+        'Only use "final_answer": "" when your previous answer was already empty and the available evidence still does not support any grounded answer; in that case changed_answer must be false.\n'
         "Return JSON only."
     )
     return [
