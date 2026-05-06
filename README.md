@@ -104,13 +104,13 @@ uv run cue_cli run --experiment configs/cue/experiments/cue_v1.toml --phase smok
 查看全量 `smoke20` 矩阵：
 
 ```powershell
-uv run smoke20_matrix_cli inspect-matrix
+uv run faithful_matrix_cli inspect-matrix
 ```
 
 按统一模型与限流运行全量 `smoke20`：
 
 ```powershell
-uv run smoke20_matrix_cli run --model xiaomimimo/mimo-v2.5 --phase smoke20
+uv run faithful_matrix_cli run --model xiaomimimo/mimo-v2.5 --phase smoke20
 ```
 
 清理失效产物：

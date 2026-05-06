@@ -1,4 +1,4 @@
-"""统一编排 smoke20/pilot 矩阵运行与后验审查。"""
+"""统一编排 faithful 实验矩阵运行、分析与验收。"""
 
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ DEFAULT_MODEL_REF = "xiaomimimo/mimo-v2.5"
 DEFAULT_MAX_CONCURRENT_REQUESTS = 60
 DEFAULT_REQUESTS_PER_MINUTE = 90
 DEFAULT_TOKENS_PER_MINUTE = 9000000
-MATRIX_EXPERIMENT_KIND = "smoke20_matrix"
+MATRIX_EXPERIMENT_KIND = "faithful_matrix"
 
 EXCLUDED_CONFIGS = {
     "configs/multi_agent/experiments/vanilla_mad_minimal.toml": "development_or_minimal_config",
@@ -280,15 +280,15 @@ def review_run_health(run_dir: str | Path, family: str) -> ReviewResult:
     return ReviewResult(True, "validation_passed_and_metrics_nonempty")
 
 
-def run_smoke20_matrix(
+def run_faithful_matrix(
     overrides: RuntimeOverrides,
     *,
     state_root: str | Path | None = None,
     reference_state_path_or_root: str | Path | None = None,
 ) -> Path:
-    """执行矩阵批跑、写入状态文件，并产出 faithful 报告。"""
+    """执行 faithful 矩阵批跑、写入状态文件，并产出分析报告。"""
     matrix = build_run_matrix(overrides)
-    paths = _prepare_orchestrator_paths(state_root, overrides.phase_name)
+    paths = _prepare_orchestrator_paths(state_root, overrides)
     family_blocked: set[str] = set()
     _write_matrix_state(paths, matrix)
 
@@ -429,9 +429,10 @@ def _validate_entry(family: str, run_dir: Path) -> dict[str, Any]:
     return payload
 
 
-def _prepare_orchestrator_paths(state_root: str | Path | None, phase_name: str) -> OrchestratorPaths:
+def _prepare_orchestrator_paths(state_root: str | Path | None, overrides: RuntimeOverrides) -> OrchestratorPaths:
     root_base = Path(state_root or default_runs_root(MATRIX_EXPERIMENT_KIND))
-    run_id = datetime.now(timezone.utc).strftime(f"%Y%m%dT%H%M%SZ-{phase_name}-mimo-v2.5")
+    model_slug = overrides.model_ref.replace("/", "-")
+    run_id = datetime.now(timezone.utc).strftime(f"%Y%m%dT%H%M%SZ-{overrides.phase_name}-{model_slug}")
     root = root_base / run_id
     root.mkdir(parents=True, exist_ok=True)
     return OrchestratorPaths(
@@ -468,10 +469,11 @@ def _write_matrix_state(paths: OrchestratorPaths, matrix: MatrixBuild) -> None:
 
 def _render_matrix_report(matrix: MatrixBuild, counts: dict[str, int]) -> str:
     lines = [
-        f"# {matrix.overrides.phase_name} mimo-v2.5 matrix",
+        f"# {matrix.overrides.phase_name} faithful matrix",
         "",
         f"- generated_at: `{datetime.now(timezone.utc).isoformat()}`",
-        f"- overrides: `{matrix.overrides.model_ref}` / `{matrix.overrides.max_concurrent_requests}` / `{matrix.overrides.requests_per_minute_limit}` / `{matrix.overrides.tokens_per_minute_limit}`",
+        f"- model: `{matrix.overrides.model_ref}`",
+        f"- rate_limits: `{matrix.overrides.max_concurrent_requests}` / `{matrix.overrides.requests_per_minute_limit}` / `{matrix.overrides.tokens_per_minute_limit}`",
         f"- counts: `{json.dumps(counts, ensure_ascii=False)}`",
         "",
         "| family | config | status | run_dir | notes |",
@@ -511,14 +513,14 @@ def _safe_load_json(path: str | Path) -> dict[str, Any] | None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """构建 smoke20 矩阵命令行解析器。"""
-    parser = argparse.ArgumentParser(description="Run the unified faithful mimo-v2.5 experiment matrix.")
+    """构建 faithful 矩阵命令行解析器。"""
+    parser = argparse.ArgumentParser(description="Run the unified faithful experiment matrix.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    inspect_cmd = subparsers.add_parser("inspect-matrix", help="Print the resolved phase matrix.")
-    run_cmd = subparsers.add_parser("run", help="Run the pending phase matrix entries sequentially.")
-    analyze_cmd = subparsers.add_parser("analyze-faithful", help="Render faithful analysis for an existing matrix run.")
-    acceptance_cmd = subparsers.add_parser("evaluate-acceptance", help="Render acceptance summary for an existing matrix run.")
+    inspect_cmd = subparsers.add_parser("inspect-matrix", help="Print the resolved faithful matrix.")
+    run_cmd = subparsers.add_parser("run", help="Run the pending faithful matrix entries sequentially.")
+    analyze_cmd = subparsers.add_parser("analyze-faithful", help="Render faithful analysis for an existing faithful-matrix run.")
+    acceptance_cmd = subparsers.add_parser("evaluate-acceptance", help="Render acceptance summary for an existing faithful-matrix run.")
 
     for command in (inspect_cmd, run_cmd):
         command.add_argument("--phase", default=DEFAULT_PHASE)
@@ -567,7 +569,7 @@ def main() -> None:
             requests_per_minute_limit=args.requests_per_minute_limit,
             tokens_per_minute_limit=args.tokens_per_minute_limit,
         )
-        run_dir = run_smoke20_matrix(
+        run_dir = run_faithful_matrix(
             overrides,
             state_root=args.state_root,
             reference_state_path_or_root=args.reference_state_path,

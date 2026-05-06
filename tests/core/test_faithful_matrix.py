@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from collections import Counter
+from pathlib import Path
 
 from budget_comm.config import load_experiment_config as load_budget_experiment_config
-from experiment_core.smoke20_matrix import (
+from experiment_core.faithful_matrix import (
+    MATRIX_EXPERIMENT_KIND,
     RuntimeOverrides,
+    _prepare_orchestrator_paths,
     apply_runtime_overrides,
     build_run_matrix,
 )
@@ -73,3 +76,12 @@ def test_apply_runtime_overrides_updates_backbone_without_mutating_source_config
     assert overridden.max_concurrent_requests == 60
     assert overridden.requests_per_minute_limit == 90
     assert overridden.tokens_per_minute_limit == 9000000
+
+
+def test_prepare_orchestrator_paths_uses_resolved_model_slug(tmp_path: Path) -> None:
+    overrides = RuntimeOverrides(phase_name="pilot100", model_ref="openai/gpt-5.5")
+
+    paths = _prepare_orchestrator_paths(tmp_path, overrides)
+
+    assert MATRIX_EXPERIMENT_KIND == "faithful_matrix"
+    assert "pilot100-openai-gpt-5.5" in paths.root.as_posix()

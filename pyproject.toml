@@ -26,7 +26,7 @@ free_mad_lite_cli = "free_mad_lite.cli:main"
 comm_necessary_cli = "comm_necessary.cli:main"
 cue_cli = "cue.cli:main"
 cleanup_artifacts_cli = "experiment_core.artifact_cleanup:main"
-smoke20_matrix_cli = "experiment_core.smoke20_matrix:main"
+faithful_matrix_cli = "experiment_core.faithful_matrix:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

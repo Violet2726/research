@@ -12,7 +12,7 @@
 - `runtime.py`：运行进度、时间戳和 `run_id`
 - `workspace.py`：默认 `runs/`、`reports/`、`cache/`、`files/` 路径
 - `rate_limits.py`：请求并发与 RPM / TPM 节流
-- `smoke20_matrix.py`：统一的 `smoke20` 全量矩阵入口
+- `faithful_matrix.py`：统一的 faithful 实验矩阵入口，支持 `smoke20` 与 `pilot100`
 - `artifact_cleanup.py`：失效运行与失效报告清理工具
 
 ## 维护约定

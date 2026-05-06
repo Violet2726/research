@@ -6,6 +6,7 @@ import io
 import json
 from contextlib import redirect_stdout
 
+from experiment_core.faithful_matrix import main as faithful_matrix_main
 from multi_agent.cli import main as multi_agent_main
 from budget_comm.cli import main as budget_main
 from comm_necessary.cli import main as comm_necessary_main
@@ -42,6 +43,20 @@ def test_single_agent_inspect_cli() -> None:
     )
     assert payload["name"] == "main_baselines"
     assert payload["workspace_defaults"]["experiment_cache_path"].endswith("single_agent_requests.sqlite")
+
+
+def test_faithful_matrix_inspect_cli() -> None:
+    payload = _run_cli(
+        faithful_matrix_main,
+        [
+            "faithful_matrix_cli",
+            "inspect-matrix",
+            "--phase",
+            "smoke20",
+        ],
+    )
+    assert payload["overrides"]["phase_name"] == "smoke20"
+    assert payload["counts"]["semantic_unique_targets"] == 20
 
 
 def test_multi_agent_inspect_cli() -> None:
