@@ -1,3 +1,4 @@
+# CUE 的始终通信策略配置。
 policy_name = "always_communicate"
 trigger_type = "always_communicate"
 tau = -1.0

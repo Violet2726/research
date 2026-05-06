@@ -1,3 +1,4 @@
+# 最小化 Vanilla MAD 开发配置。
 name = "vanilla_mad_minimal"
 description = "Minimal Vanilla MAD reproduction for clean debate-vs-vote comparisons."
 benchmark_configs = [

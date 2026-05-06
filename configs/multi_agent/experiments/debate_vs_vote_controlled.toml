@@ -1,3 +1,4 @@
+# 直接投票与 debate-then-vote 的配对对照实验入口。
 name = "debate_vs_vote_controlled"
 description = "Controlled paired comparison between direct vote and debate-then-vote on the same initial candidates."
 benchmark_configs = [

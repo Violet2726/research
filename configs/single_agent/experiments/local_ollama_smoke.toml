@@ -1,3 +1,4 @@
+# 本地 Ollama 环境的单智能体 smoke 配置。
 name = "local_ollama_smoke"
 description = "Local Ollama single-agent smoke run for the v4 minimal JSON contract on 4GB-class laptops."
 method_catalog = "configs/single_agent/methods/common.toml"

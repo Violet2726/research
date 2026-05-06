@@ -1,3 +1,4 @@
+# SID-lite v1 主实验入口配置。
 name = "sid_lite_v1"
 description = "SID-lite smoke20 mechanism validation: confidence early exit plus compressed messages."
 benchmark_configs = [

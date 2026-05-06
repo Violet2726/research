@@ -1,3 +1,5 @@
+"""汇总 smoke20 矩阵状态并生成 faithful 对照分析。"""
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -33,6 +35,7 @@ def render_faithful_analysis(
     output_root: str | Path | None = None,
     published_path: str | Path | None = None,
 ) -> dict[str, str]:
+    """读取矩阵状态并输出 faithful analysis 的 JSON/Markdown 文件。"""
     state_path = _resolve_state_path(state_path_or_root)
     state_payload = _load_json(state_path)
     reference_lookup = _build_reference_lookup(reference_state_path_or_root)
@@ -62,6 +65,7 @@ def build_faithful_analysis(
     *,
     reference_lookup: dict[tuple[str, str, str], float] | None = None,
 ) -> dict[str, Any]:
+    """把跨实验运行状态整理成可比较的 faithful 指标行。"""
     rows: list[dict[str, Any]] = []
     experiments: list[dict[str, Any]] = []
     reference_lookup = reference_lookup or {}
@@ -214,6 +218,7 @@ def build_faithful_analysis(
 
 
 def render_faithful_analysis_markdown(analysis: dict[str, Any]) -> str:
+    """把 faithful analysis 汇总渲染成人类审阅用 Markdown。"""
     lines = [
         "# Faithful Analysis",
         "",

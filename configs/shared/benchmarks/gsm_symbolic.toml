@@ -1,3 +1,4 @@
+# GSM-Symbolic 鲁棒性基准配置。
 # GSM-Symbolic robustness benchmark configuration.
 name = "GSM-Symbolic"
 slug = "gsm_symbolic"

@@ -1,3 +1,5 @@
+"""把 faithful analysis 结果压缩为 acceptance 结论。"""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -18,6 +20,7 @@ def render_acceptance_summary(
     output_root: str | Path | None = None,
     published_path: str | Path | None = None,
 ) -> dict[str, str]:
+    """基于分析结果生成 acceptance 的 JSON 与 Markdown 产物。"""
     analysis_path = _resolve_analysis_path(analysis_path_or_root)
     analysis_payload = _load_json(analysis_path)
     summary = build_acceptance_summary(analysis_payload)
@@ -46,6 +49,7 @@ def render_acceptance_summary(
 
 
 def build_acceptance_summary(analysis_payload: dict[str, Any]) -> dict[str, Any]:
+    """对 overall 行逐项打门槛并汇总 accepted / negative control 家族。"""
     overall_rows = [row for row in analysis_payload.get("rows", []) if row.get("dataset") == "overall"]
     evaluated = [_evaluate_overall_row(row) for row in overall_rows]
     accepted_same_context = [row for row in evaluated if row["status"] == "accepted_same_context"]
@@ -67,6 +71,7 @@ def build_acceptance_summary(analysis_payload: dict[str, Any]) -> dict[str, Any]
 
 
 def render_acceptance_markdown(summary: dict[str, Any]) -> str:
+    """把 acceptance 汇总渲染成人可读 Markdown。"""
     lines = [
         "# Faithful Acceptance Summary",
         "",

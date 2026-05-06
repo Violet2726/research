@@ -1,3 +1,4 @@
+# MATH500 高难数学推理基准配置。
 # MATH500 benchmark configuration for high-difficulty math reasoning.
 name = "MATH500"
 slug = "math500"

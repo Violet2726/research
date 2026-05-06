@@ -1,3 +1,5 @@
+"""CUE 实验的提示词构造器。"""
+
 from __future__ import annotations
 
 import json
@@ -14,6 +16,7 @@ def build_solver_messages(
     agent_id: int,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造 CUE Stage A 的独立求解消息。"""
     if prompt_version != DEFAULT_PROMPT_VERSION:
         raise ValueError(f"Unsupported cue prompt_version: {prompt_version}")
     user_prompt = (
@@ -51,6 +54,7 @@ def build_communication_messages(
     message_type: str,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造 CUE 通信轮中围绕 conflict object 的更新消息。"""
     if prompt_version != DEFAULT_PROMPT_VERSION:
         raise ValueError(f"Unsupported cue prompt_version: {prompt_version}")
     peer_block = "\n\n".join(
@@ -90,6 +94,7 @@ def build_audit_messages(
     conflict_object: dict[str, object],
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造 CUE 本地审计器比较候选解的提示词。"""
     if prompt_version != DEFAULT_PROMPT_VERSION:
         raise ValueError(f"Unsupported cue prompt_version: {prompt_version}")
     user_prompt = (

@@ -1,4 +1,4 @@
-"""Prompt builders for single-agent reasoning baselines."""
+"""单智能体基线实验的提示词构造器。"""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ def build_messages(
     method_family: str,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造单智能体基线的一轮请求消息。"""
     del method_family
     if prompt_version != DEFAULT_PROMPT_VERSION:
         raise ValueError(f"Unsupported single-agent prompt_version: {prompt_version}")

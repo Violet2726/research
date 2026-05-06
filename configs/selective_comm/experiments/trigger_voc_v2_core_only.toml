@@ -1,3 +1,4 @@
+# VOC v2 仅核心控制组的实验入口配置。
 name = "trigger_voc_v2_core_only"
 description = "VoC Trigger v2 on Xiaomi MiMo-V2.5 with shared trigger policies and mv_3 control only."
 benchmark_configs = [

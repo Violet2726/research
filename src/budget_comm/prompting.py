@@ -1,4 +1,4 @@
-"""Prompt builders for budget-aware communication experiments."""
+"""预算约束通信实验的提示词构造器。"""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ def build_solver_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造预算通信实验 Stage A 的独立求解提示词。"""
     if prompt_version != DEFAULT_PROMPT_VERSION:
         raise ValueError(f"Unsupported budget_comm prompt_version: {prompt_version}")
     user_prompt = (
@@ -52,6 +53,7 @@ def build_belief_update_messages(
     round_budget_tokens: int | None,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造在预算约束下吸收 peer packet 的 Stage B 提示词。"""
     if prompt_version != DEFAULT_PROMPT_VERSION:
         raise ValueError(f"Unsupported budget_comm prompt_version: {prompt_version}")
     peer_block = "\n\n".join(

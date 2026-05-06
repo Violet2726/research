@@ -1,3 +1,4 @@
+# CUE 的答案分歧触发策略配置。
 policy_name = "disagreement_triggered"
 trigger_type = "disagreement_triggered"
 tau = 0.0

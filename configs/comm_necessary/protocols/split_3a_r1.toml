@@ -1,3 +1,4 @@
+# split-context communication-necessary 的 3 智能体共享协议。
 agent_count = 3
 debate_rounds = 1
 initial_temperature = 0.7

@@ -1,4 +1,4 @@
-"""Reusable markdown report templates for paper-facing analysis artifacts."""
+"""论文分析产物共用的 Markdown 报告模板。"""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ def render_frontier_report(
     *,
     title: str = "Accuracy-Cost Frontier",
 ) -> str:
+    """渲染精度-成本前沿汇总表。"""
     lines = [
         f"# {title}",
         "",
@@ -35,6 +36,7 @@ def render_trigger_diagnostic_report(
     *,
     title: str = "Trigger Diagnostics",
 ) -> str:
+    """渲染 trigger 策略诊断表。"""
     lines = [
         f"# {title}",
         "",
@@ -60,6 +62,7 @@ def render_audit_diagnostic_report(
     *,
     title: str = "Audit Diagnostics",
 ) -> str:
+    """渲染审计环节诊断表。"""
     lines = [
         f"# {title}",
         "",
@@ -83,6 +86,7 @@ def render_split_context_report(
     *,
     title: str = "Split-Context Communication Report",
 ) -> str:
+    """渲染 split-context 通信实验汇总表。"""
     lines = [
         f"# {title}",
         "",
@@ -103,6 +107,7 @@ def render_split_context_report(
 
 
 def write_report(path: str | Path, content: str) -> Path:
+    """把报告内容写入磁盘并返回目标路径。"""
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(content, encoding="utf-8")

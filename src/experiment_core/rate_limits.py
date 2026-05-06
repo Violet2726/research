@@ -1,4 +1,4 @@
-"""Shared sliding-window rate limiter."""
+"""共享的滑动窗口限流器。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import time
 
 
 class SlidingWindowRateLimiter:
-    """Thread-safe limiter for request-per-minute and token-per-minute quotas."""
+    """线程安全地约束 RPM/TPM 全局配额。"""
 
     def __init__(
         self,
@@ -26,7 +26,7 @@ class SlidingWindowRateLimiter:
         self.request_spacing_seconds = self._compute_request_spacing_seconds()
 
     def acquire(self, estimated_tokens: int) -> None:
-        """Block until the next request can safely enter the global window."""
+        """阻塞直到下一次请求可以安全进入全局窗口。"""
         with self.condition:
             while True:
                 now = time.monotonic()

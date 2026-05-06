@@ -1,3 +1,4 @@
+# 基于 claim divergence 的 trigger 策略配置。
 policy_name = "claim_divergence_triggered"
 trigger_type = "claim_divergence_triggered"
 claim_divergence_threshold = 0.55

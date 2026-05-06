@@ -1,4 +1,4 @@
-"""Prompt builders for SPARC experiments."""
+"""SPARC 实验的提示词构造器。"""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ def build_solver_messages(
     agent_id: int,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造 SPARC Stage A 求解消息。"""
     if prompt_version != DEFAULT_PROMPT_VERSION:
         raise ValueError(f"Unsupported sparc prompt_version: {prompt_version}")
     user_prompt = (
@@ -45,6 +46,7 @@ def build_debate_messages(
     requested_message_mode: str,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造 SPARC Stage B 压缩通信轮的更新消息。"""
     if prompt_version != DEFAULT_PROMPT_VERSION:
         raise ValueError(f"Unsupported sparc prompt_version: {prompt_version}")
     peer_block = "\n\n".join(
@@ -81,6 +83,7 @@ def build_single_judge_messages(
     sample: DatasetSample,
     candidates: list[dict[str, object]],
 ) -> list[dict[str, str]]:
+    """构造单裁判聚合候选包的提示词。"""
     candidate_block = "\n\n".join(
         f"Candidate {index}:\n{candidate}"
         for index, candidate in enumerate(candidates, start=1)
@@ -109,6 +112,7 @@ def build_audit_messages(
     candidate_a: dict[str, object],
     candidate_b: dict[str, object],
 ) -> list[dict[str, str]]:
+    """构造本地审计器比较两份候选包的提示词。"""
     user_prompt = (
         "You are a local auditor. Compare only the two candidate packets below.\n"
         f"{_dataset_instruction(sample)}\n"

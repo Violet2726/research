@@ -1,3 +1,5 @@
+"""CUE 实验的命令行入口。"""
+
 from __future__ import annotations
 
 import argparse
@@ -20,6 +22,7 @@ from experiment_core.workspace import default_cache_path, default_reports_root, 
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """构建 CUE 子命令解析器。"""
     load_dotenv(".env.local", override=False)
     parser = argparse.ArgumentParser(description="CUE experiment runner.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -48,6 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """命令行入口。"""
     parser = build_parser()
     args = parser.parse_args()
 
@@ -109,6 +113,7 @@ def main() -> None:
 
 
 def asdict_like(obj: object) -> dict[str, object]:
+    """把 dataclass 或普通对象转换成可 JSON 序列化的字典视图。"""
     return dict(vars(obj))
 
 

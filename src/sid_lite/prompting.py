@@ -1,4 +1,4 @@
-"""Prompt builders for SID-lite experiments."""
+"""SID-lite 实验的提示词构造器。"""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ def build_solver_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造 SID-lite Stage A 的独立求解提示词。"""
     _ensure_prompt_version(prompt_version)
     user_prompt = (
         f"You are agent_{agent_id} in Stage A of a SID-lite experiment.\n"
@@ -45,6 +46,7 @@ def build_belief_update_messages(
     packet_mode: str,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造 SID-lite Stage B 的 belief update 提示词。"""
     _ensure_prompt_version(prompt_version)
     peer_block = "\n\n".join(
         f"{item['agent']} packet_mode={item['packet_mode']}\npacket={item['packet_text']}"

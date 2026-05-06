@@ -1,3 +1,4 @@
+# CUE 的 consensus-freeze 策略配置。
 policy_name = "consensus_freeze"
 trigger_type = "consensus_freeze"
 tau = 0.0

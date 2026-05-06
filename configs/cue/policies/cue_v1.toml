@@ -1,3 +1,4 @@
+# CUE 效用触发主策略配置。
 policy_name = "cue_v1"
 trigger_type = "cue_utility"
 tau = -0.02

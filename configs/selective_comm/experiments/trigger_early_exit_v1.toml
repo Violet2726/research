@@ -1,3 +1,4 @@
+# 早停型 trigger 主实验入口配置。
 name = "trigger_early_exit_v1"
 description = "Trigger and early-exit v1 with shared Stage A and shared Stage B for smoke20 selective communication analysis."
 benchmark_configs = [

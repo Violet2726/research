@@ -1,3 +1,4 @@
+# SPARC 共享的 3 智能体、1 轮选择性通信协议。
 agent_count = 3
 debate_rounds = 1
 initial_temperature = 0.7

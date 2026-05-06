@@ -1,3 +1,5 @@
+"""CUE 实验的主运行链路。"""
+
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -65,6 +67,8 @@ DISPLAY_NAME_MAP = {
 
 @dataclass(frozen=True)
 class RunPaths:
+    """CUE 运行目录下的固定产物路径集合。"""
+
     root: Path
     manifest: Path
     stage_a_turns: Path
@@ -82,6 +86,8 @@ class RunPaths:
 
 @dataclass(frozen=True)
 class SampleResult:
+    """单题运行结束后沉淀的中间与最终产物。"""
+
     stage_a_turns: list[dict[str, Any]]
     communication_turns: list[dict[str, Any]]
     audit_turns: list[dict[str, Any]]
@@ -91,6 +97,8 @@ class SampleResult:
 
 @dataclass(frozen=True)
 class SharedCommunicationResult:
+    """多个策略复用的共享通信结果。"""
+
     communication_turns: list[dict[str, Any]]
     audit_turns: list[dict[str, Any]]
     communication_trace_hash: str
@@ -181,6 +189,7 @@ def run_experiment(
     run_root: str | Path | None = None,
     cache_path: str | Path | None = None,
 ) -> Path:
+    """执行一个 CUE 实验 phase，并返回运行目录。"""
     load_dotenv(".env.local", override=False)
     run_root = run_root or default_runs_root("cue")
     cache_path = cache_path or default_cache_path("cue")

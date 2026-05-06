@@ -1,3 +1,4 @@
+# CUE v1 主实验入口配置。
 name = "cue_v1"
 description = "CUE black-box utility-controlled communication with local auditing."
 benchmark_configs = [

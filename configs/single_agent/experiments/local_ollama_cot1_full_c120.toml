@@ -1,3 +1,4 @@
+# 本地 Ollama 的 `cot_1` 全量 120 题配置。
 name = "local_ollama_cot1_full_c120"
 description = "Local Ollama full-run cot_1 on GSM8K, StrategyQA, and HotpotQA with max_concurrent_requests=5."
 method_catalog = "configs/single_agent/methods/common.toml"

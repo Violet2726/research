@@ -1,3 +1,5 @@
+"""统一编排 smoke20/pilot 矩阵运行与后验审查。"""
+
 from __future__ import annotations
 
 import argparse
@@ -91,6 +93,8 @@ RUN_ORDER = [
 
 @dataclass(frozen=True)
 class RuntimeOverrides:
+    """矩阵批跑时可统一覆盖的运行时参数。"""
+
     phase_name: str = DEFAULT_PHASE
     model_ref: str = DEFAULT_MODEL_REF
     max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS
@@ -100,6 +104,8 @@ class RuntimeOverrides:
 
 @dataclass(frozen=True)
 class DiscoveredConfig:
+    """从 `configs/*/experiments` 中发现的实验入口摘要。"""
+
     family: str
     config_path: str
     experiment_name: str
@@ -108,6 +114,8 @@ class DiscoveredConfig:
 
 @dataclass
 class MatrixEntry:
+    """矩阵中的单个可执行或已排除实验条目。"""
+
     family: str
     config_path: str
     experiment_name: str
@@ -128,6 +136,8 @@ class MatrixEntry:
 
 @dataclass(frozen=True)
 class MatrixBuild:
+    """一次矩阵构建的完整结果。"""
+
     overrides: RuntimeOverrides
     entries: list[MatrixEntry]
     semantic_entries: list[MatrixEntry]
@@ -136,12 +146,16 @@ class MatrixBuild:
 
 @dataclass(frozen=True)
 class ReviewResult:
+    """运行后健康检查的结论。"""
+
     passed: bool
     notes: str
 
 
 @dataclass(frozen=True)
 class OrchestratorPaths:
+    """矩阵 orchestrator 维护的状态与报告路径。"""
+
     root: Path
     matrix: Path
     state: Path
@@ -150,6 +164,7 @@ class OrchestratorPaths:
 
 
 def discover_phase_configs(phase_name: str, config_root: str | Path = "configs") -> list[DiscoveredConfig]:
+    """发现声明了给定 phase 的实验配置入口。"""
     discovered: list[DiscoveredConfig] = []
     for path in sorted(Path(config_root).rglob("*.toml")):
         if "experiments" not in path.parts:
@@ -172,6 +187,7 @@ def discover_phase_configs(phase_name: str, config_root: str | Path = "configs")
 def build_run_matrix(
     overrides: RuntimeOverrides,
 ) -> MatrixBuild:
+    """根据覆盖参数生成可执行矩阵与语义去重后的目标集合。"""
     discovered = discover_phase_configs(overrides.phase_name)
 
     entries: list[MatrixEntry] = []
@@ -228,6 +244,7 @@ def build_run_matrix(
 
 
 def review_run_health(run_dir: str | Path, family: str) -> ReviewResult:
+    """复核单个 run 的进度、验证结果与核心汇总文件。"""
     root = Path(run_dir)
     progress = _safe_load_json(root / "progress.json") or {}
     if str(progress.get("status") or "") != "completed":
@@ -269,6 +286,7 @@ def run_smoke20_matrix(
     state_root: str | Path | None = None,
     reference_state_path_or_root: str | Path | None = None,
 ) -> Path:
+    """执行矩阵批跑、写入状态文件，并产出 faithful 报告。"""
     matrix = build_run_matrix(overrides)
     paths = _prepare_orchestrator_paths(state_root, overrides.phase_name)
     family_blocked: set[str] = set()
@@ -367,6 +385,7 @@ def _execute_entry(entry: MatrixEntry, overrides: RuntimeOverrides) -> Path:
 
 
 def apply_runtime_overrides(family: str, experiment: Any, overrides: RuntimeOverrides) -> Any:
+    """把命令行层面的并发与限流覆盖写回实验配置对象。"""
     raw = copy.deepcopy(experiment.raw)
     raw["max_concurrent_requests"] = overrides.max_concurrent_requests
     raw["requests_per_minute_limit"] = overrides.requests_per_minute_limit
@@ -492,6 +511,7 @@ def _safe_load_json(path: str | Path) -> dict[str, Any] | None:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """构建 smoke20 矩阵命令行解析器。"""
     parser = argparse.ArgumentParser(description="Run the unified faithful mimo-v2.5 experiment matrix.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -516,6 +536,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """命令行入口。"""
     parser = build_parser()
     args = parser.parse_args()
 

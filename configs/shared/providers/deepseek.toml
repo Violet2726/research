@@ -1,3 +1,4 @@
+# DeepSeek 供应商连接与默认请求参数。
 name = "deepseek"
 base_url = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"

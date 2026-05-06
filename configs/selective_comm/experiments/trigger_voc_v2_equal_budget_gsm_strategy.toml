@@ -1,3 +1,4 @@
+# VOC v2 在 GSM8K/StrategyQA 上的等预算实验入口。
 name = "trigger_voc_v2_equal_budget_gsm_strategy"
 description = "VoC Trigger v2 on Xiaomi MiMo-V2.5 with equal-budget controls on GSM8K, StrategyQA, and HotpotQA."
 benchmark_configs = [

@@ -1,3 +1,4 @@
+# VOC v2 触发策略阈值配置。
 policy_name = "voc_trigger_v2"
 trigger_type = "voc_trigger_v2"
 mean_conf_threshold = 0.95

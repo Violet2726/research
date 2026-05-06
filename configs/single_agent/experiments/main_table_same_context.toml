@@ -1,3 +1,4 @@
+# same-context 主表单智能体实验入口。
 name = "main_table_same_context"
 description = "Single-agent baselines for the SPARC main-table same-context benchmarks."
 method_catalog = "configs/single_agent/methods/common.toml"

@@ -1,4 +1,4 @@
-"""Prompt builders for Free-MAD-lite experiments."""
+"""Free-MAD-lite 实验的提示词构造器。"""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ def build_initial_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造 Stage A 的独立求解提示词。"""
     _ensure_prompt_version(prompt_version)
     user_prompt = (
         f"You are agent_{agent_id} in a Free-MAD-lite experiment.\n"
@@ -45,6 +46,7 @@ def build_debate_messages(
     peer_messages: list[dict[str, str]],
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造单轮 vanilla / anti-conformity 辩论提示词。"""
     _ensure_prompt_version(prompt_version)
     if mode not in {"vanilla", "anti_conformity"}:
         raise ValueError(f"Unsupported Free-MAD-lite debate mode: {mode}")
@@ -80,6 +82,7 @@ def build_trajectory_judge_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造轨迹级裁判的评审提示词。"""
     _ensure_prompt_version(prompt_version)
     trajectory_block = "\n\n".join(
         f"Agent {item['agent_id']}:\n"
@@ -109,6 +112,7 @@ def build_trajectory_judge_messages(
 
 
 def anti_conformity_prompt_hash() -> str:
+    """返回 anti-conformity 指令文本的稳定哈希。"""
     return sha256(_anti_conformity_instruction().encode("utf-8")).hexdigest()
 
 

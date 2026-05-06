@@ -1,3 +1,4 @@
+# budget_comm 的 split-context 视图配置。
 track_name = "split_context"
 strategyqa_mode = "facts_even_odd_plus_decomposition"
 hotpotqa_mode = "supporting_paragraph_shards"

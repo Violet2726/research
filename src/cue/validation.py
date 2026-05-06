@@ -1,3 +1,5 @@
+"""CUE 运行产物的完整性与一致性校验。"""
+
 from __future__ import annotations
 
 from collections import Counter
@@ -7,6 +9,7 @@ from typing import Any
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
+    """校验单次 CUE 运行目录是否满足最小可复现要求。"""
     root = Path(run_dir)
     required = [
         "manifest.json",

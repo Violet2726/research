@@ -1,3 +1,5 @@
+"""跨实验共享的题型指令与系统提示词契约。"""
+
 from __future__ import annotations
 
 from typing import Literal
@@ -17,6 +19,7 @@ def dataset_instruction_for_sample(
     hotpot_style: HotpotStyle = "short_span",
     multiple_choice_scope: MultipleChoiceScope = "general",
 ) -> str:
+    """根据样本对象生成与数据集匹配的任务指令。"""
     return dataset_instruction(
         sample.dataset,
         context_scope=context_scope,
@@ -32,6 +35,7 @@ def dataset_instruction(
     hotpot_style: HotpotStyle = "short_span",
     multiple_choice_scope: MultipleChoiceScope = "general",
 ) -> str:
+    """按数据集与可见上下文范围生成标准化指令文本。"""
     if dataset in {"gsm8k", "gsm_symbolic"}:
         return (
             "Solve the math problem carefully. "
@@ -80,6 +84,7 @@ def build_json_system_prompt(
     *,
     extra_rules: list[str] | None = None,
 ) -> str:
+    """拼装严格 JSON 输出模式下的 system prompt。"""
     lines = [
         role_description.strip(),
         "Return strict JSON only.",
@@ -95,6 +100,7 @@ def build_tagged_lines_system_prompt(
     *,
     extra_rules: list[str] | None = None,
 ) -> str:
+    """拼装“固定标签行”输出模式下的 system prompt。"""
     lines = [
         role_description.strip(),
         "Return only the requested tagged lines.",

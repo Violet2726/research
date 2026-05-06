@@ -1,4 +1,4 @@
-"""Prompt builders for selective-communication experiments."""
+"""选择性通信实验的提示词构造器。"""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ def build_initial_messages(
     agent_id: int,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """按 prompt_version 分派 Stage A 初始消息模板。"""
     if prompt_version == DEFAULT_PROMPT_VERSION:
         return _build_initial_messages(sample, agent_id)
     if prompt_version == VOC_PROMPT_VERSION:
@@ -38,6 +39,7 @@ def build_debate_messages(
     previous_uncertainty_type: str | None = None,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """按 prompt_version 分派 Stage B 讨论消息模板。"""
     if prompt_version == DEFAULT_PROMPT_VERSION:
         return _build_debate_messages(
             sample,

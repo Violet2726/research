@@ -1,3 +1,4 @@
+# GPQA Diamond 基准配置。
 # GPQA Diamond benchmark configuration stored inside the upstream password-protected zip archive.
 name = "GPQA Diamond"
 slug = "gpqa_diamond"

@@ -1,4 +1,4 @@
-"""Prompt builders for split-context communication-necessary experiments."""
+"""split-context communication-necessary 实验的提示词构造器。"""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ def build_solver_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造 split-context HotpotQA 的 Stage A 求解提示词。"""
     _assert_prompt_version(prompt_version)
     user_prompt = (
         f"You are agent_{view.agent_id} in a controlled HotpotQA communication experiment.\n"
@@ -49,6 +50,7 @@ def build_belief_update_messages(
     method_name: str,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造基于选中 peer packet 的 Stage B 更新提示词。"""
     _assert_prompt_version(prompt_version)
     peer_block = "\n\n".join(
         f"{item['agent']} packet_mode={item['packet_mode']}\npacket={item['packet_text']}"

@@ -1,3 +1,4 @@
+# HotpotQA split-context 证据交换实验入口。
 name = "hotpotqa_split_evidence_v1"
 description = "Communication-necessary split-context HotpotQA smoke experiment."
 benchmark_configs = [

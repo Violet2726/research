@@ -1,3 +1,4 @@
+# 单智能体主基线实验入口。
 name = "main_baselines"
 description = "Main no-communication baselines on GSM8K, StrategyQA, and HotpotQA."
 method_catalog = "configs/single_agent/methods/common.toml"

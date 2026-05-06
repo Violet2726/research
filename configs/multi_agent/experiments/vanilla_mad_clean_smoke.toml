@@ -1,3 +1,4 @@
+# 清洁版 Vanilla MAD smoke 实验入口。
 name = "vanilla_mad_clean_smoke"
 description = "Clean smoke pilot for debate-vs-vote under equal 4-call budget."
 benchmark_configs = [

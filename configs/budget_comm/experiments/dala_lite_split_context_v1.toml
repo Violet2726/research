@@ -1,3 +1,4 @@
+# DALA-lite split-context 主实验入口配置。
 name = "dala_lite_split_context_v1"
 description = "DALA-lite v1 smoke20 on split-context StrategyQA and HotpotQA."
 benchmark_configs = [

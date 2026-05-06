@@ -1,3 +1,4 @@
+# DALA-lite same-context 主实验入口配置。
 name = "dala_lite_same_context_v1"
 description = "DALA-lite v1 smoke20 on same-context GSM8K, StrategyQA, and HotpotQA."
 benchmark_configs = [

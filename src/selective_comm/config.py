@@ -1,3 +1,5 @@
+"""选择性通信实验的配置加载与模型适配检查。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,6 +15,8 @@ GENERAL_QA_BENCHMARKS = {"strategyqa", "hotpotqa"}
 
 @dataclass(frozen=True)
 class SharedDebateProtocolConfig:
+    """选择性通信共享的辩论协议参数。"""
+
     agent_count: int
     debate_rounds: int
     initial_temperature: float
@@ -23,6 +27,8 @@ class SharedDebateProtocolConfig:
 
 @dataclass(frozen=True)
 class TriggerPolicyConfig:
+    """触发策略配置。"""
+
     policy_name: str
     trigger_type: str
     mean_conf_threshold: float | None
@@ -34,6 +40,8 @@ class TriggerPolicyConfig:
 
 @dataclass(frozen=True)
 class SelectiveCommExperimentConfig:
+    """选择性通信实验入口配置。"""
+
     name: str
     description: str
     benchmark_configs: list[Path]
@@ -55,6 +63,7 @@ def _load_toml(path: str | Path) -> dict[str, Any]:
 
 
 def load_protocol_config(path: str | Path) -> SharedDebateProtocolConfig:
+    """加载共享辩论协议。"""
     payload = _load_toml(path)
     return SharedDebateProtocolConfig(
         agent_count=int(payload["agent_count"]),
@@ -67,6 +76,7 @@ def load_protocol_config(path: str | Path) -> SharedDebateProtocolConfig:
 
 
 def load_policy_config(path: str | Path) -> TriggerPolicyConfig:
+    """加载单个 trigger 策略配置。"""
     payload = _load_toml(path)
     return TriggerPolicyConfig(
         policy_name=str(payload["policy_name"]),
@@ -80,14 +90,17 @@ def load_policy_config(path: str | Path) -> TriggerPolicyConfig:
 
 
 def load_policies(paths: list[str | Path]) -> list[TriggerPolicyConfig]:
+    """按顺序加载多份 trigger 策略。"""
     return [load_policy_config(path) for path in paths]
 
 
 def load_control_catalog(path: str | Path) -> dict[str, MethodConfig]:
+    """加载控制组方法目录。"""
     return load_method_catalog(path)
 
 
 def load_experiment_config(path: str | Path) -> SelectiveCommExperimentConfig:
+    """加载选择性通信实验入口配置。"""
     payload = _load_toml(path)
     return SelectiveCommExperimentConfig(
         name=str(payload["name"]),
@@ -107,10 +120,12 @@ def load_experiment_config(path: str | Path) -> SelectiveCommExperimentConfig:
 
 
 def phase_metadata(experiment: SelectiveCommExperimentConfig, phase_name: str) -> dict[str, Any]:
+    """读取指定 phase 的原始元数据。"""
     return dict(experiment.raw["phases"][phase_name])
 
 
 def load_benchmarks(experiment: SelectiveCommExperimentConfig) -> list[BenchmarkConfig]:
+    """解析实验引用的 benchmark 配置。"""
     return [load_benchmark_config(path) for path in experiment.benchmark_configs]
 
 
@@ -119,6 +134,7 @@ def describe_backbone_fit(
     backbone: ResolvedModelConfig,
     benchmarks: list[BenchmarkConfig] | None = None,
 ) -> list[str]:
+    """返回骨干模型与 benchmark 组合的兼容性警告。"""
     loaded_benchmarks = benchmarks if benchmarks is not None else load_benchmarks(experiment)
     benchmark_slugs = {benchmark.slug for benchmark in loaded_benchmarks}
     warnings: list[str] = []
@@ -140,12 +156,14 @@ def ensure_backbone_fit(
     backbone: ResolvedModelConfig,
     benchmarks: list[BenchmarkConfig] | None = None,
 ) -> None:
+    """在模型与 benchmark 明显不匹配时抛出异常。"""
     warnings = describe_backbone_fit(experiment, backbone, benchmarks)
     if warnings:
         raise RuntimeError("Incompatible backbone/benchmark mix:\n- " + "\n- ".join(warnings))
 
 
 def resolve_model(model_ref: str) -> ResolvedModelConfig:
+    """解析实验默认或命令行传入的模型引用。"""
     return resolve_model_ref(model_ref)
 
 

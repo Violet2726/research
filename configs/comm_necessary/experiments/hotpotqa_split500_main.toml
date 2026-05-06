@@ -1,3 +1,4 @@
+# HotpotQA split-context 500 题主实验入口。
 name = "hotpotqa_split500_main"
 description = "Communication-necessary split-context HotpotQA main experiment on the frozen split500 set."
 benchmark_configs = [

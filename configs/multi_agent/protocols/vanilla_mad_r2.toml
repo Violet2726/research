@@ -1,3 +1,4 @@
+# Vanilla MAD 双轮辩论协议。
 debate_rounds = 2
 initial_temperature = 0.7
 debate_temperature = 0.7

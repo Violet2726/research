@@ -1,3 +1,5 @@
+"""选择性通信实验的命令行入口。"""
+
 from __future__ import annotations
 
 import argparse
@@ -28,6 +30,7 @@ from selective_comm.validation import validate_run
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """构建选择性通信实验的子命令解析器。"""
     load_dotenv(".env.local", override=False)
     parser = argparse.ArgumentParser(description="Selective communication trigger experiment runner.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -58,6 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """命令行入口。"""
     parser = build_parser()
     args = parser.parse_args()
 
@@ -128,6 +132,7 @@ def main() -> None:
 
 
 def _serialize_protocol(protocol: object) -> dict[str, object]:
+    """把协议对象裁剪成 CLI inspect 需要的字段。"""
     return {
         "agent_count": protocol.agent_count,
         "debate_rounds": protocol.debate_rounds,
@@ -139,6 +144,7 @@ def _serialize_protocol(protocol: object) -> dict[str, object]:
 
 
 def _serialize_policy(policy: object) -> dict[str, object]:
+    """把 trigger 策略对象裁剪成 CLI inspect 需要的字段。"""
     return {
         "policy_name": policy.policy_name,
         "trigger_type": policy.trigger_type,
@@ -151,6 +157,7 @@ def _serialize_policy(policy: object) -> dict[str, object]:
 
 
 def _serialize_control(method: object) -> dict[str, object]:
+    """把控制组方法对象裁剪成 CLI inspect 需要的字段。"""
     return {
         "family": method.family,
         "budget_calls": method.budget_calls,
@@ -161,6 +168,7 @@ def _serialize_control(method: object) -> dict[str, object]:
 
 
 def _serialize_model(backbone: object) -> dict[str, object]:
+    """把解析后的模型对象裁剪成 CLI inspect 需要的字段。"""
     return {
         "name": backbone.name,
         "provider": backbone.provider,

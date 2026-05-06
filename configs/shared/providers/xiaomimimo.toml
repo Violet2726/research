@@ -1,3 +1,4 @@
+# 小米 MIMO 供应商连接与默认请求参数。
 name = "xiaomimimo"
 base_url = "https://token-plan-cn.xiaomimimo.com/v1"
 api_key_env = "XIAOMI_MIMO_API_KEY"

@@ -1,3 +1,5 @@
+"""CUE 运行链路中复用的结构化载荷模式。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -5,6 +7,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class AgentPacket:
+    """Stage A 或通信轮里单个 agent 对外暴露的压缩状态。"""
+
     final_answer: str
     reasoning_sketch: str
     confidence: float | None
@@ -16,6 +20,8 @@ class AgentPacket:
 
 @dataclass(frozen=True)
 class ConflictObject:
+    """CUE 对“局部冲突”进行结构化压缩后的表示。"""
+
     conflict_type: str
     claim_a: str
     claim_b: str
@@ -29,6 +35,8 @@ class ConflictObject:
 
 @dataclass(frozen=True)
 class UtilityBreakdown:
+    """策略触发时使用的效用分解项。"""
+
     correction_potential: float
     resolvability: float
     collapse_risk: float

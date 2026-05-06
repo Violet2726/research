@@ -1,3 +1,5 @@
+"""CUE 实验的配置加载层。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,6 +13,8 @@ from experiment_core.methods import MethodConfig, load_method_catalog
 
 @dataclass(frozen=True)
 class CueProtocolConfig:
+    """CUE 共享协议参数。"""
+
     agent_count: int
     debate_rounds: int
     initial_temperature: float
@@ -23,6 +27,8 @@ class CueProtocolConfig:
 
 @dataclass(frozen=True)
 class CuePolicyConfig:
+    """CUE 触发与审计效用策略配置。"""
+
     policy_name: str
     trigger_type: str
     tau: float
@@ -47,6 +53,8 @@ class CuePolicyConfig:
 
 @dataclass(frozen=True)
 class CueExperimentConfig:
+    """CUE 实验入口配置。"""
+
     name: str
     description: str
     benchmark_configs: list[Path]
@@ -68,6 +76,7 @@ def _load_toml(path: str | Path) -> dict[str, Any]:
 
 
 def load_protocol_config(path: str | Path) -> CueProtocolConfig:
+    """加载 CUE 协议配置。"""
     payload = _load_toml(path)
     return CueProtocolConfig(
         agent_count=int(payload["agent_count"]),
@@ -82,6 +91,7 @@ def load_protocol_config(path: str | Path) -> CueProtocolConfig:
 
 
 def load_policy_config(path: str | Path) -> CuePolicyConfig:
+    """加载单个 CUE 策略配置。"""
     payload = _load_toml(path)
     return CuePolicyConfig(
         policy_name=str(payload["policy_name"]),
@@ -108,10 +118,12 @@ def load_policy_config(path: str | Path) -> CuePolicyConfig:
 
 
 def load_policies(paths: list[str | Path]) -> list[CuePolicyConfig]:
+    """按顺序加载多份 CUE 策略。"""
     return [load_policy_config(path) for path in paths]
 
 
 def load_control_catalog(path: str | Path | None) -> dict[str, MethodConfig]:
+    """加载控制组方法目录；未配置时返回空字典。"""
     if path is None:
         return {}
     resolved = Path(path)
@@ -121,6 +133,7 @@ def load_control_catalog(path: str | Path | None) -> dict[str, MethodConfig]:
 
 
 def load_experiment_config(path: str | Path) -> CueExperimentConfig:
+    """加载 CUE 实验入口配置。"""
     payload = _load_toml(path)
     control_catalog = payload.get("control_catalog")
     return CueExperimentConfig(
@@ -141,14 +154,17 @@ def load_experiment_config(path: str | Path) -> CueExperimentConfig:
 
 
 def phase_metadata(experiment: CueExperimentConfig, phase_name: str) -> dict[str, Any]:
+    """读取指定 phase 的原始元数据。"""
     return dict(experiment.raw["phases"][phase_name])
 
 
 def load_benchmarks(experiment: CueExperimentConfig) -> list[BenchmarkConfig]:
+    """解析实验引用的 benchmark 配置。"""
     return [load_benchmark_config(path) for path in experiment.benchmark_configs]
 
 
 def resolve_model(model_ref: str) -> ResolvedModelConfig:
+    """解析实验默认或命令行传入的模型引用。"""
     return resolve_model_ref(model_ref)
 
 

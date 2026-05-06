@@ -1,3 +1,5 @@
+"""为 smoke20 矩阵与 faithful 分析声明实验对照规格。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,6 +11,8 @@ TRACK_SPLIT_CONTEXT = "split_context"
 
 @dataclass(frozen=True)
 class ExperimentMatrixSpec:
+    """单个实验入口在矩阵评审中的比较基准与轨道定义。"""
+
     evaluation_track: str
     primary_method_name: str
     best_no_comm_candidates: tuple[str, ...]
@@ -160,6 +164,7 @@ EXPERIMENT_MATRIX_SPECS: dict[str, ExperimentMatrixSpec] = {
 
 
 def get_experiment_matrix_spec(config_path: str) -> ExperimentMatrixSpec:
+    """按实验配置路径返回既定的矩阵规格。"""
     try:
         return EXPERIMENT_MATRIX_SPECS[config_path]
     except KeyError as exc:

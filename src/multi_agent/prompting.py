@@ -1,4 +1,4 @@
-"""Prompt builders for multi-agent debate experiments."""
+"""多智能体辩论实验的提示词构造器。"""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ def build_initial_messages(
     agent_id: int,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造多智能体实验的初始独立作答消息。"""
     user_prompt = (
         f"You are agent_{agent_id}.\n"
         f"{_dataset_instruction(sample, prompt_version)}\n"
@@ -44,6 +45,7 @@ def build_debate_messages(
     peer_messages: list[dict[str, str]],
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造辩论轮次中的复审消息。"""
     peer_block = "\n\n".join(
         f"{item['agent']} previous answer: {item['answer']}\n"
         f"{item['agent']} reasoning: {item['reasoning']}"

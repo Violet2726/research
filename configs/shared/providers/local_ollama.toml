@@ -1,3 +1,4 @@
+# 本地 Ollama 供应商连接与默认请求参数。
 name = "local_ollama"
 base_url = "http://127.0.0.1:11434/v1"
 api_key_env = "OLLAMA_API_KEY"

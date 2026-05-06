@@ -1,3 +1,4 @@
+# SPARC v1 的主 smoke/pilot 实验入口配置。
 name = "sparc_v1_smoke"
 description = "SPARC v1 end-to-end smoke with frozen trigger selection and local auditing."
 experiment_kind = "sparc_v1"

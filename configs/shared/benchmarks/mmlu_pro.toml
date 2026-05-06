@@ -1,3 +1,4 @@
+# MMLU-Pro 稳定多选评测基准配置。
 # MMLU-Pro benchmark configuration for stable multi-choice reasoning evaluation.
 name = "MMLU-Pro"
 slug = "mmlu_pro"

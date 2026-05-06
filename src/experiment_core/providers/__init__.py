@@ -1,4 +1,4 @@
-"""Shared OpenAI-compatible provider client."""
+"""共享的 OpenAI-compatible provider 客户端。"""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from experiment_core.config import ResolvedModelConfig
 
 @dataclass(frozen=True)
 class ProviderResponse:
-    """Normalized provider response."""
+    """统一归一化后的 provider 响应。"""
 
     http_status: int
     raw_payload: dict[str, Any]
@@ -32,7 +32,7 @@ class ProviderResponse:
 
 @dataclass(frozen=True)
 class ProviderRequestError(RuntimeError):
-    """Provider request failure surfaced to runners."""
+    """向 runner 暴露的 provider 请求失败。"""
 
     message: str
     http_status: int | None
@@ -44,7 +44,7 @@ class ProviderRequestError(RuntimeError):
 
 
 class OpenAICompatibleProvider:
-    """Minimal OpenAI-compatible provider wrapper."""
+    """最小可用的 OpenAI-compatible provider 包装器。"""
 
     def __init__(self, config: ResolvedModelConfig) -> None:
         self.config = config
@@ -57,7 +57,7 @@ class OpenAICompatibleProvider:
         self.api_key = api_key
 
     def chat_completion(self, payload: dict[str, Any]) -> ProviderResponse:
-        """Execute one chat-completion request with bounded retries."""
+        """执行一次带有限重试的 chat completion 请求。"""
         url = self.config.base_url.rstrip("/") + self.config.chat_path
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -146,7 +146,7 @@ def build_payload(
     *,
     use_response_format: bool = True,
 ) -> dict[str, Any]:
-    """Map internal request parameters to provider payloads."""
+    """把内部请求参数映射成 provider 所需载荷。"""
     payload: dict[str, Any] = {
         "model": config.model_id,
         "messages": messages,
@@ -163,7 +163,7 @@ def build_payload(
 
 
 def estimate_request_tokens(payload: dict[str, Any]) -> int:
-    """Estimate request tokens with a lightweight heuristic."""
+    """用仓库内的轻量规则估算一次请求的 token 数。"""
     prompt_chars = len(json.dumps(payload.get("messages", []), ensure_ascii=False))
     prompt_tokens = max(1, prompt_chars // 4)
     completion_tokens = int(payload.get("max_tokens") or 0)

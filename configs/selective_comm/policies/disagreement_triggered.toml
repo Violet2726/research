@@ -1,3 +1,4 @@
+# 基于答案分歧的 trigger 策略配置。
 policy_name = "disagreement_triggered"
 trigger_type = "disagreement_triggered"
 fail_open_to_always = true

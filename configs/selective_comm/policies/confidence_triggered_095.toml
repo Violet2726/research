@@ -1,3 +1,4 @@
+# 高阈值置信度 trigger 策略配置。
 policy_name = "confidence_triggered_095"
 trigger_type = "confidence_triggered"
 mean_conf_threshold = 0.95

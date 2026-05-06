@@ -1,3 +1,4 @@
+# Free-MAD-lite v1 主实验入口配置。
 name = "free_mad_lite_v1"
 description = "Free-MAD-lite smoke20 mechanism validation: single-round anti-conformity plus LLM trajectory judge."
 benchmark_configs = [

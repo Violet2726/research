@@ -1,3 +1,4 @@
+# 常用模型目录与 provider 级覆盖项。
 # Known commonly used model catalog.
 # Unlisted models may still be used directly via `--model provider/model`.
 

@@ -1,3 +1,4 @@
+# DALA-lite 的效用加权与消息包 token 上限配置。
 calibration_fraction = 0.4
 disagreement_weight = 0.35
 evidence_weight = 0.25

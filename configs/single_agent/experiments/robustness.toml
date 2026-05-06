@@ -1,3 +1,4 @@
+# 单智能体鲁棒性实验入口，聚焦 GSM-Symbolic 变体。
 name = "robustness"
 description = "Provider and model robustness checks outside the headline main table."
 method_catalog = "configs/single_agent/methods/common.toml"

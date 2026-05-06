@@ -1,3 +1,5 @@
+"""CUE 的信号汇总、效用计算与聚合逻辑。"""
+
 from __future__ import annotations
 
 from collections import Counter, defaultdict
@@ -9,6 +11,7 @@ from cue.schemas import ConflictObject, UtilityBreakdown
 
 
 def approximate_token_count(text: str) -> int:
+    """沿用仓库内的轻量 token 估算规则。"""
     cleaned = text.strip()
     if not cleaned:
         return 0
@@ -16,6 +19,7 @@ def approximate_token_count(text: str) -> int:
 
 
 def flatten_short_list(values: list[str] | None, *, fallback: str = "") -> str:
+    """把短列表压平成便于比较的单行文本。"""
     cleaned = [str(item).strip() for item in (values or []) if str(item).strip()]
     if cleaned:
         return " | ".join(cleaned[:2])
@@ -23,6 +27,7 @@ def flatten_short_list(values: list[str] | None, *, fallback: str = "") -> str:
 
 
 def pairwise_token_jaccard_mean(values: list[str]) -> float:
+    """计算多段文本两两之间的 token Jaccard 平均值。"""
     if len(values) <= 1:
         return 1.0
     token_sets = [_tokenize(value) for value in values]
@@ -36,6 +41,7 @@ def pairwise_token_jaccard_mean(values: list[str]) -> float:
 
 
 def summarize_cue_signals(stage_a_rows: list[dict[str, Any]], message_token_cap: int) -> dict[str, float | int | bool | None]:
+    """从 Stage A 输出提炼 CUE 触发判断所需信号。"""
     normalized_answers = [str(row.get("normalized_answer") or "").strip() for row in stage_a_rows if row.get("normalized_answer")]
     raw_answers = [str(row.get("final_answer") or "").strip() for row in stage_a_rows if row.get("final_answer")]
     confidences = [
@@ -83,6 +89,7 @@ def summarize_cue_signals(stage_a_rows: list[dict[str, Any]], message_token_cap:
 
 
 def build_conflict_object(stage_a_rows: list[dict[str, Any]], signals: dict[str, Any], message_token_cap: int) -> ConflictObject:
+    """把候选分歧压缩成通信轮可消费的 conflict object。"""
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in stage_a_rows:
         grouped[str(row.get("normalized_answer") or "")].append(row)
@@ -131,6 +138,7 @@ def build_conflict_object(stage_a_rows: list[dict[str, Any]], signals: dict[str,
 
 
 def compute_utility(signals: dict[str, Any], conflict_object: ConflictObject, policy: Any) -> UtilityBreakdown:
+    """根据策略权重计算通信收益、风险与成本的合成效用。"""
     low_confidence = 1.0 - float(signals.get("mean_confidence") if signals.get("mean_confidence") is not None else 0.5)
     correction_potential = (
         float(policy.correction_answer_entropy_weight) * float(signals.get("answer_entropy") or 0.0)
@@ -162,6 +170,7 @@ def compute_utility(signals: dict[str, Any], conflict_object: ConflictObject, po
 
 
 def decide_policy_trigger(policy: Any, signals: dict[str, Any], utility: UtilityBreakdown) -> tuple[bool, str]:
+    """基于策略类型、信号与效用决定是否触发通信。"""
     trigger_type = str(policy.trigger_type)
     if trigger_type == "always_communicate":
         return True, "always_on"
@@ -183,6 +192,7 @@ def decide_policy_trigger(policy: Any, signals: dict[str, Any], utility: Utility
 
 
 def choose_message_type(conflict_type: str) -> str:
+    """把冲突类型映射到合适的消息包模板。"""
     mapping = {
         "answer": "answer_critique",
         "step": "step_check",
@@ -194,6 +204,7 @@ def choose_message_type(conflict_type: str) -> str:
 
 
 def build_peer_packet(stage_a_row: dict[str, Any], message_type: str, max_tokens: int) -> dict[str, Any]:
+    """为指定消息类型构造可截断的 peer packet。"""
     base = {
         "final_answer": str(stage_a_row.get("final_answer") or stage_a_row.get("normalized_answer") or "").strip(),
         "confidence": stage_a_row.get("confidence_value"),
@@ -215,6 +226,7 @@ def apply_belief_update(
     belief_row: dict[str, Any],
     conflict_object: ConflictObject,
 ) -> dict[str, Any]:
+    """把 belief update 输出合并回候选状态。"""
     validated = belief_row.get("validated_output", {}) if belief_row.get("output_status") == "ok" else {}
     changed_answer = bool(validated.get("changed_answer")) if validated else False
     previous_answer = str(stage_a_row.get("normalized_answer") or "")
@@ -251,6 +263,7 @@ def apply_belief_update(
 
 
 def aggregate_with_confidence_tiebreak(candidates: list[dict[str, Any]]) -> tuple[str, dict[str, int]]:
+    """先比票数，再用最高置信度和最小 agent_id 打破平票。"""
     ordered_answers = [str(candidate.get("normalized_answer", "")).strip() for candidate in candidates if candidate.get("normalized_answer")]
     counts = Counter(ordered_answers)
     if not counts:
@@ -279,6 +292,7 @@ def aggregate_with_confidence_tiebreak(candidates: list[dict[str, Any]]) -> tupl
 
 
 def aggregate_weighted_vote(candidates: list[dict[str, Any]]) -> tuple[str, dict[str, float]]:
+    """按置信度加权聚合候选答案。"""
     grouped_weights: dict[str, float] = defaultdict(float)
     grouped_counts: dict[str, int] = defaultdict(int)
     best_confidence: dict[str, float] = defaultdict(lambda: -1.0)
@@ -307,6 +321,7 @@ def aggregate_weighted_vote(candidates: list[dict[str, Any]]) -> tuple[str, dict
 
 
 def select_audit_candidate_pair(candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    """挑选最值得送入本地审计器的一对候选答案。"""
     valid_candidates = [candidate for candidate in candidates if candidate.get("normalized_answer")]
     answer_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for candidate in valid_candidates:
@@ -328,6 +343,7 @@ def select_audit_candidate_pair(candidates: list[dict[str, Any]]) -> dict[str, A
 
 
 def build_prompt_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
+    """裁剪出供提示词展示的候选字段。"""
     return {
         "agent_id": candidate.get("agent_id"),
         "final_answer": candidate.get("final_answer") or candidate.get("normalized_answer") or "",
@@ -339,6 +355,7 @@ def build_prompt_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
 
 
 def trim_json_to_token_cap(payload: dict[str, Any], token_cap: int) -> str:
+    """在不破坏主要字段的前提下压缩 JSON 文本长度。"""
     text = json.dumps(payload, ensure_ascii=False, sort_keys=True)
     if approximate_token_count(text) <= token_cap:
         return text

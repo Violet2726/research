@@ -1,3 +1,4 @@
+# SiliconFlow 供应商连接与默认请求参数。
 name = "siliconflow"
 base_url = "https://api.siliconflow.cn/v1"
 api_key_env = "SILICONFLOW_API_KEY"
