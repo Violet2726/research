@@ -1,3 +1,5 @@
+"""覆盖扩展 benchmark 配置与数据装载约束的测试。"""
+
 from __future__ import annotations
 
 from experiment_core.config import load_benchmark_config

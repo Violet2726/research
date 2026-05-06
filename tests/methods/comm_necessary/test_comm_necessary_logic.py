@@ -1,3 +1,5 @@
+"""覆盖 split-context communication-necessary 纯逻辑的测试。"""
+
 from __future__ import annotations
 
 from comm_necessary.config import CommNecessaryProtocolConfig

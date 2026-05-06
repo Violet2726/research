@@ -1,3 +1,5 @@
+"""覆盖共享提示词契约与数据集指令生成的测试。"""
+
 from __future__ import annotations
 
 from experiment_core.prompt_contracts import dataset_instruction

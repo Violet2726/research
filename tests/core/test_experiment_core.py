@@ -1,3 +1,5 @@
+"""覆盖 `experiment_core` 共享基础能力的测试。"""
+
 from __future__ import annotations
 
 from pathlib import Path

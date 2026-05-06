@@ -1,3 +1,5 @@
+"""覆盖运行产物字段契约与报告契约的测试。"""
+
 from __future__ import annotations
 
 from pathlib import Path

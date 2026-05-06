@@ -1,3 +1,5 @@
+"""覆盖单智能体基线提示词构造约束的测试。"""
+
 from __future__ import annotations
 
 from experiment_core.datasets import DatasetSample

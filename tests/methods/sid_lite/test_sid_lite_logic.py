@@ -1,3 +1,5 @@
+"""覆盖 SID-lite 机制逻辑与消息包行为的测试。"""
+
 from __future__ import annotations
 
 from sid_lite.logic import decide_early_exit, project_message_packet

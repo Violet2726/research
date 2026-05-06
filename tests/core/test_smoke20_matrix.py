@@ -1,3 +1,5 @@
+"""覆盖 smoke20 矩阵编排与状态汇总逻辑的测试。"""
+
 from __future__ import annotations
 
 from collections import Counter

@@ -1,3 +1,5 @@
+"""覆盖各实验 CLI 基本命令路径的轻量 smoke 测试。"""
+
 from __future__ import annotations
 
 import io

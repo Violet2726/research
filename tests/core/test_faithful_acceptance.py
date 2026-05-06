@@ -1,3 +1,5 @@
+"""覆盖 faithful acceptance 汇总与门槛判定逻辑的测试。"""
+
 from __future__ import annotations
 
 from experiment_core.faithful_acceptance import build_acceptance_summary

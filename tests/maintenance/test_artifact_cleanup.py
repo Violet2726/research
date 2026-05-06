@@ -1,3 +1,5 @@
+"""覆盖无效运行与失效报告清理逻辑的测试。"""
+
 from __future__ import annotations
 
 from pathlib import Path

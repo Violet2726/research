@@ -1,3 +1,5 @@
+"""覆盖 Free-MAD-lite 逻辑与聚合行为的测试。"""
+
 from __future__ import annotations
 
 from free_mad_lite.logic import build_trajectory_decision, deterministic_trajectory_fallback

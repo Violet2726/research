@@ -1,3 +1,5 @@
+"""约束包间导入边界，防止实验层与核心层职责串扰。"""
+
 from __future__ import annotations
 
 import ast

@@ -1,3 +1,5 @@
+"""覆盖 SPARC 选择性通信逻辑与裁判路径的测试。"""
+
 from __future__ import annotations
 
 from sparc.logic import (

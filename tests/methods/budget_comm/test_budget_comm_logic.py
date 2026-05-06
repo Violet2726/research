@@ -1,3 +1,5 @@
+"""覆盖 `budget_comm.logic` 核心机制函数的回归测试。"""
+
 from __future__ import annotations
 
 from budget_comm.config import ContextViewConfig
