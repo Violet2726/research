@@ -56,7 +56,7 @@ def test_faithful_matrix_inspect_cli() -> None:
         ],
     )
     assert payload["overrides"]["phase_name"] == "smoke20"
-    assert payload["counts"]["semantic_unique_targets"] == 17
+    assert payload["counts"]["semantic_unique_targets"] == 16
 
 
 def test_multi_agent_inspect_cli() -> None:
@@ -202,10 +202,10 @@ def test_comm_necessary_inspect_cli() -> None:
             "comm_necessary_cli",
             "inspect-experiment",
             "--experiment",
-            "configs/comm_necessary/experiments/hotpotqa_split_evidence_v1.toml",
+            "configs/comm_necessary/experiments/hotpotqa_split_main.toml",
         ],
     )
-    assert payload["name"] == "hotpotqa_split_evidence_v1"
+    assert payload["name"] == "hotpotqa_split_main"
     assert payload["methods"] == [
         "full_context_single",
         "split_no_comm_mv3",

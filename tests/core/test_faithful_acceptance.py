@@ -27,8 +27,8 @@ def test_build_acceptance_summary_classifies_same_and_split_tracks() -> None:
             },
             {
                 "family": "comm_necessary",
-                "config_path": "configs/comm_necessary/experiments/hotpotqa_split_evidence_v1.toml",
-                "experiment_name": "hotpotqa_split_evidence_v1",
+                "config_path": "configs/comm_necessary/experiments/hotpotqa_split_main.toml",
+                "experiment_name": "hotpotqa_split_main",
                 "evaluation_track": "split_context",
                 "dataset": "overall",
                 "primary_method_name": "full_packet_exchange",

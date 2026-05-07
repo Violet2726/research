@@ -63,13 +63,7 @@ EXPERIMENT_MATRIX_SPECS: dict[str, ExperimentMatrixSpec] = {
         full_comm_reference="all_to_all_full",
         token_gate_basis="communication",
     ),
-    "configs/comm_necessary/experiments/hotpotqa_split_evidence_v1.toml": ExperimentMatrixSpec(
-        evaluation_track=TRACK_SPLIT_CONTEXT,
-        primary_method_name="full_packet_exchange",
-        best_no_comm_candidates=("split_no_comm_mv3",),
-        full_context_reference="full_context_single",
-    ),
-    "configs/comm_necessary/experiments/hotpotqa_split500_main.toml": ExperimentMatrixSpec(
+    "configs/comm_necessary/experiments/hotpotqa_split_main.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SPLIT_CONTEXT,
         primary_method_name="full_packet_exchange",
         best_no_comm_candidates=("split_no_comm_mv3",),

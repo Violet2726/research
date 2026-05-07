@@ -12,9 +12,9 @@
 ## 常用命令
 
 ```powershell
-uv run comm_necessary_cli inspect-experiment --experiment configs/comm_necessary/experiments/hotpotqa_split_evidence_v1.toml
-uv run comm_necessary_cli run --experiment configs/comm_necessary/experiments/hotpotqa_split500_main.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
-uv run comm_necessary_cli report-run --run-dir runs/comm_necessary/hotpotqa_split500_main/smoke20/<run_id>
+uv run comm_necessary_cli inspect-experiment --experiment configs/comm_necessary/experiments/hotpotqa_split_main.toml
+uv run comm_necessary_cli run --experiment configs/comm_necessary/experiments/hotpotqa_split_main.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
+uv run comm_necessary_cli report-run --run-dir runs/comm_necessary/hotpotqa_split_main/smoke20/<run_id>
 ```
 
 ## 维护约定

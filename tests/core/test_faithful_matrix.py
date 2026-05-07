@@ -25,10 +25,10 @@ def test_build_run_matrix_counts_expected() -> None:
     semantic_counts = Counter(entry.status for entry in matrix.semantic_entries)
     entry_counts = Counter(entry.status for entry in matrix.entries)
 
-    assert len(matrix.semantic_entries) == 17
-    assert semantic_counts["pending"] == 17
+    assert len(matrix.semantic_entries) == 16
+    assert semantic_counts["pending"] == 16
     assert entry_counts["excluded"] == 1
-    assert matrix.counts["semantic_unique_targets"] == 17
+    assert matrix.counts["semantic_unique_targets"] == 16
     cue_entry = next(entry for entry in matrix.semantic_entries if entry.experiment_name == "cue_v1")
     assert cue_entry.evaluation_track == "same_context"
     assert cue_entry.primary_method_name == "cue_v1"
@@ -41,14 +41,14 @@ def test_build_run_matrix_counts_expected_for_pilot100() -> None:
     semantic_counts = Counter(entry.status for entry in matrix.semantic_entries)
     entry_counts = Counter(entry.status for entry in matrix.entries)
 
-    assert len(matrix.semantic_entries) == 17
-    assert semantic_counts["pending"] == 17
+    assert len(matrix.semantic_entries) == 16
+    assert semantic_counts["pending"] == 16
     assert entry_counts["excluded"] == 0
-    assert matrix.counts["semantic_unique_targets"] == 17
+    assert matrix.counts["semantic_unique_targets"] == 16
     split_entry = next(
         entry
         for entry in matrix.semantic_entries
-        if entry.experiment_name == "hotpotqa_split_evidence_v1"
+        if entry.experiment_name == "hotpotqa_split_main"
     )
     assert split_entry.phase_name == "pilot100"
     assert split_entry.evaluation_track == "split_context"
@@ -107,14 +107,14 @@ def test_resume_faithful_matrix_continues_rerun_needed_and_pending_entries(
         "counts": {
             "completed": 0,
             "rerun-needed": 1,
-            "pending": 1,
-            "semantic_unique_targets": 2,
+            "pending": 0,
+            "semantic_unique_targets": 1,
         },
         "entries": [
             {
                 "family": "comm_necessary",
-                "config_path": "configs/comm_necessary/experiments/hotpotqa_split_evidence_v1.toml",
-                "experiment_name": "hotpotqa_split_evidence_v1",
+                "config_path": "configs/comm_necessary/experiments/hotpotqa_split_main.toml",
+                "experiment_name": "hotpotqa_split_main",
                 "description": "",
                 "phase_name": "pilot100",
                 "evaluation_track": "split_context",
@@ -128,24 +128,6 @@ def test_resume_faithful_matrix_continues_rerun_needed_and_pending_entries(
                 "validation_passed": None,
                 "review_passed": None,
                 "review_notes": "validation_not_passed",
-            },
-            {
-                "family": "comm_necessary",
-                "config_path": "configs/comm_necessary/experiments/hotpotqa_split500_main.toml",
-                "experiment_name": "hotpotqa_split500_main",
-                "description": "",
-                "phase_name": "pilot100",
-                "evaluation_track": "split_context",
-                "primary_method_name": "full_packet_exchange",
-                "best_no_comm_candidates": ["split_no_comm_mv3"],
-                "full_comm_reference": None,
-                "full_context_reference": "full_context_single",
-                "status": "pending",
-                "excluded_reason": None,
-                "run_dir": None,
-                "validation_passed": None,
-                "review_passed": None,
-                "review_notes": "family_blocked_after_previous_failure",
             },
         ],
     }
@@ -177,5 +159,4 @@ def test_resume_faithful_matrix_continues_rerun_needed_and_pending_entries(
     assert resumed_root == root
     resumed = json.loads(state_path.read_text(encoding="utf-8"))
     statuses = {item["experiment_name"]: item["status"] for item in resumed["semantic_entries"]}
-    assert statuses["hotpotqa_split_evidence_v1"] == "completed"
-    assert statuses["hotpotqa_split500_main"] == "completed"
+    assert statuses["hotpotqa_split_main"] == "completed"

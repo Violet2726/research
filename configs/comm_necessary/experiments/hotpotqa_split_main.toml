@@ -1,6 +1,6 @@
-# HotpotQA split-context 500 题主实验入口。
-name = "hotpotqa_split500_main"
-description = "Communication-necessary split-context HotpotQA main experiment on the frozen split500 set."
+# HotpotQA split-context 通信必要性正式实验入口。
+name = "hotpotqa_split_main"
+description = "Communication-necessary split-context HotpotQA main experiment across smoke20, pilot100, and split500."
 benchmark_configs = [
   "configs/shared/benchmarks/hotpotqa.toml",
 ]
@@ -27,4 +27,3 @@ split_suffix = "pilot100_seed42"
 
 [phases.main]
 split_suffix = "split500_seed42"
-
