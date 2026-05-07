@@ -96,20 +96,6 @@ EXPERIMENT_MATRIX_SPECS: dict[str, ExperimentMatrixSpec] = {
         full_comm_reference="always_communicate",
         token_gate_basis="communication",
     ),
-    "configs/selective_comm/experiments/trigger_voc_v2_core_only.toml": ExperimentMatrixSpec(
-        evaluation_track=TRACK_SAME_CONTEXT,
-        primary_method_name="voc_trigger_v2",
-        best_no_comm_candidates=("mv_3",),
-        full_comm_reference="always_communicate",
-        token_gate_basis="communication",
-    ),
-    "configs/selective_comm/experiments/trigger_voc_v2_equal_budget_gsm_strategy.toml": ExperimentMatrixSpec(
-        evaluation_track=TRACK_SAME_CONTEXT,
-        primary_method_name="voc_trigger_v2",
-        best_no_comm_candidates=("mv_3", "mv_6", "sc_6"),
-        full_comm_reference="always_communicate",
-        token_gate_basis="communication",
-    ),
     "configs/sparc/experiments/sparc_v1_smoke.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,
         primary_method_name="sparc_v1",

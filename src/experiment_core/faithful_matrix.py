@@ -84,8 +84,6 @@ RUN_ORDER = [
     "configs/sparc/experiments/aggregation_auditing_ablation_v1.toml",
     "configs/cue/experiments/cue_v1.toml",
     "configs/selective_comm/experiments/trigger_voc_v2.toml",
-    "configs/selective_comm/experiments/trigger_voc_v2_core_only.toml",
-    "configs/selective_comm/experiments/trigger_voc_v2_equal_budget_gsm_strategy.toml",
 ]
 
 

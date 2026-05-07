@@ -187,7 +187,6 @@
   单次 Chain-of-Thought，预算为 1 次调用。
 - `sc_k`
   Self-Consistency，同题采样 `k` 次，再做多数聚合。
-- `mv_k`
 
 ## 5.3 执行原则
 
@@ -308,8 +307,6 @@
 - `disagreement_triggered`
 - `confidence_triggered`
 - `hybrid_trigger`
-- `hybrid_trigger_relaxed`
-- `claim_divergence_triggered`
 - `voc_trigger_v2`
 
 控制组包括：

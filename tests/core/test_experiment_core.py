@@ -603,7 +603,7 @@ def test_missing_confidence_is_not_counted_as_invalid() -> None:
     assert summary.mean_confidence is None
 
 
-def test_selective_divergence_summary_and_claim_trigger() -> None:
+def test_selective_divergence_summary_supports_voc_signals() -> None:
     summary = summarize_divergence_rows(
         [
             {
@@ -628,15 +628,6 @@ def test_selective_divergence_summary_and_claim_trigger() -> None:
     assert 0.0 <= summary.claim_similarity_mean <= 1.0
     assert summary.claim_divergence_score > 0.55
     assert summary.uncertainty_type_diversity_score == 0.5
-    decision = decide_trigger(
-        trigger_type="claim_divergence_triggered",
-        initial_disagreement=False,
-        answer_divergence_score=summary.answer_divergence_score,
-        claim_divergence_score=summary.claim_divergence_score,
-        uncertainty_type_diversity_score=summary.uncertainty_type_diversity_score,
-        fail_open_to_always=False,
-    )
-    assert decision.triggered is True
 
 
 def test_voc_trigger_v2_requires_spread_for_confidence_only_case() -> None:

@@ -1,6 +1,0 @@
-# 放宽版 hybrid trigger 阈值配置。
-policy_name = "hybrid_trigger_relaxed"
-trigger_type = "hybrid_trigger"
-mean_conf_threshold = 0.95
-conf_spread_threshold = 0.10
-fail_open_to_always = true

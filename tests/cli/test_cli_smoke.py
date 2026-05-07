@@ -56,7 +56,7 @@ def test_faithful_matrix_inspect_cli() -> None:
         ],
     )
     assert payload["overrides"]["phase_name"] == "smoke20"
-    assert payload["counts"]["semantic_unique_targets"] == 19
+    assert payload["counts"]["semantic_unique_targets"] == 17
 
 
 def test_multi_agent_inspect_cli() -> None:
@@ -98,7 +98,7 @@ def test_selective_comm_voc_v2_inspect_cli() -> None:
     )
     assert payload["name"] == "trigger_voc_v2"
     assert payload["prompt_version"] == "selective_comm_voc_json_v2"
-    assert len(payload["policies"]) == 8
+    assert len(payload["policies"]) == 5
     assert payload["policies"][-1]["policy_name"] == "voc_trigger_v2"
     assert payload["policies"][-1]["claim_divergence_threshold"] == 0.55
     assert payload["policies"][-1]["uncertainty_type_diversity_threshold"] == 0.5

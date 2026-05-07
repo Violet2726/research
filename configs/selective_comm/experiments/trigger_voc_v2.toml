@@ -12,9 +12,6 @@ policy_configs = [
   "configs/selective_comm/policies/disagreement_triggered.toml",
   "configs/selective_comm/policies/confidence_triggered.toml",
   "configs/selective_comm/policies/hybrid_trigger.toml",
-  "configs/selective_comm/policies/confidence_triggered_095.toml",
-  "configs/selective_comm/policies/hybrid_trigger_relaxed.toml",
-  "configs/selective_comm/policies/claim_divergence_triggered.toml",
   "configs/selective_comm/policies/voc_trigger_v2.toml",
 ]
 control_catalog = "configs/selective_comm/controls/trigger_equal_budget.toml"

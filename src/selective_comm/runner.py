@@ -59,9 +59,6 @@ DISPLAY_NAME_MAP = {
     "disagreement_triggered": "disagreement",
     "confidence_triggered": "confidence",
     "hybrid_trigger": "hybrid",
-    "confidence_triggered_095": "confidence_095",
-    "hybrid_trigger_relaxed": "hybrid_relaxed",
-    "claim_divergence_triggered": "claim_divergence",
     "voc_trigger_v2": "voc_v2",
 }
 

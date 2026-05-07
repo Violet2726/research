@@ -222,22 +222,6 @@ def decide_trigger(
         if confidence_spread is not None and confidence_spread > spread_threshold:
             return TriggerDecision(True, "high_confidence_spread", False)
         return TriggerDecision(False, "early_exit_by_hybrid_rule", False)
-    if trigger_type == "claim_divergence_triggered":
-        answer_threshold = 0.5
-        claim_threshold = claim_divergence_threshold if claim_divergence_threshold is not None else 0.55
-        uncertainty_threshold = (
-            uncertainty_type_diversity_threshold
-            if uncertainty_type_diversity_threshold is not None
-            else 0.5
-        )
-        if (answer_divergence_score or 0.0) >= answer_threshold:
-            return TriggerDecision(True, "answer_divergence", False)
-        if (
-            (claim_divergence_score or 0.0) >= claim_threshold
-            and (uncertainty_type_diversity_score or 0.0) >= uncertainty_threshold
-        ):
-            return TriggerDecision(True, "claim_uncertainty_divergence", False)
-        return TriggerDecision(False, "early_exit_by_claim_rule", False)
     if trigger_type == "voc_trigger_v2":
         if (answer_divergence_score or 0.0) >= 0.5:
             return TriggerDecision(True, "answer_divergence", False)

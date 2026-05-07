@@ -1,7 +1,0 @@
-# 选择性通信实验的核心控制组方法目录。
-[methods.mv_3]
-family = "shared_majority_vote"
-budget_calls = 0
-temperature = 0.7
-top_p = 1.0
-max_output_tokens = 256
