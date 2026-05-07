@@ -57,7 +57,7 @@ from single_agent.config import (
     required_model_tags,
 )
 from single_agent.prompting import build_messages
-from single_agent.reporting import budget_fairness_check, export_paper_tables, summarize_run
+from single_agent.reporting import export_paper_tables, summarize_run
 from single_agent.validation import validate_run
 
 
@@ -71,7 +71,6 @@ class RunPaths:
     predictions: Path
     metrics: Path
     run_summary: Path
-    budget_fairness: Path
     paper_tables: Path
     run_validation: Path
     progress: Path
@@ -225,10 +224,6 @@ def run_experiment(
         json.dumps(summarize_run(run_paths.root), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    run_paths.budget_fairness.write_text(
-        json.dumps(budget_fairness_check(run_paths.root), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
     export_paper_tables(run_paths.root, run_paths.paper_tables)
     run_paths.run_validation.write_text(
         json.dumps(validate_run(run_paths.root), ensure_ascii=False, indent=2),
@@ -297,7 +292,7 @@ def _run_method_batch(
                     method_family=method.family,
                     rerun_index=rerun_index,
                     replicate_id=replicate_id,
-                    agent_id=replicate_id if method.family == "majority_vote" else None,
+                    agent_id=None,
                     model_name=model.name,
                     model_id=model.model_id,
                     provider_name=model.provider,
@@ -572,7 +567,6 @@ def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: s
         predictions=root / "predictions.jsonl",
         metrics=root / "metrics.json",
         run_summary=root / "run_summary.json",
-        budget_fairness=root / "budget_fairness.json",
         paper_tables=root / "paper_tables.md",
         run_validation=root / "run_validation.json",
         progress=root / "progress.json",

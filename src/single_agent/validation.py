@@ -1,7 +1,7 @@
 """单智能体运行结果校验。
 
 这里关注的不是机制复杂性，而是基线实验是否“干净可比”：
-请求失败率、输出成功率、SC/MV 提示词公平性，以及不同方法在同一 split 上的预测行数是否对齐。
+请求失败率、输出成功率，以及不同方法在同一 split 上的预测行数是否对齐。
 """
 
 from __future__ import annotations
@@ -11,13 +11,10 @@ from pathlib import Path
 import json
 from typing import Any
 
-from single_agent.reporting import budget_fairness_check
-
 
 def validate_run(
     run_dir: str | Path,
     output_success_threshold: float = 0.95,
-    budget_threshold: float = 0.10,
 ) -> dict[str, Any]:
     """对单智能体运行产物执行完整性与一致性检查。"""
     root = Path(run_dir)
@@ -26,9 +23,7 @@ def validate_run(
     metrics = json.loads((root / "metrics.json").read_text(encoding="utf-8"))
 
     request_failures = sum(1 for row in raw_rows if row.get("output_status") == "request_fail")
-    output_success_count = sum(
-        1 for row in raw_rows if row.get("output_status") == "ok"
-    )
+    output_success_count = sum(1 for row in raw_rows if row.get("output_status") == "ok")
     output_success_rate = output_success_count / len(raw_rows) if raw_rows else 0.0
 
     output_by_group: dict[str, Any] = {}
@@ -44,17 +39,12 @@ def validate_run(
             "output_success_rate": counts.get("ok", 0) / total if total else 0.0,
         }
 
-    prompt_hash_check = _validate_prompt_hash_parity(raw_rows)
-    fairness_rows = budget_fairness_check(root, threshold=budget_threshold)
-    fairness_ok = all(row["within_threshold"] for row in fairness_rows)
     split_count_check = _validate_prediction_counts(prediction_rows)
 
     passed = all(
         [
             request_failures == 0,
             output_success_rate >= output_success_threshold,
-            fairness_ok,
-            prompt_hash_check["passed"],
             split_count_check["passed"],
         ]
     )
@@ -66,50 +56,15 @@ def validate_run(
             "request_failures_total": request_failures,
             "output_success_rate": output_success_rate,
             "output_success_threshold": output_success_threshold,
-            "budget_threshold": budget_threshold,
-            "fairness_ok": fairness_ok,
-            "prompt_hash_parity": prompt_hash_check,
             "prediction_count_check": split_count_check,
         },
         "output_by_group": output_by_group,
-        "budget_fairness": fairness_rows,
         "metric_rows": metrics.get("summary", []),
     }
 
 
-def _validate_prompt_hash_parity(raw_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """检查同题同 rerun 下的 SC / MV prompt 是否一致。"""
-    sc_map: dict[tuple[str, str, int], set[str]] = defaultdict(set)
-    mv_map: dict[tuple[str, str, int], set[str]] = defaultdict(set)
-    for row in raw_rows:
-        key = (row["dataset"], row["sample_id"], int(row["rerun_index"]))
-        if row["method_name"].startswith("sc_"):
-            sc_map[key].add(row["prompt_hash"])
-        if row["method_name"].startswith("mv_"):
-            mv_map[key].add(row["prompt_hash"])
-
-    mismatches: list[dict[str, Any]] = []
-    for key, sc_hashes in sc_map.items():
-        mv_hashes = mv_map.get(key)
-        if not mv_hashes:
-            continue
-        if sc_hashes != mv_hashes:
-            dataset, sample_id, rerun_index = key
-            mismatches.append(
-                {
-                    "dataset": dataset,
-                    "sample_id": sample_id,
-                    "rerun_index": rerun_index,
-                    "sc_hashes": sorted(sc_hashes),
-                    "mv_hashes": sorted(mv_hashes),
-                }
-            )
-
-    return {"passed": len(mismatches) == 0, "mismatches": mismatches[:20], "mismatch_count": len(mismatches)}
-
-
 def _validate_prediction_counts(prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """检查同数据集下不同方法与 rerun 的预测行数是否对齐。"""
+    """检查同数据集下不同方法同 rerun 的预测行数是否对齐。"""
     grouped: Counter = Counter((row["dataset"], row["method_name"], row["rerun_index"]) for row in prediction_rows)
     if not grouped:
         return {"passed": False, "details": "No prediction rows found."}

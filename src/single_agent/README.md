@@ -1,6 +1,6 @@
 # single_agent
 
-`single_agent` 用于运行单智能体基线实验，包括 `cot`、`sc_*`、`mv_*` 等方法。
+`single_agent` 用于运行单智能体基线实验，当前只保留 `cot` 与 `sc_*` 方法。
 
 ## 入口
 
@@ -21,4 +21,4 @@ uv run single_agent_cli validate-run --run-dir runs/single_agent/main_baselines/
 
 - 只依赖 `experiment_core`，不依赖其他实验包。
 - 方法组合通过配置声明，不在 runner 里写死实验矩阵。
-- 预算公平性、结构化输出恢复和评分逻辑尽量走共享层。
+- 结构化输出恢复与评分逻辑尽量走共享层。

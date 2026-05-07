@@ -16,10 +16,3 @@ budget_calls = 5
 temperature = 0.7
 top_p = 1.0
 max_output_tokens = 512
-
-[methods.mv_5]
-family = "majority_vote"
-budget_calls = 5
-temperature = 0.7
-top_p = 1.0
-max_output_tokens = 512

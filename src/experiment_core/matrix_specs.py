@@ -25,12 +25,12 @@ EXPERIMENT_MATRIX_SPECS: dict[str, ExperimentMatrixSpec] = {
     "configs/single_agent/experiments/main_baselines.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,
         primary_method_name="sc_5",
-        best_no_comm_candidates=("cot_1", "mv_5", "sc_5"),
+        best_no_comm_candidates=("cot_1", "sc_5"),
     ),
     "configs/single_agent/experiments/main_table_same_context.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,
         primary_method_name="sc_5",
-        best_no_comm_candidates=("cot_1", "mv_3", "sc_5"),
+        best_no_comm_candidates=("cot_1", "sc_5"),
     ),
     "configs/single_agent/experiments/robustness.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,

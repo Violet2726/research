@@ -26,7 +26,7 @@ from single_agent.config import (
     required_benchmark_tags,
     required_model_tags,
 )
-from single_agent.reporting import budget_fairness_check, export_paper_tables, summarize_run
+from single_agent.reporting import export_paper_tables, summarize_run
 from single_agent.runner import run_experiment
 from single_agent.validation import validate_run
 
@@ -74,14 +74,9 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--run-dir", required=True)
     export.add_argument("--output", default=None)
 
-    fairness = subparsers.add_parser("check-budget-fairness", help="Check SC vs MV token fairness.")
-    fairness.add_argument("--run-dir", required=True)
-    fairness.add_argument("--threshold", type=float, default=0.10)
-
     validate = subparsers.add_parser("validate-run", help="Run validation checks for one run.")
     validate.add_argument("--run-dir", required=True)
     validate.add_argument("--output-success-threshold", type=float, default=0.95)
-    validate.add_argument("--budget-threshold", type=float, default=0.10)
 
     return parser
 
@@ -187,17 +182,12 @@ def main() -> None:
         print(path.as_posix())
         return
 
-    if args.command == "check-budget-fairness":
-        print(json.dumps(budget_fairness_check(args.run_dir, threshold=args.threshold), ensure_ascii=False, indent=2))
-        return
-
     if args.command == "validate-run":
         print(
             json.dumps(
                 validate_run(
                     args.run_dir,
                     output_success_threshold=args.output_success_threshold,
-                    budget_threshold=args.budget_threshold,
                 ),
                 ensure_ascii=False,
                 indent=2,

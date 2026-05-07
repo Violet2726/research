@@ -21,7 +21,7 @@ from selective_comm.runner import _load_resume_seed_state
 from selective_comm.validation import validate_run as validate_selective
 from sid_lite.reporting import summarize_run as summarize_sid
 from sid_lite.validation import validate_run as validate_sid
-from single_agent.reporting import budget_fairness_check, summarize_run as summarize_single_agent
+from single_agent.reporting import summarize_run as summarize_single_agent
 from single_agent.validation import validate_run as validate_single_agent
 from experiment_core.structured_output import _recover_selective_output_from_reasoning_text
 
@@ -41,7 +41,7 @@ def test_single_agent_reporting_and_validation_use_method_name(tmp_path: Path) -
             {
                 "dataset": "gsm8k",
                 "sample_id": "gsm8k-00001",
-                "method_name": "mv_5",
+                "method_name": "cot_1",
                 "rerun_index": 0,
                 "prompt_hash": "hash-1",
                 "output_status": "ok",
@@ -52,7 +52,7 @@ def test_single_agent_reporting_and_validation_use_method_name(tmp_path: Path) -
         tmp_path / "predictions.jsonl",
         [
             {"dataset": "gsm8k", "method_name": "sc_5", "rerun_index": 0},
-            {"dataset": "gsm8k", "method_name": "mv_5", "rerun_index": 0},
+            {"dataset": "gsm8k", "method_name": "cot_1", "rerun_index": 0},
         ],
     )
     (tmp_path / "metrics.json").write_text(
@@ -68,7 +68,7 @@ def test_single_agent_reporting_and_validation_use_method_name(tmp_path: Path) -
                     {
                         "dataset": "gsm8k",
                         "model_name": "m",
-                        "method_name": "mv_5",
+                        "method_name": "cot_1",
                         "total_tokens_mean": 10.0,
                     },
                 ]
@@ -80,10 +80,8 @@ def test_single_agent_reporting_and_validation_use_method_name(tmp_path: Path) -
     )
 
     summary = summarize_single_agent(tmp_path)
-    fairness = budget_fairness_check(tmp_path)
     validation = validate_single_agent(tmp_path)
     assert summary["dataset_count"] == 1
-    assert fairness[0]["within_threshold"] is True
     assert validation["passed"] is True
 
 

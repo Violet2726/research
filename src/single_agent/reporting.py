@@ -1,7 +1,7 @@
 """单智能体实验报告辅助工具。
 
 本模块负责把基础指标整理成更适合论文与实验记录阅读的摘要形式，
-尤其关注 lower bound、等预算对照和 SC / MV 的 token 公平性检查。
+重点保留 lower bound 与无通信多采样对照的核心结果。
 """
 
 from __future__ import annotations
@@ -37,10 +37,7 @@ def export_paper_tables(run_dir: str | Path, output_path: str | Path) -> Path:
     metrics = load_metrics(run_dir)
     rows = metrics.get("summary", [])
     lower_bound_rows = [row for row in rows if row["method_name"] == "cot_1"]
-    equal_budget_rows = [
-        row for row in rows if row["method_name"].startswith("sc_") or row["method_name"].startswith("mv_")
-    ]
-    fairness_rows = budget_fairness_check_from_rows(rows)
+    self_consistency_rows = [row for row in rows if row["method_name"].startswith("sc_")]
 
     lines: list[str] = []
     lines.append("# 论文表格导出")
@@ -63,10 +60,10 @@ def export_paper_tables(run_dir: str | Path, output_path: str | Path) -> Path:
         ],
     ))
     lines.append("")
-    lines.append("## Equal-Budget 无通信对比表")
+    lines.append("## Self-Consistency 无通信对照表")
     lines.append("")
     lines.extend(_markdown_table(
-        equal_budget_rows,
+        self_consistency_rows,
         [
             "dataset",
             "model_name",
@@ -79,23 +76,6 @@ def export_paper_tables(run_dir: str | Path, output_path: str | Path) -> Path:
             "acc_per_1k_tokens",
         ],
     ))
-    lines.append("")
-    lines.append("## 预算公平性检查")
-    lines.append("")
-    lines.extend(_markdown_table(
-        fairness_rows,
-        [
-            "dataset",
-            "model_name",
-            "budget_calls",
-            "sc_method",
-            "mv_method",
-            "sc_total_tokens_mean",
-            "mv_total_tokens_mean",
-            "token_gap_ratio",
-            "within_threshold",
-        ],
-    ))
 
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -103,52 +83,8 @@ def export_paper_tables(run_dir: str | Path, output_path: str | Path) -> Path:
     return output
 
 
-def budget_fairness_check(run_dir: str | Path, threshold: float = 0.10) -> list[dict[str, Any]]:
-    """从运行目录读取指标并执行 SC / MV 公平性检查。"""
-    metrics = load_metrics(run_dir)
-    return budget_fairness_check_from_rows(metrics.get("summary", []), threshold=threshold)
-
-
-def budget_fairness_check_from_rows(rows: list[dict[str, Any]], threshold: float = 0.10) -> list[dict[str, Any]]:
-    """比较同预算下 SC 与 MV 方法的 token 差距。"""
-    by_key: dict[tuple[str, str, int], dict[str, dict[str, Any]]] = defaultdict(dict)
-    for row in rows:
-        method_name = row["method_name"]
-        if not (method_name.startswith("sc_") or method_name.startswith("mv_")):
-            continue
-        budget_calls = int(method_name.split("_")[1])
-        family = "sc" if method_name.startswith("sc_") else "mv"
-        key = (row["dataset"], row["model_name"], budget_calls)
-        by_key[key][family] = row
-
-    results: list[dict[str, Any]] = []
-    for (dataset, model_name, budget_calls), pair in sorted(by_key.items()):
-        if "sc" not in pair or "mv" not in pair:
-            continue
-        sc_row = pair["sc"]
-        mv_row = pair["mv"]
-        sc_tokens = float(sc_row["total_tokens_mean"])
-        mv_tokens = float(mv_row["total_tokens_mean"])
-        denom = max(sc_tokens, mv_tokens, 1e-9)
-        gap_ratio = abs(sc_tokens - mv_tokens) / denom
-        results.append(
-            {
-                "dataset": dataset,
-                "model_name": model_name,
-                "budget_calls": budget_calls,
-                "sc_method": sc_row["method_name"],
-                "mv_method": mv_row["method_name"],
-                "sc_total_tokens_mean": sc_tokens,
-                "mv_total_tokens_mean": mv_tokens,
-                "token_gap_ratio": round(gap_ratio, 6),
-                "within_threshold": gap_ratio <= threshold,
-            }
-        )
-    return results
-
-
 def _markdown_table(rows: list[dict[str, Any]], headers: list[str]) -> list[str]:
-    """把字典行渲染为简单 Markdown 表格。"""
+    """把字典行渲染为简洁 Markdown 表格。"""
     if not rows:
         return ["暂无数据。"]
     lines = [

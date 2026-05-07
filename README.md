@@ -4,7 +4,7 @@
 
 ## 当前实验线
 
-- `single_agent`：单智能体 CoT / Self-Consistency / Majority Vote 基线
+- `single_agent`：单智能体 CoT / Self-Consistency 基线
 - `multi_agent`：标准多智能体 debate 与 vote 对照
 - `selective_comm`：trigger / early-exit 选择性通信
 - `sparc`：内容裁剪、局部审计与聚合消融
