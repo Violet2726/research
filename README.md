@@ -86,7 +86,7 @@ uv run single_agent_cli run --experiment configs/single_agent/experiments/main_b
 查看多智能体实验配置：
 
 ```powershell
-uv run multi_agent_cli inspect-experiment --experiment configs/multi_agent/experiments/debate_vs_vote_controlled.toml
+uv run multi_agent_cli inspect-experiment --experiment configs/multi_agent/experiments/multi_agent_main.toml
 ```
 
 运行选择性通信实验：

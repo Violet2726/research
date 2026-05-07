@@ -37,15 +37,10 @@ EXPERIMENT_MATRIX_SPECS: dict[str, ExperimentMatrixSpec] = {
         primary_method_name="cot_1",
         best_no_comm_candidates=("cot_1",),
     ),
-    "configs/multi_agent/experiments/debate_vs_vote_controlled.toml": ExperimentMatrixSpec(
+    "configs/multi_agent/experiments/multi_agent_main.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,
         primary_method_name="mad_3a_r1",
-        best_no_comm_candidates=("mv_6", "sc_6"),
-    ),
-    "configs/multi_agent/experiments/vanilla_mad_clean_smoke.toml": ExperimentMatrixSpec(
-        evaluation_track=TRACK_SAME_CONTEXT,
-        primary_method_name="mad_2a_r1",
-        best_no_comm_candidates=("mv_4", "sc_4"),
+        best_no_comm_candidates=("mv_6",),
     ),
     "configs/free_mad_lite/experiments/free_mad_lite_v1.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,
@@ -149,11 +144,6 @@ EXPERIMENT_MATRIX_SPECS: dict[str, ExperimentMatrixSpec] = {
         best_no_comm_candidates=("mv_3",),
         full_comm_reference="always_communicate",
         token_gate_basis="communication",
-    ),
-    "configs/multi_agent/experiments/vanilla_mad_minimal.toml": ExperimentMatrixSpec(
-        evaluation_track=TRACK_SAME_CONTEXT,
-        primary_method_name="mad_2a_r1",
-        best_no_comm_candidates=("mv_4", "sc_4"),
     ),
     "configs/single_agent/experiments/local_ollama_smoke.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,

@@ -187,7 +187,7 @@ def test_render_faithful_analysis_writes_artifacts(tmp_path: Path) -> None:
 
 
 def test_build_faithful_analysis_synthesizes_overall_when_metrics_lack_it(tmp_path: Path) -> None:
-    run_dir = tmp_path / "runs" / "multi_agent" / "debate_vs_vote_controlled" / "smoke20" / "demo"
+    run_dir = tmp_path / "runs" / "multi_agent" / "multi_agent_main" / "smoke20" / "demo"
     run_dir.mkdir(parents=True)
     (run_dir / "metrics.json").write_text(
         json.dumps(
@@ -242,8 +242,8 @@ def test_build_faithful_analysis_synthesizes_overall_when_metrics_lack_it(tmp_pa
         "semantic_entries": [
             {
                 "family": "multi_agent",
-                "config_path": "configs/multi_agent/experiments/debate_vs_vote_controlled.toml",
-                "experiment_name": "debate_vs_vote_controlled",
+                "config_path": "configs/multi_agent/experiments/multi_agent_main.toml",
+                "experiment_name": "multi_agent_main",
                 "run_dir": run_dir.as_posix(),
                 "status": "completed",
             }
@@ -252,7 +252,7 @@ def test_build_faithful_analysis_synthesizes_overall_when_metrics_lack_it(tmp_pa
 
     analysis = build_faithful_analysis(state_payload)
     overall_row = next(
-        row for row in analysis["rows"] if row["dataset"] == "overall" and row["experiment_name"] == "debate_vs_vote_controlled"
+        row for row in analysis["rows"] if row["dataset"] == "overall" and row["experiment_name"] == "multi_agent_main"
     )
     assert overall_row["faithful_score"] == 0.85
     assert overall_row["best_no_comm_control"] == "mv_6"

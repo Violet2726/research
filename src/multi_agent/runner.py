@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 from experiment_core.cache import CachedResponse, RequestCache, json_dump
 from experiment_core.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.evaluation import aggregate_majority, normalize_prediction, score_prediction
+from experiment_core.no_comm_controls import run_no_comm_control_batch
 from experiment_core.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
 from experiment_core.rate_limits import SlidingWindowRateLimiter
 from experiment_core.runtime import RunProgressTracker, build_run_id
@@ -258,13 +259,13 @@ def run_experiment(
 
             for control_name in matched_control_names:
                 method = controls[control_name]
-                control_results = _run_control_batch(
+                control_results = run_no_comm_control_batch(
                     run_id=run_id,
-                    benchmark_slug=benchmark.slug,
-                    split_name=split_name,
                     samples=samples,
                     control_name=control_name,
                     method=method,
+                    benchmark_slug=benchmark.slug,
+                    split_name=split_name,
                     backbone=backbone,
                     provider=provider,
                     cache=cache,
@@ -272,6 +273,9 @@ def run_experiment(
                     global_seed=experiment.global_seed,
                     prompt_version=experiment.prompt_version,
                     max_concurrent_requests=experiment.max_concurrent_requests,
+                    build_messages=build_initial_messages,
+                    execute_turn=_execute_turn,
+                    build_prediction_row=_build_control_prediction_row,
                 )
                 _write_sample_outputs(
                     sample_results=control_results,
@@ -346,51 +350,6 @@ def _run_mad_setup_batch(
             sample_index = future_to_index[future]
             mad_turn_rows, debate_rows, prediction_row = future.result()
             completed.append((sample_index, mad_turn_rows, debate_rows, prediction_row))
-    completed.sort(key=lambda item: item[0])
-    return completed
-
-
-def _run_control_batch(
-    run_id: str,
-    benchmark_slug: str,
-    split_name: str,
-    samples: list[DatasetSample],
-    control_name: str,
-    method,
-    backbone,
-    provider: OpenAICompatibleProvider,
-    cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
-    global_seed: int,
-    prompt_version: str,
-    max_concurrent_requests: int,
-) -> list[tuple[int, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]]:
-    """并发执行同一等预算对照方法下的全部样本。"""
-    worker = partial(
-        _run_control_sample,
-        run_id=run_id,
-        benchmark_slug=benchmark_slug,
-        split_name=split_name,
-        control_name=control_name,
-        method=method,
-        backbone=backbone,
-        provider=provider,
-        cache=cache,
-        limiter=limiter,
-        global_seed=global_seed,
-        prompt_version=prompt_version,
-    )
-    max_workers = max(1, min(max_concurrent_requests, len(samples) or 1))
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_index = {
-            executor.submit(worker, sample=sample): sample_index
-            for sample_index, sample in enumerate(samples)
-        }
-        completed: list[tuple[int, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]] = []
-        for future in as_completed(future_to_index):
-            sample_index = future_to_index[future]
-            control_turn_rows, prediction_row = future.result()
-            completed.append((sample_index, control_turn_rows, [], prediction_row))
     completed.sort(key=lambda item: item[0])
     return completed
 
@@ -607,56 +566,26 @@ def _run_mad_sample(
     return turn_rows, debate_rows, prediction_row
 
 
-def _run_control_sample(
-    run_id: str,
-    benchmark_slug: str,
-    split_name: str,
-    sample: DatasetSample,
+def _build_control_prediction_row(
+    *,
     control_name: str,
     method,
+    sample: DatasetSample,
+    final_vote: str,
+    final_score: float,
+    vote_counts: dict[str, int],
+    final_consensus: bool,
+    turn_rows: list[dict[str, Any]],
     backbone,
-    provider: OpenAICompatibleProvider,
-    cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
-    global_seed: int,
-    prompt_version: str,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """运行单个样本上的等预算单模型对照。"""
-    turn_rows: list[dict[str, Any]] = []
-    for replicate_id in range(method.budget_calls):
-        messages = build_initial_messages(sample, replicate_id + 1, prompt_version=prompt_version)
-        seed = global_seed if method.family == "cot" else global_seed + replicate_id
-        turn_rows.append(
-            _execute_turn(
-                run_id=run_id,
-                dataset=benchmark_slug,
-                split_name=split_name,
-                sample=sample,
-                method_name=control_name,
-                method_type="control",
-                round_index=0,
-                agent_id=replicate_id + 1,
-                role="control",
-                visible_peer_count=0,
-                messages=messages,
-                backbone=backbone,
-                provider=provider,
-                cache=cache,
-                limiter=limiter,
-                temperature=method.temperature,
-                top_p=method.top_p,
-                max_output_tokens=method.max_output_tokens,
-                seed=seed,
-            )
-        )
-    answers = [row["normalized_answer"] for row in turn_rows]
-    final_vote, vote_counts = aggregate_majority(answers)
-    final_score = score_prediction(benchmark_slug, final_vote, sample.reference_answer)
+    benchmark_slug: str,
+    split_name: str,
+    run_id: str,
+) -> dict[str, Any]:
+    """Build the final prediction row for a shared no-communication control."""
     prompt_tokens = sum(float(row["prompt_tokens"]) for row in turn_rows)
     completion_tokens = sum(float(row["completion_tokens"]) for row in turn_rows)
     total_tokens = sum(float(row["total_tokens"]) for row in turn_rows)
     latency_ms = sum(float(row["latency_ms"]) for row in turn_rows)
-    final_consensus = len(set(answers)) == 1
     prediction_row = asdict(
         FinalPredictionRecord(
             run_id=run_id,
@@ -701,7 +630,7 @@ def _run_control_sample(
         )
     )
     prediction_row["vote_counts"] = vote_counts
-    return turn_rows, prediction_row
+    return prediction_row
 
 
 def _execute_turn(
@@ -871,7 +800,6 @@ def _build_metrics(
         if method_name in setup_map:
             controls = setup_map[method_name].matched_controls
             row["matched_vote_control"] = next((name for name in controls if name.startswith("mv_")), None)
-            row["matched_sc_control"] = next((name for name in controls if name.startswith("sc_")), None)
         summary.append(row)
 
     by_lookup = {(row["dataset"], row["model_name"], row["method_name"]): row for row in summary}
@@ -879,11 +807,8 @@ def _build_metrics(
         if row["method_type"] != "mad":
             continue
         vote_name = row.get("matched_vote_control")
-        sc_name = row.get("matched_sc_control")
         vote_row = by_lookup.get((row["dataset"], row["model_name"], vote_name)) if vote_name else None
-        sc_row = by_lookup.get((row["dataset"], row["model_name"], sc_name)) if sc_name else None
         row["debate_gain_over_vote"] = round(row["accuracy_mean"] - vote_row["accuracy_mean"], 6) if vote_row else None
-        row["debate_gain_over_sc"] = round(row["accuracy_mean"] - sc_row["accuracy_mean"], 6) if sc_row else None
         row["token_overhead_vs_vote"] = (
             round((row["total_tokens_mean"] - vote_row["total_tokens_mean"]) / vote_row["total_tokens_mean"], 6)
             if vote_row and vote_row["total_tokens_mean"]

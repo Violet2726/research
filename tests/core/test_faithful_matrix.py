@@ -1,4 +1,4 @@
-"""覆盖 smoke20 矩阵编排与状态汇总逻辑的测试。"""
+"""覆盖 faithful_matrix 编排与状态汇总逻辑的测试。"""
 
 from __future__ import annotations
 
@@ -25,10 +25,10 @@ def test_build_run_matrix_counts_expected() -> None:
     semantic_counts = Counter(entry.status for entry in matrix.semantic_entries)
     entry_counts = Counter(entry.status for entry in matrix.entries)
 
-    assert len(matrix.semantic_entries) == 20
-    assert semantic_counts["pending"] == 20
-    assert entry_counts["excluded"] == 2
-    assert matrix.counts["semantic_unique_targets"] == 20
+    assert len(matrix.semantic_entries) == 19
+    assert semantic_counts["pending"] == 19
+    assert entry_counts["excluded"] == 1
+    assert matrix.counts["semantic_unique_targets"] == 19
     cue_entry = next(entry for entry in matrix.semantic_entries if entry.experiment_name == "cue_v1")
     assert cue_entry.evaluation_track == "same_context"
     assert cue_entry.primary_method_name == "cue_v1"
@@ -41,10 +41,10 @@ def test_build_run_matrix_counts_expected_for_pilot100() -> None:
     semantic_counts = Counter(entry.status for entry in matrix.semantic_entries)
     entry_counts = Counter(entry.status for entry in matrix.entries)
 
-    assert len(matrix.semantic_entries) == 20
-    assert semantic_counts["pending"] == 20
-    assert entry_counts["excluded"] == 1
-    assert matrix.counts["semantic_unique_targets"] == 20
+    assert len(matrix.semantic_entries) == 19
+    assert semantic_counts["pending"] == 19
+    assert entry_counts["excluded"] == 0
+    assert matrix.counts["semantic_unique_targets"] == 19
     split_entry = next(
         entry
         for entry in matrix.semantic_entries
@@ -62,8 +62,8 @@ def test_apply_runtime_overrides_clears_single_agent_smoke20_tag_constraints() -
 
     assert required_model_tags(experiment, "smoke20") == ["provider_zhipu"]
     assert required_model_tags(overridden, "smoke20") == []
-    assert overridden.max_concurrent_requests == 60
-    assert overridden.requests_per_minute_limit == 90
+    assert overridden.max_concurrent_requests == 85
+    assert overridden.requests_per_minute_limit == 95
     assert overridden.tokens_per_minute_limit == 9000000
 
 
@@ -75,8 +75,8 @@ def test_apply_runtime_overrides_updates_backbone_without_mutating_source_config
 
     assert experiment.primary_model_ref == "deepseek/deepseek-v4-flash"
     assert overridden.primary_model_ref == "xiaomimimo/mimo-v2.5"
-    assert overridden.max_concurrent_requests == 60
-    assert overridden.requests_per_minute_limit == 90
+    assert overridden.max_concurrent_requests == 85
+    assert overridden.requests_per_minute_limit == 95
     assert overridden.tokens_per_minute_limit == 9000000
 
 

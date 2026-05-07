@@ -57,19 +57,18 @@ from sparc.validation import validate_run as validate_sparc_run
 
 DEFAULT_PHASE = "smoke20"
 DEFAULT_MODEL_REF = "xiaomimimo/mimo-v2.5"
-DEFAULT_MAX_CONCURRENT_REQUESTS = 60
-DEFAULT_REQUESTS_PER_MINUTE = 90
+DEFAULT_MAX_CONCURRENT_REQUESTS = 85
+DEFAULT_REQUESTS_PER_MINUTE = 95
 DEFAULT_TOKENS_PER_MINUTE = 9000000
 MATRIX_EXPERIMENT_KIND = "faithful_matrix"
 
 EXCLUDED_CONFIGS = {
-    "configs/multi_agent/experiments/vanilla_mad_minimal.toml": "development_or_minimal_config",
     "configs/single_agent/experiments/local_ollama_smoke.toml": "local_only_dev_config",
 }
 
 RUN_ORDER = [
     "configs/single_agent/experiments/main_baselines.toml",
-    "configs/multi_agent/experiments/debate_vs_vote_controlled.toml",
+    "configs/multi_agent/experiments/multi_agent_main.toml",
     "configs/free_mad_lite/experiments/free_mad_lite_v1.toml",
     "configs/budget_comm/experiments/dala_lite_same_context_v1.toml",
     "configs/comm_necessary/experiments/hotpotqa_split_evidence_v1.toml",
@@ -78,7 +77,6 @@ RUN_ORDER = [
     "configs/sparc/experiments/sparc_v1_smoke.toml",
     "configs/single_agent/experiments/main_table_same_context.toml",
     "configs/single_agent/experiments/robustness.toml",
-    "configs/multi_agent/experiments/vanilla_mad_clean_smoke.toml",
     "configs/budget_comm/experiments/dala_lite_split_context_v1.toml",
     "configs/comm_necessary/experiments/hotpotqa_split500_main.toml",
     "configs/sparc/experiments/content_ablation_v1.toml",

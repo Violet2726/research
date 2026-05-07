@@ -56,7 +56,7 @@ def test_faithful_matrix_inspect_cli() -> None:
         ],
     )
     assert payload["overrides"]["phase_name"] == "smoke20"
-    assert payload["counts"]["semantic_unique_targets"] == 20
+    assert payload["counts"]["semantic_unique_targets"] == 19
 
 
 def test_multi_agent_inspect_cli() -> None:
@@ -66,10 +66,10 @@ def test_multi_agent_inspect_cli() -> None:
             "multi_agent_cli",
             "inspect-experiment",
             "--experiment",
-            "configs/multi_agent/experiments/vanilla_mad_minimal.toml",
+            "configs/multi_agent/experiments/multi_agent_main.toml",
         ],
     )
-    assert payload["name"] == "vanilla_mad_minimal"
+    assert payload["name"] == "multi_agent_main"
 
 
 def test_selective_comm_inspect_cli() -> None:
