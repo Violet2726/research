@@ -25,6 +25,24 @@
 
 同时补充说明共享基础设施 `experiment_core` 和顶层矩阵编排 `faithful_matrix` 的职责。
 
+## 1.1 当前 authoritative 项目状态
+
+为避免文档和当前代码结构脱节，先固定当前 authoritative 口径：
+
+- `single_agent`
+  只保留 `cot_1` 与 `sc_k`；`mv_*` 已从这个 family 中删除。
+- `multi_agent`
+  只保留一个正式实验入口：`configs/multi_agent/experiments/multi_agent_main.toml`。
+- `selective_comm`
+  只保留两个正式实验入口：
+  - `trigger_early_exit_v1`
+  - `trigger_voc_v2`
+- `comm_necessary`
+  只保留一个正式实验入口：`configs/comm_necessary/experiments/hotpotqa_split_main.toml`。
+  `smoke20 / pilot100 / main(split500)` 统一通过 phase 表达，不再拆成多个 experiment。
+- `faithful_matrix`
+  当前 authoritative 主矩阵是 `16` 个语义唯一目标，另有 `1` 个显式排除的本地开发配置 `local_ollama_smoke`。
+
 ## 2. 全局设计原则
 
 整个项目遵循 3 条全局原则。
@@ -287,6 +305,17 @@
 
 `multi_agent` 非常适合回答 debate-vs-vote 的机制问题，但不直接等价于“预算型统一方法论”。
 
+### 6.7 最新收口说明
+
+当前 `multi_agent` 的正式配置已经收口为单一入口 `multi_agent_main`，并且：
+
+- `matched_controls` 只保留 `mv_k` 语义，不再在 `multi_agent` 内部混入 `sc_k`；
+- 无通信 matched control 的执行逻辑已经迁到共享层 `experiment_core/no_comm_controls.py`；
+- 因此 `multi_agent` 现在更干净地表达为：
+  - 方法本体负责 debate / vote；
+  - 共享层负责无通信对照执行；
+  - `faithful_matrix` 负责把两者放到同一比较口径里。
+
 ## 7. `selective_comm`
 
 ## 7.1 目标
@@ -358,6 +387,26 @@
 ## 7.6 解释边界
 
 因为 `mv_3` 复用了共享 Stage A，所以它是实验内无通信基线，但不等于物理上真正独立重新跑一遍的成本。
+
+### 7.7 最新收口说明
+
+当前 `selective_comm` 只保留两个正式 experiment：
+
+- `trigger_early_exit_v1`
+- `trigger_voc_v2`
+
+同时，历史上的裁剪版和变体版配置已经移除，包括：
+
+- `trigger_voc_v2_core_only`
+- `trigger_voc_v2_equal_budget_gsm_strategy`
+- `confidence_triggered_095`
+- `hybrid_trigger_relaxed`
+- `claim_divergence_triggered`
+
+因此现在应把 `selective_comm` 理解为两条正式方法线：
+
+- 一条是经典 trigger / early-exit 路线；
+- 一条是 VoC v2 的 black-box proxy 路线。
 
 ## 8. `budget_comm`
 
@@ -452,6 +501,20 @@
 
 当前聚焦 HotpotQA。
 
+### 9.1.1 当前正式入口
+
+`comm_necessary` 当前只有一个正式 experiment：
+
+- `hotpotqa_split_main`
+
+它不是“多个相近实验配置的集合”，而是：
+
+- 一个固定的 split-context HotpotQA 通信必要性实验；
+- 通过不同 phase 运行不同规模的数据切片：
+  - `smoke20`
+  - `pilot100`
+  - `main` (`split500_seed42`)
+
 ## 9.2 方法集合
 
 主实验方法顺序固定为：
@@ -520,6 +583,19 @@
 - Stage B 属于 belief revision；若更新阶段仍为空，但 Stage A 已有 grounded answer，则默认保持原答案。
 
 这保证了 turn-level schema 和 final prediction 语义一致。
+
+### 9.7 最新收口说明
+
+早期配置里曾把：
+
+- `hotpotqa_split_evidence_v1`
+- `hotpotqa_split500_main`
+
+拆成两个 experiment 入口。当前版本已经把这两个入口收回到同一个正式 experiment `hotpotqa_split_main`，原因是：
+
+- 方法本体完全相同；
+- 不同之处只是运行 phase 和样本规模；
+- 因此差异应放在 phase 层表达，而不是放在 experiment 层表达。
 
 ## 10. `sid_lite`
 
@@ -880,3 +956,13 @@
   研究黑盒条件下的统一通信效用决策
 
 `faithful_matrix` 则把它们放到同一套 phase-aware 主矩阵中，统一做 faithful 分析与 acceptance 判定。
+
+补一句当前的项目全局理解：
+
+- `single_agent` 提供强无通信参考；
+- `multi_agent` 做受控 debate-vs-vote；
+- `selective_comm` 做 trigger / early-exit；
+- `budget_comm` 做预算分配；
+- `comm_necessary` 做 split-context 下的通信必要性；
+- `sid_lite`、`free_mad_lite`、`sparc`、`cue` 分别提供压缩通信、反从众、局部审计和统一效用决策视角；
+- `faithful_matrix` 只统一比较口径，不改变任何 family 的方法结构。

@@ -15,12 +15,6 @@ tokens_per_minute_limit = 1000000
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 
 [[setups]]
-name = "mad_2a_r1"
-protocol = "configs/multi_agent/protocols/vanilla_mad_r1.toml"
-roster = "configs/multi_agent/rosters/homogeneous_2agent.toml"
-matched_controls = ["cot_1", "mv_4"]
-
-[[setups]]
 name = "mad_3a_r1"
 protocol = "configs/multi_agent/protocols/vanilla_mad_r1.toml"
 roster = "configs/multi_agent/rosters/homogeneous_3agent.toml"
@@ -28,8 +22,8 @@ matched_controls = ["mv_6"]
 
 [phases.smoke20]
 split_suffix = "smoke20_seed42"
-setups = ["mad_2a_r1", "mad_3a_r1"]
+setups = ["mad_3a_r1"]
 
 [phases.pilot100]
 split_suffix = "pilot100_seed42"
-setups = ["mad_2a_r1", "mad_3a_r1"]
+setups = ["mad_3a_r1"]
