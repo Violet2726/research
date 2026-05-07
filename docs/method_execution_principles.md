@@ -256,15 +256,19 @@
 - `roster`
   决定 agent 个数和角色编排。
 - `matched_controls`
-  为当前 debate setup 指定预算匹配的 `mv_k / sc_k` 控制。
+  为当前 debate setup 指定预算匹配的无通信控制。当前正式配置只保留 `mv_k` 语义，不再在 `multi_agent` 内部混入 `sc_k`。
 
 例如：
 
+- `mad_2a_r1`
+  对应 `2 agents + 1 debate round`
+  匹配控制：
+  - `cot_1`
+  - `mv_4`
 - `mad_3a_r1`
   对应 `3 agents + 1 debate round`
 - 匹配控制：
   - `mv_6`
-  - `sc_6`
 
 ## 6.3 执行原则
 
@@ -344,6 +348,11 @@
   直接复用共享 Stage A 的无通信多数票
 - `mv_6`
 - `sc_6`
+
+这里要注意语义边界：
+
+- `mv_3 / mv_6` 是共享 Stage A 基础上的无通信 vote 对照；
+- `sc_6` 是外部 no-comm baseline，用于公平比较，但不属于 `selective_comm` 方法本体。
 
 ## 7.3 执行原则
 
