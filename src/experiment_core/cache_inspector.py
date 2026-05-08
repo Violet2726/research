@@ -19,7 +19,7 @@ from experiment_core.workspace import default_cache_root
 
 def build_parser() -> argparse.ArgumentParser:
     """构造缓存查看命令行参数。"""
-    parser = argparse.ArgumentParser(description="查看按供应商与请求模型分层的缓存分库。")
+    parser = argparse.ArgumentParser(description="查看按供应商、请求模型和数据集分层的缓存分库。")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     summarize = subparsers.add_parser("summarize", help="汇总缓存分库数量、大小与请求条数。")
@@ -27,10 +27,11 @@ def build_parser() -> argparse.ArgumentParser:
     summarize.add_argument("--top-shards", type=int, default=10)
     summarize.add_argument("--json", action="store_true", help="输出 JSON，而不是文本摘要。")
 
-    target = subparsers.add_parser("inspect-target", help="查看某个供应商/请求模型对应的缓存分库。")
+    target = subparsers.add_parser("inspect-target", help="查看某个供应商/请求模型/数据集对应的缓存分库。")
     target.add_argument("--cache-root", default=default_cache_root())
     target.add_argument("--provider", required=True)
     target.add_argument("--request-model", required=True)
+    target.add_argument("--dataset", required=True)
     target.add_argument("--json", action="store_true", help="输出 JSON，而不是文本摘要。")
 
     return parser
@@ -59,6 +60,7 @@ def main() -> None:
             args.cache_root,
             provider=args.provider,
             request_model=args.request_model,
+            dataset=args.dataset,
         )
         shard = inspect_cache_shard(shard_path, args.cache_root)
         if args.json:
@@ -84,6 +86,8 @@ def _root_summary_to_dict(summary: CacheRootSummary, top_shards: int) -> dict[st
             {
                 "provider": item.provider,
                 "model_count": item.model_count,
+                "dataset_count": item.dataset_count,
+                "shard_count": item.shard_count,
                 "total_request_count": item.total_request_count,
                 "total_size_bytes": item.total_size_bytes,
                 "total_size_human": format_bytes(item.total_size_bytes),
@@ -108,6 +112,7 @@ def _shard_summary_to_dict(shard: CacheShardSummary, cache_root: Path) -> dict[s
         "relative_path": relative_path,
         "provider": shard.provider,
         "request_model": shard.request_model,
+        "dataset": shard.dataset,
         "exists": shard.exists,
         "file_size_bytes": shard.file_size_bytes,
         "file_size_human": format_bytes(shard.file_size_bytes),
@@ -131,6 +136,8 @@ def _print_root_summary(summary: CacheRootSummary, top_shards: int) -> None:
         print(
             "  - "
             f"{item.provider}: 模型 {item.model_count} 个, "
+            f"数据集 {item.dataset_count} 个, "
+            f"分库 {item.shard_count} 个, "
             f"请求 {item.total_request_count} 条, "
             f"大小 {format_bytes(item.total_size_bytes)}"
         )
@@ -157,6 +164,7 @@ def _print_shard_summary(shard: CacheShardSummary, cache_root: Path, indent: str
         f"{relative_path} | "
         f"provider {shard.provider} | "
         f"model {shard.request_model} | "
+        f"dataset {shard.dataset} | "
         f"大小 {format_bytes(shard.file_size_bytes)} | "
         f"请求 {request_count}"
     )

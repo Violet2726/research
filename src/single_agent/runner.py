@@ -184,13 +184,14 @@ def run_experiment(
             if not _model_is_allowed(experiment, phase_name, model):
                 continue
             provider = OpenAICompatibleProvider(model)
-            cache = cache_router.for_request_target(
-                provider=model.provider,
-                request_model=model.model_id,
-            )
             for benchmark in benchmarks:
                 if not _benchmark_is_allowed(experiment, phase_name, model, benchmark.slug):
                     continue
+                cache = cache_router.for_request_target(
+                    provider=model.provider,
+                    request_model=model.model_id,
+                    dataset=benchmark.slug,
+                )
                 split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
                 selected_samples = select_samples(benchmark, split_name)
 
@@ -277,8 +278,6 @@ def _run_method_batch(
             cache_key = build_request_cache_key(
                 provider=model.provider,
                 request_model=model.model_id,
-                base_url=model.base_url,
-                chat_path=model.chat_path,
                 payload=payload,
             )
             call_specs.append(

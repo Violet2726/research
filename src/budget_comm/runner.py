@@ -121,10 +121,6 @@ def run_experiment(
     context_view_config = load_context_view_config(experiment.context_view)
     provider = OpenAICompatibleProvider(backbone)
     cache_router = RequestCacheRouter(cache_root)
-    cache = cache_router.for_request_target(
-        provider=backbone.provider,
-        request_model=backbone.model_id,
-    )
     limiter = SlidingWindowRateLimiter(
         requests_per_minute=experiment.requests_per_minute_limit,
         tokens_per_minute=experiment.tokens_per_minute_limit,
@@ -152,7 +148,7 @@ def run_experiment(
         context_view_config=context_view_config,
         backbone=backbone,
         provider=provider,
-        cache=cache,
+        cache_router=cache_router,
         limiter=limiter,
     )
 
@@ -209,6 +205,11 @@ def run_experiment(
         run_paths.final_predictions.open("w", encoding="utf-8") as prediction_handle,
     ):
         for benchmark in benchmarks:
+            cache = cache_router.for_request_target(
+                provider=backbone.provider,
+                request_model=backbone.model_id,
+                dataset=benchmark.slug,
+            )
             split_name = benchmark_to_split[benchmark.slug]
             round_budget_tokens = int(calibration["datasets"][benchmark.slug]["round_budget_tokens"])
             sample_results = _run_sample_batch(
@@ -267,7 +268,7 @@ def _calibrate_budgets(
     context_view_config: ContextViewConfig,
     backbone,
     provider: OpenAICompatibleProvider,
-    cache: RequestCache,
+    cache_router: RequestCacheRouter,
     limiter: SlidingWindowRateLimiter,
 ) -> dict[str, Any]:
     """先做少量 `all_to_all_full` 校准，再冻结每个数据集的预算。
@@ -277,6 +278,11 @@ def _calibrate_budgets(
     """
     datasets_payload: dict[str, dict[str, Any]] = {}
     for benchmark in benchmarks:
+        cache = cache_router.for_request_target(
+            provider=backbone.provider,
+            request_model=backbone.model_id,
+            dataset=benchmark.slug,
+        )
         calibration_samples = benchmark_to_samples[benchmark.slug][: experiment.calibration_sample_size]
         communication_tokens: list[int] = []
         total_tokens: list[float] = []
@@ -1040,8 +1046,6 @@ def _execute_turn(
     cache_key = build_request_cache_key(
         provider=backbone.provider,
         request_model=backbone.model_id,
-        base_url=backbone.base_url,
-        chat_path=backbone.chat_path,
         payload=payload,
     )
     cached = cache.get(cache_key)

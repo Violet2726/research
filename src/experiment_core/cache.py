@@ -2,13 +2,13 @@
 
 缓存体系分成两层：
 1. `RequestCache`：单个 SQLite 分库，负责具体读写；
-2. `RequestCacheRouter`：按 `provider + request_model` 路由到对应分库。
+2. `RequestCacheRouter`：按 `provider + request_model + dataset` 路由到对应分库。
 
-这样目录层级更贴近研究使用习惯，例如：
-`cache/providers/xiaomimimo/mimo-v2.5/requests.sqlite`
+目录结构示例：
+`cache/providers/xiaomimimo/mimo-v2-5/strategyqa/requests.sqlite`
 
-同时，为了避免同一 provider / model 下不同端点发生错误复用，
-缓存键仍然会纳入 `base_url` 与 `chat_path`。
+同一家供应商的同一请求模型在同一数据集内共享缓存，不再区分端点。
+缓存键仅由 `provider + request_model + payload` 决定。
 """
 
 from __future__ import annotations
@@ -41,6 +41,7 @@ class CacheShardSummary:
     shard_path: Path
     provider: str
     request_model: str
+    dataset: str
     exists: bool
     file_size_bytes: int
     request_count: int | None
@@ -53,6 +54,8 @@ class CacheProviderSummary:
 
     provider: str
     model_count: int
+    dataset_count: int
+    shard_count: int
     total_request_count: int
     total_size_bytes: int
 
@@ -135,7 +138,7 @@ class RequestCache:
 
 
 class RequestCacheRouter:
-    """按供应商与请求模型把请求路由到对应缓存分库。"""
+    """按供应商、请求模型和数据集路由到对应缓存分库。"""
 
     def __init__(self, cache_root: str | Path) -> None:
         self.cache_root = Path(cache_root)
@@ -143,11 +146,18 @@ class RequestCacheRouter:
         self._lock = threading.Lock()
         self._caches: dict[str, RequestCache] = {}
 
-    def for_request_target(self, *, provider: str, request_model: str) -> RequestCache:
-        """返回某个供应商与请求模型对应的缓存分库。"""
+    def for_request_target(
+        self,
+        *,
+        provider: str,
+        request_model: str,
+        dataset: str,
+    ) -> RequestCache:
+        """返回某个供应商、请求模型和数据集对应的缓存分库。"""
         shard_identity = _shard_identity(
             provider=provider,
             request_model=request_model,
+            dataset=dataset,
         )
         with self._lock:
             cache = self._caches.get(shard_identity)
@@ -158,6 +168,7 @@ class RequestCacheRouter:
                     cache_root=self.cache_root,
                     provider=provider,
                     request_model=request_model,
+                    dataset=dataset,
                 )
             )
             self._caches[shard_identity] = cache
@@ -181,16 +192,12 @@ def build_request_cache_key(
     *,
     provider: str,
     request_model: str,
-    base_url: str,
-    chat_path: str,
     payload: dict[str, Any],
 ) -> str:
     """基于真实请求身份构造缓存键。"""
     fingerprint = {
         "provider": provider,
         "request_model": request_model,
-        "base_url": str(base_url or "").rstrip("/"),
-        "chat_path": _normalize_chat_path(chat_path),
         "payload": payload,
     }
     return sha256(json_dump(fingerprint).encode("utf-8")).hexdigest()
@@ -201,17 +208,25 @@ def resolve_cache_shard_path(
     *,
     provider: str,
     request_model: str,
+    dataset: str,
 ) -> Path:
-    """根据供应商与请求模型解析缓存分库路径。"""
+    """根据供应商、请求模型和数据集解析缓存分库路径。"""
     root = Path(cache_root)
-    return root / "providers" / _slugify(provider) / _slugify(request_model) / "requests.sqlite"
+    return (
+        root
+        / "providers"
+        / _slugify(provider)
+        / _slugify(request_model)
+        / _slugify(dataset)
+        / "requests.sqlite"
+    )
 
 
 def inspect_cache_shard(shard_path: str | Path, cache_root: str | Path) -> CacheShardSummary:
     """读取单个缓存分库的统计信息。"""
     root = Path(cache_root)
     path = Path(shard_path)
-    provider, request_model = _decompose_shard_path(root, path)
+    provider, request_model, dataset = _decompose_shard_path(root, path)
     exists = path.exists()
     file_size_bytes = path.stat().st_size if exists else 0
     if not exists:
@@ -219,6 +234,7 @@ def inspect_cache_shard(shard_path: str | Path, cache_root: str | Path) -> Cache
             shard_path=path,
             provider=provider,
             request_model=request_model,
+            dataset=dataset,
             exists=False,
             file_size_bytes=file_size_bytes,
             request_count=0,
@@ -236,6 +252,7 @@ def inspect_cache_shard(shard_path: str | Path, cache_root: str | Path) -> Cache
         shard_path=path,
         provider=provider,
         request_model=request_model,
+        dataset=dataset,
         exists=True,
         file_size_bytes=file_size_bytes,
         request_count=request_count,
@@ -270,7 +287,9 @@ def summarize_cache_root(cache_root: str | Path) -> CacheRootSummary:
             (
                 CacheProviderSummary(
                     provider=provider,
-                    model_count=len(items),
+                    model_count=len({item.request_model for item in items}),
+                    dataset_count=len({item.dataset for item in items}),
+                    shard_count=len(items),
                     total_request_count=sum(int(item.request_count or 0) for item in items),
                     total_size_bytes=sum(item.file_size_bytes for item in items),
                 )
@@ -304,22 +323,15 @@ def format_bytes(num_bytes: int) -> str:
     return f"{value:.2f} {units[unit_index]}"
 
 
-def _shard_identity(*, provider: str, request_model: str) -> str:
+def _shard_identity(*, provider: str, request_model: str, dataset: str) -> str:
     """生成分库身份指纹，用于进程内路由复用。"""
     return json_dump(
         {
             "provider": provider,
             "request_model": request_model,
+            "dataset": dataset,
         }
     )
-
-
-def _normalize_chat_path(chat_path: str) -> str:
-    """把 chat path 规范化成稳定的绝对路径形态。"""
-    normalized = str(chat_path or "").strip()
-    if not normalized:
-        return "/"
-    return normalized if normalized.startswith("/") else f"/{normalized}"
 
 
 def _slugify(value: str) -> str:
@@ -342,15 +354,16 @@ def _read_request_count(shard_path: Path) -> int:
     return int(row[0] if row is not None else 0)
 
 
-def _decompose_shard_path(cache_root: Path, shard_path: Path) -> tuple[str, str]:
-    """从缓存分库路径中反解出供应商与请求模型。"""
+def _decompose_shard_path(cache_root: Path, shard_path: Path) -> tuple[str, str, str]:
+    """从缓存分库路径中反解出供应商、请求模型和数据集。"""
     providers_root = cache_root / "providers"
     try:
         relative = shard_path.relative_to(providers_root)
     except ValueError:
-        return ("unknown", "unknown")
+        return ("unknown", "unknown", "unknown")
 
     parts = relative.parts
     provider = parts[0] if len(parts) >= 1 else "unknown"
     request_model = parts[1] if len(parts) >= 2 else "unknown"
-    return (provider, request_model)
+    dataset = parts[2] if len(parts) >= 3 else "unknown"
+    return (provider, request_model, dataset)

@@ -225,6 +225,7 @@ def test_cache_inspector_summarize_cli(tmp_path) -> None:
     cache = router.for_request_target(
         provider="deepseek",
         request_model="deepseek-v4-flash",
+        dataset="gsm8k",
     )
     cache.put(
         CachedResponse(
@@ -254,3 +255,4 @@ def test_cache_inspector_summarize_cli(tmp_path) -> None:
     assert payload["total_request_count"] == 1
     assert payload["providers"][0]["provider"] == "deepseek"
     assert payload["providers"][0]["model_count"] == 1
+    assert payload["providers"][0]["dataset_count"] == 1
