@@ -113,3 +113,6 @@ def test_render_paper_package_writes_markdown_and_figures(tmp_path: Path) -> Non
     assert Path(paths["package_markdown"]).exists()
     assert Path(paths["published_path"]).exists()
     assert (tmp_path / "figures" / "budget_frontier_same_context.svg").exists()
+    svg_text = (tmp_path / "figures" / "budget_frontier_same_context.svg").read_text(encoding="utf-8")
+    assert "Budget frontier" in svg_text
+    assert "Faithful score" in svg_text

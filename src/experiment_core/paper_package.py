@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
 import json
+import math
 from statistics import mean
 from typing import Any
 
@@ -26,6 +27,41 @@ PREDICTION_FILE_CANDIDATES = (
     "final_predictions.jsonl",
     "predictions.jsonl",
 )
+
+FONT_FAMILY = "Helvetica, Arial, sans-serif"
+COLOR_TEXT = "#111827"
+COLOR_MUTED = "#6b7280"
+COLOR_GRID = "#d1d5db"
+COLOR_AXIS = "#374151"
+COLOR_BLUE = "#0072B2"
+COLOR_ORANGE = "#E69F00"
+COLOR_GREEN = "#009E73"
+COLOR_RED = "#D55E00"
+COLOR_PURPLE = "#CC79A7"
+COLOR_GRAY = "#9ca3af"
+
+TRACK_COLORS = {
+    TRACK_SAME_CONTEXT: COLOR_BLUE,
+    TRACK_SPLIT_CONTEXT: COLOR_ORANGE,
+    "other": COLOR_GRAY,
+}
+
+FIGURE_LABEL_OVERRIDES = {
+    "aggregation_auditing_ablation_v1": "SPARC agg-audit",
+    "auditing_ablation_v1": "SPARC audit",
+    "content_ablation_v1": "SPARC content",
+    "cue_v1": "CUE",
+    "dala_lite_same_context_v1": "DALA same",
+    "dala_lite_split_context_v1": "DALA split",
+    "free_mad_lite_v1": "Free-MAD-lite",
+    "hotpotqa_split_main": "Hotpot split",
+    "multi_agent_main": "Vanilla MAD",
+    "robustness": "Robustness",
+    "sid_lite_v1": "SID-lite",
+    "sparc_v1_smoke": "SPARC",
+    "trigger_early_exit_v1": "Trigger early-exit",
+    "trigger_voc_v2": "Trigger VOC",
+}
 
 
 def render_paper_package(
@@ -363,16 +399,32 @@ def _build_helpful_harmful_breakdown(entries: list[dict[str, Any]]) -> list[dict
 def _render_figures(package: dict[str, Any], figure_dir: Path) -> dict[str, Path]:
     sections = package.get("sections", {})
     figure_specs = {
-        "budget_frontier_same_context": _frontier_points(sections.get("same_context_main_table", [])),
-        "budget_frontier_split_context": _frontier_points(sections.get("split_context_main_table", [])),
-        "trigger_utility": _trigger_utility_points(sections.get("same_context_main_table", [])),
-        "stage_ceiling_gap": _stage_gap_points(sections),
-        "helpful_harmful_comm": _helpful_points(package.get("helpful_harmful_communication", [])),
+        "budget_frontier_same_context": {
+            "points": _frontier_points(sections.get("same_context_main_table", [])),
+            "renderer": _render_budget_frontier_svg,
+        },
+        "budget_frontier_split_context": {
+            "points": _frontier_points(sections.get("split_context_main_table", [])),
+            "renderer": _render_budget_frontier_svg,
+        },
+        "trigger_utility": {
+            "points": _trigger_utility_points(sections.get("same_context_main_table", [])),
+            "renderer": _render_trigger_utility_svg,
+        },
+        "stage_ceiling_gap": {
+            "points": _stage_gap_points(sections),
+            "renderer": _render_stage_gap_svg,
+        },
+        "helpful_harmful_comm": {
+            "points": _helpful_points(package.get("helpful_harmful_communication", [])),
+            "renderer": _render_helpful_harmful_svg,
+        },
     }
     paths: dict[str, Path] = {}
-    for name, points in figure_specs.items():
+    for name, spec in figure_specs.items():
+        points = spec["points"]
         path = figure_dir / f"{name}.svg"
-        path.write_text(_render_svg_bar_or_scatter(name, points), encoding="utf-8")
+        path.write_text(spec["renderer"](name, points), encoding="utf-8")
         paths[name] = path
         data_path = figure_dir / f"{name}.csv"
         data_path.write_text(_render_points_csv(points), encoding="utf-8")
@@ -383,101 +435,394 @@ def _render_figures(package: dict[str, Any], figure_dir: Path) -> dict[str, Path
 def _frontier_points(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     points: list[dict[str, Any]] = []
     for row in rows:
-        x = row.get("token_ratio_vs_full_comm") or row.get("token_ratio_vs_best_no_comm") or 1.0
+        score = _as_optional_float(row.get("faithful_score"))
+        if score is None:
+            continue
+        x = _as_optional_float(row.get("token_ratio_vs_full_comm"))
+        if x is None:
+            x = _as_optional_float(row.get("token_ratio_vs_best_no_comm"))
+        x = 1.0 if x is None else x
         points.append(
             {
                 "label": str(row.get("experiment_name")),
-                "x": _as_float(x),
-                "y": _as_float(row.get("faithful_score")),
-                "value": _as_float(row.get("faithful_score")),
+                "short_label": _short_figure_label(row.get("experiment_name")),
+                "family": str(row.get("family") or ""),
+                "track": str(row.get("evaluation_track") or ""),
+                "method_name": str(row.get("primary_method_name") or ""),
+                "x": x,
+                "y": score,
+                "value": score,
             }
         )
-    return points
+    return sorted(points, key=lambda point: (float(point["x"]), -float(point["y"]), str(point["label"])))
 
 
 def _trigger_utility_points(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [
-        {
-            "label": str(row.get("experiment_name")),
-            "value": _as_float(row.get("delta_vs_best_no_comm")),
-            "x": _as_float(row.get("token_ratio_vs_full_comm") or 1.0),
-            "y": _as_float(row.get("delta_vs_best_no_comm")),
-        }
-        for row in rows
-        if "trigger" in str(row.get("experiment_name"))
-    ]
+    points: list[dict[str, Any]] = []
+    for row in rows:
+        experiment_name = str(row.get("experiment_name") or "")
+        if "trigger" not in experiment_name:
+            continue
+        delta = _as_optional_float(row.get("delta_vs_best_no_comm"))
+        if delta is None:
+            continue
+        token_ratio = _as_optional_float(row.get("token_ratio_vs_full_comm"))
+        points.append(
+            {
+                "label": experiment_name,
+                "short_label": _short_figure_label(experiment_name),
+                "x": 1.0 if token_ratio is None else token_ratio,
+                "y": delta,
+                "value": delta,
+                "direction": "improved" if delta >= 0 else "regressed",
+            }
+        )
+    return sorted(points, key=lambda point: (float(point["x"]), -float(point["y"]), str(point["label"])))
 
 
 def _stage_gap_points(sections: dict[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for key in ("same_context_main_table", "split_context_main_table", "supporting_evidence_table", "diagnostic_evidence_table"):
         rows.extend(sections.get(key, []))
-    return [
-        {
-            "label": str(row.get("experiment_name")),
-            "value": _as_float(row.get("stage_ceiling_gap")),
-            "x": float(index),
-            "y": _as_float(row.get("stage_ceiling_gap")),
-        }
-        for index, row in enumerate(rows)
-    ]
+    points: list[dict[str, Any]] = []
+    for row in rows:
+        gap = _as_optional_float(row.get("stage_ceiling_gap"))
+        if gap is None:
+            continue
+        experiment_name = str(row.get("experiment_name") or "")
+        track = str(row.get("evaluation_track") or "other")
+        points.append(
+            {
+                "label": experiment_name,
+                "short_label": _short_figure_label(experiment_name),
+                "track": track,
+                "track_label": _track_display_label(track),
+                "x": gap,
+                "y": gap,
+                "value": gap,
+                "family": str(row.get("family") or ""),
+            }
+        )
+    return sorted(points, key=lambda point: (float(point["value"]), str(point["track"]), str(point["label"])))
 
 
 def _helpful_points(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     points: list[dict[str, Any]] = []
     for row in rows:
-        points.append({"label": f"{row.get('experiment_name')}:helpful", "value": _as_float(row.get("helpful_rate"))})
-        points.append({"label": f"{row.get('experiment_name')}:harmful", "value": -_as_float(row.get("harmful_rate"))})
-    return points
-
-
-def _render_svg_bar_or_scatter(title: str, points: list[dict[str, Any]]) -> str:
-    width = 900
-    height = 360
-    padding = 48
-    if not points:
-        return f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}"><text x="24" y="36">{escape(title)}: no data</text></svg>\n'
-    values = [float(point.get("value", point.get("y", 0.0)) or 0.0) for point in points]
-    min_value = min(0.0, min(values))
-    max_value = max(0.0, max(values))
-    span = max(max_value - min_value, 1e-9)
-    bar_width = max(12, int((width - 2 * padding) / max(1, len(points)) * 0.62))
-    zero_y = height - padding - ((0.0 - min_value) / span) * (height - 2 * padding)
-    lines = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
-        '<rect width="100%" height="100%" fill="#ffffff"/>',
-        f'<text x="{padding}" y="28" font-size="18" font-family="Arial" fill="#111827">{escape(title)}</text>',
-        f'<line x1="{padding}" y1="{zero_y:.2f}" x2="{width - padding}" y2="{zero_y:.2f}" stroke="#9ca3af" stroke-width="1"/>',
-    ]
-    step = (width - 2 * padding) / max(1, len(points))
-    for index, point in enumerate(points):
-        value = float(point.get("value", point.get("y", 0.0)) or 0.0)
-        x = padding + index * step + (step - bar_width) / 2
-        y = height - padding - ((max(value, 0.0) - min_value) / span) * (height - 2 * padding)
-        zero = zero_y
-        if value < 0:
-            y = zero_y
-            zero = height - padding - ((value - min_value) / span) * (height - 2 * padding)
-        color = "#2563eb" if value >= 0 else "#dc2626"
-        lines.append(f'<rect x="{x:.2f}" y="{min(y, zero):.2f}" width="{bar_width}" height="{abs(zero - y):.2f}" fill="{color}" opacity="0.86"/>')
-        lines.append(f'<text x="{x:.2f}" y="{height - 16}" font-size="10" font-family="Arial" transform="rotate(-35 {x:.2f},{height - 16})">{escape(str(point.get("label", ""))[:30])}</text>')
-    lines.append("</svg>")
-    return "\n".join(lines) + "\n"
+        helpful_rate = _as_optional_float(row.get("helpful_rate"))
+        harmful_rate = _as_optional_float(row.get("harmful_rate"))
+        experiment_name = str(row.get("experiment_name") or "")
+        points.append(
+            {
+                "label": experiment_name,
+                "short_label": _short_figure_label(experiment_name),
+                "method_name": str(row.get("method_name") or ""),
+                "sample_method_rows": int(row.get("sample_method_rows") or 0),
+                "helpful_rate": 0.0 if helpful_rate is None else helpful_rate,
+                "harmful_rate": 0.0 if harmful_rate is None else harmful_rate,
+                "net_gain": (0.0 if helpful_rate is None else helpful_rate) - (0.0 if harmful_rate is None else harmful_rate),
+                "value": 0.0 if helpful_rate is None else helpful_rate,
+            }
+        )
+    return sorted(points, key=lambda point: (-float(point["net_gain"]), str(point["label"])))
 
 
 def _render_points_csv(points: list[dict[str, Any]]) -> str:
-    lines = ["label,x,y,value"]
+    headers = _points_csv_headers(points)
+    lines = [",".join(headers)]
     for point in points:
         lines.append(
             ",".join(
                 [
-                    _csv_cell(str(point.get("label", ""))),
-                    _csv_cell(str(point.get("x", ""))),
-                    _csv_cell(str(point.get("y", ""))),
-                    _csv_cell(str(point.get("value", ""))),
+                    _csv_cell(str(point.get(header, "")))
+                    for header in headers
                 ]
             )
         )
+    return "\n".join(lines) + "\n"
+
+
+def _render_budget_frontier_svg(name: str, points: list[dict[str, Any]]) -> str:
+    title = "Budget frontier"
+    subtitle = _figure_subtitle(
+        name=name,
+        default="Faithful score versus token ratio relative to full communication.",
+    )
+    if not points:
+        return _render_empty_svg(title, subtitle)
+
+    width = 960
+    height = 560
+    left = 88
+    right = 42
+    top = 78
+    bottom = 86
+    plot_width = width - left - right
+    plot_height = height - top - bottom
+
+    x_values = [float(point["x"]) for point in points]
+    x_min, x_max = _expand_domain(x_values, include_values=[1.0], pad_fraction=0.08)
+    y_min, y_max = 0.0, 1.0
+    x_ticks = _nice_ticks(x_min, x_max, target_ticks=5)
+    y_ticks = [0.0, 0.25, 0.5, 0.75, 1.0]
+    x_min, x_max = x_ticks[0], x_ticks[-1]
+
+    lines = _svg_canvas(width, height)
+    lines.extend(_svg_title_block(title, subtitle))
+    lines.extend(_svg_axes_and_grid(left, top, plot_width, plot_height, x_ticks, y_ticks, x_min, x_max, y_min, y_max))
+    lines.extend(
+        _svg_axis_labels(
+            left=left,
+            top=top,
+            plot_width=plot_width,
+            plot_height=plot_height,
+            x_label="Token ratio vs full communication (lower is cheaper)",
+            y_label="Faithful score",
+        )
+    )
+
+    reference_x = _scale_linear(1.0, x_min, x_max, left, left + plot_width)
+    lines.append(
+        f'<line x1="{reference_x:.2f}" y1="{top}" x2="{reference_x:.2f}" y2="{top + plot_height}" '
+        f'stroke="{COLOR_MUTED}" stroke-width="1.2" stroke-dasharray="6 4"/>'
+    )
+    lines.append(
+        f'<text x="{reference_x + 6:.2f}" y="{top + 16}" font-size="11" font-family="{FONT_FAMILY}" fill="{COLOR_MUTED}">full-comm baseline</text>'
+    )
+
+    for index, point in enumerate(points):
+        cx = _scale_linear(float(point["x"]), x_min, x_max, left, left + plot_width)
+        cy = _scale_linear(float(point["y"]), y_min, y_max, top + plot_height, top)
+        label_dx = 10 if index % 2 == 0 else -12
+        anchor = "start" if label_dx > 0 else "end"
+        label_y = cy - 8 if index % 3 != 1 else cy + 18
+        lines.append(
+            f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="5.5" fill="{COLOR_BLUE}" stroke="#ffffff" stroke-width="1.5"/>'
+        )
+        lines.append(
+            f'<text x="{cx + label_dx:.2f}" y="{label_y:.2f}" font-size="11" '
+            f'font-family="{FONT_FAMILY}" text-anchor="{anchor}" fill="{COLOR_TEXT}">{escape(str(point["short_label"]))}</text>'
+        )
+    lines.extend(_svg_note_block(height, "x=1.0 denotes full communication; all scores use the faithful analysis output."))
+    lines.append("</svg>")
+    return "\n".join(lines) + "\n"
+
+
+def _render_trigger_utility_svg(name: str, points: list[dict[str, Any]]) -> str:
+    title = "Trigger utility"
+    subtitle = _figure_subtitle(
+        name=name,
+        default="Utility of trigger methods relative to the best no-communication baseline.",
+    )
+    if not points:
+        return _render_empty_svg(title, subtitle)
+
+    width = 960
+    height = 560
+    left = 88
+    right = 42
+    top = 78
+    bottom = 86
+    plot_width = width - left - right
+    plot_height = height - top - bottom
+
+    x_values = [float(point["x"]) for point in points]
+    y_values = [float(point["y"]) for point in points]
+    x_min, x_max = _expand_domain(x_values, include_values=[1.0], pad_fraction=0.08)
+    y_min, y_max = _expand_domain(y_values, include_values=[0.0], pad_fraction=0.15)
+    x_ticks = _nice_ticks(x_min, x_max, target_ticks=5)
+    y_ticks = _nice_ticks(y_min, y_max, target_ticks=5)
+    x_min, x_max = x_ticks[0], x_ticks[-1]
+    y_min, y_max = y_ticks[0], y_ticks[-1]
+
+    lines = _svg_canvas(width, height)
+    lines.extend(_svg_title_block(title, subtitle))
+    lines.extend(_svg_axes_and_grid(left, top, plot_width, plot_height, x_ticks, y_ticks, x_min, x_max, y_min, y_max))
+    lines.extend(
+        _svg_axis_labels(
+            left=left,
+            top=top,
+            plot_width=plot_width,
+            plot_height=plot_height,
+            x_label="Token ratio vs full communication (lower is cheaper)",
+            y_label="Delta vs best no-communication baseline",
+        )
+    )
+
+    reference_x = _scale_linear(1.0, x_min, x_max, left, left + plot_width)
+    reference_y = _scale_linear(0.0, y_min, y_max, top + plot_height, top)
+    lines.append(
+        f'<line x1="{reference_x:.2f}" y1="{top}" x2="{reference_x:.2f}" y2="{top + plot_height}" '
+        f'stroke="{COLOR_MUTED}" stroke-width="1.2" stroke-dasharray="6 4"/>'
+    )
+    lines.append(
+        f'<line x1="{left}" y1="{reference_y:.2f}" x2="{left + plot_width}" y2="{reference_y:.2f}" '
+        f'stroke="{COLOR_MUTED}" stroke-width="1.2" stroke-dasharray="6 4"/>'
+    )
+
+    for point in points:
+        cx = _scale_linear(float(point["x"]), x_min, x_max, left, left + plot_width)
+        cy = _scale_linear(float(point["y"]), y_min, y_max, top + plot_height, top)
+        color = COLOR_GREEN if float(point["y"]) >= 0 else COLOR_RED
+        label_y = cy - 10 if float(point["y"]) >= 0 else cy + 18
+        lines.append(
+            f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="6" fill="{color}" stroke="#ffffff" stroke-width="1.5"/>'
+        )
+        lines.append(
+            f'<text x="{cx + 8:.2f}" y="{label_y:.2f}" font-size="11" '
+            f'font-family="{FONT_FAMILY}" fill="{COLOR_TEXT}">{escape(str(point["short_label"]))}</text>'
+        )
+    lines.extend(_svg_note_block(height, "Positive y indicates improvement over the best no-communication control."))
+    lines.append("</svg>")
+    return "\n".join(lines) + "\n"
+
+
+def _render_stage_gap_svg(name: str, points: list[dict[str, Any]]) -> str:
+    title = "Distance to stage ceiling"
+    subtitle = _figure_subtitle(
+        name=name,
+        default="Lower values indicate less remaining room between faithful score and the stage ceiling.",
+    )
+    if not points:
+        return _render_empty_svg(title, subtitle)
+
+    width = 1040
+    row_height = 28
+    top = 86
+    bottom = 72
+    left = 290
+    right = 36
+    height = max(420, top + bottom + row_height * len(points))
+    plot_width = width - left - right
+    plot_height = height - top - bottom
+
+    x_values = [float(point["value"]) for point in points]
+    x_min, x_max = 0.0, _expand_domain(x_values, include_values=[0.0], pad_fraction=0.10)[1]
+    x_ticks = _nice_ticks(x_min, x_max, target_ticks=5)
+    x_min, x_max = x_ticks[0], x_ticks[-1]
+    band_step = plot_height / max(1, len(points))
+    bar_height = max(12.0, band_step * 0.56)
+
+    lines = _svg_canvas(width, height)
+    lines.extend(_svg_title_block(title, subtitle))
+    lines.extend(_svg_vertical_grid(left, top, plot_width, plot_height, x_ticks, x_min, x_max))
+    lines.extend(
+        _svg_axis_labels(
+            left=left,
+            top=top,
+            plot_width=plot_width,
+            plot_height=plot_height,
+            x_label="Gap to stage ceiling (absolute score; lower is better)",
+            y_label=None,
+        )
+    )
+    lines.extend(_svg_track_legend(width - right - 220, 44))
+
+    for index, point in enumerate(points):
+        value = float(point["value"])
+        y = top + index * band_step + (band_step - bar_height) / 2
+        x_end = _scale_linear(value, x_min, x_max, left, left + plot_width)
+        color = TRACK_COLORS.get(str(point.get("track")), TRACK_COLORS["other"])
+        label = f"{point['short_label']} [{point['track_label']}]"
+        lines.append(
+            f'<text x="{left - 12}" y="{y + bar_height / 2 + 4:.2f}" text-anchor="end" '
+            f'font-size="11" font-family="{FONT_FAMILY}" fill="{COLOR_TEXT}">{escape(label)}</text>'
+        )
+        lines.append(
+            f'<rect x="{left:.2f}" y="{y:.2f}" width="{max(x_end - left, 0.8):.2f}" height="{bar_height:.2f}" '
+            f'fill="{color}" opacity="0.92"/>'
+        )
+        lines.append(
+            f'<text x="{x_end + 8:.2f}" y="{y + bar_height / 2 + 4:.2f}" font-size="11" '
+            f'font-family="{FONT_FAMILY}" fill="{COLOR_TEXT}">{value:.3f}</text>'
+        )
+    lines.extend(_svg_note_block(height, "Track colors separate same-context, split-context, and other supporting rows."))
+    lines.append("</svg>")
+    return "\n".join(lines) + "\n"
+
+
+def _render_helpful_harmful_svg(name: str, points: list[dict[str, Any]]) -> str:
+    title = "Helpful versus harmful communication"
+    subtitle = _figure_subtitle(
+        name=name,
+        default="Rates are measured over samples that use communication within each experiment.",
+    )
+    if not points:
+        return _render_empty_svg(title, subtitle)
+
+    width = 1040
+    group_height = 36
+    top = 86
+    bottom = 78
+    left = 260
+    right = 40
+    height = max(420, top + bottom + group_height * len(points))
+    plot_width = width - left - right
+    plot_height = height - top - bottom
+
+    max_rate = max(
+        max(float(point["helpful_rate"]) for point in points),
+        max(float(point["harmful_rate"]) for point in points),
+        0.01,
+    )
+    x_min, x_max = 0.0, _expand_domain([max_rate], include_values=[0.0], pad_fraction=0.20)[1]
+    x_ticks = _nice_ticks(x_min, x_max, target_ticks=5)
+    x_min, x_max = x_ticks[0], x_ticks[-1]
+    band_step = plot_height / max(1, len(points))
+    bar_height = max(8.0, band_step * 0.26)
+
+    lines = _svg_canvas(width, height)
+    lines.extend(_svg_title_block(title, subtitle))
+    lines.extend(_svg_vertical_grid(left, top, plot_width, plot_height, x_ticks, x_min, x_max))
+    lines.extend(
+        _svg_axis_labels(
+            left=left,
+            top=top,
+            plot_width=plot_width,
+            plot_height=plot_height,
+            x_label="Rate over communication-using samples",
+            y_label=None,
+        )
+    )
+    lines.extend(
+        _svg_series_legend(
+            x=width - right - 180,
+            y=44,
+            items=[("Helpful", COLOR_GREEN), ("Harmful", COLOR_RED)],
+        )
+    )
+
+    for index, point in enumerate(points):
+        helpful = float(point["helpful_rate"])
+        harmful = float(point["harmful_rate"])
+        group_y = top + index * band_step
+        helpful_y = group_y + band_step * 0.18
+        harmful_y = group_y + band_step * 0.56
+        helpful_x = _scale_linear(helpful, x_min, x_max, left, left + plot_width)
+        harmful_x = _scale_linear(harmful, x_min, x_max, left, left + plot_width)
+        label = str(point["short_label"])
+        lines.append(
+            f'<text x="{left - 12}" y="{group_y + band_step * 0.50:.2f}" text-anchor="end" '
+            f'font-size="11" font-family="{FONT_FAMILY}" fill="{COLOR_TEXT}">{escape(label)}</text>'
+        )
+        lines.append(
+            f'<rect x="{left:.2f}" y="{helpful_y:.2f}" width="{max(helpful_x - left, 0.8):.2f}" height="{bar_height:.2f}" '
+            f'fill="{COLOR_GREEN}" opacity="0.92"/>'
+        )
+        lines.append(
+            f'<rect x="{left:.2f}" y="{harmful_y:.2f}" width="{max(harmful_x - left, 0.8):.2f}" height="{bar_height:.2f}" '
+            f'fill="{COLOR_RED}" opacity="0.88"/>'
+        )
+        lines.append(
+            f'<text x="{helpful_x + 8:.2f}" y="{helpful_y + bar_height - 1:.2f}" font-size="11" '
+            f'font-family="{FONT_FAMILY}" fill="{COLOR_TEXT}">{helpful:.3f}</text>'
+        )
+        lines.append(
+            f'<text x="{harmful_x + 8:.2f}" y="{harmful_y + bar_height - 1:.2f}" font-size="11" '
+            f'font-family="{FONT_FAMILY}" fill="{COLOR_TEXT}">{harmful:.3f}</text>'
+        )
+    lines.extend(_svg_note_block(height, "Helpful and harmful rates are shown separately to avoid visual cancellation."))
+    lines.append("</svg>")
     return "\n".join(lines) + "\n"
 
 
@@ -624,3 +969,249 @@ def _csv_cell(value: str) -> str:
     if any(char in value for char in [",", "\"", "\n"]):
         return '"' + value.replace('"', '""') + '"'
     return value
+
+
+def _points_csv_headers(points: list[dict[str, Any]]) -> list[str]:
+    preferred = [
+        "label",
+        "short_label",
+        "family",
+        "track",
+        "track_label",
+        "method_name",
+        "direction",
+        "x",
+        "y",
+        "value",
+        "helpful_rate",
+        "harmful_rate",
+        "net_gain",
+        "sample_method_rows",
+    ]
+    seen = {key for point in points for key in point}
+    headers = [key for key in preferred if key in seen]
+    headers.extend(sorted(key for key in seen if key not in headers))
+    return headers or ["label", "x", "y", "value"]
+
+
+def _figure_subtitle(name: str, default: str) -> str:
+    if name == "budget_frontier_same_context":
+        return "Same-context headline methods only. Lower x is cheaper; higher y is better."
+    if name == "budget_frontier_split_context":
+        return "Split-context headline methods only. Lower x is cheaper; higher y is better."
+    if name == "trigger_utility":
+        return "Trigger methods in same-context settings. Positive y indicates improvement."
+    if name == "stage_ceiling_gap":
+        return "All headline and supporting rows sorted by gap to the stage ceiling."
+    if name == "helpful_harmful_comm":
+        return "Communication outcome breakdown for experiments with message exchange."
+    return default
+
+
+def _render_empty_svg(title: str, subtitle: str) -> str:
+    width = 960
+    height = 220
+    lines = _svg_canvas(width, height)
+    lines.extend(_svg_title_block(title, subtitle))
+    lines.append(
+        f'<text x="48" y="132" font-size="14" font-family="{FONT_FAMILY}" fill="{COLOR_MUTED}">No eligible data points.</text>'
+    )
+    lines.append("</svg>")
+    return "\n".join(lines) + "\n"
+
+
+def _svg_canvas(width: int, height: int) -> list[str]:
+    return [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="#ffffff"/>',
+    ]
+
+
+def _svg_title_block(title: str, subtitle: str) -> list[str]:
+    return [
+        f'<text x="48" y="34" font-size="20" font-family="{FONT_FAMILY}" fill="{COLOR_TEXT}" font-weight="600">{escape(title)}</text>',
+        f'<text x="48" y="56" font-size="12" font-family="{FONT_FAMILY}" fill="{COLOR_MUTED}">{escape(subtitle)}</text>',
+    ]
+
+
+def _svg_note_block(height: int, note: str) -> list[str]:
+    return [
+        f'<text x="48" y="{height - 18}" font-size="11" font-family="{FONT_FAMILY}" fill="{COLOR_MUTED}">{escape(note)}</text>'
+    ]
+
+
+def _svg_axes_and_grid(
+    left: int,
+    top: int,
+    plot_width: int,
+    plot_height: int,
+    x_ticks: list[float],
+    y_ticks: list[float],
+    x_min: float,
+    x_max: float,
+    y_min: float,
+    y_max: float,
+) -> list[str]:
+    lines: list[str] = []
+    x0 = left
+    x1 = left + plot_width
+    y0 = top
+    y1 = top + plot_height
+    for tick in x_ticks:
+        x = _scale_linear(tick, x_min, x_max, x0, x1)
+        lines.append(f'<line x1="{x:.2f}" y1="{y0}" x2="{x:.2f}" y2="{y1}" stroke="{COLOR_GRID}" stroke-width="1"/>')
+        lines.append(
+            f'<text x="{x:.2f}" y="{y1 + 20}" text-anchor="middle" font-size="11" font-family="{FONT_FAMILY}" fill="{COLOR_MUTED}">{_format_tick(tick)}</text>'
+        )
+    for tick in y_ticks:
+        y = _scale_linear(tick, y_min, y_max, y1, y0)
+        lines.append(f'<line x1="{x0}" y1="{y:.2f}" x2="{x1}" y2="{y:.2f}" stroke="{COLOR_GRID}" stroke-width="1"/>')
+        lines.append(
+            f'<text x="{x0 - 10}" y="{y + 4:.2f}" text-anchor="end" font-size="11" font-family="{FONT_FAMILY}" fill="{COLOR_MUTED}">{_format_tick(tick)}</text>'
+        )
+    lines.append(f'<rect x="{x0}" y="{y0}" width="{plot_width}" height="{plot_height}" fill="none" stroke="{COLOR_AXIS}" stroke-width="1.2"/>')
+    return lines
+
+
+def _svg_vertical_grid(
+    left: int,
+    top: int,
+    plot_width: int,
+    plot_height: int,
+    x_ticks: list[float],
+    x_min: float,
+    x_max: float,
+) -> list[str]:
+    lines: list[str] = []
+    x1 = left + plot_width
+    y1 = top + plot_height
+    for tick in x_ticks:
+        x = _scale_linear(tick, x_min, x_max, left, x1)
+        lines.append(f'<line x1="{x:.2f}" y1="{top}" x2="{x:.2f}" y2="{y1}" stroke="{COLOR_GRID}" stroke-width="1"/>')
+        lines.append(
+            f'<text x="{x:.2f}" y="{y1 + 20}" text-anchor="middle" font-size="11" font-family="{FONT_FAMILY}" fill="{COLOR_MUTED}">{_format_tick(tick)}</text>'
+        )
+    lines.append(f'<line x1="{left}" y1="{top}" x2="{left}" y2="{y1}" stroke="{COLOR_AXIS}" stroke-width="1.2"/>')
+    lines.append(f'<line x1="{left}" y1="{y1}" x2="{x1}" y2="{y1}" stroke="{COLOR_AXIS}" stroke-width="1.2"/>')
+    return lines
+
+
+def _svg_axis_labels(
+    *,
+    left: int,
+    top: int,
+    plot_width: int,
+    plot_height: int,
+    x_label: str,
+    y_label: str | None,
+) -> list[str]:
+    lines = [
+        f'<text x="{left + plot_width / 2:.2f}" y="{top + plot_height + 48:.2f}" text-anchor="middle" font-size="12" font-family="{FONT_FAMILY}" fill="{COLOR_TEXT}">{escape(x_label)}</text>'
+    ]
+    if y_label:
+        lines.append(
+            f'<text x="24" y="{top + plot_height / 2:.2f}" text-anchor="middle" font-size="12" font-family="{FONT_FAMILY}" fill="{COLOR_TEXT}" transform="rotate(-90 24,{top + plot_height / 2:.2f})">{escape(y_label)}</text>'
+        )
+    return lines
+
+
+def _svg_track_legend(x: int, y: int) -> list[str]:
+    items = [
+        (_track_display_label(TRACK_SAME_CONTEXT), TRACK_COLORS[TRACK_SAME_CONTEXT]),
+        (_track_display_label(TRACK_SPLIT_CONTEXT), TRACK_COLORS[TRACK_SPLIT_CONTEXT]),
+        ("other", TRACK_COLORS["other"]),
+    ]
+    return _svg_series_legend(x, y, items)
+
+
+def _svg_series_legend(x: int, y: int, items: list[tuple[str, str]]) -> list[str]:
+    lines: list[str] = []
+    for index, (label, color) in enumerate(items):
+        y_offset = y + index * 18
+        lines.append(f'<rect x="{x}" y="{y_offset - 9}" width="12" height="12" fill="{color}" opacity="0.92"/>')
+        lines.append(
+            f'<text x="{x + 18}" y="{y_offset + 1}" font-size="11" font-family="{FONT_FAMILY}" fill="{COLOR_TEXT}">{escape(label)}</text>'
+        )
+    return lines
+
+
+def _nice_ticks(min_value: float, max_value: float, *, target_ticks: int) -> list[float]:
+    if math.isclose(min_value, max_value):
+        return [min_value]
+    span = max_value - min_value
+    raw_step = span / max(target_ticks - 1, 1)
+    step = _nice_step(raw_step)
+    tick_min = math.floor(min_value / step) * step
+    tick_max = math.ceil(max_value / step) * step
+    ticks: list[float] = []
+    cursor = tick_min
+    while cursor <= tick_max + step * 0.5:
+        ticks.append(round(cursor, 10))
+        cursor += step
+    return ticks
+
+
+def _nice_step(value: float) -> float:
+    if value <= 0:
+        return 1.0
+    exponent = math.floor(math.log10(value))
+    fraction = value / (10 ** exponent)
+    if fraction <= 1.0:
+        nice_fraction = 1.0
+    elif fraction <= 2.0:
+        nice_fraction = 2.0
+    elif fraction <= 2.5:
+        nice_fraction = 2.5
+    elif fraction <= 5.0:
+        nice_fraction = 5.0
+    else:
+        nice_fraction = 10.0
+    return nice_fraction * (10 ** exponent)
+
+
+def _expand_domain(values: list[float], *, include_values: list[float], pad_fraction: float) -> tuple[float, float]:
+    materialized = list(values) + list(include_values)
+    lower = min(materialized)
+    upper = max(materialized)
+    if math.isclose(lower, upper):
+        padding = max(abs(lower) * pad_fraction, 0.1)
+        return lower - padding, upper + padding
+    span = upper - lower
+    padding = span * pad_fraction
+    return lower - padding, upper + padding
+
+
+def _scale_linear(value: float, domain_min: float, domain_max: float, range_min: float, range_max: float) -> float:
+    if math.isclose(domain_min, domain_max):
+        return (range_min + range_max) / 2.0
+    ratio = (value - domain_min) / (domain_max - domain_min)
+    return range_min + ratio * (range_max - range_min)
+
+
+def _format_tick(value: float) -> str:
+    if math.isclose(value, round(value), abs_tol=1e-9):
+        return str(int(round(value)))
+    if abs(value) >= 1:
+        return f"{value:.2f}".rstrip("0").rstrip(".")
+    return f"{value:.3f}".rstrip("0").rstrip(".")
+
+
+def _short_figure_label(value: Any) -> str:
+    label = str(value or "")
+    if label in FIGURE_LABEL_OVERRIDES:
+        return FIGURE_LABEL_OVERRIDES[label]
+    cleaned = label
+    for fragment in ("_v1", "_v2", "_smoke", "_main"):
+        cleaned = cleaned.replace(fragment, "")
+    cleaned = cleaned.replace("same_context", "same")
+    cleaned = cleaned.replace("split_context", "split")
+    cleaned = cleaned.replace("_", " ").strip()
+    return cleaned[:24].strip() or label[:24]
+
+
+def _track_display_label(track: str) -> str:
+    if track == TRACK_SAME_CONTEXT:
+        return "same"
+    if track == TRACK_SPLIT_CONTEXT:
+        return "split"
+    return "other"
