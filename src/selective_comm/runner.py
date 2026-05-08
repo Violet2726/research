@@ -131,10 +131,9 @@ def run_experiment(
     )
     provider = OpenAICompatibleProvider(backbone)
     cache_router = RequestCacheRouter(cache_root)
-    cache = cache_router.for_endpoint(
+    cache = cache_router.for_request_target(
         provider=backbone.provider,
-        base_url=backbone.base_url,
-        chat_path=backbone.chat_path,
+        request_model=backbone.model_id,
     )
     limiter = SlidingWindowRateLimiter(
         requests_per_minute=experiment.requests_per_minute_limit,
@@ -953,7 +952,13 @@ def _execute_turn(
         use_response_format=False,
     )
     prompt_hash = _prompt_hash(messages)
-    cache_key = build_request_cache_key(payload)
+    cache_key = build_request_cache_key(
+        provider=backbone.provider,
+        request_model=backbone.model_id,
+        base_url=backbone.base_url,
+        chat_path=backbone.chat_path,
+        payload=payload,
+    )
     cached = cache.get(cache_key)
     if cached is None:
         limiter.acquire(estimate_request_tokens(payload))

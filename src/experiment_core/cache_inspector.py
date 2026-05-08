@@ -19,20 +19,19 @@ from experiment_core.workspace import default_cache_root
 
 def build_parser() -> argparse.ArgumentParser:
     """构造缓存查看命令行参数。"""
-    parser = argparse.ArgumentParser(description="Inspect endpoint-sharded request caches.")
+    parser = argparse.ArgumentParser(description="查看按供应商与请求模型分层的缓存分库。")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    summarize = subparsers.add_parser("summarize", help="Summarize cache shard distribution and size.")
+    summarize = subparsers.add_parser("summarize", help="汇总缓存分库数量、大小与请求条数。")
     summarize.add_argument("--cache-root", default=default_cache_root())
     summarize.add_argument("--top-shards", type=int, default=10)
-    summarize.add_argument("--json", action="store_true", help="Print JSON instead of human-readable text.")
+    summarize.add_argument("--json", action="store_true", help="输出 JSON，而不是文本摘要。")
 
-    endpoint = subparsers.add_parser("inspect-endpoint", help="Inspect the shard used by one endpoint.")
-    endpoint.add_argument("--cache-root", default=default_cache_root())
-    endpoint.add_argument("--provider", required=True)
-    endpoint.add_argument("--base-url", required=True)
-    endpoint.add_argument("--chat-path", required=True)
-    endpoint.add_argument("--json", action="store_true", help="Print JSON instead of human-readable text.")
+    target = subparsers.add_parser("inspect-target", help="查看某个供应商/请求模型对应的缓存分库。")
+    target.add_argument("--cache-root", default=default_cache_root())
+    target.add_argument("--provider", required=True)
+    target.add_argument("--request-model", required=True)
+    target.add_argument("--json", action="store_true", help="输出 JSON，而不是文本摘要。")
 
     return parser
 
@@ -55,12 +54,11 @@ def main() -> None:
         _print_root_summary(summary, top_shards=max(int(args.top_shards), 0))
         return
 
-    if args.command == "inspect-endpoint":
+    if args.command == "inspect-target":
         shard_path = resolve_cache_shard_path(
             args.cache_root,
             provider=args.provider,
-            base_url=args.base_url,
-            chat_path=args.chat_path,
+            request_model=args.request_model,
         )
         shard = inspect_cache_shard(shard_path, args.cache_root)
         if args.json:
@@ -85,7 +83,7 @@ def _root_summary_to_dict(summary: CacheRootSummary, top_shards: int) -> dict[st
         "providers": [
             {
                 "provider": item.provider,
-                "shard_count": item.shard_count,
+                "model_count": item.model_count,
                 "total_request_count": item.total_request_count,
                 "total_size_bytes": item.total_size_bytes,
                 "total_size_human": format_bytes(item.total_size_bytes),
@@ -109,10 +107,7 @@ def _shard_summary_to_dict(shard: CacheShardSummary, cache_root: Path) -> dict[s
         "shard_path": shard.shard_path.as_posix(),
         "relative_path": relative_path,
         "provider": shard.provider,
-        "host": shard.host,
-        "upstream_path": shard.upstream_path,
-        "endpoint_stem": shard.endpoint_stem,
-        "shard_suffix": shard.shard_suffix,
+        "request_model": shard.request_model,
         "exists": shard.exists,
         "file_size_bytes": shard.file_size_bytes,
         "file_size_human": format_bytes(shard.file_size_bytes),
@@ -135,7 +130,7 @@ def _print_root_summary(summary: CacheRootSummary, top_shards: int) -> None:
     for item in summary.providers:
         print(
             "  - "
-            f"{item.provider}: 分库 {item.shard_count} 个, "
+            f"{item.provider}: 模型 {item.model_count} 个, "
             f"请求 {item.total_request_count} 条, "
             f"大小 {format_bytes(item.total_size_bytes)}"
         )
@@ -157,15 +152,13 @@ def _print_shard_summary(shard: CacheShardSummary, cache_root: Path, indent: str
     except ValueError:
         relative_path = shard.shard_path.as_posix()
 
-    location = f"{shard.provider}/{shard.host}"
-    if shard.upstream_path:
-        location = f"{location}/{shard.upstream_path}"
-
+    request_count = shard.request_count if shard.request_count is not None else "未知"
     line = (
-        f"{relative_path} | 端点 {shard.endpoint_stem} | "
-        f"位置 {location} | "
+        f"{relative_path} | "
+        f"provider {shard.provider} | "
+        f"model {shard.request_model} | "
         f"大小 {format_bytes(shard.file_size_bytes)} | "
-        f"请求 {shard.request_count if shard.request_count is not None else '未知'}"
+        f"请求 {request_count}"
     )
     if not shard.exists:
         line += " | 未创建"

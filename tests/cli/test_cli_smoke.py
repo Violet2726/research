@@ -222,10 +222,9 @@ def test_comm_necessary_inspect_cli() -> None:
 
 def test_cache_inspector_summarize_cli(tmp_path) -> None:
     router = RequestCacheRouter(tmp_path)
-    cache = router.for_endpoint(
+    cache = router.for_request_target(
         provider="deepseek",
-        base_url="https://api.example.com/v1",
-        chat_path="/chat/completions",
+        request_model="deepseek-v4-flash",
     )
     cache.put(
         CachedResponse(
@@ -254,3 +253,4 @@ def test_cache_inspector_summarize_cli(tmp_path) -> None:
     assert payload["shard_count"] == 1
     assert payload["total_request_count"] == 1
     assert payload["providers"][0]["provider"] == "deepseek"
+    assert payload["providers"][0]["model_count"] == 1
