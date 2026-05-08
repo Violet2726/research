@@ -59,7 +59,7 @@ from sparc.validation import validate_run as validate_sparc_run
 
 DEFAULT_PHASE = "smoke20"
 DEFAULT_MODEL_REF = "xiaomimimo/mimo-v2.5"
-DEFAULT_MAX_CONCURRENT_REQUESTS = 85
+DEFAULT_MAX_CONCURRENT_REQUESTS = 90
 DEFAULT_REQUESTS_PER_MINUTE = 95
 DEFAULT_TOKENS_PER_MINUTE = 9000000
 MATRIX_EXPERIMENT_KIND = "faithful_matrix"
