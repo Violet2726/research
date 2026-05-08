@@ -28,6 +28,8 @@ from experiment_core.config import load_benchmark_config, resolve_model_ref
 from experiment_core.faithful_acceptance import render_acceptance_summary
 from experiment_core.faithful_analysis import render_faithful_analysis
 from experiment_core.matrix_specs import get_experiment_matrix_spec
+from experiment_core.paper_package import render_paper_package
+from experiment_core.paper_statistics import render_paper_statistics
 from experiment_core.workspace import default_runs_root, workspace_defaults
 from free_mad_lite.config import load_experiment_config as load_free_mad_experiment_config
 from free_mad_lite.config import resolve_model as resolve_free_mad_model
@@ -117,6 +119,7 @@ class MatrixEntry:
     description: str
     phase_name: str
     evaluation_track: str
+    evidence_tier: str
     primary_method_name: str
     best_no_comm_candidates: list[str]
     full_comm_reference: str | None
@@ -198,6 +201,7 @@ def build_run_matrix(
                     description=item.description,
                     phase_name=overrides.phase_name,
                     evaluation_track=spec.evaluation_track,
+                    evidence_tier=spec.evidence_tier,
                     primary_method_name=spec.primary_method_name,
                     best_no_comm_candidates=list(spec.best_no_comm_candidates),
                     full_comm_reference=spec.full_comm_reference,
@@ -215,6 +219,7 @@ def build_run_matrix(
             description=item.description,
             phase_name=overrides.phase_name,
             evaluation_track=spec.evaluation_track,
+            evidence_tier=spec.evidence_tier,
             primary_method_name=spec.primary_method_name,
             best_no_comm_candidates=list(spec.best_no_comm_candidates),
             full_comm_reference=spec.full_comm_reference,
@@ -321,6 +326,8 @@ def run_faithful_matrix(
         reference_state_path_or_root=reference_state_path_or_root,
     )
     render_acceptance_summary(paths.root)
+    render_paper_statistics(paths.root)
+    render_paper_package(paths.root)
     return paths.root
 
 
@@ -376,6 +383,8 @@ def resume_faithful_matrix(
         reference_state_path_or_root=reference_state_path_or_root,
     )
     render_acceptance_summary(paths.root)
+    render_paper_statistics(paths.root)
+    render_paper_package(paths.root)
     return paths.root
 
 
@@ -510,8 +519,8 @@ def _load_existing_matrix_state(state_path_or_root: str | Path) -> tuple[MatrixB
         state_path = state_path / "state.json"
     payload = json.loads(state_path.read_text(encoding="utf-8"))
     overrides = RuntimeOverrides(**payload["overrides"])
-    entries = [MatrixEntry(**entry) for entry in payload.get("entries", [])]
-    semantic_entries = [MatrixEntry(**entry) for entry in payload.get("semantic_entries", [])]
+    entries = [MatrixEntry(**_normalize_entry_payload(entry)) for entry in payload.get("entries", [])]
+    semantic_entries = [MatrixEntry(**_normalize_entry_payload(entry)) for entry in payload.get("semantic_entries", [])]
     matrix = MatrixBuild(
         overrides=overrides,
         entries=entries,
@@ -519,6 +528,13 @@ def _load_existing_matrix_state(state_path_or_root: str | Path) -> tuple[MatrixB
         counts=dict(payload.get("counts", {})),
     )
     return matrix, _existing_orchestrator_paths(state_path.parent)
+
+
+def _normalize_entry_payload(entry: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(entry)
+    if "evidence_tier" not in payload:
+        payload["evidence_tier"] = get_experiment_matrix_spec(str(payload["config_path"])).evidence_tier
+    return payload
 
 
 def _write_matrix_state(paths: OrchestratorPaths, matrix: MatrixBuild) -> None:
@@ -553,8 +569,8 @@ def _render_matrix_report(matrix: MatrixBuild, counts: dict[str, int]) -> str:
         f"- rate_limits: `{matrix.overrides.max_concurrent_requests}` / `{matrix.overrides.requests_per_minute_limit}` / `{matrix.overrides.tokens_per_minute_limit}`",
         f"- counts: `{json.dumps(counts, ensure_ascii=False)}`",
         "",
-        "| family | config | status | run_dir | notes |",
-        "| --- | --- | --- | --- | --- |",
+        "| family | config | evidence_tier | status | run_dir | notes |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
     for entry in matrix.entries:
         lines.append(
@@ -563,6 +579,7 @@ def _render_matrix_report(matrix: MatrixBuild, counts: dict[str, int]) -> str:
                 [
                     entry.family,
                     Path(entry.config_path).name,
+                    entry.evidence_tier,
                     entry.status,
                     entry.run_dir or "",
                     entry.review_notes or entry.excluded_reason or "",
@@ -599,6 +616,8 @@ def build_parser() -> argparse.ArgumentParser:
     resume_cmd = subparsers.add_parser("resume", help="Resume a faithful-matrix run with pending or rerun-needed entries.")
     analyze_cmd = subparsers.add_parser("analyze-faithful", help="Render faithful analysis for an existing faithful-matrix run.")
     acceptance_cmd = subparsers.add_parser("evaluate-acceptance", help="Render acceptance summary for an existing faithful-matrix run.")
+    statistics_cmd = subparsers.add_parser("render-statistics", help="Render paper-grade statistical artifacts for an existing run.")
+    paper_cmd = subparsers.add_parser("render-paper-package", help="Render paper-facing tables and figures for an existing run.")
 
     for command in (inspect_cmd, run_cmd):
         command.add_argument("--phase", default=DEFAULT_PHASE)
@@ -614,6 +633,8 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_cmd.add_argument("--state-path", required=True)
     analyze_cmd.add_argument("--reference-state-path")
     acceptance_cmd.add_argument("--analysis-path", required=True)
+    statistics_cmd.add_argument("--state-path", required=True)
+    paper_cmd.add_argument("--state-path", required=True)
     return parser
 
 
@@ -675,6 +696,16 @@ def main() -> None:
 
     if args.command == "evaluate-acceptance":
         paths = render_acceptance_summary(args.analysis_path)
+        print(json.dumps(paths, ensure_ascii=False, indent=2))
+        return
+
+    if args.command == "render-statistics":
+        paths = render_paper_statistics(args.state_path)
+        print(json.dumps(paths, ensure_ascii=False, indent=2))
+        return
+
+    if args.command == "render-paper-package":
+        paths = render_paper_package(args.state_path)
         print(json.dumps(paths, ensure_ascii=False, indent=2))
         return
 

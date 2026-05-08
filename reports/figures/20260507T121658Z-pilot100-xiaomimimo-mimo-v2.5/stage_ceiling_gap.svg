@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="360" viewBox="0 0 900 360">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="48" y="28" font-size="18" font-family="Arial" fill="#111827">stage_ceiling_gap</text>
+<line x1="48" y1="312.00" x2="852" y2="312.00" stroke="#9ca3af" stroke-width="1"/>
+<rect x="59.21" y="224.00" width="35" height="88.00" fill="#2563eb" opacity="0.86"/>
+<text x="59.21" y="344" font-size="10" font-family="Arial" transform="rotate(-35 59.21,344)">dala_lite_same_context_v1</text>
+<rect x="116.64" y="165.33" width="35" height="146.67" fill="#2563eb" opacity="0.86"/>
+<text x="116.64" y="344" font-size="10" font-family="Arial" transform="rotate(-35 116.64,344)">trigger_early_exit_v1</text>
+<rect x="174.07" y="224.00" width="35" height="88.00" fill="#2563eb" opacity="0.86"/>
+<text x="174.07" y="344" font-size="10" font-family="Arial" transform="rotate(-35 174.07,344)">trigger_voc_v2</text>
+<rect x="231.50" y="136.00" width="35" height="176.00" fill="#2563eb" opacity="0.86"/>
+<text x="231.50" y="344" font-size="10" font-family="Arial" transform="rotate(-35 231.50,344)">sparc_v1_smoke</text>
+<rect x="288.93" y="48.00" width="35" height="264.00" fill="#2563eb" opacity="0.86"/>
+<text x="288.93" y="344" font-size="10" font-family="Arial" transform="rotate(-35 288.93,344)">dala_lite_split_context_v1</text>
+<rect x="346.36" y="312.00" width="35" height="0.00" fill="#2563eb" opacity="0.86"/>
+<text x="346.36" y="344" font-size="10" font-family="Arial" transform="rotate(-35 346.36,344)">hotpotqa_split_main</text>
+<rect x="403.79" y="165.34" width="35" height="146.66" fill="#2563eb" opacity="0.86"/>
+<text x="403.79" y="344" font-size="10" font-family="Arial" transform="rotate(-35 403.79,344)">free_mad_lite_v1</text>
+<rect x="461.21" y="312.00" width="35" height="0.00" fill="#2563eb" opacity="0.86"/>
+<text x="461.21" y="344" font-size="10" font-family="Arial" transform="rotate(-35 461.21,344)">multi_agent_main</text>
+<rect x="518.64" y="136.00" width="35" height="176.00" fill="#2563eb" opacity="0.86"/>
+<text x="518.64" y="344" font-size="10" font-family="Arial" transform="rotate(-35 518.64,344)">aggregation_auditing_ablation_</text>
+<rect x="576.07" y="136.00" width="35" height="176.00" fill="#2563eb" opacity="0.86"/>
+<text x="576.07" y="344" font-size="10" font-family="Arial" transform="rotate(-35 576.07,344)">auditing_ablation_v1</text>
+<rect x="633.50" y="153.60" width="35" height="158.40" fill="#2563eb" opacity="0.86"/>
+<text x="633.50" y="344" font-size="10" font-family="Arial" transform="rotate(-35 633.50,344)">cue_v1</text>
+<rect x="690.93" y="282.67" width="35" height="29.33" fill="#2563eb" opacity="0.86"/>
+<text x="690.93" y="344" font-size="10" font-family="Arial" transform="rotate(-35 690.93,344)">sid_lite_v1</text>
+<rect x="748.36" y="312.00" width="35" height="0.00" fill="#2563eb" opacity="0.86"/>
+<text x="748.36" y="344" font-size="10" font-family="Arial" transform="rotate(-35 748.36,344)">robustness</text>
+<rect x="805.79" y="165.33" width="35" height="146.67" fill="#2563eb" opacity="0.86"/>
+<text x="805.79" y="344" font-size="10" font-family="Arial" transform="rotate(-35 805.79,344)">content_ablation_v1</text>
+</svg>

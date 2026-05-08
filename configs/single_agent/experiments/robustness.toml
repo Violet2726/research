@@ -27,3 +27,10 @@ split_overrides = { gsm8k = "pilot100_seed42", strategyqa = "pilot100_seed42", h
 required_model_tags = ["robustness_pilot"]
 benchmark_required_tags = { strategyqa = ["general_qa"], hotpotqa = ["general_qa"] }
 reruns_override = 1
+
+[phases.confirmatory300]
+methods = ["cot_1", "sc_5"]
+split_overrides = { gsm8k = "dev300_seed42", strategyqa = "dev_full_229_seed42", hotpotqa = "dev300_seed42" }
+required_model_tags = ["robustness_pilot"]
+benchmark_required_tags = { strategyqa = ["general_qa"], hotpotqa = ["general_qa"] }
+reruns_override = 1

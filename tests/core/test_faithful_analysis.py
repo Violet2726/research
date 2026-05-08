@@ -97,6 +97,7 @@ def test_build_faithful_analysis_computes_reference_deltas_and_stage_ceiling(tmp
     assert len(analysis["rows"]) == 1
     row = analysis["rows"][0]
     assert row["best_no_comm_control"] == "mv_3"
+    assert row["evidence_tier"] == "headline"
     assert row["full_comm_reference"] == "all_to_all_full"
     assert row["family_envelope"] == "budget_confidence"
     assert row["delta_vs_best_no_comm"] == 0.1

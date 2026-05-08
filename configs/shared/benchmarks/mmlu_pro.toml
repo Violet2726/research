@@ -27,6 +27,12 @@ strategy = "shuffle"
 size = 100
 
 [[split_presets]]
+name = "strat300_seed42"
+strategy = "stratified"
+field = "category"
+size = 300
+
+[[split_presets]]
 name = "strat1200_seed42"
 strategy = "stratified"
 field = "category"

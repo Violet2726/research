@@ -1,0 +1,13 @@
+label,x,y,value
+dala_lite_same_context_v1:helpful,,,0.123333
+dala_lite_same_context_v1:harmful,,,-0.01
+hotpotqa_split_main:helpful,,,0.21
+hotpotqa_split_main:harmful,,,-0.0
+trigger_early_exit_v1:helpful,,,0.013333
+trigger_early_exit_v1:harmful,,,-0.016667
+sparc_v1_smoke:helpful,,,0.06
+sparc_v1_smoke:harmful,,,-0.02
+dala_lite_split_context_v1:helpful,,,0.115
+dala_lite_split_context_v1:harmful,,,-0.03
+trigger_voc_v2:helpful,,,0.126667
+trigger_voc_v2:harmful,,,-0.0

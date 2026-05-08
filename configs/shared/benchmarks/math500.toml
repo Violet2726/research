@@ -25,6 +25,11 @@ strategy = "shuffle"
 size = 100
 
 [[split_presets]]
+name = "confirmatory300_seed42"
+strategy = "shuffle"
+size = 300
+
+[[split_presets]]
 name = "full500_seed42"
 strategy = "full"
 size = 500

@@ -1,6 +1,6 @@
 # Faithful Acceptance Summary
 
-- generated_at: `2026-05-07T12:17:42.396378+00:00`
+- generated_at: `2026-05-08T02:29:17.117252+00:00`
 - counts: `{"evaluated": 16, "accepted_same_context": 14, "accepted_split_context": 2, "negative_control_family": 0}`
 
 ## accepted_same_context
