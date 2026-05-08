@@ -8,7 +8,16 @@ import time
 
 import pytest
 
-from experiment_core.cache import CachedResponse, RequestCache, json_dump
+from experiment_core.cache import (
+    CachedResponse,
+    RequestCache,
+    RequestCacheRouter,
+    build_request_cache_key,
+    inspect_cache_shard,
+    json_dump,
+    resolve_cache_shard_path,
+    summarize_cache_root,
+)
 from experiment_core.config import load_benchmark_config, load_model_catalog, parse_model_ref, resolve_model_ref
 from experiment_core.datasets import generate_split_manifests, load_split_ids, select_samples
 from experiment_core.providers import _extract_message_channels, build_payload
@@ -31,7 +40,7 @@ from experiment_core.structured_output import (
     validate_structured_output,
 )
 from experiment_core.workspace import (
-    default_cache_path,
+    default_cache_root,
     default_files_root,
     default_reports_root,
     default_runs_root,
@@ -83,7 +92,7 @@ def test_workspace_defaults_follow_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert default_runs_root("selective_comm") == "experiment-runs/selective_comm"
     assert default_reports_root("selective_comm") == "published-reports/selective_comm"
-    assert default_cache_path("selective_comm") == "tmp/cache/selective_comm_requests.sqlite"
+    assert default_cache_root() == "tmp/cache"
     assert default_files_root() == "notes"
 
     payload = workspace_defaults("selective_comm")
@@ -91,7 +100,7 @@ def test_workspace_defaults_follow_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert payload["reports_root"] == "published-reports"
     assert payload["experiment_runs_root"] == "experiment-runs/selective_comm"
     assert payload["experiment_reports_root"] == "published-reports/selective_comm"
-    assert payload["experiment_cache_path"] == "tmp/cache/selective_comm_requests.sqlite"
+    assert payload["experiment_cache_root"] == "tmp/cache"
 
 
 def test_build_payload_maps_thinking_control_by_provider() -> None:
@@ -753,6 +762,117 @@ def test_request_cache_round_trip(tmp_path: Path) -> None:
     loaded = cache.get("abc")
     cache.close()
     assert loaded == record
+
+
+def test_build_request_cache_key_depends_only_on_payload() -> None:
+    payload = {"model": "demo", "messages": [{"role": "user", "content": "hi"}], "temperature": 0.0}
+    assert build_request_cache_key(payload) == build_request_cache_key(dict(payload))
+    assert build_request_cache_key(payload) != build_request_cache_key({**payload, "temperature": 0.7})
+
+
+def test_request_cache_router_shards_by_endpoint(tmp_path: Path) -> None:
+    router = RequestCacheRouter(tmp_path)
+    first = router.for_endpoint(
+        provider="deepseek",
+        base_url="https://api.example.com/v1",
+        chat_path="/chat/completions",
+    )
+    second = router.for_endpoint(
+        provider="deepseek",
+        base_url="https://api.example.com/v1/",
+        chat_path="chat/completions",
+    )
+    third = router.for_endpoint(
+        provider="deepseek",
+        base_url="https://api.example.com/v1",
+        chat_path="/responses",
+    )
+    router.close()
+
+    assert first is second
+    assert first.db_path != third.db_path
+    assert first.db_path.suffix == ".sqlite"
+    assert "providers" in first.db_path.parts
+
+
+def test_resolve_cache_shard_path_matches_router(tmp_path: Path) -> None:
+    router = RequestCacheRouter(tmp_path)
+    cache = router.for_endpoint(
+        provider="deepseek",
+        base_url="https://api.example.com/v1",
+        chat_path="/chat/completions",
+    )
+    router.close()
+
+    resolved = resolve_cache_shard_path(
+        tmp_path,
+        provider="deepseek",
+        base_url="https://api.example.com/v1/",
+        chat_path="chat/completions",
+    )
+    assert cache.db_path == resolved
+
+
+def test_summarize_cache_root_collects_provider_stats(tmp_path: Path) -> None:
+    router = RequestCacheRouter(tmp_path)
+    deepseek_cache = router.for_endpoint(
+        provider="deepseek",
+        base_url="https://api.example.com/v1",
+        chat_path="/chat/completions",
+    )
+    dashscope_cache = router.for_endpoint(
+        provider="dashscope",
+        base_url="https://dash.example.com/compatible-mode/v1",
+        chat_path="/chat/completions",
+    )
+    deepseek_cache.put(
+        CachedResponse(
+            cache_key="a",
+            payload_json=json_dump({"request": 1}),
+            response_json=json_dump({"ok": True}),
+            http_status=200,
+            latency_ms=10.0,
+            provider_request_id="req_a",
+        )
+    )
+    deepseek_cache.put(
+        CachedResponse(
+            cache_key="b",
+            payload_json=json_dump({"request": 2}),
+            response_json=json_dump({"ok": True}),
+            http_status=200,
+            latency_ms=11.0,
+            provider_request_id="req_b",
+        )
+    )
+    dashscope_cache.put(
+        CachedResponse(
+            cache_key="c",
+            payload_json=json_dump({"request": 3}),
+            response_json=json_dump({"ok": True}),
+            http_status=200,
+            latency_ms=12.0,
+            provider_request_id="req_c",
+        )
+    )
+    router.close()
+
+    summary = summarize_cache_root(tmp_path)
+    assert summary.shard_count == 2
+    assert summary.provider_count == 2
+    assert summary.total_request_count == 3
+    assert summary.total_size_bytes > 0
+    assert {item.provider for item in summary.providers} == {"dashscope", "deepseek"}
+
+    shard = inspect_cache_shard(resolve_cache_shard_path(
+        tmp_path,
+        provider="deepseek",
+        base_url="https://api.example.com/v1",
+        chat_path="/chat/completions",
+    ), tmp_path)
+    assert shard.exists is True
+    assert shard.request_count == 2
+    assert shard.provider == "deepseek"
 
 
 def test_rate_limiter_without_waiting() -> None:

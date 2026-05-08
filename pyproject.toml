@@ -27,6 +27,7 @@ comm_necessary_cli = "comm_necessary.cli:main"
 cue_cli = "cue.cli:main"
 cleanup_artifacts_cli = "experiment_core.artifact_cleanup:main"
 faithful_matrix_cli = "experiment_core.faithful_matrix:main"
+cache_inspector_cli = "experiment_core.cache_inspector:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

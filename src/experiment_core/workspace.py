@@ -1,12 +1,4 @@
-"""统一管理仓库中的工作目录与环境变量覆盖。
-
-本模块回答两个问题：
-1. 运行产物默认写到哪里？
-2. 如果用户想覆盖默认路径，应该设置哪些环境变量？
-
-这样各实验包就不需要在 CLI、runner、reporting 中分别硬编码
-`runs/...`、`reports/...`、`cache/...sqlite` 这些路径。
-"""
+"""统一管理仓库中的工作目录与环境变量覆盖。"""
 
 from __future__ import annotations
 
@@ -52,9 +44,9 @@ def default_reports_root(experiment_kind: str) -> str:
     return _to_posix(workspace_layout().reports_root / experiment_kind)
 
 
-def default_cache_path(experiment_kind: str) -> str:
-    """返回某类实验默认的请求缓存 SQLite 路径。"""
-    return _to_posix(workspace_layout().cache_root / f"{experiment_kind}_requests.sqlite")
+def default_cache_root() -> str:
+    """返回共享缓存根目录。"""
+    return _to_posix(workspace_layout().cache_root)
 
 
 def default_files_root() -> str:
@@ -81,7 +73,7 @@ def workspace_defaults(experiment_kind: str | None = None) -> dict[str, Any]:
         payload["experiment_kind"] = experiment_kind
         payload["experiment_runs_root"] = default_runs_root(experiment_kind)
         payload["experiment_reports_root"] = default_reports_root(experiment_kind)
-        payload["experiment_cache_path"] = default_cache_path(experiment_kind)
+        payload["experiment_cache_root"] = default_cache_root()
     return payload
 
 

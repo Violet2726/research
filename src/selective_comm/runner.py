@@ -19,7 +19,7 @@ from typing import Callable
 
 from dotenv import load_dotenv
 
-from experiment_core.cache import CachedResponse, RequestCache, json_dump
+from experiment_core.cache import CachedResponse, RequestCache, RequestCacheRouter, build_request_cache_key, json_dump
 from experiment_core.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.evaluation import aggregate_majority, normalize_prediction, score_prediction
 from experiment_core.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
@@ -38,7 +38,7 @@ from experiment_core.structured_output import (
     OUTPUT_MODE_SELECTIVE_COMM,
     validate_or_recover_structured_output,
 )
-from experiment_core.workspace import default_cache_path, default_runs_root
+from experiment_core.workspace import default_cache_root, default_runs_root
 from selective_comm.config import (
     SelectiveCommExperimentConfig,
     SharedDebateProtocolConfig,
@@ -113,13 +113,13 @@ def run_experiment(
     phase_name: str,
     backbone,
     run_root: str | Path | None = None,
-    cache_path: str | Path | None = None,
+    cache_root: str | Path | None = None,
     resume_run_dir: str | Path | None = None,
 ) -> Path:
     """执行一个选择性通信 phase，并写出完整运行目录。"""
     load_dotenv(".env.local", override=False)
     run_root = run_root or default_runs_root("selective_comm")
-    cache_path = cache_path or default_cache_path("selective_comm")
+    cache_root = cache_root or default_cache_root()
     benchmarks = load_benchmarks(experiment)
     protocol = load_protocol_config(experiment.protocol)
     policies = load_policies(experiment.policy_configs)
@@ -130,7 +130,12 @@ def run_experiment(
         else None
     )
     provider = OpenAICompatibleProvider(backbone)
-    cache = RequestCache(cache_path)
+    cache_router = RequestCacheRouter(cache_root)
+    cache = cache_router.for_endpoint(
+        provider=backbone.provider,
+        base_url=backbone.base_url,
+        chat_path=backbone.chat_path,
+    )
     limiter = SlidingWindowRateLimiter(
         requests_per_minute=experiment.requests_per_minute_limit,
         tokens_per_minute=experiment.tokens_per_minute_limit,
@@ -248,7 +253,7 @@ def run_experiment(
     render_trigger_report(run_paths.root)
     run_paths.run_validation.write_text(json.dumps(validate_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
     progress.mark_completed()
-    cache.close()
+    cache_router.close()
     return run_paths.root
 
 
@@ -948,17 +953,7 @@ def _execute_turn(
         use_response_format=False,
     )
     prompt_hash = _prompt_hash(messages)
-    cache_key = _cache_key(
-        dataset=dataset,
-        split_name=split_name,
-        sample_id=sample.sample_id,
-        stage_name=stage_name,
-        method_name=method_name,
-        round_index=round_index,
-        agent_id=agent_id,
-        prompt_hash=prompt_hash,
-        payload=payload,
-    )
+    cache_key = build_request_cache_key(payload)
     cached = cache.get(cache_key)
     if cached is None:
         limiter.acquire(estimate_request_tokens(payload))
@@ -1424,32 +1419,6 @@ def _trace_hash(rows: list[dict[str, Any]]) -> str:
         for row in rows
     ]
     return sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
-
-
-def _cache_key(
-    dataset: str,
-    split_name: str,
-    sample_id: str,
-    stage_name: str,
-    method_name: str,
-    round_index: int,
-    agent_id: int,
-    prompt_hash: str,
-    payload: dict[str, Any],
-) -> str:
-    """构造单次调用的缓存键。"""
-    fingerprint = {
-        "dataset": dataset,
-        "split_name": split_name,
-        "sample_id": sample_id,
-        "stage_name": stage_name,
-        "method_name": method_name,
-        "round_index": round_index,
-        "agent_id": agent_id,
-        "prompt_hash": prompt_hash,
-        "payload": payload,
-    }
-    return sha256(json.dumps(fingerprint, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def _prompt_hash(messages: list[dict[str, str]]) -> str:

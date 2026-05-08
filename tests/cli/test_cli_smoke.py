@@ -6,6 +6,8 @@ import io
 import json
 from contextlib import redirect_stdout
 
+from experiment_core.cache import CachedResponse, RequestCacheRouter, json_dump
+from experiment_core.cache_inspector import main as cache_inspector_main
 from experiment_core.faithful_matrix import main as faithful_matrix_main
 from multi_agent.cli import main as multi_agent_main
 from budget_comm.cli import main as budget_main
@@ -42,7 +44,7 @@ def test_single_agent_inspect_cli() -> None:
         ],
     )
     assert payload["name"] == "main_baselines"
-    assert payload["workspace_defaults"]["experiment_cache_path"].endswith("single_agent_requests.sqlite")
+    assert payload["workspace_defaults"]["experiment_cache_root"].endswith("cache")
 
 
 def test_faithful_matrix_inspect_cli() -> None:
@@ -216,3 +218,39 @@ def test_comm_necessary_inspect_cli() -> None:
     assert payload["max_concurrent_requests"] == 5
     assert payload["requests_per_minute_limit"] == 50
     assert payload["tokens_per_minute_limit"] == 1000000
+
+
+def test_cache_inspector_summarize_cli(tmp_path) -> None:
+    router = RequestCacheRouter(tmp_path)
+    cache = router.for_endpoint(
+        provider="deepseek",
+        base_url="https://api.example.com/v1",
+        chat_path="/chat/completions",
+    )
+    cache.put(
+        CachedResponse(
+            cache_key="a",
+            payload_json=json_dump({"request": 1}),
+            response_json=json_dump({"ok": True}),
+            http_status=200,
+            latency_ms=10.0,
+            provider_request_id="req_a",
+        )
+    )
+    router.close()
+
+    payload = _run_cli(
+        cache_inspector_main,
+        [
+            "cache_inspector_cli",
+            "summarize",
+            "--cache-root",
+            str(tmp_path),
+            "--top-shards",
+            "5",
+            "--json",
+        ],
+    )
+    assert payload["shard_count"] == 1
+    assert payload["total_request_count"] == 1
+    assert payload["providers"][0]["provider"] == "deepseek"

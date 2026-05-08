@@ -65,7 +65,7 @@
 
 - `runs/<experiment_kind>/`
 - `reports/<experiment_kind>/`
-- `cache/<experiment_kind>_requests.sqlite`
+- `cache/providers/<provider>/<host>/<endpoint>.sqlite`
 - `files/`
 
 ### 环境变量覆盖

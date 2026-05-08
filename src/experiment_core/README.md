@@ -11,9 +11,11 @@
 - `evaluation.py`：统一评分逻辑
 - `runtime.py`：运行进度、时间戳和 `run_id`
 - `workspace.py`：默认 `runs/`、`reports/`、`cache/`、`files/` 路径
+- `cache.py`：按真实端点分库的请求缓存与统计能力
 - `rate_limits.py`：请求并发与 RPM / TPM 节流
 - `faithful_matrix.py`：统一的 faithful 实验矩阵入口，支持 `smoke20` 与 `pilot100`
 - `artifact_cleanup.py`：失效运行与失效报告清理工具
+- `cache_inspector.py`：缓存分库统计与端点定位工具
 
 ## 维护约定
 

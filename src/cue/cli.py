@@ -18,7 +18,7 @@ from cue.config import (
 from cue.reporting import render_cue_report, summarize_run
 from cue.runner import run_experiment
 from cue.validation import validate_run
-from experiment_core.workspace import default_cache_path, default_reports_root, default_runs_root, workspace_defaults
+from experiment_core.workspace import default_cache_root, default_reports_root, default_runs_root, workspace_defaults
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,7 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--phase", required=True)
     run.add_argument("--model", default=None)
     run.add_argument("--runs-root", default=default_runs_root("cue"))
-    run.add_argument("--cache-path", default=default_cache_path("cue"))
+    run.add_argument("--cache-root", default=default_cache_root())
 
     summarize = subparsers.add_parser("summarize-run", help="Print a concise run summary from policy_metrics.json.")
     summarize.add_argument("--run-dir", required=True)
@@ -92,7 +92,7 @@ def main() -> None:
             phase_name=args.phase,
             backbone=resolved_model,
             run_root=args.runs_root,
-            cache_path=args.cache_path,
+            cache_root=args.cache_root,
         )
         print(run_dir.as_posix())
         return

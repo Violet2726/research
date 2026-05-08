@@ -20,7 +20,7 @@ from experiment_core.config import (
 )
 from experiment_core.datasets import generate_split_manifests
 from experiment_core.methods import load_method_catalog
-from experiment_core.workspace import default_cache_path, default_runs_root, workspace_defaults
+from experiment_core.workspace import default_cache_root, default_runs_root, workspace_defaults
 from single_agent.config import (
     load_experiment_config,
     required_benchmark_tags,
@@ -62,7 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--phase", required=True)
     run.add_argument("--model", default=None)
     run.add_argument("--runs-root", default=default_runs_root("single_agent"))
-    run.add_argument("--cache-path", default=default_cache_path("single_agent"))
+    run.add_argument("--cache-root", default=default_cache_root())
 
     list_models = subparsers.add_parser("list-models", help="List registered models from the catalog.")
     list_models.add_argument("--catalog", default=str(DEFAULT_MODEL_CATALOG_PATH))
@@ -140,7 +140,7 @@ def main() -> None:
             models=[resolved_model],
             benchmarks=benchmarks,
             run_root=args.runs_root,
-            cache_path=args.cache_path,
+            cache_root=args.cache_root,
         )
         print(run_dir.as_posix())
         return

@@ -40,7 +40,7 @@ from comm_necessary.logic import (
     support_facts_to_jsonable,
 )
 from comm_necessary.prompting import build_belief_update_messages, build_solver_messages
-from experiment_core.cache import CachedResponse, RequestCache, json_dump
+from experiment_core.cache import CachedResponse, RequestCache, RequestCacheRouter, build_request_cache_key, json_dump
 from experiment_core.config import ResolvedModelConfig
 from experiment_core.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.evaluation import normalize_prediction
@@ -52,7 +52,7 @@ from experiment_core.structured_output import (
     OUTPUT_MODE_COMM_NECESSARY_SOLVER,
     validate_or_recover_structured_output,
 )
-from experiment_core.workspace import default_cache_path, default_runs_root
+from experiment_core.workspace import default_cache_root, default_runs_root
 
 
 @dataclass(frozen=True)
@@ -91,7 +91,7 @@ def run_experiment(
     phase_name: str,
     backbone: ResolvedModelConfig,
     run_root: str | Path | None = None,
-    cache_path: str | Path | None = None,
+    cache_root: str | Path | None = None,
 ) -> Path:
     """执行一个 comm_necessary phase，并写出完整运行目录。"""
     from comm_necessary.reporting import render_report
@@ -99,11 +99,16 @@ def run_experiment(
 
     load_dotenv(".env.local", override=False)
     run_root = run_root or default_runs_root("comm_necessary")
-    cache_path = cache_path or default_cache_path("comm_necessary")
+    cache_root = cache_root or default_cache_root()
     protocol = load_protocol_config(experiment.protocol)
     benchmarks = load_benchmarks(experiment)
     provider = OpenAICompatibleProvider(backbone)
-    cache = RequestCache(cache_path)
+    cache_router = RequestCacheRouter(cache_root)
+    cache = cache_router.for_endpoint(
+        provider=backbone.provider,
+        base_url=backbone.base_url,
+        chat_path=backbone.chat_path,
+    )
     limiter = SlidingWindowRateLimiter(
         requests_per_minute=experiment.requests_per_minute_limit,
         tokens_per_minute=experiment.tokens_per_minute_limit,
@@ -203,7 +208,7 @@ def run_experiment(
         progress.mark_completed()
         return paths.root
     finally:
-        cache.close()
+        cache_router.close()
 
 
 def _run_sample_batch(
@@ -717,7 +722,7 @@ def _execute_turn(
     payload = build_payload(backbone, messages, temperature, top_p, max_output_tokens, seed)
     prompt_hash = _prompt_hash(messages)
     estimated_tokens = estimate_request_tokens(payload)
-    cache_key = _cache_key(dataset, split_name, sample.sample_id, method_name, round_index, view.agent_id, output_mode, prompt_hash, payload)
+    cache_key = build_request_cache_key(payload)
     cached = cache.get(cache_key)
     if cached is None:
         limiter.acquire(estimated_tokens)
@@ -1051,31 +1056,6 @@ def _trace_hash(rows: list[dict[str, Any]], keys: list[str]) -> str:
 
 def _prompt_hash(messages: list[dict[str, str]]) -> str:
     return sha256(json.dumps(messages, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
-
-
-def _cache_key(
-    dataset: str,
-    split_name: str,
-    sample_id: str,
-    method_name: str,
-    round_index: int,
-    agent_id: int,
-    output_mode: str,
-    prompt_hash: str,
-    payload: dict[str, Any],
-) -> str:
-    fingerprint = {
-        "dataset": dataset,
-        "split_name": split_name,
-        "sample_id": sample_id,
-        "method_name": method_name,
-        "round_index": round_index,
-        "agent_id": agent_id,
-        "output_mode": output_mode,
-        "prompt_hash": prompt_hash,
-        "payload": payload,
-    }
-    return sha256(json.dumps(fingerprint, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def _stable_sample_seed(sample_id: str) -> int:

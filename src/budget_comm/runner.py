@@ -49,7 +49,7 @@ from budget_comm.logic import (
     evaluate_full_dala_gate,
 )
 from budget_comm.prompting import build_belief_update_messages, build_solver_messages
-from experiment_core.cache import CachedResponse, RequestCache, json_dump
+from experiment_core.cache import CachedResponse, RequestCache, RequestCacheRouter, build_request_cache_key, json_dump
 from experiment_core.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.evaluation import aggregate_majority, normalize_prediction, score_prediction
 from experiment_core.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
@@ -62,7 +62,7 @@ from experiment_core.structured_output import (
     OUTPUT_MODE_BUDGET_SOLVER,
     validate_or_recover_structured_output,
 )
-from experiment_core.workspace import default_cache_path, default_runs_root
+from experiment_core.workspace import default_cache_root, default_runs_root
 
 
 @dataclass(frozen=True)
@@ -102,7 +102,7 @@ def run_experiment(
     phase_name: str,
     backbone,
     run_root: str | Path | None = None,
-    cache_path: str | Path | None = None,
+    cache_root: str | Path | None = None,
 ) -> Path:
     """执行一个 `budget_comm` phase，并写出完整运行目录。
 
@@ -114,13 +114,18 @@ def run_experiment(
 
     load_dotenv(".env.local", override=False)
     run_root = run_root or default_runs_root("budget_comm")
-    cache_path = cache_path or default_cache_path("budget_comm")
+    cache_root = cache_root or default_cache_root()
     benchmarks = load_benchmarks(experiment)
     protocol = load_protocol_config(experiment.protocol)
     auction_policy = load_auction_policy_config(experiment.auction_policy)
     context_view_config = load_context_view_config(experiment.context_view)
     provider = OpenAICompatibleProvider(backbone)
-    cache = RequestCache(cache_path)
+    cache_router = RequestCacheRouter(cache_root)
+    cache = cache_router.for_endpoint(
+        provider=backbone.provider,
+        base_url=backbone.base_url,
+        chat_path=backbone.chat_path,
+    )
     limiter = SlidingWindowRateLimiter(
         requests_per_minute=experiment.requests_per_minute_limit,
         tokens_per_minute=experiment.tokens_per_minute_limit,
@@ -248,7 +253,7 @@ def run_experiment(
     render_report(run_paths.root)
     run_paths.run_validation.write_text(json.dumps(validate_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
     progress.mark_completed()
-    cache.close()
+    cache_router.close()
     return run_paths.root
 
 
@@ -1033,17 +1038,7 @@ def _execute_turn(
         seed=seed,
     )
     prompt_hash = _prompt_hash(messages)
-    cache_key = _cache_key(
-        dataset=dataset,
-        split_name=split_name,
-        sample_id=sample.sample_id,
-        stage_name=stage_name,
-        method_name=method_name,
-        round_index=round_index,
-        agent_id=agent_id,
-        prompt_hash=prompt_hash,
-        payload=payload,
-    )
+    cache_key = build_request_cache_key(payload)
     cached = cache.get(cache_key)
     if cached is None:
         # 只有真正发网路请求时才占用限流配额；缓存命中不计入。
@@ -1170,33 +1165,6 @@ def _execute_turn(
             }
         )
     return row
-
-
-def _cache_key(
-    *,
-    dataset: str,
-    split_name: str,
-    sample_id: str,
-    stage_name: str,
-    method_name: str,
-    round_index: int,
-    agent_id: int,
-    prompt_hash: str,
-    payload: dict[str, Any],
-) -> str:
-    """构造单次 turn 的稳定缓存键。"""
-    fingerprint = {
-        "dataset": dataset,
-        "split_name": split_name,
-        "sample_id": sample_id,
-        "stage_name": stage_name,
-        "method_name": method_name,
-        "round_index": round_index,
-        "agent_id": agent_id,
-        "prompt_hash": prompt_hash,
-        "payload": payload,
-    }
-    return sha256(json.dumps(fingerprint, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def _trace_hash(rows: list[dict[str, Any]]) -> str:

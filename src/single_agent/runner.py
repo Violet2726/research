@@ -19,7 +19,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from experiment_core.cache import CachedResponse, RequestCache, json_dump
+from experiment_core.cache import CachedResponse, RequestCache, RequestCacheRouter, build_request_cache_key, json_dump
 from experiment_core.config import (
     BenchmarkConfig,
     ResolvedModelConfig,
@@ -46,7 +46,7 @@ from experiment_core.structured_output import (
     validate_or_recover_structured_output,
 )
 from experiment_core.workspace import (
-    default_cache_path,
+    default_cache_root,
     default_reports_root,
     default_runs_root,
 )
@@ -114,7 +114,7 @@ def run_experiment(
     models: list[ResolvedModelConfig],
     benchmarks: list[BenchmarkConfig],
     run_root: str | Path | None = None,
-    cache_path: str | Path | None = None,
+    cache_root: str | Path | None = None,
 ) -> Path:
     """执行一个 `single_agent` phase，并产出完整运行目录。
 
@@ -123,14 +123,14 @@ def run_experiment(
     """
     load_dotenv(".env.local", override=False)
     run_root = run_root or default_runs_root("single_agent")
-    cache_path = cache_path or default_cache_path("single_agent")
+    cache_root = cache_root or default_cache_root()
     phase = phase_metadata(experiment, phase_name)
     method_catalog = load_method_catalog(experiment.method_catalog)
     methods = _phase_methods(experiment, phase_name, method_catalog)
     primary_model = models[0] if models else None
     run_id = build_run_id(experiment.name, phase_name, primary_model.name if primary_model is not None else "")
     run_paths = _prepare_run_paths(run_root, experiment.name, phase_name, run_id)
-    cache = RequestCache(cache_path)
+    cache_router = RequestCacheRouter(cache_root)
     rate_limiter = SlidingWindowRateLimiter(
         requests_per_minute=experiment.requests_per_minute_limit,
         tokens_per_minute=experiment.tokens_per_minute_limit,
@@ -184,6 +184,11 @@ def run_experiment(
             if not _model_is_allowed(experiment, phase_name, model):
                 continue
             provider = OpenAICompatibleProvider(model)
+            cache = cache_router.for_endpoint(
+                provider=model.provider,
+                base_url=model.base_url,
+                chat_path=model.chat_path,
+            )
             for benchmark in benchmarks:
                 if not _benchmark_is_allowed(experiment, phase_name, model, benchmark.slug):
                     continue
@@ -230,7 +235,7 @@ def run_experiment(
         encoding="utf-8",
     )
     progress.mark_completed()
-    cache.close()
+    cache_router.close()
     return run_paths.root
 
 
@@ -270,17 +275,7 @@ def _run_method_batch(
                     else experiment.global_seed
                 ),
             )
-            cache_key = _cache_key(
-                dataset=benchmark.slug,
-                sample_id=sample.sample_id,
-                split_name=split_name,
-                method_name=method.name,
-                replicate_id=replicate_id,
-                model_name=model.name,
-                rerun_index=rerun_index,
-                prompt_hash=prompt_hash,
-                payload=payload,
-            )
+            cache_key = build_request_cache_key(payload)
             call_specs.append(
                 CallSpec(
                     run_id=run_id,
@@ -611,35 +606,6 @@ def _phase_methods(experiment: ExperimentConfig, phase_name: str, method_catalog
             f"Experiment {experiment.name} phase {phase_name} references undefined methods: {', '.join(missing)}"
         )
     return [method_catalog[name] for name in method_names]
-
-
-def _cache_key(
-    dataset: str,
-    sample_id: str,
-    split_name: str,
-    method_name: str,
-    replicate_id: int,
-    model_name: str,
-    rerun_index: int,
-    prompt_hash: str,
-    payload: dict[str, Any],
-) -> str:
-    """构造稳定缓存键。
-
-    只要 prompt、payload、方法、模型或重跑索引变化，缓存键就会变化。
-    """
-    fingerprint = {
-        "dataset": dataset,
-        "sample_id": sample_id,
-        "split_name": split_name,
-        "method_name": method_name,
-        "replicate_id": replicate_id,
-        "model_name": model_name,
-        "rerun_index": rerun_index,
-        "prompt_hash": prompt_hash,
-        "payload": payload,
-    }
-    return sha256(json.dumps(fingerprint, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def _prompt_hash(messages: list[dict[str, str]]) -> str:
