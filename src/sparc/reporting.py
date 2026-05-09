@@ -6,9 +6,7 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from pathlib import Path
-import json
 import math
 import random
 from typing import Any
@@ -19,6 +17,7 @@ from experiment_core.reporting.analysis_reports import (
 )
 from experiment_core.reporting.report_pipeline import SupplementalReport, render_report_bundle
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
+from experiment_core.reporting.report_views import SummaryTableView, load_json_payload, load_jsonl_rows
 from experiment_core.reporting.run_figures import (
     build_efficiency_rank_figure_spec,
     build_frontier_figure_spec,
@@ -35,16 +34,13 @@ from experiment_core.foundation.workspace import default_reports_root
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
-    metrics = _load_json(Path(run_dir) / "metrics.json")
-    rows = metrics.get("summary", [])
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        grouped[row["dataset"]].append(row)
+    summary = SummaryTableView.from_metrics_payload(load_json_payload(Path(run_dir) / "metrics.json"))
+    grouped = summary.grouped_by_dataset()
     return {
         "run_dir": str(Path(run_dir)),
-        "row_count": len(rows),
+        "row_count": len(summary.rows),
         "datasets": sorted(grouped),
-        "summary_by_dataset": grouped,
+        "summary_by_dataset": {dataset: [row.raw for row in rows] for dataset, rows in grouped.items()},
     }
 
 
@@ -54,10 +50,10 @@ def render_report(
 ) -> dict[str, Any]:
     publish_dir = publish_dir or default_reports_root("sparc")
     root = Path(run_dir)
-    manifest = _load_json(root / "manifest.json")
-    metrics = _load_json(root / "metrics.json")
-    diagnostics = _load_json(root / "diagnostics.json")
-    predictions = _load_jsonl(root / "final_predictions.jsonl")
+    manifest = load_json_payload(root / "manifest.json")
+    metrics = load_json_payload(root / "metrics.json")
+    diagnostics = load_json_payload(root / "diagnostics.json")
+    predictions = load_jsonl_rows(root / "final_predictions.jsonl")
     base_markdown = _render_markdown(manifest, metrics, diagnostics, predictions, root)
     return render_report_bundle(
         run_dir=root,
@@ -84,8 +80,9 @@ def render_report(
 
 
 def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
-    rows = metrics.get("summary", [])
-    overall_rows = [row for row in rows if row.get("dataset") == "overall"]
+    summary = SummaryTableView.from_metrics_payload(metrics)
+    rows = [row.raw for row in summary.rows]
+    overall_rows = summary.overall_rows()
     experiment_kind = str(diagnostics.get("experiment_kind") or "")
     figure_specs = [
         build_frontier_figure_spec(
@@ -119,14 +116,14 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
                 primary_metric="准确率",
                 data=[
                     {
-                        "label": str(row.get("display_name") or row.get("method_name") or "unknown"),
-                        "short_label": str(row.get("display_name") or row.get("method_name") or "unknown"),
-                        "x": float(row.get("compression_ratio_vs_full_cot") or 0.0),
-                        "y": float(row.get("accuracy_mean") or 0.0),
-                        "value": float(row.get("accuracy_mean") or 0.0),
+                        "label": str(row.display_name or row.method_name),
+                        "short_label": str(row.display_name or row.method_name),
+                        "x": float(row.compression_ratio_vs_full_cot or 0.0),
+                        "y": float(row.accuracy_mean or 0.0),
+                        "value": float(row.accuracy_mean or 0.0),
                     }
                     for row in overall_rows
-                    if row.get("compression_ratio_vs_full_cot") is not None
+                    if row.compression_ratio_vs_full_cot is not None
                 ],
                 x_label="相对 full CoT 的压缩率",
                 y_label="准确率",
@@ -145,11 +142,11 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
                 primary_metric="准确率",
                 data=[
                     {
-                        "label": str(row.get("display_name") or row.get("method_name") or "unknown"),
-                        "short_label": str(row.get("display_name") or row.get("method_name") or "unknown"),
-                        "x": float(row.get("audit_tokens_mean") or 0.0),
-                        "y": float(row.get("accuracy_mean") or 0.0),
-                        "value": float(row.get("accuracy_mean") or 0.0),
+                        "label": str(row.display_name or row.method_name),
+                        "short_label": str(row.display_name or row.method_name),
+                        "x": float(row.audit_tokens_mean or 0.0),
+                        "y": float(row.accuracy_mean or 0.0),
+                        "value": float(row.accuracy_mean or 0.0),
                     }
                     for row in overall_rows
                 ],
@@ -170,10 +167,10 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
                 primary_metric="比率",
                 data=[
                     {
-                        "label": str(row.get("display_name") or row.get("method_name") or "unknown"),
-                        "short_label": str(row.get("display_name") or row.get("method_name") or "unknown"),
-                        "trigger_rate": float(row.get("trigger_rate") or 0.0),
-                        "early_exit_rate": float(row.get("early_exit_rate") or 0.0),
+                        "label": str(row.display_name or row.method_name),
+                        "short_label": str(row.display_name or row.method_name),
+                        "trigger_rate": float(row.trigger_rate or 0.0),
+                        "early_exit_rate": float(row.early_exit_rate or 0.0),
                     }
                     for row in overall_rows
                 ],
@@ -217,11 +214,11 @@ def _render_content_report(
     recommendation = diagnostics.get("recommended_next_default")
     comparison_row = recommendation if recommendation else next((row for row in ordered_rows if row["method_name"] != "full_cot"), None)
     ci_text = _bootstrap_ci_text(predictions, comparison_row["method_name"], "full_cot") if comparison_row else "未计算。"
-    best_row = max(ordered_rows, key=lambda row: float(row.get("accuracy_mean") or 0.0), default=None)
+    best_row = max(ordered_rows, key=lambda row: float(row.accuracy_mean or 0.0), default=None)
     abstract: list[str] = []
     if best_row is not None:
         abstract.append(
-            f"总体准确率最高的方法是 `{best_row['display_name']}`，准确率为 {format_float(best_row.get('accuracy_mean'))}。"
+            f"总体准确率最高的方法是 `{best_row.display_name}`，准确率为 {format_float(best_row.accuracy_mean)}。"
         )
     if comparison_row is not None and comparison_row.get("compression_ratio_vs_full_cot") is not None:
         abstract.append(
@@ -245,13 +242,13 @@ def _render_content_report(
                 "headers": ["方法", "准确率", "平均通信 token / 题", "平均总 token / 题", "每题调用数", "每千 token 准确率", "相对 full CoT 压缩率"],
                 "rows": [
                     [
-                        f"`{row['display_name']}`",
-                        format_float(row.get("accuracy_mean")),
-                        format_float(row.get("communication_tokens_mean"), 2),
-                        format_float(row.get("total_tokens_mean"), 2),
-                        format_float(row.get("calls_per_question_mean"), 2),
-                        format_float(row.get("acc_per_1k_tokens"), 6),
-                        format_float(row.get("compression_ratio_vs_full_cot")),
+                        f"`{row.display_name}`",
+                        format_float(row.accuracy_mean),
+                        format_float(row.communication_tokens_mean, 2),
+                        format_float(row.total_tokens_mean, 2),
+                        format_float(row.calls_per_question_mean, 2),
+                        format_float(row.acc_per_1k_tokens, 6),
+                        format_float(row.compression_ratio_vs_full_cot),
                     ]
                     for row in ordered_rows
                 ],
@@ -265,10 +262,10 @@ def _render_content_report(
                     "headers": ["方法", "准确率", "平均通信 token / 题", "平均总 token / 题"],
                     "rows": [
                         [
-                            f"`{row['display_name']}`",
-                            format_float(row.get("accuracy_mean")),
-                            format_float(row.get("communication_tokens_mean"), 2),
-                            format_float(row.get("total_tokens_mean"), 2),
+                            f"`{row.display_name}`",
+                            format_float(row.accuracy_mean),
+                            format_float(row.communication_tokens_mean, 2),
+                            format_float(row.total_tokens_mean, 2),
                         ]
                         for row in _ordered_rows(disagreement_rows, method_order)
                     ],
@@ -278,10 +275,10 @@ def _render_content_report(
                     "headers": ["方法", "准确率", "平均通信 token / 题", "平均总 token / 题"],
                     "rows": [
                         [
-                            f"`{row['display_name']}`",
-                            format_float(row.get("accuracy_mean")),
-                            format_float(row.get("communication_tokens_mean"), 2),
-                            format_float(row.get("total_tokens_mean"), 2),
+                            f"`{row.display_name}`",
+                            format_float(row.accuracy_mean),
+                            format_float(row.communication_tokens_mean, 2),
+                            format_float(row.total_tokens_mean, 2),
                         ]
                         for row in _ordered_rows(oracle_rows, method_order)
                     ],
@@ -352,11 +349,11 @@ def _render_auditing_report(
     )
     recommendation = diagnostics.get("recommended_next_default")
     ci_text = _bootstrap_ci_text(predictions, "local_auditing", "final_round_vote")
-    best_row = max(overall_rows, key=lambda row: float(row.get("accuracy_mean") or 0.0), default=None)
+    best_row = max(overall_rows, key=lambda row: float(row.accuracy_mean or 0.0), default=None)
     abstract: list[str] = []
     if best_row is not None:
         abstract.append(
-            f"总体准确率最高的聚合方式是 `{best_row['display_name']}`，准确率为 {format_float(best_row.get('accuracy_mean'))}。"
+            f"总体准确率最高的聚合方式是 `{best_row.display_name}`，准确率为 {format_float(best_row.accuracy_mean)}。"
         )
     abstract.append(f"`local_auditing` 相对 `final_round_vote` 的 95% bootstrap 区间为 {ci_text}。")
     if recommendation:
@@ -376,15 +373,15 @@ def _render_auditing_report(
                 "headers": ["方法", "准确率", "平均通信 token / 题", "平均审计 token / 题", "平均总 token / 题", "解决率", "弃权率", "错误覆写率", "Minority rescue 次数"],
                 "rows": [
                     [
-                        f"`{row['display_name']}`",
-                        format_float(row.get("accuracy_mean")),
-                        format_float(row.get("communication_tokens_mean"), 2),
-                        format_float(row.get("audit_tokens_mean"), 2),
-                        format_float(row.get("total_tokens_mean"), 2),
-                        format_float(row.get("resolve_rate")),
-                        format_float(row.get("abstain_rate")),
-                        format_float(row.get("wrong_overrule_rate")),
-                        str(int(row.get("minority_rescue_count") or 0)),
+                        f"`{row.display_name}`",
+                        format_float(row.accuracy_mean),
+                        format_float(row.communication_tokens_mean, 2),
+                        format_float(row.audit_tokens_mean, 2),
+                        format_float(row.total_tokens_mean, 2),
+                        format_float(row.resolve_rate),
+                        format_float(row.abstain_rate),
+                        format_float(row.wrong_overrule_rate),
+                        str(row.minority_rescue_count),
                     ]
                     for row in overall_rows
                 ],
@@ -455,11 +452,11 @@ def _render_sparc_report(
     trigger_selection = diagnostics.get("trigger_selection", {})
     recommendation = diagnostics.get("recommended_next_default")
     ci_text = _bootstrap_ci_text(predictions, "sparc_v1", "final_round_vote_baseline")
-    best_row = max(overall_rows, key=lambda row: float(row.get("accuracy_mean") or 0.0), default=None)
+    best_row = max(overall_rows, key=lambda row: float(row.accuracy_mean or 0.0), default=None)
     abstract: list[str] = []
     if best_row is not None:
         abstract.append(
-            f"总体准确率最高的方法是 `{best_row['display_name']}`，准确率为 {format_float(best_row.get('accuracy_mean'))}。"
+            f"总体准确率最高的方法是 `{best_row.display_name}`，准确率为 {format_float(best_row.accuracy_mean)}。"
         )
     abstract.append(f"`sparc_v1` 相对 `final_round_vote_baseline` 的 95% bootstrap 区间为 {ci_text}。")
     if trigger_selection.get("selected_policy"):
@@ -492,15 +489,15 @@ def _render_sparc_report(
                 "headers": ["方法", "准确率", "平均通信 token / 题", "平均审计 token / 题", "平均总 token / 题", "每题调用数", "每千 token 准确率", "触发率", "早退率"],
                 "rows": [
                     [
-                        f"`{row['display_name']}`",
-                        format_float(row.get("accuracy_mean")),
-                        format_float(row.get("communication_tokens_mean"), 2),
-                        format_float(row.get("audit_tokens_mean"), 2),
-                        format_float(row.get("total_tokens_mean"), 2),
-                        format_float(row.get("calls_per_question_mean"), 2),
-                        format_float(row.get("acc_per_1k_tokens"), 6),
-                        format_float(row.get("trigger_rate")),
-                        format_float(row.get("early_exit_rate")),
+                        f"`{row.display_name}`",
+                        format_float(row.accuracy_mean),
+                        format_float(row.communication_tokens_mean, 2),
+                        format_float(row.audit_tokens_mean, 2),
+                        format_float(row.total_tokens_mean, 2),
+                        format_float(row.calls_per_question_mean, 2),
+                        format_float(row.acc_per_1k_tokens, 6),
+                        format_float(row.trigger_rate),
+                        format_float(row.early_exit_rate),
                     ]
                     for row in overall_rows
                 ],
@@ -659,25 +656,12 @@ def _bootstrap_accuracy_delta(
     return samples
 
 
-def _rows_for_dataset(metrics: dict[str, Any], dataset: str) -> list[dict[str, Any]]:
-    return [row for row in metrics.get("summary", []) if row.get("dataset") == dataset]
+def _rows_for_dataset(metrics: dict[str, Any], dataset: str) -> list[Any]:
+    return SummaryTableView.from_metrics_payload(metrics).dataset_rows(dataset)
 
 
-def _ordered_rows(rows: list[dict[str, Any]], order: list[str]) -> list[dict[str, Any]]:
-    return sorted(rows, key=lambda row: order.index(row["method_name"]) if row["method_name"] in order else 999)
-
-
-def _load_json(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    with path.open("r", encoding="utf-8") as handle:
-        return [json.loads(line) for line in handle if line.strip()]
+def _ordered_rows(rows: list[Any], order: list[str]) -> list[Any]:
+    return sorted(rows, key=lambda row: order.index(row.method_name) if row.method_name in order else 999)
 
 
 def _mean(values) -> float:

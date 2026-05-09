@@ -19,6 +19,16 @@ from experiment_core.matrix.matrix_specs import (
     get_experiment_matrix_spec,
 )
 from experiment_core.reporting.paper_statistics import render_paper_statistics
+from experiment_core.reporting.report_views import (
+    HelpfulHarmfulTableView,
+    MatrixAnalysisRowView,
+    MatrixAnalysisTableView,
+    MatrixStateEntryView,
+    StatisticComparisonTableView,
+    SummaryRowView,
+    load_json_payload,
+    load_jsonl_rows,
+)
 from experiment_core.reporting.run_figures import (
     _render_points_csv,
     _render_svg,
@@ -75,9 +85,9 @@ def render_paper_package(
     if not statistics_path.exists():
         render_paper_statistics(state_path, output_root=root)
 
-    state_payload = _load_json(state_path)
-    analysis = _load_json(analysis_path)
-    statistics = _load_json(statistics_path)
+    state_payload = load_json_payload(state_path)
+    analysis = load_json_payload(analysis_path)
+    statistics = load_json_payload(statistics_path)
     package = build_paper_package_payload(state_payload, analysis, statistics)
 
     run_id = state_path.parent.name
@@ -129,20 +139,20 @@ def build_paper_package_payload(
     statistics: dict[str, Any],
 ) -> dict[str, Any]:
     """Convert matrix artifacts into stable paper-facing sections."""
-    rows = [row for row in analysis.get("combined_overall", []) if isinstance(row, dict)]
+    rows = MatrixAnalysisTableView.from_analysis_payload(analysis)
     sections = {
-        "same_context_main_table": _rows_by_tier(rows, EVIDENCE_HEADLINE, TRACK_SAME_CONTEXT),
-        "split_context_main_table": _rows_by_tier(rows, EVIDENCE_HEADLINE, TRACK_SPLIT_CONTEXT),
-        "supporting_evidence_table": _rows_by_tier(rows, EVIDENCE_SUPPORTING, None),
-        "diagnostic_evidence_table": _rows_by_tier(rows, EVIDENCE_DIAGNOSTIC, None),
-        "reference_table": _rows_by_tier(rows, EVIDENCE_REFERENCE, None),
+        "same_context_main_table": [row.to_dict() for row in rows.by_tier(EVIDENCE_HEADLINE, track=TRACK_SAME_CONTEXT)],
+        "split_context_main_table": [row.to_dict() for row in rows.by_tier(EVIDENCE_HEADLINE, track=TRACK_SPLIT_CONTEXT)],
+        "supporting_evidence_table": [row.to_dict() for row in rows.by_tier(EVIDENCE_SUPPORTING)],
+        "diagnostic_evidence_table": [row.to_dict() for row in rows.by_tier(EVIDENCE_DIAGNOSTIC)],
+        "reference_table": [row.to_dict() for row in rows.by_tier(EVIDENCE_REFERENCE)],
     }
     state_entries = [
         entry
-        for entry in state_payload.get("semantic_entries", [])
-        if entry.get("status") == "completed" and entry.get("run_dir")
+        for entry in (MatrixStateEntryView.from_row(item) for item in state_payload.get("semantic_entries", []))
+        if entry.status == "completed" and entry.run_dir
     ]
-    budget_references = _build_budget_matched_single_agent_references(state_entries, rows)
+    budget_references = _build_budget_matched_single_agent_references(state_entries, rows.overall_rows())
     helpful_harmful = _build_helpful_harmful_breakdown(state_entries)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -203,25 +213,16 @@ def render_paper_package_markdown(package: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _rows_by_tier(rows: list[dict[str, Any]], evidence_tier: str, track: str | None) -> list[dict[str, Any]]:
-    selected = [
-        row
-        for row in rows
-        if row.get("evidence_tier") == evidence_tier and (track is None or row.get("evaluation_track") == track)
-    ]
-    return sorted(selected, key=lambda row: (str(row.get("family")), str(row.get("experiment_name"))))
-
-
 def _build_budget_matched_single_agent_references(
-    entries: list[dict[str, Any]],
-    overall_rows: list[dict[str, Any]],
+    entries: list[MatrixStateEntryView],
+    overall_rows: list[MatrixAnalysisRowView],
 ) -> list[dict[str, Any]]:
     single_agent_rows = _collect_single_agent_summary_rows(entries)
-    headline_rows = [row for row in overall_rows if row.get("evidence_tier") == EVIDENCE_HEADLINE]
+    headline_rows = [row for row in overall_rows if row.evidence_tier == EVIDENCE_HEADLINE]
     baselines: list[dict[str, Any]] = []
     for row in headline_rows:
-        target_tokens = _as_float(row.get("total_tokens_mean"))
-        target_calls = _as_float(row.get("calls_per_question_mean"))
+        target_tokens = _as_float(row.total_tokens_mean)
+        target_calls = _as_float(row.calls_per_question_mean)
         for baseline_name, method_name in (
             ("budget_matched_long_cot", "cot_1"),
             ("budget_matched_sc", "sc_5"),
@@ -240,15 +241,16 @@ def _build_budget_matched_single_agent_references(
                     target_tokens=target_tokens,
                 )
             )
-        if row.get("evaluation_track") == TRACK_SPLIT_CONTEXT and row.get("full_context_reference"):
+        if row.evaluation_track == TRACK_SPLIT_CONTEXT and row.text("full_context_reference"):
+            raw = row.to_dict()
             baselines.append(
                 {
-                    "experiment_name": row.get("experiment_name"),
+                    "experiment_name": row.experiment_name,
                     "baseline_name": "budget_matched_full_context_single",
-                    "matched_budget_source": row.get("full_context_reference"),
+                    "matched_budget_source": raw.get("full_context_reference"),
                     "matched_calls_per_q": None,
                     "matched_total_tokens_mean": None,
-                    "score": row.get("full_context_score"),
+                    "score": raw.get("full_context_score"),
                     "target_calls_per_q": target_calls,
                     "target_total_tokens_mean": target_tokens,
                     "budget_match_status": "same_experiment_full_context_reference",
@@ -259,15 +261,15 @@ def _build_budget_matched_single_agent_references(
 
 def _baseline_record(
     *,
-    source_row: dict[str, Any],
+    source_row: MatrixAnalysisRowView,
     baseline_name: str,
-    reference: dict[str, Any] | None,
+    reference: SummaryRowView | None,
     target_calls: float,
     target_tokens: float,
 ) -> dict[str, Any]:
     if reference is None:
         return {
-            "experiment_name": source_row.get("experiment_name"),
+            "experiment_name": source_row.experiment_name,
             "baseline_name": baseline_name,
             "matched_budget_source": None,
             "matched_calls_per_q": None,
@@ -278,16 +280,16 @@ def _baseline_record(
             "budget_match_status": "missing_reference_run",
         }
 
-    matched_tokens = _as_float(reference.get("total_tokens_mean"))
+    matched_tokens = _as_float(reference.total_tokens_mean)
     return {
-        "experiment_name": source_row.get("experiment_name"),
+        "experiment_name": source_row.experiment_name,
         "baseline_name": baseline_name,
         "matched_budget_source": (
-            f"{reference.get('experiment_name')}/{reference.get('method_name')}/{reference.get('dataset')}"
+            f"{reference.text('experiment_name')}/{reference.method_name}/{reference.dataset}"
         ),
-        "matched_calls_per_q": _as_float(reference.get("calls_per_question_mean")),
+        "matched_calls_per_q": _as_float(reference.calls_per_question_mean),
         "matched_total_tokens_mean": matched_tokens,
-        "score": _as_float(reference.get("accuracy_mean")),
+        "score": _as_float(reference.accuracy_mean),
         "target_calls_per_q": target_calls,
         "target_total_tokens_mean": target_tokens,
         "token_ratio_to_target": None if target_tokens <= 0 else round(matched_tokens / target_tokens, 6),
@@ -295,39 +297,39 @@ def _baseline_record(
     }
 
 
-def _collect_single_agent_summary_rows(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
+def _collect_single_agent_summary_rows(entries: list[MatrixStateEntryView]) -> list[SummaryRowView]:
+    rows: list[SummaryRowView] = []
     for entry in entries:
-        if entry.get("family") != "single_agent":
+        if entry.family != "single_agent":
             continue
-        run_dir = Path(str(entry["run_dir"]))
-        payload = _safe_load_json(run_dir / "metrics.json")
+        run_dir = Path(entry.run_dir)
+        payload = load_json_payload(run_dir / "metrics.json")
         for row in payload.get("summary", []) if isinstance(payload, dict) else []:
             if isinstance(row, dict):
                 enriched = dict(row)
-                enriched["experiment_name"] = entry.get("experiment_name")
-                rows.append(enriched)
+                enriched["experiment_name"] = entry.experiment_name
+                rows.append(SummaryRowView.from_row(enriched))
     return rows + _synthesize_single_agent_overall_rows(rows)
 
 
 def _nearest_single_agent_row(
-    rows: list[dict[str, Any]],
+    rows: list[SummaryRowView],
     *,
     method_name: str,
     target_tokens: float,
-) -> dict[str, Any] | None:
+) -> SummaryRowView | None:
     candidates = [
         row
         for row in rows
-        if row.get("method_name") == method_name and row.get("dataset") == "overall"
+        if row.method_name == method_name and row.dataset == "overall"
     ]
     if not candidates:
         return None
     return min(
         candidates,
         key=lambda row: (
-            _single_agent_reference_rank(str(row.get("experiment_name") or "")),
-            abs(_as_float(row.get("total_tokens_mean")) - target_tokens),
+            _single_agent_reference_rank(row.text("experiment_name")),
+            abs(_as_float(row.total_tokens_mean) - target_tokens),
         ),
     )
 
@@ -340,50 +342,50 @@ def _single_agent_reference_rank(experiment_name: str) -> int:
     return 2
 
 
-def _synthesize_single_agent_overall_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _synthesize_single_agent_overall_rows(rows: list[SummaryRowView]) -> list[SummaryRowView]:
     direct_keys = {
-        (row.get("experiment_name"), row.get("method_name"))
+        (row.text("experiment_name"), row.method_name)
         for row in rows
-        if row.get("dataset") == "overall"
+        if row.dataset == "overall"
     }
-    grouped: dict[tuple[Any, Any], list[dict[str, Any]]] = {}
+    grouped: dict[tuple[Any, Any], list[SummaryRowView]] = {}
     for row in rows:
-        if row.get("dataset") == "overall":
+        if row.dataset == "overall":
             continue
-        key = (row.get("experiment_name"), row.get("method_name"))
+        key = (row.text("experiment_name"), row.method_name)
         if key in direct_keys:
             continue
         grouped.setdefault(key, []).append(row)
 
-    synthesized: list[dict[str, Any]] = []
+    synthesized: list[SummaryRowView] = []
     for (experiment_name, method_name), items in grouped.items():
         if not items:
             continue
         synthesized.append(
-            {
+            SummaryRowView.from_row({
                 "experiment_name": experiment_name,
                 "method_name": method_name,
                 "dataset": "overall",
-                "accuracy_mean": round(mean(_as_float(item.get("accuracy_mean")) for item in items), 6),
-                "total_tokens_mean": round(mean(_as_float(item.get("total_tokens_mean")) for item in items), 6),
+                "accuracy_mean": round(mean(_as_float(item.accuracy_mean) for item in items), 6),
+                "total_tokens_mean": round(mean(_as_float(item.total_tokens_mean) for item in items), 6),
                 "calls_per_question_mean": round(
-                    mean(_as_float(item.get("calls_per_question_mean")) for item in items),
+                    mean(_as_float(item.calls_per_question_mean) for item in items),
                     6,
                 ),
-            }
+            })
         )
     return synthesized
 
 
-def _build_helpful_harmful_breakdown(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _build_helpful_harmful_breakdown(entries: list[MatrixStateEntryView]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for entry in entries:
-        spec = get_experiment_matrix_spec(str(entry["config_path"]))
+        spec = get_experiment_matrix_spec(entry.config_path)
         if spec.evidence_tier != EVIDENCE_HEADLINE:
             continue
         prediction_rows = [
             row
-            for row in _load_prediction_rows(Path(str(entry["run_dir"])))
+            for row in _load_prediction_rows(Path(entry.run_dir))
             if row.get("method_name") == spec.primary_method_name
         ]
         if not prediction_rows:
@@ -413,7 +415,7 @@ def _build_helpful_harmful_breakdown(entries: list[dict[str, Any]]) -> list[dict
 
         rows.append(
             {
-                "experiment_name": entry.get("experiment_name"),
+                "experiment_name": entry.experiment_name,
                 "method_name": spec.primary_method_name,
                 "sample_method_rows": len(prediction_rows),
                 "helpful": helpful,
@@ -547,21 +549,21 @@ def _write_external_figure_bundle(
 
 def _frontier_points(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     points: list[dict[str, Any]] = []
-    for row in rows:
-        score = _as_optional_float(row.get("faithful_score"))
+    for row in MatrixAnalysisTableView.from_rows(rows).rows:
+        score = _as_optional_float(row.faithful_score)
         if score is None:
             continue
-        x = _as_optional_float(row.get("token_ratio_vs_full_comm"))
+        x = _as_optional_float(row.token_ratio_vs_full_comm)
         if x is None:
-            x = _as_optional_float(row.get("token_ratio_vs_best_no_comm"))
+            x = _as_optional_float(row.token_ratio_vs_best_no_comm)
         x = 1.0 if x is None else x
         points.append(
             {
-                "label": str(row.get("experiment_name")),
-                "short_label": _short_figure_label(row.get("experiment_name")),
-                "family": str(row.get("family") or ""),
-                "track": str(row.get("evaluation_track") or ""),
-                "method_name": str(row.get("primary_method_name") or ""),
+                "label": row.experiment_name,
+                "short_label": _short_figure_label(row.experiment_name),
+                "family": row.family,
+                "track": row.evaluation_track,
+                "method_name": row.primary_method_name,
                 "x": x,
                 "y": score,
                 "value": score,
@@ -572,14 +574,14 @@ def _frontier_points(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _trigger_utility_points(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     points: list[dict[str, Any]] = []
-    for row in rows:
-        experiment_name = str(row.get("experiment_name") or "")
+    for row in MatrixAnalysisTableView.from_rows(rows).rows:
+        experiment_name = row.experiment_name
         if "trigger" not in experiment_name:
             continue
-        delta = _as_optional_float(row.get("delta_vs_best_no_comm"))
+        delta = _as_optional_float(row.delta_vs_best_no_comm)
         if delta is None:
             continue
-        token_ratio = _as_optional_float(row.get("token_ratio_vs_full_comm"))
+        token_ratio = _as_optional_float(row.token_ratio_vs_full_comm)
         points.append(
             {
                 "label": experiment_name,
@@ -604,12 +606,12 @@ def _stage_gap_points(sections: dict[str, Any]) -> list[dict[str, Any]]:
         rows.extend(sections.get(key, []))
 
     points: list[dict[str, Any]] = []
-    for row in rows:
-        gap = _as_optional_float(row.get("stage_ceiling_gap"))
+    for row in MatrixAnalysisTableView.from_rows(rows).rows:
+        gap = _as_optional_float(row.stage_ceiling_gap)
         if gap is None:
             continue
-        experiment_name = str(row.get("experiment_name") or "")
-        track = str(row.get("evaluation_track") or "other")
+        experiment_name = row.experiment_name
+        track = row.evaluation_track or "other"
         points.append(
             {
                 "label": experiment_name,
@@ -619,7 +621,7 @@ def _stage_gap_points(sections: dict[str, Any]) -> list[dict[str, Any]]:
                 "x": gap,
                 "y": gap,
                 "value": gap,
-                "family": str(row.get("family") or ""),
+                "family": row.family,
             }
         )
     return sorted(points, key=lambda point: (float(point["value"]), str(point["track"]), str(point["label"])))
@@ -627,16 +629,16 @@ def _stage_gap_points(sections: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _helpful_points(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     points: list[dict[str, Any]] = []
-    for row in rows:
-        helpful_rate = _as_optional_float(row.get("helpful_rate"))
-        harmful_rate = _as_optional_float(row.get("harmful_rate"))
-        experiment_name = str(row.get("experiment_name") or "")
+    for row in HelpfulHarmfulTableView.from_rows(rows).rows:
+        helpful_rate = _as_optional_float(row.helpful_rate)
+        harmful_rate = _as_optional_float(row.harmful_rate)
+        experiment_name = row.experiment_name
         points.append(
             {
                 "label": experiment_name,
                 "short_label": _short_figure_label(experiment_name),
-                "method_name": str(row.get("method_name") or ""),
-                "sample_method_rows": int(row.get("sample_method_rows") or 0),
+                "method_name": row.method_name,
+                "sample_method_rows": row.sample_method_rows,
                 "helpful_rate": 0.0 if helpful_rate is None else helpful_rate,
                 "harmful_rate": 0.0 if harmful_rate is None else harmful_rate,
                 "net_gain": (0.0 if helpful_rate is None else helpful_rate)
@@ -682,17 +684,17 @@ def _render_statistics_table(
     bootstrap = statistics.get("bootstrap_ci", {})
     paired = statistics.get("paired_win_loss", {})
     mcnemar = statistics.get("mcnemar_tests", {})
-    for comparison in comparisons:
-        comparison_id = comparison.get("comparison_id")
+    for comparison in StatisticComparisonTableView.from_rows(comparisons).rows:
+        comparison_id = comparison.comparison_id
         ci = bootstrap.get(comparison_id, {})
         pair = paired.get(comparison_id, {})
         test = mcnemar.get(comparison_id, {})
         rows.append(
             {
                 "comparison_id": comparison_id,
-                "status": comparison.get("status"),
-                "paired_n": comparison.get("paired_n"),
-                "mean_delta": comparison.get("mean_delta"),
+                "status": comparison.status,
+                "paired_n": comparison.paired_n,
+                "mean_delta": comparison.mean_delta,
                 "delta_ci95": _format_ci(ci.get("delta_ci95")),
                 "wins": pair.get("wins"),
                 "losses": pair.get("losses"),
@@ -743,7 +745,7 @@ def _load_prediction_rows(run_dir: Path) -> list[dict[str, Any]]:
     for filename in PREDICTION_FILE_CANDIDATES:
         path = run_dir / filename
         if path.exists():
-            return _load_jsonl(path)
+            return load_jsonl_rows(path)
     return []
 
 
@@ -756,27 +758,13 @@ def _resolve_state_path(state_path_or_root: str | Path) -> Path:
     return path
 
 
-def _load_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
 def _safe_load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
-        return _load_json(path)
+        return load_json_payload(path)
     except Exception:
         return {}
-
-
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            stripped = line.strip()
-            if stripped:
-                rows.append(json.loads(stripped))
-    return rows
 
 
 def _as_float(value: Any) -> float:

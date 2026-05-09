@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from pathlib import Path
-import json
 from typing import Any
 
 from experiment_core.foundation.workspace import default_reports_root
 from experiment_core.reporting.report_pipeline import render_report_bundle
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
+from experiment_core.reporting.report_views import SummaryTableView, load_json_payload
 from experiment_core.reporting.run_figures import (
     build_efficiency_rank_figure_spec,
     build_frontier_figure_spec,
@@ -27,21 +26,18 @@ from experiment_core.reporting.scientific_report import (
 
 def load_metrics(run_dir: str | Path) -> dict[str, Any]:
     """读取单次运行目录下的 `metrics.json`。"""
-    return json.loads((Path(run_dir) / "metrics.json").read_text(encoding="utf-8"))
+    return load_json_payload(Path(run_dir) / "metrics.json")
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
     """按数据集聚合单智能体运行摘要。"""
-    metrics = load_metrics(run_dir)
-    summary_rows = metrics.get("summary", [])
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in summary_rows:
-        grouped[row["dataset"]].append(row)
+    summary = SummaryTableView.from_metrics_payload(load_metrics(run_dir))
+    grouped = summary.grouped_by_dataset()
     return {
         "run_dir": str(Path(run_dir)),
         "dataset_count": len(grouped),
-        "rows": len(summary_rows),
-        "by_dataset": {dataset: rows for dataset, rows in grouped.items()},
+        "rows": len(summary.rows),
+        "by_dataset": {dataset: [row.raw for row in rows] for dataset, rows in grouped.items()},
     }
 
 
@@ -49,7 +45,7 @@ def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) ->
     """生成正式 `report.md` 与 run 级图资产。"""
     publish_dir = publish_dir or default_reports_root("single_agent")
     root = Path(run_dir)
-    manifest = _load_json(root / "manifest.json")
+    manifest = load_json_payload(root / "manifest.json")
     metrics = load_metrics(root)
     summary_rows = metrics.get("summary", [])
     base_markdown = _render_markdown(manifest, summary_rows, root)
@@ -118,11 +114,9 @@ def export_paper_tables(run_dir: str | Path, output_path: str | Path) -> Path:
 
 
 def _build_figure_specs(summary_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    overall_rows = [row for row in summary_rows if row.get("dataset") == "overall"]
-    sc_rows = [
-        row for row in overall_rows
-        if str(row.get("method_name") or "").startswith("sc_")
-    ]
+    summary = SummaryTableView.from_rows(summary_rows)
+    overall_rows = summary.overall_rows()
+    sc_rows = [row for row in overall_rows if row.method_name.startswith("sc_")]
     return [
         build_frontier_figure_spec(
             summary_rows,
@@ -155,13 +149,13 @@ def _build_figure_specs(summary_rows: list[dict[str, Any]]) -> list[dict[str, An
             primary_metric="准确率",
             data=[
                 {
-                    "label": str(row["method_name"]),
-                    "short_label": str(row["method_name"]),
-                    "x": float(row.get("calls_per_question_mean") or 0.0),
-                    "y": float(row.get("accuracy_mean") or 0.0),
-                    "value": float(row.get("accuracy_mean") or 0.0),
+                    "label": row.method_name,
+                    "short_label": row.method_name,
+                    "x": float(row.calls_per_question_mean or 0.0),
+                    "y": float(row.accuracy_mean or 0.0),
+                    "value": float(row.accuracy_mean or 0.0),
                 }
-                for row in sorted(sc_rows, key=lambda item: float(item.get("calls_per_question_mean") or 0.0))
+                for row in sorted(sc_rows, key=lambda item: float(item.calls_per_question_mean or 0.0))
             ],
             x_label="每题调用数",
             y_label="准确率",
@@ -176,12 +170,12 @@ def _build_figure_specs(summary_rows: list[dict[str, Any]]) -> list[dict[str, An
             primary_metric="平均 token / 题",
             data=[
                 {
-                    "label": str(row["method_name"]),
-                    "short_label": str(row["method_name"]),
-                    "prompt_tokens_mean": float(row.get("prompt_tokens_mean") or 0.0),
-                    "completion_tokens_mean": float(row.get("completion_tokens_mean") or 0.0),
+                    "label": row.method_name,
+                    "short_label": row.method_name,
+                    "prompt_tokens_mean": float(row.prompt_tokens_mean or 0.0),
+                    "completion_tokens_mean": float(row.completion_tokens_mean or 0.0),
                 }
-                for row in sorted(overall_rows, key=lambda item: float(item.get("total_tokens_mean") or 0.0), reverse=True)
+                for row in sorted(overall_rows, key=lambda item: float(item.total_tokens_mean or 0.0), reverse=True)
             ],
             series=[
                 ("prompt_tokens_mean", "Prompt token"),
@@ -197,26 +191,27 @@ def _build_figure_specs(summary_rows: list[dict[str, Any]]) -> list[dict[str, An
 
 def _render_markdown(manifest: dict[str, Any], summary_rows: list[dict[str, Any]], run_dir: Path) -> str:
     backbone = resolve_manifest_model_name(manifest)
-    overall_rows = [row for row in summary_rows if row.get("dataset") == "overall"]
-    per_dataset = sorted({str(row.get("dataset")) for row in summary_rows if row.get("dataset") != "overall"})
-    best_accuracy_row = max(overall_rows, key=lambda item: float(item.get("accuracy_mean") or 0.0), default=None)
-    best_efficiency_row = max(overall_rows, key=lambda item: float(item.get("acc_per_1k_tokens") or 0.0), default=None)
-    most_expensive_row = max(overall_rows, key=lambda item: float(item.get("total_tokens_mean") or 0.0), default=None)
-    sc_rows = [row for row in overall_rows if str(row.get("method_name") or "").startswith("sc_")]
+    summary = SummaryTableView.from_rows(summary_rows)
+    overall_rows = summary.overall_rows()
+    per_dataset = summary.dataset_names()
+    best_accuracy_row = summary.best_by("accuracy_mean", rows=overall_rows)
+    best_efficiency_row = summary.best_by("acc_per_1k_tokens", rows=overall_rows)
+    most_expensive_row = summary.best_by("total_tokens_mean", rows=overall_rows)
+    sc_rows = [row for row in overall_rows if row.method_name.startswith("sc_")]
 
     abstract: list[str] = []
     if best_accuracy_row is not None:
         abstract.append(
-            f"总体准确率最高的方法是 `{best_accuracy_row['method_name']}`，准确率为 {format_float(best_accuracy_row.get('accuracy_mean'))}。"
+            f"总体准确率最高的方法是 `{best_accuracy_row.method_name}`，准确率为 {format_float(best_accuracy_row.accuracy_mean)}。"
         )
     if best_efficiency_row is not None:
         abstract.append(
-            f"总体效率最高的方法是 `{best_efficiency_row['method_name']}`，每千 token 准确率为 {format_float(best_efficiency_row.get('acc_per_1k_tokens'), 6)}。"
+            f"总体效率最高的方法是 `{best_efficiency_row.method_name}`，每千 token 准确率为 {format_float(best_efficiency_row.acc_per_1k_tokens, 6)}。"
         )
     if sc_rows:
-        best_sc = max(sc_rows, key=lambda item: float(item.get("accuracy_mean") or 0.0))
+        best_sc = max(sc_rows, key=lambda item: float(item.accuracy_mean or 0.0))
         abstract.append(
-            f"在自洽类方法中，`{best_sc['method_name']}` 表现最佳，说明当前预算下自洽采样仍具有可观察收益。"
+            f"在自洽类方法中，`{best_sc.method_name}` 表现最佳，说明当前预算下自洽采样仍具有可观察收益。"
         )
 
     sections = [
@@ -235,23 +230,23 @@ def _render_markdown(manifest: dict[str, Any], summary_rows: list[dict[str, Any]
                 "headers": ["方法", "准确率", "平均总 token / 题", "每题调用数", "每千 token 准确率", "准确率标准差"],
                 "rows": [
                     [
-                        f"`{row['method_name']}`",
-                        format_float(row.get("accuracy_mean")),
-                        format_float(row.get("total_tokens_mean"), 2),
-                        format_float(row.get("calls_per_question_mean"), 2),
-                        format_float(row.get("acc_per_1k_tokens"), 6),
-                        format_float(row.get("accuracy_std")),
+                        f"`{row.method_name}`",
+                        format_float(row.accuracy_mean),
+                        format_float(row.total_tokens_mean, 2),
+                        format_float(row.calls_per_question_mean, 2),
+                        format_float(row.acc_per_1k_tokens, 6),
+                        format_float(row.accuracy_std),
                     ]
-                    for row in sorted(overall_rows, key=lambda item: float(item.get("accuracy_mean") or 0.0), reverse=True)
+                    for row in sorted(overall_rows, key=lambda item: float(item.accuracy_mean or 0.0), reverse=True)
                 ],
             },
         },
         {
             "title": "预算与稳定性分析",
             "bullets": [
-                f"最强总体方法：`{best_accuracy_row['method_name']}`，准确率 {format_float(best_accuracy_row.get('accuracy_mean'))}，平均总 token {format_float(best_accuracy_row.get('total_tokens_mean'), 2)}。"
+                f"最强总体方法：`{best_accuracy_row.method_name}`，准确率 {format_float(best_accuracy_row.accuracy_mean)}，平均总 token {format_float(best_accuracy_row.total_tokens_mean, 2)}。"
                 if best_accuracy_row is not None else "",
-                f"最高成本方法：`{most_expensive_row['method_name']}`，平均总 token {format_float(most_expensive_row.get('total_tokens_mean'), 2)}，可视为当前 phase 的预算上界。"
+                f"最高成本方法：`{most_expensive_row.method_name}`，平均总 token {format_float(most_expensive_row.total_tokens_mean, 2)}，可视为当前 phase 的预算上界。"
                 if most_expensive_row is not None else "",
                 "若某个自洽方法的准确率提升不再明显，而 token 成本持续上升，应优先把它作为等预算对照而非默认主方法。",
             ],
@@ -264,15 +259,15 @@ def _render_markdown(manifest: dict[str, Any], summary_rows: list[dict[str, Any]
                     "headers": ["方法", "准确率", "平均总 token / 题", "每题调用数", "每千 token 准确率"],
                     "rows": [
                         [
-                            f"`{row['method_name']}`",
-                            format_float(row.get("accuracy_mean")),
-                            format_float(row.get("total_tokens_mean"), 2),
-                            format_float(row.get("calls_per_question_mean"), 2),
-                            format_float(row.get("acc_per_1k_tokens"), 6),
+                            f"`{row.method_name}`",
+                            format_float(row.accuracy_mean),
+                            format_float(row.total_tokens_mean, 2),
+                            format_float(row.calls_per_question_mean, 2),
+                            format_float(row.acc_per_1k_tokens, 6),
                         ]
                         for row in sorted(
-                            [item for item in summary_rows if item.get("dataset") == dataset],
-                            key=lambda item: float(item.get("accuracy_mean") or 0.0),
+                            summary.dataset_rows(dataset),
+                            key=lambda item: float(item.accuracy_mean or 0.0),
                             reverse=True,
                         )
                     ],
@@ -315,9 +310,3 @@ def _render_markdown(manifest: dict[str, Any], summary_rows: list[dict[str, Any]
         ],
         sections=sections,
     )
-
-
-def _load_json(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))

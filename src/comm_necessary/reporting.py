@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from pathlib import Path
-import json
 from typing import Any
 
 from comm_necessary.logic import METHOD_ORDER
@@ -12,6 +10,12 @@ from experiment_core.foundation.workspace import default_reports_root
 from experiment_core.reporting.analysis_reports import render_split_context_report
 from experiment_core.reporting.report_pipeline import SupplementalReport, render_report_bundle
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
+from experiment_core.reporting.report_views import (
+    DiagnosticTableView,
+    SummaryTableView,
+    load_json_payload,
+    load_jsonl_rows,
+)
 from experiment_core.reporting.run_figures import (
     append_figure_gallery_markdown,
     build_efficiency_rank_figure_spec,
@@ -27,16 +31,13 @@ from experiment_core.reporting.scientific_report import (
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
-    metrics = _load_json(Path(run_dir) / "metrics.json")
-    rows = metrics.get("summary", [])
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        grouped[str(row.get("dataset"))].append(row)
+    summary = SummaryTableView.from_metrics_payload(load_json_payload(Path(run_dir) / "metrics.json"))
+    grouped = summary.grouped_by_dataset()
     return {
         "run_dir": str(Path(run_dir)),
-        "row_count": len(rows),
+        "row_count": len(summary.rows),
         "datasets": sorted(grouped),
-        "summary_by_dataset": grouped,
+        "summary_by_dataset": {dataset: [row.raw for row in rows] for dataset, rows in grouped.items()},
     }
 
 
@@ -46,10 +47,10 @@ def render_report(
 ) -> dict[str, Any]:
     publish_dir = publish_dir or default_reports_root("comm_necessary")
     root = Path(run_dir)
-    manifest = _load_json(root / "manifest.json")
-    metrics = _load_json(root / "metrics.json")
-    diagnostics = _load_json(root / "diagnostics.json")
-    predictions = _load_jsonl(root / "final_predictions.jsonl")
+    manifest = load_json_payload(root / "manifest.json")
+    metrics = load_json_payload(root / "metrics.json")
+    diagnostics = load_json_payload(root / "diagnostics.json")
+    predictions = load_jsonl_rows(root / "final_predictions.jsonl")
     base_markdown = _render_markdown(manifest, metrics, diagnostics, predictions, root)
     payload = render_report_bundle(
         run_dir=root,
@@ -74,7 +75,7 @@ def render_report(
     summary_path.write_text(
         append_figure_gallery_markdown(
             base_markdown,
-            _load_json(root / "figure_manifest.json").get("figures", []),
+            load_json_payload(root / "figure_manifest.json").get("figures", []),
             run_dir=root,
             published_path=summary_path,
         ),
@@ -85,8 +86,10 @@ def render_report(
 
 
 def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
-    rows = metrics.get("summary", [])
-    overall_rows = [row for row in rows if row.get("dataset") == "overall"]
+    summary = SummaryTableView.from_metrics_payload(metrics)
+    diagnostic_rows = DiagnosticTableView.from_rows(diagnostics.get("key_deltas", []))
+    rows = [row.raw for row in summary.rows]
+    overall_rows = summary.overall_rows()
     return [
         build_frontier_figure_spec(
             rows,
@@ -119,11 +122,11 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
             primary_metric="F1",
             data=[
                 {
-                    "label": str(row.get("method_name") or "unknown"),
-                    "short_label": str(row.get("method_name") or "unknown"),
-                    "answer_f1_mean": float(row.get("answer_f1_mean") or 0.0),
-                    "supporting_f1_mean": float(row.get("supporting_f1_mean") or 0.0),
-                    "joint_f1_mean": float(row.get("joint_f1_mean") or 0.0),
+                    "label": row.method_name,
+                    "short_label": row.method_name,
+                    "answer_f1_mean": float(row.answer_f1_mean or 0.0),
+                    "supporting_f1_mean": float(row.support_f1_mean or 0.0),
+                    "joint_f1_mean": float(row.joint_f1_mean or 0.0),
                 }
                 for row in overall_rows
             ],
@@ -144,11 +147,11 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
             primary_metric="Joint F1 差值",
             data=[
                 {
-                    "label": str(row.get("comparison") or "unknown"),
-                    "short_label": str(row.get("comparison") or "unknown")[:24],
-                    "joint_f1_delta": float(row.get("joint_f1_delta") or 0.0),
+                    "label": row.comparison,
+                    "short_label": row.comparison[:24],
+                    "joint_f1_delta": float(row.joint_f1_delta or 0.0),
                 }
-                for row in diagnostics.get("key_deltas", [])
+                for row in diagnostic_rows.rows
             ],
             series=[("joint_f1_delta", "Joint F1 差值")],
             x_label="差值",
@@ -168,19 +171,21 @@ def _render_markdown(
 ) -> str:
     phase = str(manifest.get("phase") or "unknown_phase")
     backbone_name = resolve_manifest_model_name(manifest)
-    overall_rows = _ordered_rows([row for row in metrics.get("summary", []) if row.get("dataset") == "overall"])
-    best_joint_row = max(overall_rows, key=lambda item: float(item.get("joint_f1_mean") or 0.0), default=None)
-    best_token_row = max(overall_rows, key=lambda item: float(item.get("acc_per_1k_tokens") or 0.0), default=None)
+    summary = SummaryTableView.from_metrics_payload(metrics)
+    delta_rows = DiagnosticTableView.from_rows(diagnostics.get("key_deltas", []))
+    overall_rows = _ordered_rows(summary.overall_rows())
+    best_joint_row = summary.best_by("joint_f1_mean", rows=overall_rows)
+    best_token_row = summary.best_by("acc_per_1k_tokens", rows=overall_rows)
 
     abstract: list[str] = []
     if best_joint_row is not None:
-        abstract.append(f"总体 Joint F1 最优的方法是 `{best_joint_row['method_name']}`，Joint F1 为 {format_float(best_joint_row.get('joint_f1_mean'))}。")
+        abstract.append(f"总体 Joint F1 最优的方法是 `{best_joint_row.method_name}`，Joint F1 为 {format_float(best_joint_row.joint_f1_mean)}。")
     if best_token_row is not None:
-        abstract.append(f"单位成本效率最优的方法是 `{best_token_row['method_name']}`，每千 token 得分为 {format_float(best_token_row.get('acc_per_1k_tokens'), 6)}。")
-    if diagnostics.get("key_deltas"):
-        strongest_delta = max(diagnostics["key_deltas"], key=lambda item: float(item.get("joint_f1_delta") or 0.0))
+        abstract.append(f"单位成本效率最优的方法是 `{best_token_row.method_name}`，每千 token 得分为 {format_float(best_token_row.acc_per_1k_tokens, 6)}。")
+    if delta_rows.rows:
+        strongest_delta = delta_rows.best_by("joint_f1_delta")
         abstract.append(
-            f"关键对照中提升最大的比较是 `{strongest_delta['comparison']}`，Joint F1 差值为 {format_float(strongest_delta.get('joint_f1_delta'))}。"
+            f"关键对照中提升最大的比较是 `{strongest_delta.comparison}`，Joint F1 差值为 {format_float(strongest_delta.joint_f1_delta)}。"
         )
 
     sections = [
@@ -198,14 +203,14 @@ def _render_markdown(
                 "headers": ["方法", "Answer EM", "Answer F1", "Supporting F1", "Joint F1", "平均通信 token / 题", "平均总 token / 题", "每题调用数"],
                 "rows": [
                     [
-                        f"`{row['method_name']}`",
-                        format_float(row.get("answer_em_mean")),
-                        format_float(row.get("answer_f1_mean")),
-                        format_float(row.get("supporting_f1_mean")),
-                        format_float(row.get("joint_f1_mean")),
-                        format_float(row.get("communication_tokens_mean"), 2),
-                        format_float(row.get("total_tokens_mean"), 2),
-                        format_float(row.get("calls_per_question_mean"), 2),
+                        f"`{row.method_name}`",
+                        format_float(row.answer_em_mean),
+                        format_float(row.answer_f1_mean),
+                        format_float(row.support_f1_mean),
+                        format_float(row.joint_f1_mean),
+                        format_float(row.communication_tokens_mean, 2),
+                        format_float(row.total_tokens_mean, 2),
+                        format_float(row.calls_per_question_mean, 2),
                     ]
                     for row in overall_rows
                 ],
@@ -217,13 +222,13 @@ def _render_markdown(
                 "headers": ["比较", "Answer EM 差值", "Supporting F1 差值", "Joint F1 差值", "通信 token 差值"],
                 "rows": [
                     [
-                        f"`{row['comparison']}`",
-                        format_float(row.get("answer_em_delta")),
-                        format_float(row.get("supporting_f1_delta")),
-                        format_float(row.get("joint_f1_delta")),
-                        format_float(row.get("communication_tokens_delta"), 2),
+                        f"`{row.comparison}`",
+                        format_float(row.answer_em_delta),
+                        format_float(row.supporting_f1_delta),
+                        format_float(row.joint_f1_delta),
+                        format_float(row.communication_tokens_delta, 2),
                     ]
-                    for row in diagnostics.get("key_deltas", [])
+                    for row in delta_rows.rows
                 ],
             },
             "bullets": [
@@ -239,19 +244,17 @@ def _render_markdown(
                     "headers": ["方法", "Answer EM", "Supporting F1", "Joint F1", "平均通信 token / 题", "平均总 token / 题"],
                     "rows": [
                         [
-                            f"`{row['method_name']}`",
-                            format_float(row.get("answer_em_mean")),
-                            format_float(row.get("supporting_f1_mean")),
-                            format_float(row.get("joint_f1_mean")),
-                            format_float(row.get("communication_tokens_mean"), 2),
-                            format_float(row.get("total_tokens_mean"), 2),
+                            f"`{row.method_name}`",
+                            format_float(row.answer_em_mean),
+                            format_float(row.support_f1_mean),
+                            format_float(row.joint_f1_mean),
+                            format_float(row.communication_tokens_mean, 2),
+                            format_float(row.total_tokens_mean, 2),
                         ]
-                        for row in _ordered_rows(
-                            [item for item in metrics.get("summary", []) if item.get("dataset") == dataset]
-                        )
+                        for row in _ordered_rows(summary.dataset_rows(dataset))
                     ],
                 }
-                for dataset in sorted({row["dataset"] for row in metrics.get("summary", []) if row.get("dataset") != "overall"})
+                for dataset in summary.dataset_names()
             ],
         },
         {
@@ -291,18 +294,5 @@ def _render_markdown(
     )
 
 
-def _ordered_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return sorted(rows, key=lambda row: METHOD_ORDER.index(row["method_name"]) if row.get("method_name") in METHOD_ORDER else 999)
-
-
-def _load_json(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    with path.open("r", encoding="utf-8") as handle:
-        return [json.loads(line) for line in handle if line.strip()]
+def _ordered_rows(rows: list[Any]) -> list[Any]:
+    return sorted(rows, key=lambda row: METHOD_ORDER.index(row.method_name) if row.method_name in METHOD_ORDER else 999)

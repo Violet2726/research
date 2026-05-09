@@ -12,6 +12,7 @@ from typing import Any
 from experiment_core.foundation.workspace import default_reports_root
 from experiment_core.reporting.report_pipeline import render_report_bundle
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
+from experiment_core.reporting.report_views import SummaryTableView, load_json_payload, load_jsonl_rows
 from experiment_core.reporting.run_figures import (
     build_efficiency_rank_figure_spec,
     build_frontier_figure_spec,
@@ -28,21 +29,18 @@ from experiment_core.reporting.scientific_report import (
 
 def load_metrics(run_dir: str | Path) -> dict[str, Any]:
     """读取多智能体运行目录中的 `metrics.json`。"""
-    return json.loads((Path(run_dir) / "metrics.json").read_text(encoding="utf-8"))
+    return load_json_payload(Path(run_dir) / "metrics.json")
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
     """按数据集汇总多智能体实验摘要。"""
-    metrics = load_metrics(run_dir)
-    rows = metrics.get("summary", [])
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        grouped[row["dataset"]].append(row)
+    summary = SummaryTableView.from_metrics_payload(load_metrics(run_dir))
+    grouped = summary.grouped_by_dataset()
     return {
         "run_dir": str(Path(run_dir)),
-        "row_count": len(rows),
+        "row_count": len(summary.rows),
         "datasets": sorted(grouped),
-        "summary_by_dataset": grouped,
+        "summary_by_dataset": {dataset: [row.raw for row in rows] for dataset, rows in grouped.items()},
     }
 
 
@@ -53,9 +51,9 @@ def render_report(
     """生成 Debate vs Vote 配对分析结果与中文科研报告。"""
     publish_dir = publish_dir or default_reports_root("multi_agent")
     root = Path(run_dir)
-    manifest = _load_json(root / "manifest.json")
+    manifest = load_json_payload(root / "manifest.json")
     metrics = load_metrics(root)
-    prediction_rows = _load_jsonl(root / "final_predictions.jsonl")
+    prediction_rows = load_jsonl_rows(root / "final_predictions.jsonl")
     mad_rows = [row for row in prediction_rows if row.get("method_type") == "mad"]
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in mad_rows:
@@ -92,7 +90,7 @@ def render_report(
 
 
 def _build_figure_specs(metrics: dict[str, Any], dataset_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    summary_rows = metrics.get("summary", [])
+    summary_rows = [row.raw for row in SummaryTableView.from_metrics_payload(metrics).rows]
     interval_rows = []
     for row in dataset_rows:
         stats = row.get("statistics") or {}
@@ -406,13 +404,6 @@ def _score_like_dataset(dataset: str, predicted: str, gold: str) -> float:
     return float(score_prediction(dataset, predicted, gold))
 
 
-def _load_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
-    with path.open("r", encoding="utf-8") as handle:
-        return [json.loads(line) for line in handle if line.strip()]
 
 
 def _mean(values) -> float:

@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from pathlib import Path
-import json
 from typing import Any
 
 from experiment_core.foundation.workspace import default_reports_root
@@ -14,6 +12,12 @@ from experiment_core.reporting.analysis_reports import (
 )
 from experiment_core.reporting.report_pipeline import SupplementalReport, render_report_bundle
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
+from experiment_core.reporting.report_views import (
+    DiagnosticTableView,
+    SummaryTableView,
+    load_json_payload,
+    load_jsonl_rows,
+)
 from experiment_core.reporting.run_figures import (
     build_efficiency_rank_figure_spec,
     build_frontier_figure_spec,
@@ -41,16 +45,13 @@ METHOD_ORDER = [
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
-    metrics = _load_json(Path(run_dir) / "policy_metrics.json")
-    rows = metrics.get("summary", [])
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        grouped[row["dataset"]].append(row)
+    summary = SummaryTableView.from_metrics_payload(load_json_payload(Path(run_dir) / "policy_metrics.json"))
+    grouped = summary.grouped_by_dataset()
     return {
         "run_dir": str(Path(run_dir)),
-        "row_count": len(rows),
+        "row_count": len(summary.rows),
         "datasets": sorted(grouped),
-        "summary_by_dataset": grouped,
+        "summary_by_dataset": {dataset: [row.raw for row in rows] for dataset, rows in grouped.items()},
     }
 
 
@@ -60,11 +61,11 @@ def render_report(
 ) -> dict[str, Any]:
     publish_dir = publish_dir or default_reports_root("selective_comm")
     root = Path(run_dir)
-    manifest = _load_json(root / "manifest.json")
-    metrics = _load_json(root / "policy_metrics.json")
-    diagnostics = _load_json(root / "policy_diagnostics.json")
-    oracle = _load_json(root / "oracle_trigger_eval.json")
-    predictions = _load_jsonl(root / "policy_predictions.jsonl")
+    manifest = load_json_payload(root / "manifest.json")
+    metrics = load_json_payload(root / "policy_metrics.json")
+    diagnostics = load_json_payload(root / "policy_diagnostics.json")
+    oracle = load_json_payload(root / "oracle_trigger_eval.json")
+    predictions = load_jsonl_rows(root / "policy_predictions.jsonl")
     base_markdown = _render_markdown(manifest, metrics, diagnostics, oracle, predictions, root)
     return render_report_bundle(
         run_dir=root,
@@ -91,9 +92,11 @@ def render_report(
 
 
 def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
-    summary_rows = metrics.get("summary", [])
-    overall_policy_rows = [row for row in diagnostics.get("policy_rows", []) if row.get("dataset") == "overall"]
-    shared_prefix_rows = list(diagnostics.get("shared_prefix_rows", []))
+    summary = SummaryTableView.from_metrics_payload(metrics)
+    policy_rows = DiagnosticTableView.from_rows(diagnostics.get("policy_rows", []))
+    shared_prefix_rows = DiagnosticTableView.from_rows(diagnostics.get("shared_prefix_rows", []))
+    summary_rows = [row.raw for row in summary.rows]
+    overall_policy_rows = policy_rows.overall_rows()
     return [
         build_frontier_figure_spec(
             summary_rows,
@@ -123,11 +126,11 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
             primary_metric="准确率",
             data=[
                 {
-                    "label": str(row.get("display_name") or row.get("policy_name") or "unknown"),
-                    "short_label": str(row.get("display_name") or row.get("policy_name") or "unknown"),
-                    "x": float(row.get("trigger_rate") or 0.0),
-                    "y": float(row.get("accuracy_mean") or 0.0),
-                    "value": float(row.get("accuracy_mean") or 0.0),
+                    "label": row.name,
+                    "short_label": row.name,
+                    "x": float(row.trigger_rate or 0.0),
+                    "y": float(row.accuracy_mean or 0.0),
+                    "value": float(row.accuracy_mean or 0.0),
                 }
                 for row in overall_policy_rows
             ],
@@ -144,11 +147,11 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
             primary_metric="节省比例",
             data=[
                 {
-                    "label": str(row.get("dataset") or "unknown"),
-                    "short_label": str(row.get("dataset") or "unknown"),
-                    "shared_prefix_savings_ratio": float(row.get("shared_prefix_savings_ratio") or 0.0),
+                    "label": row.dataset or "unknown",
+                    "short_label": row.dataset or "unknown",
+                    "shared_prefix_savings_ratio": float(row.shared_prefix_savings_ratio or 0.0),
                 }
-                for row in shared_prefix_rows
+                for row in shared_prefix_rows.rows
             ],
             series=[("shared_prefix_savings_ratio", "节省比例")],
             x_label="节省比例",
@@ -163,10 +166,10 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
             primary_metric="比率",
             data=[
                 {
-                    "label": str(row.get("display_name") or row.get("policy_name") or "unknown"),
-                    "short_label": str(row.get("display_name") or row.get("policy_name") or "unknown"),
-                    "precision": float(row.get("precision") or 0.0),
-                    "recall": float(row.get("recall") or 0.0),
+                    "label": row.name,
+                    "short_label": row.name,
+                    "precision": float(row.precision or 0.0),
+                    "recall": float(row.recall or 0.0),
                 }
                 for row in overall_policy_rows
             ],
@@ -208,31 +211,27 @@ def _render_markdown(
     run_dir: Path,
 ) -> str:
     backbone_name = resolve_manifest_model_name(manifest)
-    metric_rows = metrics.get("summary", [])
-    policy_rows = diagnostics.get("policy_rows", [])
-    voc_policy_rows = diagnostics.get("voc_policy_rows", [])
-    shared_prefix_rows = diagnostics.get("shared_prefix_rows", [])
+    summary = SummaryTableView.from_metrics_payload(metrics)
+    policy_rows = DiagnosticTableView.from_rows(diagnostics.get("policy_rows", []))
+    voc_policy_rows = DiagnosticTableView.from_rows(diagnostics.get("voc_policy_rows", []))
+    shared_prefix_rows = DiagnosticTableView.from_rows(diagnostics.get("shared_prefix_rows", []))
     recommendation = diagnostics.get("recommended_next_default_policy", {})
-    overall_main_rows = _ordered_rows([row for row in metric_rows if row.get("dataset") == "overall"])
+    overall_main_rows = _ordered_rows(summary.overall_rows())
     per_dataset_rows = {
-        dataset: _ordered_rows([row for row in metric_rows if row.get("dataset") == dataset])
-        for dataset in sorted({row["dataset"] for row in metric_rows if row.get("dataset") not in {"overall"}})
+        dataset: _ordered_rows(summary.dataset_rows(dataset))
+        for dataset in summary.dataset_names()
     }
-    best_row = max(overall_main_rows, key=lambda item: float(item.get("accuracy_mean") or 0.0), default=None)
-    best_policy_row = max(
-        [row for row in policy_rows if row.get("dataset") == "overall"],
-        key=lambda item: float(item.get("accuracy_mean") or 0.0),
-        default=None,
-    )
+    best_row = summary.best_by("accuracy_mean", rows=overall_main_rows)
+    best_policy_row = policy_rows.best_by("accuracy_mean", rows=policy_rows.overall_rows())
     failure_cases = _select_failure_cases(oracle.get("sample_rows", []), predictions)
 
     abstract: list[str] = []
     if best_row is not None:
-        abstract.append(f"总体准确率最高的方法是 `{best_row['display_name']}`，准确率为 {format_float(best_row.get('accuracy_mean'))}。")
+        abstract.append(f"总体准确率最高的方法是 `{best_row.display_name}`，准确率为 {format_float(best_row.accuracy_mean)}。")
     if best_policy_row is not None:
-        abstract.append(f"触发策略中表现最佳的是 `{best_policy_row['display_name']}`。")
-    if shared_prefix_rows:
-        mean_savings = sum(float(row.get("shared_prefix_savings_ratio") or 0.0) for row in shared_prefix_rows) / len(shared_prefix_rows)
+        abstract.append(f"触发策略中表现最佳的是 `{best_policy_row.name}`。")
+    if shared_prefix_rows.rows:
+        mean_savings = sum(float(row.shared_prefix_savings_ratio or 0.0) for row in shared_prefix_rows.rows) / len(shared_prefix_rows.rows)
         abstract.append(f"共享前缀机制的平均 token 节省比例约为 {format_float(mean_savings)}。")
     abstract.append(f"当前推荐的下一轮默认策略为 `{recommendation.get('selected_policy', 'hybrid_trigger')}`。")
 
@@ -248,8 +247,8 @@ def _render_markdown(
         {
             "title": "共享前缀节省情况",
             "bullets": [
-                f"`{row['dataset']}`：共享执行实际 token=`{format_float(row.get('shared_actual_tokens'), 2)}`，独立重跑 token=`{format_float(row.get('naive_independent_tokens'), 2)}`，节省比例=`{format_float(row.get('shared_prefix_savings_ratio'))}`。"
-                for row in shared_prefix_rows
+                f"`{row.dataset}`：共享执行实际 token=`{format_float(row.shared_actual_tokens, 2)}`，独立重跑 token=`{format_float(row.naive_independent_tokens, 2)}`，节省比例=`{format_float(row.shared_prefix_savings_ratio)}`。"
+                for row in shared_prefix_rows.rows
             ],
         },
         {
@@ -258,11 +257,11 @@ def _render_markdown(
                 "headers": ["方法", "准确率", "平均通信 token / 题", "平均总 token / 题", "每千 token 准确率"],
                 "rows": [
                     [
-                        f"`{row['display_name']}`",
-                        format_float(row.get("accuracy_mean")),
-                        format_float(row.get("communication_tokens_mean"), 2),
-                        format_float(row.get("total_tokens_mean"), 2),
-                        format_float(row.get("acc_per_1k_tokens"), 6),
+                        f"`{row.display_name}`",
+                        format_float(row.accuracy_mean),
+                        format_float(row.communication_tokens_mean, 2),
+                        format_float(row.total_tokens_mean, 2),
+                        format_float(row.acc_per_1k_tokens, 6),
                     ]
                     for row in overall_main_rows
                 ],
@@ -274,15 +273,15 @@ def _render_markdown(
                 "headers": ["策略", "触发率", "早退率", "Oracle 精确率", "Oracle 召回率", "误触发率", "漏掉有益通信率"],
                 "rows": [
                     [
-                        f"`{row['display_name']}`",
-                        format_float(row.get("trigger_rate")),
-                        format_float(row.get("early_exit_rate")),
-                        format_float(row.get("precision")),
-                        format_float(row.get("recall")),
-                        format_float(row.get("false_trigger_rate")),
-                        format_float(row.get("missed_beneficial_comm_rate")),
+                        f"`{row.name}`",
+                        format_float(row.trigger_rate),
+                        format_float(row.early_exit_rate),
+                        format_float(row.precision),
+                        format_float(row.recall),
+                        format_float(row.false_trigger_rate),
+                        format_float(row.missed_beneficial_comm_rate),
                     ]
-                    for row in _ordered_policy_rows([row for row in policy_rows if row.get("dataset") == "overall"])
+                    for row in _ordered_policy_rows(policy_rows.overall_rows())
                 ],
             },
         },
@@ -292,14 +291,14 @@ def _render_markdown(
                 "headers": ["策略", "Helpful Recall", "Harmful Trigger Rate", "Neutral Waste Rate", "触发率", "平均通信 token / 题"],
                 "rows": [
                     [
-                        f"`{row['display_name']}`",
-                        format_float(row.get("helpful_recall")),
-                        format_float(row.get("harmful_trigger_rate")),
-                        format_float(row.get("neutral_waste_rate")),
-                        format_float(row.get("trigger_rate")),
-                        format_float(row.get("communication_tokens_mean"), 2),
+                        f"`{row.name}`",
+                        format_float(row.number("helpful_recall")),
+                        format_float(row.number("harmful_trigger_rate")),
+                        format_float(row.number("neutral_waste_rate")),
+                        format_float(row.trigger_rate),
+                        format_float(row.communication_tokens_mean, 2),
                     ]
-                    for row in _ordered_policy_rows([row for row in voc_policy_rows if row.get("dataset") == "overall"])
+                    for row in _ordered_policy_rows(voc_policy_rows.overall_rows())
                 ],
             },
             "bullets": [
@@ -315,11 +314,11 @@ def _render_markdown(
                     "headers": ["方法", "准确率", "平均通信 token / 题", "平均总 token / 题", "每千 token 准确率"],
                     "rows": [
                         [
-                            f"`{row['display_name']}`",
-                            format_float(row.get("accuracy_mean")),
-                            format_float(row.get("communication_tokens_mean"), 2),
-                            format_float(row.get("total_tokens_mean"), 2),
-                            format_float(row.get("acc_per_1k_tokens"), 6),
+                            f"`{row.display_name}`",
+                            format_float(row.accuracy_mean),
+                            format_float(row.communication_tokens_mean, 2),
+                            format_float(row.total_tokens_mean, 2),
+                            format_float(row.acc_per_1k_tokens, 6),
                         ]
                         for row in rows
                     ],
@@ -428,22 +427,9 @@ def _select_failure_cases(
     return cases[:5]
 
 
-def _ordered_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return sorted(rows, key=lambda row: METHOD_ORDER.index(row["method_name"]) if row["method_name"] in METHOD_ORDER else 999)
+def _ordered_rows(rows: list[Any]) -> list[Any]:
+    return sorted(rows, key=lambda row: METHOD_ORDER.index(row.method_name) if row.method_name in METHOD_ORDER else 999)
 
 
-def _ordered_policy_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return sorted(rows, key=lambda row: METHOD_ORDER.index(row["policy_name"]) if row["policy_name"] in METHOD_ORDER else 999)
-
-
-def _load_json(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    with path.open("r", encoding="utf-8") as handle:
-        return [json.loads(line) for line in handle if line.strip()]
+def _ordered_policy_rows(rows: list[Any]) -> list[Any]:
+    return sorted(rows, key=lambda row: METHOD_ORDER.index(row.method_name) if row.method_name in METHOD_ORDER else 999)

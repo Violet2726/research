@@ -3,7 +3,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from experiment_core.reporting.report_views import SummaryRowView
+from experiment_core.reporting.report_views import (
+    DiagnosticTableView,
+    MatrixAnalysisTableView,
+    MatrixStateEntryView,
+    StatisticComparisonTableView,
+    SummaryRowView,
+    SummaryTableView,
+    load_json_payload,
+    load_jsonl_rows,
+)
 from experiment_core.reporting.run_figures import (
     append_figure_gallery_markdown,
     build_scatter_figure_spec,
@@ -130,3 +139,93 @@ def test_summary_row_view_exposes_stable_label_and_numeric_access() -> None:
     assert row.short_label() == "SC 5"
     assert row.number("accuracy_mean") == 0.81
     assert row.number("total_tokens_mean") == 320.0
+
+
+def test_summary_table_view_groups_and_selects_best_rows() -> None:
+    table = SummaryTableView.from_rows(
+        [
+            {"dataset": "overall", "method_name": "cot_1", "accuracy_mean": 0.70, "acc_per_1k_tokens": 6.2},
+            {"dataset": "overall", "method_name": "sc_5", "accuracy_mean": 0.78, "acc_per_1k_tokens": 2.7},
+            {"dataset": "gsm8k", "method_name": "cot_1", "accuracy_mean": 0.69, "acc_per_1k_tokens": 6.0},
+        ]
+    )
+
+    assert table.dataset_names() == ["gsm8k"]
+    assert len(table.overall_rows()) == 2
+    assert table.best_by("accuracy_mean", rows=table.overall_rows()).method_name == "sc_5"
+    assert table.best_by("acc_per_1k_tokens", rows=table.overall_rows()).method_name == "cot_1"
+
+
+def test_diagnostic_table_view_orders_and_selects_best_rows() -> None:
+    table = DiagnosticTableView.from_rows(
+        [
+            {"dataset": "overall", "policy_name": "always_communicate", "accuracy_mean": 0.80, "trigger_rate": 1.0},
+            {"dataset": "overall", "policy_name": "hybrid_trigger", "accuracy_mean": 0.82, "trigger_rate": 0.4},
+        ]
+    )
+
+    assert [row.method_name for row in table.overall_rows()] == ["always_communicate", "hybrid_trigger"]
+    assert table.best_by("accuracy_mean", rows=table.overall_rows()).method_name == "hybrid_trigger"
+
+
+def test_shared_report_loaders_read_json_and_jsonl(tmp_path: Path) -> None:
+    payload_path = tmp_path / "payload.json"
+    payload_path.write_text(json.dumps({"summary": [{"dataset": "overall"}]}, ensure_ascii=False), encoding="utf-8")
+    rows_path = tmp_path / "rows.jsonl"
+    rows_path.write_text('{"row": 1}\n{"row": 2}\n', encoding="utf-8")
+
+    assert load_json_payload(payload_path)["summary"][0]["dataset"] == "overall"
+    assert load_jsonl_rows(rows_path) == [{"row": 1}, {"row": 2}]
+
+
+def test_matrix_analysis_table_view_filters_by_tier_and_track() -> None:
+    table = MatrixAnalysisTableView.from_rows(
+        [
+            {
+                "family": "selective_comm",
+                "experiment_name": "trigger_early_exit_main",
+                "evaluation_track": "same_context",
+                "evidence_tier": "headline",
+                "dataset": "overall",
+                "primary_method_name": "hybrid_trigger",
+                "faithful_score": 0.84,
+            },
+            {
+                "family": "cue",
+                "experiment_name": "cue_black_box_utility_main",
+                "evaluation_track": "same_context",
+                "evidence_tier": "diagnostic",
+                "dataset": "overall",
+                "primary_method_name": "cue_v1",
+                "faithful_score": 0.58,
+            },
+        ]
+    )
+
+    headline = table.by_tier("headline", track="same_context")
+    assert len(headline) == 1
+    assert headline[0].experiment_name == "trigger_early_exit_main"
+    assert table.overall_rows()[1].evidence_tier == "diagnostic"
+
+
+def test_matrix_state_entry_and_statistic_comparison_views() -> None:
+    entry = MatrixStateEntryView.from_row(
+        {
+            "family": "selective_comm",
+            "config_path": "configs/selective_comm/experiments/trigger_early_exit_main.toml",
+            "experiment_name": "trigger_early_exit_main",
+            "run_dir": "runs/selective_comm/demo",
+            "status": "completed",
+        }
+    )
+    stats = StatisticComparisonTableView.from_rows(
+        [
+            {"comparison_id": "a_vs_b", "status": "completed", "paired_n": 20, "mean_delta": 0.03},
+            {"comparison_id": "c_vs_d", "status": "skipped", "paired_n": 0, "mean_delta": 0.0},
+        ]
+    )
+
+    assert entry.family == "selective_comm"
+    assert entry.status == "completed"
+    assert stats.rows[0].comparison_id == "a_vs_b"
+    assert stats.rows[0].paired_n == 20
