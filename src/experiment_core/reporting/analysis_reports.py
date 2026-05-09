@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from experiment_core.reporting.scientific_report import render_markdown_table
@@ -14,9 +13,10 @@ def render_frontier_report(
     title: str = "成本-性能前沿附录",
 ) -> str:
     """渲染标准成本-性能附录表。"""
+
     return _render_appendix_table(
         title=title,
-        description="该附录表保留所有 summary 行，便于快速复核方法在成本、通信和总体效率上的相对位置。",
+        description="该附录表保留所有 summary 行，便于快速复核方法在成本、通信与整体效率上的相对位置。",
         headers=["数据集", "方法", "准确率", "总 token", "通信 token", "审计 token", "每题调用数", "每千 token 得分"],
         rows=[
             [
@@ -39,7 +39,8 @@ def render_trigger_diagnostic_report(
     *,
     title: str = "触发策略诊断附录",
 ) -> str:
-    """渲染触发策略诊断表。"""
+    """渲染 trigger 策略诊断表。"""
+
     return _render_appendix_table(
         title=title,
         description="该附录表聚焦 trigger 决策行为本身，辅助判断策略是靠更高召回还是更低误触发获得收益。",
@@ -67,10 +68,11 @@ def render_audit_diagnostic_report(
     title: str = "审计环节诊断附录",
 ) -> str:
     """渲染审计策略诊断表。"""
+
     return _render_appendix_table(
         title=title,
         description="该附录表集中展示审计是否真正解决冲突、是否过度覆盖原始答案，以及其额外审计开销。",
-        headers=["数据集", "方法", "解决率", "弃权率", "错误覆盖率", "少数派挽救数", "平均审计 token"],
+        headers=["数据集", "方法", "解决率", "弃权率", "错误覆写率", "少数派挽救数", "平均审计 token"],
         rows=[
             [
                 f"`{row.get('dataset')}`",
@@ -92,6 +94,7 @@ def render_split_context_report(
     title: str = "Split-Context 通信附录",
 ) -> str:
     """渲染 split-context 结果附录表。"""
+
     return _render_appendix_table(
         title=title,
         description="该附录表把答案质量、证据质量和联合指标并列展示，用于复核通信是否同时改善答案与证据推理。",
@@ -110,14 +113,6 @@ def render_split_context_report(
             for row in rows
         ],
     )
-
-
-def write_report(path: str | Path, content: str) -> Path:
-    """把报告写入磁盘并返回目标路径。"""
-    output = Path(path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(content, encoding="utf-8")
-    return output
 
 
 def _render_appendix_table(

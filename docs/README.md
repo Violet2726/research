@@ -5,6 +5,7 @@
 ## 当前文档
 
 - `project_structure.md`：项目分层、目录职责、默认输出路径与 UTF-8 约定
+- `run_report_pipeline.md`：实验执行到图资产、正式报告与论文包的完整链路
 
 ## 使用约定
 

@@ -14,7 +14,7 @@
 ```powershell
 uv run comm_necessary_cli inspect-experiment --experiment configs/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml
 uv run comm_necessary_cli run --experiment configs/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
-uv run comm_necessary_cli report-run --run-dir runs/comm_necessary/hotpotqa_split_context_communication_necessity/smoke20/<run_id>
+uv run comm_necessary_cli render-report --run-dir runs/comm_necessary/hotpotqa_split_context_communication_necessity/smoke20/<run_id>
 ```
 
 ## 维护约定

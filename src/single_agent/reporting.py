@@ -3,21 +3,19 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
 from pathlib import Path
 import json
 from typing import Any
 
 from experiment_core.foundation.workspace import default_reports_root
+from experiment_core.reporting.report_pipeline import render_report_bundle
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
 from experiment_core.reporting.run_figures import (
-    append_figure_gallery_markdown,
     build_efficiency_rank_figure_spec,
     build_frontier_figure_spec,
     build_grouped_bar_figure_spec,
     build_score_by_dataset_figure_spec,
     build_scatter_figure_spec,
-    write_figure_bundle,
 )
 from experiment_core.reporting.scientific_report import (
     format_float,
@@ -54,29 +52,14 @@ def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) ->
     manifest = _load_json(root / "manifest.json")
     metrics = load_metrics(root)
     summary_rows = metrics.get("summary", [])
-    figure_bundle = write_figure_bundle(root, _build_figure_specs(summary_rows))
-
     base_markdown = _render_markdown(manifest, summary_rows, root)
-    local_report = append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root)
-    report_path = root / "report.md"
-    report_path.write_text(local_report, encoding="utf-8")
-
-    publish_path = Path(publish_dir) / _published_report_name(manifest)
-    publish_path.parent.mkdir(parents=True, exist_ok=True)
-    published_report = append_figure_gallery_markdown(
-        base_markdown,
-        figure_bundle["figures"],
+    return render_report_bundle(
         run_dir=root,
-        published_path=publish_path,
+        publish_dir=publish_dir,
+        manifest=manifest,
+        base_markdown=base_markdown,
+        figure_specs=_build_figure_specs(summary_rows),
     )
-    publish_path.write_text(published_report, encoding="utf-8")
-    return {
-        "run_dir": str(root),
-        "local_report": str(report_path),
-        "published_report": str(publish_path),
-        "figure_manifest": str(root / "figure_manifest.json"),
-        "figures_dir": str(root / "figures"),
-    }
 
 
 def export_paper_tables(run_dir: str | Path, output_path: str | Path) -> Path:
@@ -332,22 +315,6 @@ def _render_markdown(manifest: dict[str, Any], summary_rows: list[dict[str, Any]
         ],
         sections=sections,
     )
-
-
-def _published_report_name(manifest: dict[str, Any]) -> str:
-    created_at = manifest.get("created_at")
-    try:
-        created_date = (
-            datetime.fromisoformat(created_at).date().isoformat()
-            if created_at
-            else "unknown-date"
-        )
-    except ValueError:
-        created_date = "unknown-date"
-    experiment = str(manifest.get("experiment", "single-agent")).replace("/", "-")
-    phase = str(manifest.get("phase") or manifest.get("phase_name") or "phase").replace("/", "-")
-    backbone = resolve_manifest_model_name(manifest).replace("/", "-")
-    return f"{created_date}-{experiment}-{phase}-{backbone}-report.md"
 
 
 def _load_json(path: Path) -> dict[str, Any]:

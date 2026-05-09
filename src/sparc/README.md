@@ -14,7 +14,7 @@
 ```powershell
 uv run sparc_cli inspect-experiment --experiment configs/sparc/experiments/end_to_end_main.toml
 uv run sparc_cli run --experiment configs/sparc/experiments/content_ablation.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
-uv run sparc_cli report-run --run-dir runs/sparc/content_ablation/smoke20/<run_id>
+uv run sparc_cli render-report --run-dir runs/sparc/content_ablation/smoke20/<run_id>
 ```
 
 ## 维护约定

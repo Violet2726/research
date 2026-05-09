@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
 from pathlib import Path
 import json
 import math
@@ -17,26 +16,22 @@ from typing import Any
 from experiment_core.reporting.analysis_reports import (
     render_audit_diagnostic_report,
     render_frontier_report,
-    write_report,
 )
+from experiment_core.reporting.report_pipeline import SupplementalReport, render_report_bundle
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
 from experiment_core.reporting.run_figures import (
-    append_figure_gallery_markdown,
     build_efficiency_rank_figure_spec,
     build_frontier_figure_spec,
     build_grouped_bar_figure_spec,
     build_scatter_figure_spec,
     build_score_by_dataset_figure_spec,
-    write_figure_bundle,
+)
+from experiment_core.reporting.scientific_report import (
+    format_float,
+    render_run_reproducibility_section,
+    render_scientific_report,
 )
 from experiment_core.foundation.workspace import default_reports_root
-
-
-REPORT_NAME_BY_KIND = {
-    "content_ablation": "content_ablation_report.md",
-    "auditing_ablation": "auditing_ablation_report.md",
-    "sparc_v1": "sparc_v1_report.md",
-}
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
@@ -63,27 +58,29 @@ def render_report(
     metrics = _load_json(root / "metrics.json")
     diagnostics = _load_json(root / "diagnostics.json")
     predictions = _load_jsonl(root / "final_predictions.jsonl")
-    figure_bundle = write_figure_bundle(root, _build_figure_specs(metrics, diagnostics))
     base_markdown = _render_markdown(manifest, metrics, diagnostics, predictions, root)
-    markdown = append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root)
-    local_report_path = root / "report.md"
-    local_report_path.write_text(markdown, encoding="utf-8")
-    write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="SPARC Frontier"))
-    write_report(root / "audit_diagnostics.md", render_audit_diagnostic_report(metrics.get("summary", []), title="SPARC Audit Diagnostics"))
-    publish_path = Path(publish_dir) / _published_report_name(manifest)
-    publish_path.parent.mkdir(parents=True, exist_ok=True)
-    publish_path.write_text(
-        append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root, published_path=publish_path),
-        encoding="utf-8",
+    return render_report_bundle(
+        run_dir=root,
+        publish_dir=publish_dir,
+        manifest=manifest,
+        base_markdown=base_markdown,
+        figure_specs=_build_figure_specs(metrics, diagnostics),
+        supplemental_reports=[
+            SupplementalReport(
+                result_key="frontier_report",
+                filename="frontier_report.md",
+                content=render_frontier_report(metrics.get("summary", []), title="SPARC 前沿附录"),
+            ),
+            SupplementalReport(
+                result_key="audit_diagnostic_report",
+                filename="audit_diagnostics.md",
+                content=render_audit_diagnostic_report(
+                    metrics.get("summary", []),
+                    title="SPARC 审计诊断附录",
+                ),
+            ),
+        ],
     )
-    return {
-        "run_dir": str(root),
-        "local_report": str(local_report_path),
-        "published_report": str(publish_path),
-        "frontier_report": str(root / "frontier_report.md"),
-        "audit_diagnostic_report": str(root / "audit_diagnostics.md"),
-        "figure_manifest": str(root / "figure_manifest.json"),
-    }
 
 
 def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
@@ -93,33 +90,33 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
     figure_specs = [
         build_frontier_figure_spec(
             rows,
-            title="SPARC frontier",
-            caption="Overall accuracy versus average total tokens across SPARC variants and controls.",
+            title="SPARC 成本-性能前沿",
+            caption="SPARC 变体与对照方法在总体准确率和平均总 token 上的位置关系。",
             score_field="accuracy_mean",
-            primary_metric="Accuracy",
+            primary_metric="准确率",
         ),
         build_efficiency_rank_figure_spec(
             rows,
-            title="SPARC efficiency ranking",
-            caption="Overall efficiency ranking measured by accuracy per 1K tokens.",
+            title="SPARC 效率排序",
+            caption="按每千 token 准确率衡量的总体效率排序。",
             efficiency_field="acc_per_1k_tokens",
-            primary_metric="Accuracy per 1K tokens",
+            primary_metric="每千 token 准确率",
         ),
         build_score_by_dataset_figure_spec(
             rows,
-            title="SPARC score by dataset",
-            caption="Per-dataset accuracy map across SPARC variants and controls.",
+            title="SPARC 跨数据集表现",
+            caption="SPARC 变体与对照方法在不同数据集上的准确率分布。",
             score_field="accuracy_mean",
-            primary_metric="Accuracy",
+            primary_metric="准确率",
         ),
     ]
     if experiment_kind == "content_ablation":
         figure_specs.append(
             build_scatter_figure_spec(
                 figure_id="compression_tradeoff",
-                title="Compression tradeoff",
-                caption="Overall compression ratio versus accuracy across content-ablation variants.",
-                primary_metric="Accuracy",
+                title="压缩收益权衡",
+                caption="内容消融变体在压缩率与总体准确率之间的权衡关系。",
+                primary_metric="准确率",
                 data=[
                     {
                         "label": str(row.get("display_name") or row.get("method_name") or "unknown"),
@@ -131,11 +128,11 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
                     for row in overall_rows
                     if row.get("compression_ratio_vs_full_cot") is not None
                 ],
-                x_label="Compression ratio vs full CoT",
-                y_label="Accuracy",
+                x_label="相对 full CoT 的压缩率",
+                y_label="准确率",
                 source_kind="metrics.summary",
                 dataset_scope="overall",
-                note="Lower compression ratios indicate stronger communication compression relative to full CoT.",
+                note="压缩率越低表示相对 full CoT 的通信压缩越强。",
                 reference_x=1.0,
             )
         )
@@ -143,9 +140,9 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
         figure_specs.append(
             build_scatter_figure_spec(
                 figure_id="audit_gain_vs_cost",
-                title="Audit gain versus cost",
-                caption="Overall audit-token cost versus accuracy across auditing and end-to-end variants.",
-                primary_metric="Accuracy",
+                title="审计收益与成本",
+                caption="审计消融和端到端变体在审计 token 成本与总体准确率之间的关系。",
+                primary_metric="准确率",
                 data=[
                     {
                         "label": str(row.get("display_name") or row.get("method_name") or "unknown"),
@@ -156,11 +153,11 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
                     }
                     for row in overall_rows
                 ],
-                x_label="Average audit tokens per question",
-                y_label="Accuracy",
+                x_label="平均审计 token / 题",
+                y_label="准确率",
                 source_kind="metrics.summary",
                 dataset_scope="overall",
-                note="The left edge corresponds to variants that avoid explicit audit passes.",
+                note="越靠左表示越少使用显式审计轮次。",
                 reference_x=0.0,
             )
         )
@@ -168,9 +165,9 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
         figure_specs.append(
             build_grouped_bar_figure_spec(
                 figure_id="trigger_selection_profile",
-                title="Trigger selection profile",
-                caption="Overall trigger and early-exit rates across SPARC variants that expose trigger behavior.",
-                primary_metric="Rate",
+                title="触发选择画像",
+                caption="暴露 trigger 行为的 SPARC 变体在总体触发率和早退率上的对比。",
+                primary_metric="比率",
                 data=[
                     {
                         "label": str(row.get("display_name") or row.get("method_name") or "unknown"),
@@ -180,11 +177,11 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
                     }
                     for row in overall_rows
                 ],
-                series=[("trigger_rate", "Trigger rate"), ("early_exit_rate", "Early-exit rate")],
-                x_label="Rate",
+                series=[("trigger_rate", "触发率"), ("early_exit_rate", "早退率")],
+                x_label="比率",
                 source_kind="metrics.summary",
                 dataset_scope="overall",
-                note="Trigger and early-exit behavior is shown for variants that expose these fields in the SPARC summary.",
+                note="仅对 summary 中显式暴露 trigger 字段的变体展示该图。",
             )
         )
     return figure_specs
@@ -220,79 +217,126 @@ def _render_content_report(
     recommendation = diagnostics.get("recommended_next_default")
     comparison_row = recommendation if recommendation else next((row for row in ordered_rows if row["method_name"] != "full_cot"), None)
     ci_text = _bootstrap_ci_text(predictions, comparison_row["method_name"], "full_cot") if comparison_row else "未计算。"
-    lines = [
-        "# SPARC 内容消融报告",
-        "",
-        "## 1. 实验范围与公平性说明",
-        "",
-        f"- 实验名：`{manifest.get('experiment')}`",
-        f"- Phase：`{manifest.get('phase')}`",
-        f"- Backbone：`{resolve_manifest_model_name(manifest)}`",
-        f"- 运行目录：`{run_dir.as_posix()}`",
-        "- 本轮固定 `always_communicate`，仅比较消息内容，不混入 trigger 和 auditing 变量。",
-        "- 数据集固定为 `GSM8K + StrategyQA + HotpotQA` 的 `smoke20_seed42`。",
-        "",
-        "## 2. 主结果表",
-        "",
-        "| Method | Accuracy | Avg Comm Tokens | Avg Total Tokens | Calls / Q | Acc / 1K Tokens | Compression vs Full CoT |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    for row in ordered_rows:
-        compression = row.get("compression_ratio_vs_full_cot")
-        compression_text = f"{compression:.4f}" if compression is not None else "-"
-        lines.append(
-            f"| `{row['display_name']}` | {row['accuracy_mean']:.4f} | {row['communication_tokens_mean']:.2f} | "
-            f"{row['total_tokens_mean']:.2f} | {row['calls_per_question_mean']:.2f} | {row['acc_per_1k_tokens']:.6f} | {compression_text} |"
+    best_row = max(ordered_rows, key=lambda row: float(row.get("accuracy_mean") or 0.0), default=None)
+    abstract: list[str] = []
+    if best_row is not None:
+        abstract.append(
+            f"总体准确率最高的方法是 `{best_row['display_name']}`，准确率为 {format_float(best_row.get('accuracy_mean'))}。"
         )
+    if comparison_row is not None and comparison_row.get("compression_ratio_vs_full_cot") is not None:
+        abstract.append(
+            f"相对 `full_cot`，`{comparison_row.get('display_name') or comparison_row.get('method_name')}` 的压缩率为 {format_float(comparison_row.get('compression_ratio_vs_full_cot'))}。"
+        )
+    if recommendation:
+        abstract.append(f"当前推荐的下一轮默认消息模式为 `{recommendation['method_name']}`。")
 
-    lines.extend(
-        [
-            "",
-            "## 3. 条件子集",
-            "",
-            "### initial_disagreement = true",
-            "",
-            "| Method | Accuracy | Avg Comm Tokens | Avg Total Tokens |",
-            "| --- | ---: | ---: | ---: |",
-        ]
+    sections = [
+        {
+            "title": "研究问题与实验设计",
+            "bullets": [
+                "本实验固定 trigger 与 auditing 机制，只比较消息内容本身对协作推理的影响。",
+                "主指标为准确率；成本指标使用平均通信 token、平均总 token 和每千 token 准确率。",
+                "重点回答的问题是：在不改变交互轮数的前提下，哪些内容压缩方式仍能保留大部分推理收益。",
+            ],
+        },
+        {
+            "title": "总体结果",
+            "table": {
+                "headers": ["方法", "准确率", "平均通信 token / 题", "平均总 token / 题", "每题调用数", "每千 token 准确率", "相对 full CoT 压缩率"],
+                "rows": [
+                    [
+                        f"`{row['display_name']}`",
+                        format_float(row.get("accuracy_mean")),
+                        format_float(row.get("communication_tokens_mean"), 2),
+                        format_float(row.get("total_tokens_mean"), 2),
+                        format_float(row.get("calls_per_question_mean"), 2),
+                        format_float(row.get("acc_per_1k_tokens"), 6),
+                        format_float(row.get("compression_ratio_vs_full_cot")),
+                    ]
+                    for row in ordered_rows
+                ],
+            },
+        },
+        {
+            "title": "关键子集结果",
+            "tables": [
+                {
+                    "title": "initial_disagreement = true",
+                    "headers": ["方法", "准确率", "平均通信 token / 题", "平均总 token / 题"],
+                    "rows": [
+                        [
+                            f"`{row['display_name']}`",
+                            format_float(row.get("accuracy_mean")),
+                            format_float(row.get("communication_tokens_mean"), 2),
+                            format_float(row.get("total_tokens_mean"), 2),
+                        ]
+                        for row in _ordered_rows(disagreement_rows, method_order)
+                    ],
+                },
+                {
+                    "title": "oracle_positive = true",
+                    "headers": ["方法", "准确率", "平均通信 token / 题", "平均总 token / 题"],
+                    "rows": [
+                        [
+                            f"`{row['display_name']}`",
+                            format_float(row.get("accuracy_mean")),
+                            format_float(row.get("communication_tokens_mean"), 2),
+                            format_float(row.get("total_tokens_mean"), 2),
+                        ]
+                        for row in _ordered_rows(oracle_rows, method_order)
+                    ],
+                },
+            ],
+            "bullets": [
+                f"相对 `full_cot` 的总体准确率差值 95% bootstrap 区间：{ci_text}",
+            ],
+        },
+        {
+            "title": "下一轮建议",
+            "bullets": [
+                f"推荐默认消息模式：`{recommendation['method_name']}`。" if recommendation else "当前未生成推荐消息模式。",
+                (
+                    f"推荐依据：总体准确率 `{format_float(recommendation.get('accuracy_mean'))}`，平均总 token / 题 `{format_float(recommendation.get('total_tokens_mean'), 2)}`。"
+                    if recommendation
+                    else "建议结合 frontier 图与压缩收益图继续筛选候选消息格式。"
+                ),
+            ],
+        },
+        {
+            "title": "局限性",
+            "bullets": [
+                "当前区间估计属于探索性统计，不构成严格显著性结论。",
+                "内容消融报告强调消息内容差异，不直接比较 trigger 和 auditing 机制的优劣。",
+            ],
+        },
+        {
+            **render_run_reproducibility_section(
+                run_dir=run_dir,
+                artifact_items=[
+                    "关键产物：`metrics.json`、`diagnostics.json`、`report.md`、`figure_manifest.json`、`figures/`、`final_predictions.jsonl`。",
+                    "附录产物：`frontier_report.md`、`audit_diagnostics.md`。",
+                ],
+            )
+        },
+    ]
+    failure_cases = _failure_case_section(
+        predictions,
+        primary_method=comparison_row["method_name"] if comparison_row else "full_cot",
+        reference_method="full_cot",
     )
-    for row in _ordered_rows(disagreement_rows, method_order):
-        lines.append(
-            f"| `{row['display_name']}` | {row['accuracy_mean']:.4f} | {row['communication_tokens_mean']:.2f} | {row['total_tokens_mean']:.2f} |"
-        )
-    lines.extend(
-        [
-            "",
-            "### oracle_positive = true",
-            "",
-            "| Method | Accuracy | Avg Comm Tokens | Avg Total Tokens |",
-            "| --- | ---: | ---: | ---: |",
-        ]
+    if failure_cases:
+        sections.insert(3, {"title": "失败案例", "cases": failure_cases})
+    return render_scientific_report(
+        title="SPARC 内容消融科研报告",
+        abstract=abstract,
+        overview_items=[
+            ("实验名", str(manifest.get("experiment") or "")),
+            ("Phase", str(manifest.get("phase") or "")),
+            ("Backbone", resolve_manifest_model_name(manifest)),
+            ("运行目录", run_dir.as_posix()),
+        ],
+        sections=sections,
     )
-    for row in _ordered_rows(oracle_rows, method_order):
-        lines.append(
-            f"| `{row['display_name']}` | {row['accuracy_mean']:.4f} | {row['communication_tokens_mean']:.2f} | {row['total_tokens_mean']:.2f} |"
-        )
-    lines.extend(
-        [
-            "",
-            "## 4. 探索性区间",
-            "",
-            f"- 相对 `full_cot` 的 overall accuracy delta 95% bootstrap CI：{ci_text}",
-            "",
-        ]
-    )
-    lines.extend(_failure_case_section(predictions, primary_method=comparison_row["method_name"] if comparison_row else "full_cot", reference_method="full_cot"))
-    lines.extend(
-        [
-            "## 6. 下一轮建议",
-            "",
-            f"- 推荐默认消息模式：`{recommendation['method_name']}`" if recommendation else "- 当前未生成推荐模式。",
-            f"- 推荐依据：overall accuracy=`{recommendation['accuracy_mean']:.4f}`，total tokens=`{recommendation['total_tokens_mean']:.2f}`。" if recommendation else "",
-            "",
-        ]
-    )
-    return "\n".join(line for line in lines if line is not None) + "\n"
 
 
 def _render_auditing_report(
@@ -308,48 +352,93 @@ def _render_auditing_report(
     )
     recommendation = diagnostics.get("recommended_next_default")
     ci_text = _bootstrap_ci_text(predictions, "local_auditing", "final_round_vote")
-    lines = [
-        "# SPARC 审计消融报告",
-        "",
-        "## 1. 实验范围与公平性说明",
-        "",
-        f"- 实验名：`{manifest.get('experiment')}`",
-        f"- Phase：`{manifest.get('phase')}`",
-        f"- Backbone：`{resolve_manifest_model_name(manifest)}`",
-        f"- 运行目录：`{run_dir.as_posix()}`",
-        "- 本轮固定消息内容，只比较最终聚合与局部审计方式。",
-        "",
-        "## 2. 主结果表",
-        "",
-        "| Method | Accuracy | Avg Comm Tokens | Avg Audit Tokens | Avg Total Tokens | Resolve Rate | Abstain Rate | Wrong Overrule Rate | Minority Rescue Count |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    for row in overall_rows:
-        lines.append(
-            f"| `{row['display_name']}` | {row['accuracy_mean']:.4f} | {row['communication_tokens_mean']:.2f} | "
-            f"{row['audit_tokens_mean']:.2f} | {row['total_tokens_mean']:.2f} | {row['resolve_rate']:.4f} | "
-            f"{row['abstain_rate']:.4f} | {row['wrong_overrule_rate']:.4f} | {row['minority_rescue_count']} |"
+    best_row = max(overall_rows, key=lambda row: float(row.get("accuracy_mean") or 0.0), default=None)
+    abstract: list[str] = []
+    if best_row is not None:
+        abstract.append(
+            f"总体准确率最高的聚合方式是 `{best_row['display_name']}`，准确率为 {format_float(best_row.get('accuracy_mean'))}。"
         )
-    lines.extend(
-        [
-            "",
-            "## 3. 探索性区间",
-            "",
-            f"- `local_auditing` 相对 `final_round_vote` 的 overall accuracy delta 95% bootstrap CI：{ci_text}",
-            "",
-        ]
+    abstract.append(f"`local_auditing` 相对 `final_round_vote` 的 95% bootstrap 区间为 {ci_text}。")
+    if recommendation:
+        abstract.append(f"当前推荐的下一轮默认聚合方式为 `{recommendation['method_name']}`。")
+
+    sections = [
+        {
+            "title": "研究问题与实验设计",
+            "bullets": [
+                "本实验固定消息内容，只比较最终聚合器和局部审计机制本身。",
+                "除准确率外，重点跟踪解决率、弃权率、错误覆写率和 minority rescue 次数，以判断审计是否真正纠偏。",
+            ],
+        },
+        {
+            "title": "总体结果",
+            "table": {
+                "headers": ["方法", "准确率", "平均通信 token / 题", "平均审计 token / 题", "平均总 token / 题", "解决率", "弃权率", "错误覆写率", "Minority rescue 次数"],
+                "rows": [
+                    [
+                        f"`{row['display_name']}`",
+                        format_float(row.get("accuracy_mean")),
+                        format_float(row.get("communication_tokens_mean"), 2),
+                        format_float(row.get("audit_tokens_mean"), 2),
+                        format_float(row.get("total_tokens_mean"), 2),
+                        format_float(row.get("resolve_rate")),
+                        format_float(row.get("abstain_rate")),
+                        format_float(row.get("wrong_overrule_rate")),
+                        str(int(row.get("minority_rescue_count") or 0)),
+                    ]
+                    for row in overall_rows
+                ],
+            },
+        },
+        {
+            "title": "审计收益判读",
+            "bullets": [
+                f"`local_auditing` 相对 `final_round_vote` 的总体准确率差值 95% bootstrap 区间：{ci_text}",
+                "若解决率提升而错误覆写率未同步上升，说明局部审计更可能在纠偏而非放大噪声。",
+            ],
+        },
+        {
+            "title": "下一轮建议",
+            "bullets": [
+                f"推荐默认聚合方式：`{recommendation['method_name']}`。" if recommendation else "当前未生成推荐聚合方式。",
+                (
+                    f"推荐依据：总体准确率 `{format_float(recommendation.get('accuracy_mean'))}`，平均总 token / 题 `{format_float(recommendation.get('total_tokens_mean'), 2)}`。"
+                    if recommendation
+                    else "建议结合 audit_gain_vs_cost 图和错误覆写率再做最终取舍。"
+                ),
+            ],
+        },
+        {
+            "title": "局限性",
+            "bullets": [
+                "局部审计的收益高度依赖于冲突检测质量，当前报告未单独拆出审计前置信号质量。",
+                "探索性区间使用 bootstrap 估计，主要用于辅助比较而非正式显著性检验。",
+            ],
+        },
+        {
+            **render_run_reproducibility_section(
+                run_dir=run_dir,
+                artifact_items=[
+                    "关键产物：`metrics.json`、`diagnostics.json`、`report.md`、`figure_manifest.json`、`figures/`、`final_predictions.jsonl`。",
+                    "附录产物：`frontier_report.md`、`audit_diagnostics.md`。",
+                ],
+            )
+        },
+    ]
+    failure_cases = _failure_case_section(predictions, primary_method="local_auditing", reference_method="final_round_vote")
+    if failure_cases:
+        sections.insert(3, {"title": "失败案例", "cases": failure_cases})
+    return render_scientific_report(
+        title="SPARC 审计消融科研报告",
+        abstract=abstract,
+        overview_items=[
+            ("实验名", str(manifest.get("experiment") or "")),
+            ("Phase", str(manifest.get("phase") or "")),
+            ("Backbone", resolve_manifest_model_name(manifest)),
+            ("运行目录", run_dir.as_posix()),
+        ],
+        sections=sections,
     )
-    lines.extend(_failure_case_section(predictions, primary_method="local_auditing", reference_method="final_round_vote"))
-    lines.extend(
-        [
-            "## 5. 下一轮建议",
-            "",
-            f"- 推荐默认聚合方式：`{recommendation['method_name']}`" if recommendation else "- 当前未生成推荐聚合方式。",
-            f"- 推荐依据：overall accuracy=`{recommendation['accuracy_mean']:.4f}`，total tokens=`{recommendation['total_tokens_mean']:.2f}`。" if recommendation else "",
-            "",
-        ]
-    )
-    return "\n".join(line for line in lines if line is not None) + "\n"
 
 
 def _render_sparc_report(
@@ -366,50 +455,106 @@ def _render_sparc_report(
     trigger_selection = diagnostics.get("trigger_selection", {})
     recommendation = diagnostics.get("recommended_next_default")
     ci_text = _bootstrap_ci_text(predictions, "sparc_v1", "final_round_vote_baseline")
-    lines = [
-        "# SPARC v1 Smoke 报告",
-        "",
-        "## 1. 实验范围与公平性说明",
-        "",
-        f"- 实验名：`{manifest.get('experiment')}`",
-        f"- Phase：`{manifest.get('phase')}`",
-        f"- Backbone：`{resolve_manifest_model_name(manifest)}`",
-        f"- 运行目录：`{run_dir.as_posix()}`",
-        f"- 选中的 trigger 策略：`{trigger_selection.get('selected_policy')}`",
-        f"- trigger 选择原因：`{trigger_selection.get('reason')}`",
-        f"- trigger 参考运行：`{trigger_selection.get('reference_run_dir')}`" if trigger_selection.get("reference_run_dir") else "- 未找到 trigger 参考运行，使用默认策略。",
-        "",
-        "## 2. 主结果表",
-        "",
-        "| Method | Accuracy | Avg Comm Tokens | Avg Audit Tokens | Avg Total Tokens | Calls / Q | Acc / 1K Tokens | Trigger Rate | Early Exit Rate |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    for row in overall_rows:
-        lines.append(
-            f"| `{row['display_name']}` | {row['accuracy_mean']:.4f} | {row['communication_tokens_mean']:.2f} | "
-            f"{row['audit_tokens_mean']:.2f} | {row['total_tokens_mean']:.2f} | {row['calls_per_question_mean']:.2f} | "
-            f"{row['acc_per_1k_tokens']:.6f} | {row['trigger_rate']:.4f} | {row['early_exit_rate']:.4f} |"
+    best_row = max(overall_rows, key=lambda row: float(row.get("accuracy_mean") or 0.0), default=None)
+    abstract: list[str] = []
+    if best_row is not None:
+        abstract.append(
+            f"总体准确率最高的方法是 `{best_row['display_name']}`，准确率为 {format_float(best_row.get('accuracy_mean'))}。"
         )
-    lines.extend(
-        [
-            "",
-            "## 3. 探索性区间",
-            "",
-            f"- `sparc_v1` 相对 `final_round_vote_baseline` 的 overall accuracy delta 95% bootstrap CI：{ci_text}",
-            "",
-        ]
+    abstract.append(f"`sparc_v1` 相对 `final_round_vote_baseline` 的 95% bootstrap 区间为 {ci_text}。")
+    if trigger_selection.get("selected_policy"):
+        abstract.append(f"当前使用的 trigger 策略为 `{trigger_selection.get('selected_policy')}`。")
+
+    sections = [
+        {
+            "title": "研究问题与实验设计",
+            "bullets": [
+                "SPARC 主实验同时考察消息压缩、trigger 选择和局部审计三者的联合作用。",
+                "主指标为准确率；成本侧同时记录通信 token、审计 token、总 token 与每题调用数。",
+                "额外关注 trigger 率和早退率，用于判断策略是否把协作预算分配给真正需要的样本。",
+            ],
+        },
+        {
+            "title": "Trigger 选择记录",
+            "bullets": [
+                f"选中的 trigger 策略：`{trigger_selection.get('selected_policy', 'unknown')}`",
+                f"选择原因：{trigger_selection.get('reason', '未记录')}",
+                (
+                    f"参考运行：`{trigger_selection.get('reference_run_dir')}`"
+                    if trigger_selection.get("reference_run_dir")
+                    else "未找到 trigger 参考运行，本轮使用默认策略。"
+                ),
+            ],
+        },
+        {
+            "title": "总体结果",
+            "table": {
+                "headers": ["方法", "准确率", "平均通信 token / 题", "平均审计 token / 题", "平均总 token / 题", "每题调用数", "每千 token 准确率", "触发率", "早退率"],
+                "rows": [
+                    [
+                        f"`{row['display_name']}`",
+                        format_float(row.get("accuracy_mean")),
+                        format_float(row.get("communication_tokens_mean"), 2),
+                        format_float(row.get("audit_tokens_mean"), 2),
+                        format_float(row.get("total_tokens_mean"), 2),
+                        format_float(row.get("calls_per_question_mean"), 2),
+                        format_float(row.get("acc_per_1k_tokens"), 6),
+                        format_float(row.get("trigger_rate")),
+                        format_float(row.get("early_exit_rate")),
+                    ]
+                    for row in overall_rows
+                ],
+            },
+        },
+        {
+            "title": "联合作用判读",
+            "bullets": [
+                f"`sparc_v1` 相对 `final_round_vote_baseline` 的总体准确率差值 95% bootstrap 区间：{ci_text}",
+                "如果 trigger 率、早退率与总 token 同时下降，而准确率仍稳定，则说明 SPARC 的预算分配更有效。",
+            ],
+        },
+        {
+            "title": "下一轮建议",
+            "bullets": [
+                f"当前最佳 overall 方法：`{recommendation['method_name']}`" if recommendation else "当前未生成下一轮建议。",
+                (
+                    f"trigger 选择记录：drop_questions=`{trigger_selection.get('drop_questions')}`，threshold=`{trigger_selection.get('threshold_questions')}`。"
+                    if trigger_selection
+                    else "建议回看 trigger_selection_profile 图，重新核对 trigger 阈值。"
+                ),
+            ],
+        },
+        {
+            "title": "局限性",
+            "bullets": [
+                "SPARC 主实验同时耦合多种机制，单个部件的纯净因果贡献仍需结合内容消融和审计消融共同解释。",
+                "探索性区间只反映当前样本下的经验不确定性，不等同于正式统计显著性判断。",
+            ],
+        },
+        {
+            **render_run_reproducibility_section(
+                run_dir=run_dir,
+                artifact_items=[
+                    "关键产物：`metrics.json`、`diagnostics.json`、`report.md`、`figure_manifest.json`、`figures/`、`final_predictions.jsonl`。",
+                    "附录产物：`frontier_report.md`、`audit_diagnostics.md`。",
+                ],
+            )
+        },
+    ]
+    failure_cases = _failure_case_section(predictions, primary_method="sparc_v1", reference_method="final_round_vote_baseline")
+    if failure_cases:
+        sections.insert(4, {"title": "失败案例", "cases": failure_cases})
+    return render_scientific_report(
+        title="SPARC 主实验科研报告",
+        abstract=abstract,
+        overview_items=[
+            ("实验名", str(manifest.get("experiment") or "")),
+            ("Phase", str(manifest.get("phase") or "")),
+            ("Backbone", resolve_manifest_model_name(manifest)),
+            ("运行目录", run_dir.as_posix()),
+        ],
+        sections=sections,
     )
-    lines.extend(_failure_case_section(predictions, primary_method="sparc_v1", reference_method="final_round_vote_baseline"))
-    lines.extend(
-        [
-            "## 5. 下一轮建议",
-            "",
-            f"- 当前最佳 overall 方法：`{recommendation['method_name']}`" if recommendation else "- 当前未生成下一轮建议。",
-            f"- trigger 选择记录：drop_questions=`{trigger_selection.get('drop_questions')}`，threshold=`{trigger_selection.get('threshold_questions')}`。" if trigger_selection else "",
-            "",
-        ]
-    )
-    return "\n".join(line for line in lines if line is not None) + "\n"
 
 
 def _failure_case_section(
@@ -417,8 +562,7 @@ def _failure_case_section(
     *,
     primary_method: str,
     reference_method: str,
-) -> list[str]:
-    lines = ["## 5. 失败案例", ""]
+) -> list[dict[str, Any]]:
     lookup = {
         (row["dataset"], row["sample_id"], row["method_name"]): row
         for row in predictions
@@ -446,26 +590,7 @@ def _failure_case_section(
             )
         if len(cases) >= 5:
             break
-    if not cases:
-        lines.append("- 当前 smoke20 下没有稳定失败案例。")
-        lines.append("")
-        return lines
-    for index, case in enumerate(cases, start=1):
-        lines.extend(
-            [
-                f"### Case {index}",
-                "",
-                f"- 数据集：`{case['dataset']}`",
-                f"- 样本：`{case['sample_id']}`",
-                f"- 问题预览：{case['question_preview']}",
-                f"- 金标：`{case['gold']}`",
-                f"- 主方法：`{case['primary_prediction']}` / score=`{case['primary_score']}`",
-                f"- 参考方法：`{case['reference_prediction']}` / score=`{case['reference_score']}`",
-                f"- 说明：{case['reason']}",
-                "",
-            ]
-        )
-    return lines
+    return cases
 
 
 def _subset_summary(
@@ -540,18 +665,6 @@ def _rows_for_dataset(metrics: dict[str, Any], dataset: str) -> list[dict[str, A
 
 def _ordered_rows(rows: list[dict[str, Any]], order: list[str]) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: order.index(row["method_name"]) if row["method_name"] in order else 999)
-
-
-def _published_report_name(manifest: dict[str, Any]) -> str:
-    created_at = manifest.get("created_at")
-    try:
-        created_date = datetime.fromisoformat(created_at).date().isoformat() if created_at else "unknown-date"
-    except ValueError:
-        created_date = "unknown-date"
-    experiment = str(manifest.get("experiment", "sparc")).replace("/", "-")
-    phase = str(manifest.get("phase", "phase")).replace("/", "-")
-    backbone_name = resolve_manifest_model_name(manifest).replace("/", "-")
-    return f"{created_date}-{experiment}-{phase}-{backbone_name}-report.md"
 
 
 def _load_json(path: Path) -> dict[str, Any]:

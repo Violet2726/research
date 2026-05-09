@@ -50,7 +50,7 @@ from selective_comm.config import (
     phase_metadata,
 )
 from selective_comm.prompting import build_debate_messages, build_initial_messages
-from selective_comm.reporting import render_trigger_report
+from selective_comm.reporting import render_report
 from selective_comm.validation import validate_run
 
 
@@ -250,7 +250,7 @@ def run_experiment(
     run_paths.policy_metrics.write_text(json.dumps(metrics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     run_paths.oracle_trigger_eval.write_text(json.dumps(oracle_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     run_paths.policy_diagnostics.write_text(json.dumps(diagnostics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    render_trigger_report(run_paths.root)
+    render_report(run_paths.root)
     run_paths.run_validation.write_text(json.dumps(validate_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
     progress.mark_completed()
     cache_router.close()

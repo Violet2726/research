@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
 from pathlib import Path
 import json
 import math
@@ -11,15 +10,14 @@ import random
 from typing import Any
 
 from experiment_core.foundation.workspace import default_reports_root
+from experiment_core.reporting.report_pipeline import render_report_bundle
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
 from experiment_core.reporting.run_figures import (
-    append_figure_gallery_markdown,
     build_efficiency_rank_figure_spec,
     build_frontier_figure_spec,
     build_grouped_bar_figure_spec,
     build_interval_figure_spec,
     build_score_by_dataset_figure_spec,
-    write_figure_bundle,
 )
 from experiment_core.reporting.scientific_report import (
     format_float,
@@ -48,7 +46,7 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
     }
 
 
-def report_debate_vs_vote(
+def render_report(
     run_dir: str | Path,
     publish_dir: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -80,27 +78,17 @@ def report_debate_vs_vote(
     paired_json_path = root / "paired_debate_vs_vote.json"
     paired_json_path.write_text(json.dumps(paired_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    figure_bundle = write_figure_bundle(root, _build_figure_specs(metrics, dataset_rows))
     base_markdown = _render_debate_vs_vote_report(manifest, dataset_rows, root)
-    markdown = append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root)
-    local_report_path = root / "report.md"
-    local_report_path.write_text(markdown, encoding="utf-8")
-
-    publish_path = Path(publish_dir) / _published_report_name(manifest)
-    publish_path.parent.mkdir(parents=True, exist_ok=True)
-    publish_path.write_text(
-        append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root, published_path=publish_path),
-        encoding="utf-8",
+    payload = render_report_bundle(
+        run_dir=root,
+        publish_dir=publish_dir,
+        manifest=manifest,
+        base_markdown=base_markdown,
+        figure_specs=_build_figure_specs(metrics, dataset_rows),
     )
-
-    return {
-        "run_dir": str(root),
-        "paired_json": str(paired_json_path),
-        "local_report": str(local_report_path),
-        "published_report": str(publish_path),
-        "dataset_count": len(dataset_rows),
-        "figure_manifest": str(root / "figure_manifest.json"),
-    }
+    payload["paired_json"] = str(paired_json_path)
+    payload["dataset_count"] = len(dataset_rows)
+    return payload
 
 
 def _build_figure_specs(metrics: dict[str, Any], dataset_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -416,18 +404,6 @@ def _score_like_dataset(dataset: str, predicted: str, gold: str) -> float:
     from experiment_core.foundation.evaluation import score_prediction
 
     return float(score_prediction(dataset, predicted, gold))
-
-
-def _published_report_name(manifest: dict[str, Any]) -> str:
-    created_at = manifest.get("created_at")
-    try:
-        created_date = datetime.fromisoformat(created_at).date().isoformat() if created_at else "unknown-date"
-    except ValueError:
-        created_date = "unknown-date"
-    experiment = str(manifest.get("experiment", "multi-agent")).replace("/", "-")
-    phase = str(manifest.get("phase", "phase")).replace("/", "-")
-    backbone_name = str(manifest.get("backbone", {}).get("name", "backbone")).replace("/", "-")
-    return f"{created_date}-{experiment}-{phase}-{backbone_name}-report.md"
 
 
 def _load_json(path: Path) -> dict[str, Any]:

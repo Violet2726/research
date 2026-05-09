@@ -14,7 +14,7 @@
 ```powershell
 uv run selective_comm_cli inspect-experiment --experiment configs/selective_comm/experiments/trigger_early_exit_main.toml
 uv run selective_comm_cli run --experiment configs/selective_comm/experiments/voc_trigger_main.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
-uv run selective_comm_cli report-trigger --run-dir runs/selective_comm/voc_trigger_main/smoke20/<run_id>
+uv run selective_comm_cli render-report --run-dir runs/selective_comm/voc_trigger_main/smoke20/<run_id>
 ```
 
 ## 维护约定

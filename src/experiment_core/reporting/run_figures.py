@@ -10,6 +10,8 @@ import math
 import os
 from typing import Any
 
+from experiment_core.reporting.report_views import coerce_summary_rows
+
 
 FONT_FAMILY = "Helvetica, Arial, sans-serif"
 COLOR_TEXT = "#111827"
@@ -155,18 +157,18 @@ def build_frontier_figure_spec(
     figure_id: str = "frontier_overall",
 ) -> dict[str, Any]:
     """构建统一的成本-效果前沿图。"""
-    rows = [row for row in summary_rows if str(row.get("dataset")) == "overall"]
+    rows = [row for row in coerce_summary_rows(summary_rows) if row.dataset == "overall"]
     data = [
         {
-            "label": _method_label(row, method_label_field=method_label_field),
-            "short_label": _short_label(_method_label(row, method_label_field=method_label_field)),
-            "x": _as_float(row.get("total_tokens_mean")),
-            "y": _as_float(row.get(score_field)),
-            "value": _as_float(row.get(score_field)),
-            "method_name": str(row.get("method_name") or ""),
+            "label": row.label(method_label_field),
+            "short_label": row.short_label(method_label_field),
+            "x": _as_float(row.number("total_tokens_mean")),
+            "y": _as_float(row.number(score_field)),
+            "value": _as_float(row.number(score_field)),
+            "method_name": row.method_name,
         }
         for row in rows
-        if row.get(score_field) is not None
+        if row.number(score_field) is not None
     ]
     return {
         "figure_id": figure_id,
@@ -195,16 +197,16 @@ def build_efficiency_rank_figure_spec(
     figure_id: str = "efficiency_rank_overall",
 ) -> dict[str, Any]:
     """构建统一的效率排序图。"""
-    rows = [row for row in summary_rows if str(row.get("dataset")) == "overall"]
+    rows = [row for row in coerce_summary_rows(summary_rows) if row.dataset == "overall"]
     data = [
         {
-            "label": _method_label(row, method_label_field=method_label_field),
-            "short_label": _short_label(_method_label(row, method_label_field=method_label_field)),
-            "value": _as_float(row.get(efficiency_field)),
-            "method_name": str(row.get("method_name") or ""),
+            "label": row.label(method_label_field),
+            "short_label": row.short_label(method_label_field),
+            "value": _as_float(row.number(efficiency_field)),
+            "method_name": row.method_name,
         }
         for row in rows
-        if row.get(efficiency_field) is not None
+        if row.number(efficiency_field) is not None
     ]
     return {
         "figure_id": figure_id,
@@ -231,17 +233,17 @@ def build_score_by_dataset_figure_spec(
     figure_id: str = "score_by_dataset",
 ) -> dict[str, Any]:
     """构建统一的跨数据集得分矩阵图。"""
-    rows = [row for row in summary_rows if str(row.get("dataset")) != "overall"]
+    rows = [row for row in coerce_summary_rows(summary_rows) if row.dataset != "overall"]
     data = [
         {
-            "dataset": str(row.get("dataset") or ""),
-            "label": _method_label(row, method_label_field=method_label_field),
-            "short_label": _short_label(_method_label(row, method_label_field=method_label_field)),
-            "value": _as_float(row.get(score_field)),
-            "method_name": str(row.get("method_name") or ""),
+            "dataset": row.dataset,
+            "label": row.label(method_label_field),
+            "short_label": row.short_label(method_label_field),
+            "value": _as_float(row.number(score_field)),
+            "method_name": row.method_name,
         }
         for row in rows
-        if row.get(score_field) is not None
+        if row.number(score_field) is not None
     ]
     return {
         "figure_id": figure_id,
@@ -866,21 +868,6 @@ def _points_csv_headers(points: list[dict[str, Any]]) -> list[str]:
 def _series_color(index: int) -> str:
     palette = [COLOR_BLUE, COLOR_ORANGE, COLOR_GREEN, COLOR_RED, COLOR_PURPLE, COLOR_GRAY]
     return palette[index % len(palette)]
-
-
-def _short_label(value: Any) -> str:
-    label = str(value or "")
-    return label.replace("_", " ").replace("/", " / ")[:24].strip() or label[:24]
-
-
-def _method_label(row: dict[str, Any], *, method_label_field: str) -> str:
-    candidate = row.get(method_label_field)
-    if candidate:
-        return str(candidate)
-    display_name = row.get("display_name")
-    if display_name:
-        return str(display_name)
-    return str(row.get("method_name") or row.get("policy_name") or "unknown")
 
 
 def _safe_load_json(path: Path) -> dict[str, Any]:

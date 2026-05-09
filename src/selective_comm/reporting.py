@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
 from pathlib import Path
 import json
 from typing import Any
@@ -12,17 +11,15 @@ from experiment_core.foundation.workspace import default_reports_root
 from experiment_core.reporting.analysis_reports import (
     render_frontier_report,
     render_trigger_diagnostic_report,
-    write_report,
 )
+from experiment_core.reporting.report_pipeline import SupplementalReport, render_report_bundle
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
 from experiment_core.reporting.run_figures import (
-    append_figure_gallery_markdown,
     build_efficiency_rank_figure_spec,
     build_frontier_figure_spec,
     build_grouped_bar_figure_spec,
     build_scatter_figure_spec,
     build_score_by_dataset_figure_spec,
-    write_figure_bundle,
 )
 from experiment_core.reporting.scientific_report import (
     format_float,
@@ -57,7 +54,7 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
     }
 
 
-def render_trigger_report(
+def render_report(
     run_dir: str | Path,
     publish_dir: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -68,29 +65,29 @@ def render_trigger_report(
     diagnostics = _load_json(root / "policy_diagnostics.json")
     oracle = _load_json(root / "oracle_trigger_eval.json")
     predictions = _load_jsonl(root / "policy_predictions.jsonl")
-
-    figure_bundle = write_figure_bundle(root, _build_figure_specs(metrics, diagnostics))
     base_markdown = _render_markdown(manifest, metrics, diagnostics, oracle, predictions, root)
-    markdown = append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root)
-    local_report_path = root / "report.md"
-    local_report_path.write_text(markdown, encoding="utf-8")
-    write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="选择性通信前沿附录"))
-    write_report(root / "trigger_diagnostics.md", render_trigger_diagnostic_report(_analysis_trigger_rows(diagnostics), title="选择性通信触发诊断附录"))
-
-    publish_path = Path(publish_dir) / _published_report_name(manifest)
-    publish_path.parent.mkdir(parents=True, exist_ok=True)
-    publish_path.write_text(
-        append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root, published_path=publish_path),
-        encoding="utf-8",
+    return render_report_bundle(
+        run_dir=root,
+        publish_dir=publish_dir,
+        manifest=manifest,
+        base_markdown=base_markdown,
+        figure_specs=_build_figure_specs(metrics, diagnostics),
+        supplemental_reports=[
+            SupplementalReport(
+                result_key="frontier_report",
+                filename="frontier_report.md",
+                content=render_frontier_report(metrics.get("summary", []), title="选择性通信前沿附录"),
+            ),
+            SupplementalReport(
+                result_key="trigger_diagnostic_report",
+                filename="trigger_diagnostics.md",
+                content=render_trigger_diagnostic_report(
+                    _analysis_trigger_rows(diagnostics),
+                    title="选择性通信触发诊断附录",
+                ),
+            ),
+        ],
     )
-    return {
-        "run_dir": str(root),
-        "local_report": str(local_report_path),
-        "published_report": str(publish_path),
-        "frontier_report": str(root / "frontier_report.md"),
-        "trigger_diagnostic_report": str(root / "trigger_diagnostics.md"),
-        "figure_manifest": str(root / "figure_manifest.json"),
-    }
 
 
 def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
@@ -437,18 +434,6 @@ def _ordered_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _ordered_policy_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: METHOD_ORDER.index(row["policy_name"]) if row["policy_name"] in METHOD_ORDER else 999)
-
-
-def _published_report_name(manifest: dict[str, Any]) -> str:
-    created_at = manifest.get("created_at")
-    try:
-        created_date = datetime.fromisoformat(created_at).date().isoformat() if created_at else "unknown-date"
-    except ValueError:
-        created_date = "unknown-date"
-    experiment = str(manifest.get("experiment", "selective-comm")).replace("/", "-")
-    phase = str(manifest.get("phase", "phase")).replace("/", "-")
-    backbone_name = str(manifest.get("backbone", {}).get("name", "backbone")).replace("/", "-")
-    return f"{created_date}-{experiment}-{phase}-{backbone_name}-trigger-report.md"
 
 
 def _load_json(path: Path) -> dict[str, Any]:

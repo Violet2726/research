@@ -39,5 +39,5 @@ uv run cue_cli validate-run --run-dir runs/cue/<experiment>/<phase>/<run_id>
 生成报告：
 
 ```bash
-uv run cue_cli report-cue --run-dir runs/cue/<experiment>/<phase>/<run_id>
+uv run cue_cli render-report --run-dir runs/cue/<experiment>/<phase>/<run_id>
 ```

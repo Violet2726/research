@@ -24,7 +24,7 @@ from selective_comm.config import (
     phase_metadata,
     resolve_model,
 )
-from selective_comm.reporting import render_trigger_report, summarize_run
+from selective_comm.reporting import render_report, summarize_run
 from selective_comm.runner import run_experiment
 from selective_comm.validation import validate_run
 
@@ -53,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
     validate = subparsers.add_parser("validate-run", help="Run validation checks for one selective communication run.")
     validate.add_argument("--run-dir", required=True)
 
-    report = subparsers.add_parser("report-trigger", help="Regenerate the Chinese trigger markdown report.")
+    report = subparsers.add_parser("render-report", help="Regenerate the Chinese trigger markdown report.")
     report.add_argument("--run-dir", required=True)
     report.add_argument("--publish-dir", default=default_reports_root("selective_comm"))
 
@@ -124,8 +124,8 @@ def main() -> None:
         print(json.dumps(validate_run(args.run_dir), ensure_ascii=False, indent=2))
         return
 
-    if args.command == "report-trigger":
-        print(json.dumps(render_trigger_report(args.run_dir, publish_dir=args.publish_dir), ensure_ascii=False, indent=2))
+    if args.command == "render-report":
+        print(json.dumps(render_report(args.run_dir, publish_dir=args.publish_dir), ensure_ascii=False, indent=2))
         return
 
     parser.error(f"Unsupported command: {args.command}")

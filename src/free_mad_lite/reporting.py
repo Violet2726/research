@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
 from pathlib import Path
 import json
 import math
@@ -12,15 +11,14 @@ from typing import Any
 
 from free_mad_lite.logic import METHOD_ORDER
 from experiment_core.foundation.workspace import default_reports_root
-from experiment_core.reporting.analysis_reports import render_frontier_report, write_report
+from experiment_core.reporting.analysis_reports import render_frontier_report
+from experiment_core.reporting.report_pipeline import SupplementalReport, render_report_bundle
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
 from experiment_core.reporting.run_figures import (
-    append_figure_gallery_markdown,
     build_efficiency_rank_figure_spec,
     build_frontier_figure_spec,
     build_grouped_bar_figure_spec,
     build_score_by_dataset_figure_spec,
-    write_figure_bundle,
 )
 from experiment_core.reporting.scientific_report import (
     format_float,
@@ -50,25 +48,21 @@ def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) ->
     metrics = _load_json(root / "metrics.json")
     diagnostics = _load_json(root / "diagnostics.json")
     predictions = _load_jsonl(root / "final_predictions.jsonl")
-    figure_bundle = write_figure_bundle(root, _build_figure_specs(metrics))
     base_markdown = _render_markdown(manifest, metrics, diagnostics, predictions, root)
-    markdown = append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root)
-    local_report = root / "report.md"
-    local_report.write_text(markdown, encoding="utf-8")
-    write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="Free-MAD-lite 前沿附录"))
-    publish_path = Path(publish_dir) / _published_report_name(manifest)
-    publish_path.parent.mkdir(parents=True, exist_ok=True)
-    publish_path.write_text(
-        append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root, published_path=publish_path),
-        encoding="utf-8",
+    return render_report_bundle(
+        run_dir=root,
+        publish_dir=publish_dir,
+        manifest=manifest,
+        base_markdown=base_markdown,
+        figure_specs=_build_figure_specs(metrics),
+        supplemental_reports=[
+            SupplementalReport(
+                result_key="frontier_report",
+                filename="frontier_report.md",
+                content=render_frontier_report(metrics.get("summary", []), title="Free-MAD-lite 前沿附录"),
+            )
+        ],
     )
-    return {
-        "run_dir": str(root),
-        "local_report": str(local_report),
-        "published_report": str(publish_path),
-        "frontier_report": str(root / "frontier_report.md"),
-        "figure_manifest": str(root / "figure_manifest.json"),
-    }
 
 
 def _build_figure_specs(metrics: dict[str, Any]) -> list[dict[str, Any]]:
@@ -296,18 +290,6 @@ def _quantile(values: list[float], q: float) -> float:
         return float(ordered[lower])
     weight = position - lower
     return round(ordered[lower] * (1 - weight) + ordered[upper] * weight, 6)
-
-
-def _published_report_name(manifest: dict[str, Any]) -> str:
-    created_at = manifest.get("created_at")
-    try:
-        created_date = datetime.fromisoformat(created_at).date().isoformat() if created_at else "unknown-date"
-    except ValueError:
-        created_date = "unknown-date"
-    experiment = str(manifest.get("experiment", "free-mad-lite")).replace("/", "-")
-    phase = str(manifest.get("phase", "phase")).replace("/", "-")
-    backbone = str(manifest.get("backbone", {}).get("name", "backbone")).replace("/", "-")
-    return f"{created_date}-{experiment}-{phase}-{backbone}-report.md"
 
 
 def _load_json(path: Path) -> dict[str, Any]:

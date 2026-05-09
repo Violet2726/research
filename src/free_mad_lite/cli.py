@@ -53,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
     validate = subparsers.add_parser("validate-run", help="Validate Free-MAD-lite run.")
     validate.add_argument("--run-dir", required=True)
 
-    report = subparsers.add_parser("report-run", help="Regenerate Free-MAD-lite report.")
+    report = subparsers.add_parser("render-report", help="Regenerate Free-MAD-lite report.")
     report.add_argument("--run-dir", required=True)
     report.add_argument("--publish-dir", default=default_reports_root("free_mad_lite"))
     return parser
@@ -117,7 +117,7 @@ def main() -> None:
         print(json.dumps(validate_run(args.run_dir), ensure_ascii=False, indent=2))
         return
 
-    if args.command == "report-run":
+    if args.command == "render-report":
         print(json.dumps(render_report(args.run_dir, publish_dir=args.publish_dir), ensure_ascii=False, indent=2))
         return
 

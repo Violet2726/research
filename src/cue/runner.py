@@ -36,7 +36,7 @@ from cue.logic import (
     summarize_cue_signals,
 )
 from cue.prompting import build_audit_messages, build_communication_messages, build_solver_messages
-from cue.reporting import render_cue_report
+from cue.reporting import render_report
 from cue.validation import validate_run
 from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
 from experiment_core.foundation.datasets import DatasetSample, select_samples
@@ -295,7 +295,7 @@ def run_experiment(
     run_paths.policy_metrics.write_text(json.dumps(metrics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     run_paths.oracle_trigger_eval.write_text(json.dumps(oracle_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     run_paths.policy_diagnostics.write_text(json.dumps(diagnostics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    render_cue_report(run_paths.root)
+    render_report(run_paths.root)
     run_paths.run_validation.write_text(json.dumps(validate_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
     progress.mark_completed()
     cache_router.close()

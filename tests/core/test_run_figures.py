@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from experiment_core.reporting.report_views import SummaryRowView
 from experiment_core.reporting.run_figures import (
     append_figure_gallery_markdown,
     build_scatter_figure_spec,
@@ -110,3 +111,22 @@ def test_validate_figure_contract_checks_manifest_and_report_reference(tmp_path:
     contract = validate_figure_contract(tmp_path)
     assert contract["passed"] is True
     assert contract["report_references_count"] >= 1
+
+
+def test_summary_row_view_exposes_stable_label_and_numeric_access() -> None:
+    row = SummaryRowView.from_row(
+        {
+            "dataset": "overall",
+            "method_name": "sc_5",
+            "display_name": "SC 5",
+            "accuracy_mean": "0.81",
+            "total_tokens_mean": 320,
+        }
+    )
+
+    assert row.dataset == "overall"
+    assert row.method_name == "sc_5"
+    assert row.label() == "SC 5"
+    assert row.short_label() == "SC 5"
+    assert row.number("accuracy_mean") == 0.81
+    assert row.number("total_tokens_mean") == 320.0

@@ -14,6 +14,7 @@ def render_scientific_report(
     sections: list[dict[str, Any]],
 ) -> str:
     """按统一科研结构渲染中文 Markdown 报告。"""
+
     lines = [f"# {title}", ""]
     if abstract:
         lines.extend(["## 摘要", ""])
@@ -78,6 +79,7 @@ def render_scientific_report(
 
 def render_markdown_table(headers: list[str], rows: list[list[str]] | list[dict[str, Any]]) -> list[str]:
     """渲染标准 Markdown 表格。"""
+
     if not headers:
         return ["暂无数据。"]
     if not rows:
@@ -100,17 +102,13 @@ def render_markdown_table(headers: list[str], rows: list[list[str]] | list[dict[
 
 
 def render_case_cards(cases: list[dict[str, Any]]) -> list[str]:
-    """渲染典型案例小节。"""
+    """渲染典型案例卡片。"""
+
     if not cases:
         return ["暂无可复核案例。"]
     lines: list[str] = []
     for index, case in enumerate(cases, start=1):
-        lines.extend(
-            [
-                f"### 案例 {index}",
-                "",
-            ]
-        )
+        lines.extend([f"### 案例 {index}", ""])
         for label, value in case.items():
             if value in {None, ""}:
                 continue
@@ -126,6 +124,7 @@ def render_run_reproducibility_section(
     note_lines: list[str] | None = None,
 ) -> dict[str, Any]:
     """构建统一的复现与产物说明章节。"""
+
     bullets = [f"运行目录：`{run_dir.as_posix()}`"]
     bullets.extend(artifact_items)
     if note_lines:
@@ -135,6 +134,7 @@ def render_run_reproducibility_section(
 
 def format_float(value: Any, digits: int = 4) -> str:
     """稳定格式化浮点数。"""
+
     try:
         return f"{float(value):.{digits}f}"
     except (TypeError, ValueError):
@@ -143,6 +143,7 @@ def format_float(value: Any, digits: int = 4) -> str:
 
 def format_percent(value: Any, digits: int = 2) -> str:
     """把 0-1 比例格式化为百分比。"""
+
     try:
         return f"{float(value) * 100:.{digits}f}%"
     except (TypeError, ValueError):

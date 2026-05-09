@@ -46,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--run-dir", required=True)
     validate.add_argument("--compare-run-dir", default=None)
 
-    report = subparsers.add_parser("report-run", help="Regenerate the Chinese SPARC markdown report.")
+    report = subparsers.add_parser("render-report", help="Regenerate the Chinese SPARC markdown report.")
     report.add_argument("--run-dir", required=True)
     report.add_argument("--publish-dir", default=default_reports_root("sparc"))
 
@@ -124,7 +124,7 @@ def main() -> None:
         print(json.dumps(validate_run(args.run_dir, compare_run_dir=args.compare_run_dir), ensure_ascii=False, indent=2))
         return
 
-    if args.command == "report-run":
+    if args.command == "render-report":
         print(json.dumps(render_report(args.run_dir, publish_dir=args.publish_dir), ensure_ascii=False, indent=2))
         return
 

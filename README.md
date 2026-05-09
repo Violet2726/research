@@ -157,4 +157,6 @@ uv run selective_comm_cli inspect-experiment --experiment configs/selective_comm
 - [src/experiment_core/README.md](src/experiment_core/README.md)
 - [configs/README.md](configs/README.md)
 - [docs/README.md](docs/README.md)
+- [docs/run_report_pipeline.md](docs/run_report_pipeline.md)
+- [runs/README.md](runs/README.md)
 - [CONTRIBUTING.md](CONTRIBUTING.md)

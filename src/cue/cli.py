@@ -15,7 +15,7 @@ from cue.config import (
     load_protocol_config,
     resolve_model,
 )
-from cue.reporting import render_cue_report, summarize_run
+from cue.reporting import render_report, summarize_run
 from cue.runner import run_experiment
 from cue.validation import validate_run
 from experiment_core.foundation.workspace import default_cache_root, default_reports_root, default_runs_root, workspace_defaults
@@ -44,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     validate = subparsers.add_parser("validate-run", help="Run validation checks for one CUE run.")
     validate.add_argument("--run-dir", required=True)
 
-    report = subparsers.add_parser("report-cue", help="Regenerate the Chinese CUE markdown report.")
+    report = subparsers.add_parser("render-report", help="Regenerate the Chinese CUE markdown report.")
     report.add_argument("--run-dir", required=True)
     report.add_argument("--publish-dir", default=default_reports_root("cue"))
     return parser
@@ -105,8 +105,8 @@ def main() -> None:
         print(json.dumps(validate_run(args.run_dir), ensure_ascii=False, indent=2))
         return
 
-    if args.command == "report-cue":
-        print(json.dumps(render_cue_report(args.run_dir, publish_dir=args.publish_dir), ensure_ascii=False, indent=2))
+    if args.command == "render-report":
+        print(json.dumps(render_report(args.run_dir, publish_dir=args.publish_dir), ensure_ascii=False, indent=2))
         return
 
     parser.error(f"Unsupported command: {args.command}")
