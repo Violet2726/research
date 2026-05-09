@@ -47,6 +47,8 @@ def test_render_paper_package_writes_markdown_and_figures(tmp_path: Path) -> Non
     state_dir.mkdir()
     run_dir = tmp_path / "trigger_run"
     run_dir.mkdir()
+    external_figures = tmp_path / "external_figures"
+
     (run_dir / "policy_predictions.jsonl").write_text(
         json.dumps(
             {
@@ -100,21 +102,25 @@ def test_render_paper_package_writes_markdown_and_figures(tmp_path: Path) -> Non
         encoding="utf-8",
     )
     (state_dir / "paper_statistics.json").write_text(
-        json.dumps({"comparisons": [], "bootstrap_ci": {}, "paired_win_loss": {}, "mcnemar_tests": {}}, ensure_ascii=False),
+        json.dumps(
+            {"comparisons": [], "bootstrap_ci": {}, "paired_win_loss": {}, "mcnemar_tests": {}},
+            ensure_ascii=False,
+        ),
         encoding="utf-8",
     )
 
     paths = render_paper_package(
         state_dir,
         published_path=tmp_path / "published.md",
+        figures_root=external_figures,
     )
 
     assert Path(paths["package_markdown"]).exists()
     assert Path(paths["published_path"]).exists()
-    assert (state_dir / "figures" / "budget_frontier_same_context.svg").exists()
+    assert Path(paths["figures_root"]) == external_figures
+    assert (external_figures / "budget_frontier_same_context.svg").exists()
     assert (state_dir / "figure_manifest.json").exists()
-    svg_text = (state_dir / "figures" / "budget_frontier_same_context.svg").read_text(encoding="utf-8")
+    svg_text = (external_figures / "budget_frontier_same_context.svg").read_text(encoding="utf-8")
     package_markdown = (state_dir / "paper_package.md").read_text(encoding="utf-8")
     assert "![预算前沿：同上下文 headline 方法]" in package_markdown
     assert "Faithful score" in svg_text
-
