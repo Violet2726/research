@@ -1,6 +1,11 @@
-# DALA-lite split-context 主实验入口配置。
-name = "dala_lite_split_context_v1"
-description = "DALA-lite v1 smoke20 on split-context StrategyQA and HotpotQA."
+# DALA-lite 分上下文主实验入口。
+name = "dala_lite_split_context_main"
+description = "DALA-lite 分上下文主实验，评估预算受限通信在信息拆分场景中的有效性。"
+experiment_note = """
+实验定位：预算通信在 split-context 条件下的主入口，覆盖 StrategyQA 与 HotpotQA。
+核心问题：当智能体持有互补信息时，预算约束下的竞拍式通信能否高效传递关键证据。
+结果用途：补齐预算通信在信息不完备条件下的 headline 证据。
+"""
 benchmark_configs = [
   "configs/shared/benchmarks/strategyqa.toml",
   "configs/shared/benchmarks/hotpotqa.toml",

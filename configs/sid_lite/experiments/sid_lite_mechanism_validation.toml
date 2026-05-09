@@ -1,6 +1,11 @@
-# SID-lite v1 主实验入口配置。
-name = "sid_lite_v1"
-description = "SID-lite smoke20 mechanism validation: confidence early exit plus compressed messages."
+# SID-lite 机制验证实验入口。
+name = "sid_lite_mechanism_validation"
+description = "SID-lite 机制验证实验，聚焦置信度早停与消息压缩的组合收益。"
+experiment_note = """
+实验定位：SID-lite 路线的机制验证入口，比较始终全通信、仅压缩、SID-lite 三种策略。
+核心问题：置信度早停与压缩消息分别贡献了多少收益，它们的组合是否优于单独使用。
+结果用途：为后续是否保留 SID-lite 路线提供机制证据。
+"""
 benchmark_configs = [
   "configs/shared/benchmarks/gsm8k.toml",
   "configs/shared/benchmarks/strategyqa.toml",

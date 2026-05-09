@@ -40,10 +40,10 @@ def test_single_agent_inspect_cli() -> None:
             "single_agent_cli",
             "inspect-experiment",
             "--experiment",
-            "configs/single_agent/experiments/main_baselines.toml",
+            "configs/single_agent/experiments/same_context_core_benchmarks.toml",
         ],
     )
-    assert payload["name"] == "main_baselines"
+    assert payload["name"] == "same_context_core_benchmarks"
     assert payload["workspace_defaults"]["experiment_cache_root"].endswith("cache")
 
 
@@ -58,7 +58,7 @@ def test_faithful_matrix_inspect_cli() -> None:
         ],
     )
     assert payload["overrides"]["phase_name"] == "smoke20"
-    assert payload["counts"]["semantic_unique_targets"] == 16
+    assert payload["counts"]["semantic_unique_targets"] == 15
 
 
 def test_multi_agent_inspect_cli() -> None:
@@ -68,10 +68,10 @@ def test_multi_agent_inspect_cli() -> None:
             "multi_agent_cli",
             "inspect-experiment",
             "--experiment",
-            "configs/multi_agent/experiments/multi_agent_main.toml",
+            "configs/multi_agent/experiments/same_context_controlled_debate.toml",
         ],
     )
-    assert payload["name"] == "multi_agent_main"
+    assert payload["name"] == "same_context_controlled_debate"
 
 
 def test_selective_comm_inspect_cli() -> None:
@@ -81,10 +81,10 @@ def test_selective_comm_inspect_cli() -> None:
             "selective_comm_cli",
             "inspect-experiment",
             "--experiment",
-            "configs/selective_comm/experiments/trigger_early_exit_v1.toml",
+            "configs/selective_comm/experiments/trigger_early_exit_main.toml",
         ],
     )
-    assert payload["name"] == "trigger_early_exit_v1"
+    assert payload["name"] == "trigger_early_exit_main"
     assert payload["workspace_defaults"]["experiment_runs_root"].endswith("selective_comm")
 
 
@@ -95,10 +95,10 @@ def test_selective_comm_voc_v2_inspect_cli() -> None:
             "selective_comm_cli",
             "inspect-experiment",
             "--experiment",
-            "configs/selective_comm/experiments/trigger_voc_v2.toml",
+            "configs/selective_comm/experiments/voc_trigger_main.toml",
         ],
     )
-    assert payload["name"] == "trigger_voc_v2"
+    assert payload["name"] == "voc_trigger_main"
     assert payload["prompt_version"] == "selective_comm_voc_json_v2"
     assert len(payload["policies"]) == 5
     assert payload["policies"][-1]["policy_name"] == "voc_trigger_v2"
@@ -114,23 +114,23 @@ def test_sparc_inspect_cli() -> None:
             "sparc_cli",
             "inspect-experiment",
             "--experiment",
-            "configs/sparc/experiments/content_ablation_v1.toml",
+            "configs/sparc/experiments/content_ablation.toml",
         ],
     )
-    assert payload["name"] == "content_ablation_v1"
+    assert payload["name"] == "content_ablation"
 
 
-def test_sparc_aggregation_auditing_inspect_cli() -> None:
+def test_sparc_local_auditing_inspect_cli() -> None:
     payload = _run_cli(
         sparc_main,
         [
             "sparc_cli",
             "inspect-experiment",
             "--experiment",
-            "configs/sparc/experiments/aggregation_auditing_ablation_v1.toml",
+            "configs/sparc/experiments/local_auditing_ablation.toml",
         ],
     )
-    assert payload["name"] == "aggregation_auditing_ablation_v1"
+    assert payload["name"] == "local_auditing_ablation"
     assert payload["resolved_model"]["name"] == "deepseek/deepseek-v4-flash"
     assert payload["max_concurrent_requests"] == 5
     assert payload["requests_per_minute_limit"] == 50
@@ -151,10 +151,10 @@ def test_budget_comm_inspect_cli() -> None:
             "budget_comm_cli",
             "inspect-experiment",
             "--experiment",
-            "configs/budget_comm/experiments/dala_lite_same_context_v1.toml",
+            "configs/budget_comm/experiments/dala_lite_same_context_main.toml",
         ],
     )
-    assert payload["name"] == "dala_lite_same_context_v1"
+    assert payload["name"] == "dala_lite_same_context_main"
     assert payload["context_view"]["track_name"] == "same_context"
     assert payload["resolved_model"]["name"] == "deepseek/deepseek-v4-flash"
 
@@ -166,10 +166,10 @@ def test_sid_lite_inspect_cli() -> None:
             "sid_lite_cli",
             "inspect-experiment",
             "--experiment",
-            "configs/sid_lite/experiments/sid_lite_v1.toml",
+            "configs/sid_lite/experiments/sid_lite_mechanism_validation.toml",
         ],
     )
-    assert payload["name"] == "sid_lite_v1"
+    assert payload["name"] == "sid_lite_mechanism_validation"
     assert payload["methods"] == ["mv_3", "always_full", "compression_only", "sid_lite"]
     assert payload["max_concurrent_requests"] == 5
     assert payload["requests_per_minute_limit"] == 50
@@ -183,10 +183,10 @@ def test_free_mad_lite_inspect_cli() -> None:
             "free_mad_lite_cli",
             "inspect-experiment",
             "--experiment",
-            "configs/free_mad_lite/experiments/free_mad_lite_v1.toml",
+            "configs/free_mad_lite/experiments/free_mad_lite_mechanism_validation.toml",
         ],
     )
-    assert payload["name"] == "free_mad_lite_v1"
+    assert payload["name"] == "free_mad_lite_mechanism_validation"
     assert payload["methods"] == [
         "mv_3_initial",
         "vanilla_mad_r1_final_vote",
@@ -204,10 +204,10 @@ def test_comm_necessary_inspect_cli() -> None:
             "comm_necessary_cli",
             "inspect-experiment",
             "--experiment",
-            "configs/comm_necessary/experiments/hotpotqa_split_main.toml",
+            "configs/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml",
         ],
     )
-    assert payload["name"] == "hotpotqa_split_main"
+    assert payload["name"] == "hotpotqa_split_context_communication_necessity"
     assert payload["methods"] == [
         "full_context_single",
         "split_no_comm_mv3",

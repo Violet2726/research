@@ -32,16 +32,16 @@
 - `single_agent`
   只保留 `cot_1` 与 `sc_k`；`mv_*` 已从这个 family 中删除。
 - `multi_agent`
-  只保留一个正式实验入口：`configs/multi_agent/experiments/multi_agent_main.toml`。
+  只保留一个正式实验入口：`configs/multi_agent/experiments/same_context_controlled_debate.toml`。
 - `selective_comm`
   只保留两个正式实验入口：
-  - `trigger_early_exit_v1`
-  - `trigger_voc_v2`
+  - `trigger_early_exit_main`
+  - `voc_trigger_main`
 - `comm_necessary`
-  只保留一个正式实验入口：`configs/comm_necessary/experiments/hotpotqa_split_main.toml`。
+  只保留一个正式实验入口：`configs/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml`。
   `smoke20 / pilot100 / main(split500)` 统一通过 phase 表达，不再拆成多个 experiment。
 - `faithful_matrix`
-  当前 authoritative 主矩阵是 `16` 个语义唯一目标，另有 `1` 个显式排除的本地开发配置 `local_ollama_smoke`。
+  当前 authoritative 主矩阵是 `15` 个语义唯一目标，不再保留任何本地开发专用实验入口。
 
 ## 2. 全局设计原则
 
@@ -311,7 +311,7 @@
 
 ### 6.7 最新收口说明
 
-当前 `multi_agent` 的正式配置已经收口为单一入口 `multi_agent_main`，并且：
+当前 `multi_agent` 的正式配置已经收口为单一入口 `same_context_controlled_debate`，并且：
 
 - `matched_controls` 只保留 `mv_k` 语义，不再在 `multi_agent` 内部混入 `sc_k`；
 - 无通信 matched control 的执行逻辑已经迁到共享层 `experiment_core/no_comm_controls.py`；
@@ -401,8 +401,8 @@
 
 当前 `selective_comm` 只保留两个正式 experiment：
 
-- `trigger_early_exit_v1`
-- `trigger_voc_v2`
+- `trigger_early_exit_main`
+- `voc_trigger_main`
 
 同时，历史上的裁剪版和变体版配置已经移除，包括：
 
@@ -514,7 +514,7 @@
 
 `comm_necessary` 当前只有一个正式 experiment：
 
-- `hotpotqa_split_main`
+- `hotpotqa_split_context_communication_necessity`
 
 它不是“多个相近实验配置的集合”，而是：
 
@@ -600,7 +600,7 @@
 - `hotpotqa_split_evidence_v1`
 - `hotpotqa_split500_main`
 
-拆成两个 experiment 入口。当前版本已经把这两个入口收回到同一个正式 experiment `hotpotqa_split_main`，原因是：
+拆成两个 experiment 入口。当前版本已经把这两个入口收回到同一个正式 experiment `hotpotqa_split_context_communication_necessity`，原因是：
 
 - 方法本体完全相同；
 - 不同之处只是运行 phase 和样本规模；
@@ -793,7 +793,7 @@
 
 ## 12.6 `sparc_v1` 的特点
 
-`sparc_v1_smoke` 的配置里显式声明：
+`end_to_end_main` 的配置里显式声明：
 
 - 默认 trigger 为 `hybrid_trigger`
 - fallback trigger 为 `disagreement_triggered`
@@ -830,7 +830,7 @@
 - `always_communicate`
 - `disagreement_triggered`
 - `consensus_freeze`
-- `cue_v1`
+- `cue_black_box_utility_main`
 
 ## 13.4 核心机制
 
@@ -905,7 +905,7 @@
 
 例如：
 
-- `cue_v1` vs `sparc_v1`
+- `cue_black_box_utility_main` vs `sparc_v1`
 - `trigger_early_exit` vs `dala_lite`
 
 这些方法虽然都在 `faithful_matrix` 里，但不表示它们拥有完全相同的协议结构。

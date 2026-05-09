@@ -24,40 +24,39 @@
 
 Same-context headline：
 
-- `trigger_early_exit_v1`
-- `trigger_voc_v2`
-- `dala_lite_same_context_v1`
-- `sparc_v1_smoke`
+- `trigger_early_exit_main`
+- `voc_trigger_main`
+- `dala_lite_same_context_main`
+- `end_to_end_main`
 
 Split-context headline：
 
-- `hotpotqa_split_main`
-- `dala_lite_split_context_v1`
+- `hotpotqa_split_context_communication_necessity`
+- `dala_lite_split_context_main`
 
 Supporting：
 
-- `multi_agent_main`
-- `free_mad_lite_v1`
-- `auditing_ablation_v1`
-- `aggregation_auditing_ablation_v1`
+- `same_context_controlled_debate`
+- `free_mad_lite_mechanism_validation`
+- `local_auditing_ablation`
 
 Diagnostic：
 
-- `cue_v1`
-- `sid_lite_v1`
-- `content_ablation_v1`
-- `robustness`
+- `cue_black_box_utility_main`
+- `sid_lite_mechanism_validation`
+- `content_ablation`
+- `cross_provider_robustness`
 
 Reference：
 
-- `main_baselines`
-- `main_table_same_context`
+- `same_context_core_benchmarks`
+- `same_context_main_table`
 
 ## 3. Confirmatory Phase
 
 新增 phase：`confirmatory300`。
 
-矩阵规模固定为 16 个正式 experiment，不包含本地开发项。
+矩阵规模固定为 15 个正式 experiment，不包含本地开发项。
 
 数据规模规则：
 

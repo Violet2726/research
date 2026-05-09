@@ -1,6 +1,11 @@
-# HotpotQA split-context 通信必要性正式实验入口。
-name = "hotpotqa_split_main"
-description = "Communication-necessary split-context HotpotQA main experiment across smoke20, pilot100, and split500."
+# HotpotQA 分上下文通信必要性实验入口。
+name = "hotpotqa_split_context_communication_necessity"
+description = "HotpotQA 分上下文通信必要性实验，用于检验不同通信粒度是否决定多跳问答可解性。"
+experiment_note = """
+实验定位：通信必要性路线的核心入口，只关注 split-context HotpotQA。
+核心问题：从 answer-only 到 evidence/full-packet，不同信息交换粒度对多跳推理成功率有多大影响。
+结果用途：证明“通信是否必要、传什么最关键”这一问题，而不是单纯比较模型强弱。
+"""
 benchmark_configs = [
   "configs/shared/benchmarks/hotpotqa.toml",
 ]

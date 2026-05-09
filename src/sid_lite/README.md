@@ -12,9 +12,9 @@
 ## 常用命令
 
 ```powershell
-uv run sid_lite_cli inspect-experiment --experiment configs/sid_lite/experiments/sid_lite_v1.toml
-uv run sid_lite_cli run --experiment configs/sid_lite/experiments/sid_lite_v1.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
-uv run sid_lite_cli report-run --run-dir runs/sid_lite/sid_lite_v1/smoke20/<run_id>
+uv run sid_lite_cli inspect-experiment --experiment configs/sid_lite/experiments/sid_lite_mechanism_validation.toml
+uv run sid_lite_cli run --experiment configs/sid_lite/experiments/sid_lite_mechanism_validation.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
+uv run sid_lite_cli report-run --run-dir runs/sid_lite/sid_lite_mechanism_validation/smoke20/<run_id>
 ```
 
 ## 维护约定

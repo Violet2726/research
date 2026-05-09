@@ -1,6 +1,11 @@
-# 单智能体鲁棒性实验入口，聚焦 GSM-Symbolic 变体。
-name = "robustness"
-description = "Provider and model robustness checks outside the headline main table."
+# 跨供应商与模型的单智能体鲁棒性实验。
+name = "cross_provider_robustness"
+description = "跨供应商与模型的单智能体鲁棒性实验，用于检验主基线结论的稳健性。"
+experiment_note = """
+实验定位：主表之外的诊断性实验入口，关注不同 provider 与模型簇上的结论是否稳定。
+核心问题：同一套无通信基线在跨模型、跨供应商迁移时，性能与方差会如何变化。
+结果用途：为主实验结果提供外部有效性与可迁移性证据，而不是直接进入 headline 排名。
+"""
 method_catalog = "configs/single_agent/methods/common.toml"
 benchmark_configs = [
   "configs/shared/benchmarks/gsm8k.toml",
@@ -14,6 +19,7 @@ max_concurrent_requests = 5
 requests_per_minute_limit = 50
 tokens_per_minute_limit = 1000000
 primary_model_ref = "xiaomimimo/mimo-v2.5"
+
 [phases.smoke20]
 split_suffix = "smoke20_seed42"
 methods = ["cot_1"]

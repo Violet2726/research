@@ -140,7 +140,6 @@ def run_experiment(
         "experiment_name": experiment.name,
         "phase_name": phase_name,
         "primary_model_ref": experiment.primary_model_ref,
-        "confirmatory_model_ref": experiment.confirmatory_model_ref,
         "resolved_model": asdict(backbone),
         "experiment": experiment.name,
         "description": experiment.description,
@@ -158,7 +157,6 @@ def run_experiment(
         "experiment_name": experiment.name,
         "phase_name": phase_name,
         "primary_model_ref": experiment.primary_model_ref,
-        "confirmatory_model_ref": experiment.confirmatory_model_ref,
         "resolved_model": asdict(backbone),
         "benchmarks": [asdict(benchmark) for benchmark in benchmarks],
         "message_modes": experiment.message_modes,
@@ -1365,7 +1363,7 @@ def _resolve_trigger_selection(experiment: SparcExperimentConfig, backbone) -> d
         return {"selected_policy": experiment.fixed_trigger_policy or "always_communicate", "reason": "not_applicable"}
     default_policy = experiment.default_trigger_policy or "hybrid_trigger"
     fallback_policy = experiment.fallback_trigger_policy or "disagreement_triggered"
-    trigger_root = Path(default_runs_root("selective_comm")) / "trigger_early_exit_v1" / "smoke20"
+    trigger_root = Path(default_runs_root("selective_comm")) / "trigger_early_exit_main" / "smoke20"
     best_run_dir = None
     family_prefix = f"{backbone.provider}/{backbone.model_id.split('-', 1)[0]}"
     for manifest_path in trigger_root.rglob("manifest.json"):

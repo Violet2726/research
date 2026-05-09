@@ -21,13 +21,13 @@ CUE 是一个黑盒、免训练的多智能体通信效用框架：
 查看实验配置：
 
 ```bash
-uv run cue-cli inspect-experiment --experiment configs/cue/experiments/cue_v1.toml
+uv run cue-cli inspect-experiment --experiment configs/cue/experiments/cue_black_box_utility_main.toml
 ```
 
 执行 `smoke20`：
 
 ```bash
-uv run cue-cli run --experiment configs/cue/experiments/cue_v1.toml --phase smoke20
+uv run cue-cli run --experiment configs/cue/experiments/cue_black_box_utility_main.toml --phase smoke20
 ```
 
 校验运行：

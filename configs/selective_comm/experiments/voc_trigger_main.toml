@@ -1,6 +1,11 @@
-# VOC v2 主实验入口配置。
-name = "trigger_voc_v2"
-description = "VoC Trigger v2 on Xiaomi MiMo-V2.5 with black-box claim-span and uncertainty-type proxies on shared selective communication."
+# VoC 触发主实验入口。
+name = "voc_trigger_main"
+description = "VoC 触发主实验，用于评估基于 claim-span 与不确定性代理的选择性通信策略。"
+experiment_note = """
+实验定位：选择性通信中基于 Value of Communication 代理信号的主入口。
+核心问题：claim divergence 与 uncertainty-type diversity 等代理量能否稳定识别值得通信的样本。
+结果用途：验证 VoC 风格触发是否能够替代更朴素的分歧或置信度触发规则。
+"""
 benchmark_configs = [
   "configs/shared/benchmarks/gsm8k.toml",
   "configs/shared/benchmarks/strategyqa.toml",

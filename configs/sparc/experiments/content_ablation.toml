@@ -1,6 +1,11 @@
-# SPARC 内容压缩层级消融实验入口配置。
-name = "content_ablation_v1"
-description = "SPARC smoke experiment for communication content ablation under always-on communication."
+# SPARC 内容消融实验入口。
+name = "content_ablation"
+description = "SPARC 内容消融实验，用于比较不同消息压缩层级在持续通信条件下的效果差异。"
+experiment_note = """
+实验定位：SPARC 内容层面的诊断性实验，在 always-on communication 条件下比较消息格式。
+核心问题：full CoT、answer-only、critical evidence、task-adaptive 等内容模式分别保留了多少有效信息。
+结果用途：帮助确定主系统应保留哪一类通信内容粒度。
+"""
 experiment_kind = "content_ablation"
 benchmark_configs = [
   "configs/shared/benchmarks/gsm8k.toml",
@@ -14,7 +19,6 @@ max_concurrent_requests = 5
 requests_per_minute_limit = 50
 tokens_per_minute_limit = 1000000
 primary_model_ref = "deepseek/deepseek-v4-flash"
-confirmatory_model_ref = "deepseek/deepseek-v4-flash"
 
 [content_ablation]
 trigger_policy = "always_communicate"

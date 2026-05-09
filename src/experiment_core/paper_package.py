@@ -47,20 +47,19 @@ TRACK_COLORS = {
 }
 
 FIGURE_LABEL_OVERRIDES = {
-    "aggregation_auditing_ablation_v1": "SPARC agg-audit",
-    "auditing_ablation_v1": "SPARC audit",
-    "content_ablation_v1": "SPARC content",
-    "cue_v1": "CUE",
-    "dala_lite_same_context_v1": "DALA same",
-    "dala_lite_split_context_v1": "DALA split",
-    "free_mad_lite_v1": "Free-MAD-lite",
-    "hotpotqa_split_main": "Hotpot split",
-    "multi_agent_main": "Vanilla MAD",
-    "robustness": "Robustness",
-    "sid_lite_v1": "SID-lite",
-    "sparc_v1_smoke": "SPARC",
-    "trigger_early_exit_v1": "Trigger early-exit",
-    "trigger_voc_v2": "Trigger VOC",
+    "local_auditing_ablation": "SPARC audit",
+    "content_ablation": "SPARC content",
+    "cue_black_box_utility_main": "CUE",
+    "dala_lite_same_context_main": "DALA same",
+    "dala_lite_split_context_main": "DALA split",
+    "free_mad_lite_mechanism_validation": "Free-MAD-lite",
+    "hotpotqa_split_context_communication_necessity": "Hotpot split",
+    "same_context_controlled_debate": "Vanilla MAD",
+    "cross_provider_robustness": "Robustness",
+    "sid_lite_mechanism_validation": "SID-lite",
+    "end_to_end_main": "SPARC",
+    "trigger_early_exit_main": "Trigger early-exit",
+    "voc_trigger_main": "Trigger VOC",
 }
 
 
@@ -309,9 +308,9 @@ def _nearest_single_agent_row(
 
 
 def _single_agent_reference_rank(experiment_name: str) -> int:
-    if experiment_name == "main_baselines":
+    if experiment_name == "same_context_core_benchmarks":
         return 0
-    if experiment_name == "main_table_same_context":
+    if experiment_name == "same_context_main_table":
         return 1
     return 2
 

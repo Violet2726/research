@@ -12,9 +12,9 @@
 ## 常用命令
 
 ```powershell
-uv run free_mad_lite_cli inspect-experiment --experiment configs/free_mad_lite/experiments/free_mad_lite_v1.toml
-uv run free_mad_lite_cli run --experiment configs/free_mad_lite/experiments/free_mad_lite_v1.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
-uv run free_mad_lite_cli report-run --run-dir runs/free_mad_lite/free_mad_lite_v1/smoke20/<run_id>
+uv run free_mad_lite_cli inspect-experiment --experiment configs/free_mad_lite/experiments/free_mad_lite_mechanism_validation.toml
+uv run free_mad_lite_cli run --experiment configs/free_mad_lite/experiments/free_mad_lite_mechanism_validation.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
+uv run free_mad_lite_cli report-run --run-dir runs/free_mad_lite/free_mad_lite_mechanism_validation/smoke20/<run_id>
 ```
 
 ## 维护约定

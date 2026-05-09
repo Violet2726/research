@@ -44,7 +44,6 @@ class SparcExperimentConfig:
     requests_per_minute_limit: int | None
     tokens_per_minute_limit: int | None
     primary_model_ref: str
-    confirmatory_model_ref: str | None
     fixed_trigger_policy: str | None
     message_modes: list[str]
     fixed_message_modes: dict[str, str]
@@ -102,7 +101,6 @@ def load_experiment_config(path: str | Path) -> SparcExperimentConfig:
         requests_per_minute_limit=_optional_int(payload, "requests_per_minute_limit"),
         tokens_per_minute_limit=_optional_int(payload, "tokens_per_minute_limit"),
         primary_model_ref=str(payload["primary_model_ref"]),
-        confirmatory_model_ref=_optional_str(payload, "confirmatory_model_ref"),
         fixed_trigger_policy=_first_str(content_config, "trigger_policy", auditing_config),
         message_modes=[str(item) for item in content_config.get("message_modes", [])],
         fixed_message_modes=fixed_message_modes,

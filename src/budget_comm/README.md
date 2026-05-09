@@ -12,9 +12,9 @@
 ## 常用命令
 
 ```powershell
-uv run budget_comm_cli inspect-experiment --experiment configs/budget_comm/experiments/dala_lite_same_context_v1.toml
-uv run budget_comm_cli run --experiment configs/budget_comm/experiments/dala_lite_split_context_v1.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
-uv run budget_comm_cli report-run --run-dir runs/budget_comm/dala_lite_split_context_v1/smoke20/<run_id>
+uv run budget_comm_cli inspect-experiment --experiment configs/budget_comm/experiments/dala_lite_same_context_main.toml
+uv run budget_comm_cli run --experiment configs/budget_comm/experiments/dala_lite_split_context_main.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
+uv run budget_comm_cli report-run --run-dir runs/budget_comm/dala_lite_split_context_main/smoke20/<run_id>
 ```
 
 ## 维护约定

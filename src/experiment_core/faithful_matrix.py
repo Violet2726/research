@@ -64,27 +64,24 @@ DEFAULT_REQUESTS_PER_MINUTE = 95
 DEFAULT_TOKENS_PER_MINUTE = 9000000
 MATRIX_EXPERIMENT_KIND = "faithful_matrix"
 
-EXCLUDED_CONFIGS = {
-    "configs/single_agent/experiments/local_ollama_smoke.toml": "local_only_dev_config",
-}
+EXCLUDED_CONFIGS: dict[str, str] = {}
 
 RUN_ORDER = [
-    "configs/single_agent/experiments/main_baselines.toml",
-    "configs/multi_agent/experiments/multi_agent_main.toml",
-    "configs/free_mad_lite/experiments/free_mad_lite_v1.toml",
-    "configs/budget_comm/experiments/dala_lite_same_context_v1.toml",
-    "configs/comm_necessary/experiments/hotpotqa_split_main.toml",
-    "configs/sid_lite/experiments/sid_lite_v1.toml",
-    "configs/selective_comm/experiments/trigger_early_exit_v1.toml",
-    "configs/sparc/experiments/sparc_v1_smoke.toml",
-    "configs/single_agent/experiments/main_table_same_context.toml",
-    "configs/single_agent/experiments/robustness.toml",
-    "configs/budget_comm/experiments/dala_lite_split_context_v1.toml",
-    "configs/sparc/experiments/content_ablation_v1.toml",
-    "configs/sparc/experiments/auditing_ablation_v1.toml",
-    "configs/sparc/experiments/aggregation_auditing_ablation_v1.toml",
-    "configs/cue/experiments/cue_v1.toml",
-    "configs/selective_comm/experiments/trigger_voc_v2.toml",
+    "configs/single_agent/experiments/same_context_core_benchmarks.toml",
+    "configs/multi_agent/experiments/same_context_controlled_debate.toml",
+    "configs/free_mad_lite/experiments/free_mad_lite_mechanism_validation.toml",
+    "configs/budget_comm/experiments/dala_lite_same_context_main.toml",
+    "configs/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml",
+    "configs/sid_lite/experiments/sid_lite_mechanism_validation.toml",
+    "configs/selective_comm/experiments/trigger_early_exit_main.toml",
+    "configs/sparc/experiments/end_to_end_main.toml",
+    "configs/single_agent/experiments/same_context_main_table.toml",
+    "configs/single_agent/experiments/cross_provider_robustness.toml",
+    "configs/budget_comm/experiments/dala_lite_split_context_main.toml",
+    "configs/sparc/experiments/content_ablation.toml",
+    "configs/sparc/experiments/local_auditing_ablation.toml",
+    "configs/cue/experiments/cue_black_box_utility_main.toml",
+    "configs/selective_comm/experiments/voc_trigger_main.toml",
 ]
 
 

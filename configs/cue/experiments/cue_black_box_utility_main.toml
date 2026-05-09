@@ -1,6 +1,11 @@
-# CUE v1 主实验入口配置。
-name = "cue_v1"
-description = "CUE black-box utility-controlled communication with local auditing."
+# CUE 黑盒效用控制主实验入口。
+name = "cue_black_box_utility_main"
+description = "CUE 黑盒效用控制主实验，评估基于效用估计的通信调度是否优于固定触发策略。"
+experiment_note = """
+实验定位：CUE 路线的主入口，覆盖多类同上下文 benchmark。
+核心问题：在无法直接观测真实收益的前提下，黑盒效用估计是否足以驱动更优的通信决策。
+结果用途：为效用控制型通信策略提供诊断性和机制性证据。
+"""
 benchmark_configs = [
   "configs/shared/benchmarks/gsm8k.toml",
   "configs/shared/benchmarks/math500.toml",
@@ -31,4 +36,3 @@ split_suffix = "pilot100_seed42"
 
 [phases.confirmatory300]
 split_overrides = { gsm8k = "dev300_seed42", math500 = "confirmatory300_seed42", strategyqa = "dev_full_229_seed42", hotpotqa = "dev300_seed42", mmlu_pro = "strat300_seed42" }
-

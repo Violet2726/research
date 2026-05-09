@@ -80,15 +80,15 @@ split-context 研究：
 
 当前建议的 same-context 主表：
 
-- `trigger_early_exit_v1`
-- `trigger_voc_v2`
-- `dala_lite_same_context_v1`
-- `sparc_v1_smoke`
+- `trigger_early_exit_main`
+- `voc_trigger_main`
+- `dala_lite_same_context_main`
+- `end_to_end_main`
 
 当前建议的 split-context 主表：
 
-- `hotpotqa_split_main`
-- `dala_lite_split_context_v1`
+- `hotpotqa_split_context_communication_necessity`
+- `dala_lite_split_context_main`
 
 其他 family 应作为 supporting 或 diagnostic evidence，而不是全部并列为主贡献。
 
@@ -104,9 +104,9 @@ faithful gate 通过只说明该 experiment 在当前验收规则下可接受。
 
 例如：
 
-- `cue_v1` 更适合作为统一 utility 方向的诊断结果；
-- `sid_lite_v1` 更适合作为压缩早退的边界结果；
-- `content_ablation_v1` 更适合作为消息内容失败风险的分析结果。
+- `cue_black_box_utility_main` 更适合作为统一 utility 方向的诊断结果；
+- `sid_lite_mechanism_validation` 更适合作为压缩早退的边界结果；
+- `content_ablation` 更适合作为消息内容失败风险的分析结果。
 
 ## 1.7 必须保留弱结果和边界结果
 
@@ -203,9 +203,9 @@ faithful gate 通过只说明该 experiment 在当前验收规则下可接受。
 - `hybrid_trigger` vs `always_communicate`；
 - `hybrid_trigger` vs `sc_6`；
 - `voc_trigger_v2` vs `mv_6`；
-- `dala_lite_same_context_v1` vs `all_to_all_full`；
-- `hotpotqa_split_main` vs `split_no_comm_mv3`；
-- `dala_lite_split_context_v1` vs `all_to_all_full`。
+- `dala_lite_same_context_main` vs `all_to_all_full`；
+- `hotpotqa_split_context_communication_necessity` vs `split_no_comm_mv3`；
+- `dala_lite_split_context_main` vs `all_to_all_full`。
 
 ## 2.4 第四阶段：补强 single-agent equal-budget baseline
 

@@ -12,9 +12,9 @@
 ## 常用命令
 
 ```powershell
-uv run single_agent_cli inspect-experiment --experiment configs/single_agent/experiments/main_baselines.toml
-uv run single_agent_cli run --experiment configs/single_agent/experiments/main_baselines.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
-uv run single_agent_cli validate-run --run-dir runs/single_agent/main_baselines/smoke20/<run_id>
+uv run single_agent_cli inspect-experiment --experiment configs/single_agent/experiments/same_context_core_benchmarks.toml
+uv run single_agent_cli run --experiment configs/single_agent/experiments/same_context_core_benchmarks.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
+uv run single_agent_cli validate-run --run-dir runs/single_agent/same_context_core_benchmarks/smoke20/<run_id>
 ```
 
 ## 维护约定

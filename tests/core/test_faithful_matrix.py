@@ -25,11 +25,11 @@ def test_build_run_matrix_counts_expected() -> None:
     semantic_counts = Counter(entry.status for entry in matrix.semantic_entries)
     entry_counts = Counter(entry.status for entry in matrix.entries)
 
-    assert len(matrix.semantic_entries) == 16
-    assert semantic_counts["pending"] == 16
-    assert entry_counts["excluded"] == 1
-    assert matrix.counts["semantic_unique_targets"] == 16
-    cue_entry = next(entry for entry in matrix.semantic_entries if entry.experiment_name == "cue_v1")
+    assert len(matrix.semantic_entries) == 15
+    assert semantic_counts["pending"] == 15
+    assert entry_counts["excluded"] == 0
+    assert matrix.counts["semantic_unique_targets"] == 15
+    cue_entry = next(entry for entry in matrix.semantic_entries if entry.experiment_name == "cue_black_box_utility_main")
     assert cue_entry.evaluation_track == "same_context"
     assert cue_entry.evidence_tier == "diagnostic"
     assert cue_entry.primary_method_name == "cue_v1"
@@ -42,14 +42,14 @@ def test_build_run_matrix_counts_expected_for_pilot100() -> None:
     semantic_counts = Counter(entry.status for entry in matrix.semantic_entries)
     entry_counts = Counter(entry.status for entry in matrix.entries)
 
-    assert len(matrix.semantic_entries) == 16
-    assert semantic_counts["pending"] == 16
+    assert len(matrix.semantic_entries) == 15
+    assert semantic_counts["pending"] == 15
     assert entry_counts["excluded"] == 0
-    assert matrix.counts["semantic_unique_targets"] == 16
+    assert matrix.counts["semantic_unique_targets"] == 15
     split_entry = next(
         entry
         for entry in matrix.semantic_entries
-        if entry.experiment_name == "hotpotqa_split_main"
+        if entry.experiment_name == "hotpotqa_split_context_communication_necessity"
     )
     assert split_entry.phase_name == "pilot100"
     assert split_entry.evaluation_track == "split_context"
@@ -62,47 +62,47 @@ def test_build_run_matrix_counts_expected_for_confirmatory300() -> None:
     semantic_counts = Counter(entry.status for entry in matrix.semantic_entries)
     entry_counts = Counter(entry.status for entry in matrix.entries)
 
-    assert len(matrix.semantic_entries) == 16
-    assert semantic_counts["pending"] == 16
+    assert len(matrix.semantic_entries) == 15
+    assert semantic_counts["pending"] == 15
     assert entry_counts["excluded"] == 0
-    assert matrix.counts["semantic_unique_targets"] == 16
+    assert matrix.counts["semantic_unique_targets"] == 15
     headline_names = {
         entry.experiment_name
         for entry in matrix.semantic_entries
         if entry.evidence_tier == "headline"
     }
     assert headline_names == {
-        "trigger_early_exit_v1",
-        "trigger_voc_v2",
-        "dala_lite_same_context_v1",
-        "sparc_v1_smoke",
-        "hotpotqa_split_main",
-        "dala_lite_split_context_v1",
+        "trigger_early_exit_main",
+        "voc_trigger_main",
+        "dala_lite_same_context_main",
+        "end_to_end_main",
+        "hotpotqa_split_context_communication_necessity",
+        "dala_lite_split_context_main",
     }
 
 
 def test_apply_runtime_overrides_clears_single_agent_smoke20_tag_constraints() -> None:
     overrides = RuntimeOverrides()
-    experiment = load_single_agent_experiment_config("configs/single_agent/experiments/robustness.toml")
+    experiment = load_single_agent_experiment_config("configs/single_agent/experiments/cross_provider_robustness.toml")
 
     overridden = apply_runtime_overrides("single_agent", experiment, overrides)
 
     assert required_model_tags(experiment, "smoke20") == ["provider_zhipu"]
     assert required_model_tags(overridden, "smoke20") == []
-    assert overridden.max_concurrent_requests == 85
+    assert overridden.max_concurrent_requests == 90
     assert overridden.requests_per_minute_limit == 95
     assert overridden.tokens_per_minute_limit == 9000000
 
 
 def test_apply_runtime_overrides_updates_backbone_without_mutating_source_config() -> None:
     overrides = RuntimeOverrides()
-    experiment = load_budget_experiment_config("configs/budget_comm/experiments/dala_lite_same_context_v1.toml")
+    experiment = load_budget_experiment_config("configs/budget_comm/experiments/dala_lite_same_context_main.toml")
 
     overridden = apply_runtime_overrides("budget_comm", experiment, overrides)
 
     assert experiment.primary_model_ref == "deepseek/deepseek-v4-flash"
     assert overridden.primary_model_ref == "xiaomimimo/mimo-v2.5"
-    assert overridden.max_concurrent_requests == 85
+    assert overridden.max_concurrent_requests == 90
     assert overridden.requests_per_minute_limit == 95
     assert overridden.tokens_per_minute_limit == 9000000
 
@@ -140,8 +140,8 @@ def test_resume_faithful_matrix_continues_rerun_needed_and_pending_entries(
         "entries": [
             {
                 "family": "comm_necessary",
-                "config_path": "configs/comm_necessary/experiments/hotpotqa_split_main.toml",
-                "experiment_name": "hotpotqa_split_main",
+                "config_path": "configs/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml",
+                "experiment_name": "hotpotqa_split_context_communication_necessity",
                 "description": "",
                 "phase_name": "pilot100",
                 "evaluation_track": "split_context",
@@ -195,4 +195,4 @@ def test_resume_faithful_matrix_continues_rerun_needed_and_pending_entries(
     assert resumed_root == root
     resumed = json.loads(state_path.read_text(encoding="utf-8"))
     statuses = {item["experiment_name"]: item["status"] for item in resumed["semantic_entries"]}
-    assert statuses["hotpotqa_split_main"] == "completed"
+    assert statuses["hotpotqa_split_context_communication_necessity"] == "completed"

@@ -11,7 +11,7 @@ def test_build_paper_package_payload_splits_evidence_tiers() -> None:
         "combined_overall": [
             {
                 "family": "selective_comm",
-                "experiment_name": "trigger_early_exit_v1",
+                "experiment_name": "trigger_early_exit_main",
                 "evaluation_track": "same_context",
                 "evidence_tier": "headline",
                 "primary_method_name": "hybrid_trigger",
@@ -22,7 +22,7 @@ def test_build_paper_package_payload_splits_evidence_tiers() -> None:
             },
             {
                 "family": "cue",
-                "experiment_name": "cue_v1",
+                "experiment_name": "cue_black_box_utility_main",
                 "evaluation_track": "same_context",
                 "evidence_tier": "diagnostic",
                 "primary_method_name": "cue_v1",
@@ -38,8 +38,8 @@ def test_build_paper_package_payload_splits_evidence_tiers() -> None:
         {"comparisons": []},
     )
 
-    assert package["sections"]["same_context_main_table"][0]["experiment_name"] == "trigger_early_exit_v1"
-    assert package["sections"]["diagnostic_evidence_table"][0]["experiment_name"] == "cue_v1"
+    assert package["sections"]["same_context_main_table"][0]["experiment_name"] == "trigger_early_exit_main"
+    assert package["sections"]["diagnostic_evidence_table"][0]["experiment_name"] == "cue_black_box_utility_main"
 
 
 def test_render_paper_package_writes_markdown_and_figures(tmp_path: Path) -> None:
@@ -67,8 +67,8 @@ def test_render_paper_package_writes_markdown_and_figures(tmp_path: Path) -> Non
         "semantic_entries": [
             {
                 "family": "selective_comm",
-                "config_path": "configs/selective_comm/experiments/trigger_early_exit_v1.toml",
-                "experiment_name": "trigger_early_exit_v1",
+                "config_path": "configs/selective_comm/experiments/trigger_early_exit_main.toml",
+                "experiment_name": "trigger_early_exit_main",
                 "status": "completed",
                 "run_dir": run_dir.as_posix(),
             }
@@ -81,7 +81,7 @@ def test_render_paper_package_writes_markdown_and_figures(tmp_path: Path) -> Non
                 "combined_overall": [
                     {
                         "family": "selective_comm",
-                        "experiment_name": "trigger_early_exit_v1",
+                        "experiment_name": "trigger_early_exit_main",
                         "evaluation_track": "same_context",
                         "evidence_tier": "headline",
                         "primary_method_name": "hybrid_trigger",

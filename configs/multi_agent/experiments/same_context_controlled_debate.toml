@@ -1,6 +1,11 @@
-# multi_agent 正式实验入口。
-name = "multi_agent_main"
-description = "Formal controlled debate-vs-vote experiment across same-context reasoning benchmarks."
+# 同上下文受控辩论实验入口。
+name = "same_context_controlled_debate"
+description = "同上下文受控辩论实验，用于比较多智能体辩论与等预算投票对照。"
+experiment_note = """
+实验定位：多智能体同上下文主实验入口，覆盖 GSM8K、StrategyQA、HotpotQA。
+核心问题：在相同预算下，结构化辩论相比无通信投票是否带来稳定增益。
+结果用途：作为后续机制增强方法的基础通信参照组。
+"""
 benchmark_configs = [
   "configs/shared/benchmarks/gsm8k.toml",
   "configs/shared/benchmarks/strategyqa.toml",

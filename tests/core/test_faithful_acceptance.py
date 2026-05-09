@@ -10,8 +10,8 @@ def test_build_acceptance_summary_classifies_same_and_split_tracks() -> None:
         "rows": [
             {
                 "family": "budget_comm",
-                "config_path": "configs/budget_comm/experiments/dala_lite_same_context_v1.toml",
-                "experiment_name": "dala_lite_same_context_v1",
+                "config_path": "configs/budget_comm/experiments/dala_lite_same_context_main.toml",
+                "experiment_name": "dala_lite_same_context_main",
                 "evaluation_track": "same_context",
                 "dataset": "overall",
                 "primary_method_name": "dala_lite",
@@ -27,8 +27,8 @@ def test_build_acceptance_summary_classifies_same_and_split_tracks() -> None:
             },
             {
                 "family": "comm_necessary",
-                "config_path": "configs/comm_necessary/experiments/hotpotqa_split_main.toml",
-                "experiment_name": "hotpotqa_split_main",
+                "config_path": "configs/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml",
+                "experiment_name": "hotpotqa_split_context_communication_necessity",
                 "evaluation_track": "split_context",
                 "dataset": "overall",
                 "primary_method_name": "full_packet_exchange",
@@ -45,8 +45,8 @@ def test_build_acceptance_summary_classifies_same_and_split_tracks() -> None:
             },
             {
                 "family": "selective_comm",
-                "config_path": "configs/selective_comm/experiments/trigger_early_exit_v1.toml",
-                "experiment_name": "trigger_early_exit_v1",
+                "config_path": "configs/selective_comm/experiments/trigger_early_exit_main.toml",
+                "experiment_name": "trigger_early_exit_main",
                 "evaluation_track": "same_context",
                 "dataset": "overall",
                 "primary_method_name": "hybrid_trigger",

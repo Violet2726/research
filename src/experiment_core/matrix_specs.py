@@ -27,31 +27,31 @@ class ExperimentMatrixSpec:
 
 
 EXPERIMENT_MATRIX_SPECS: dict[str, ExperimentMatrixSpec] = {
-    "configs/single_agent/experiments/main_baselines.toml": ExperimentMatrixSpec(
+    "configs/single_agent/experiments/same_context_core_benchmarks.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,
         evidence_tier=EVIDENCE_REFERENCE,
         primary_method_name="sc_5",
         best_no_comm_candidates=("cot_1", "sc_5"),
     ),
-    "configs/single_agent/experiments/main_table_same_context.toml": ExperimentMatrixSpec(
+    "configs/single_agent/experiments/same_context_main_table.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,
         evidence_tier=EVIDENCE_REFERENCE,
         primary_method_name="sc_5",
         best_no_comm_candidates=("cot_1", "sc_5"),
     ),
-    "configs/single_agent/experiments/robustness.toml": ExperimentMatrixSpec(
+    "configs/single_agent/experiments/cross_provider_robustness.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,
         evidence_tier=EVIDENCE_DIAGNOSTIC,
         primary_method_name="cot_1",
         best_no_comm_candidates=("cot_1",),
     ),
-    "configs/multi_agent/experiments/multi_agent_main.toml": ExperimentMatrixSpec(
+    "configs/multi_agent/experiments/same_context_controlled_debate.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,
         evidence_tier=EVIDENCE_SUPPORTING,
         primary_method_name="mad_3a_r1",
         best_no_comm_candidates=("mv_6",),
     ),
-    "configs/free_mad_lite/experiments/free_mad_lite_v1.toml": ExperimentMatrixSpec(
+    "configs/free_mad_lite/experiments/free_mad_lite_mechanism_validation.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,
         evidence_tier=EVIDENCE_SUPPORTING,
         primary_method_name="free_mad_lite_llm_trajectory",
@@ -59,7 +59,7 @@ EXPERIMENT_MATRIX_SPECS: dict[str, ExperimentMatrixSpec] = {
         full_comm_reference="vanilla_mad_r1_final_vote",
         token_gate_basis="none",
     ),
-    "configs/budget_comm/experiments/dala_lite_same_context_v1.toml": ExperimentMatrixSpec(
+    "configs/budget_comm/experiments/dala_lite_same_context_main.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,
         evidence_tier=EVIDENCE_HEADLINE,
         primary_method_name="dala_lite",
@@ -67,7 +67,7 @@ EXPERIMENT_MATRIX_SPECS: dict[str, ExperimentMatrixSpec] = {
         full_comm_reference="all_to_all_full",
         token_gate_basis="communication",
     ),
-    "configs/budget_comm/experiments/dala_lite_split_context_v1.toml": ExperimentMatrixSpec(
+    "configs/budget_comm/experiments/dala_lite_split_context_main.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SPLIT_CONTEXT,
         evidence_tier=EVIDENCE_HEADLINE,
         primary_method_name="dala_lite",
@@ -75,14 +75,14 @@ EXPERIMENT_MATRIX_SPECS: dict[str, ExperimentMatrixSpec] = {
         full_comm_reference="all_to_all_full",
         token_gate_basis="communication",
     ),
-    "configs/comm_necessary/experiments/hotpotqa_split_main.toml": ExperimentMatrixSpec(
+    "configs/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SPLIT_CONTEXT,
         evidence_tier=EVIDENCE_HEADLINE,
         primary_method_name="full_packet_exchange",
         best_no_comm_candidates=("split_no_comm_mv3",),
         full_context_reference="full_context_single",
     ),
-    "configs/sid_lite/experiments/sid_lite_v1.toml": ExperimentMatrixSpec(
+    "configs/sid_lite/experiments/sid_lite_mechanism_validation.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,
         evidence_tier=EVIDENCE_DIAGNOSTIC,
         primary_method_name="sid_lite",
@@ -90,7 +90,7 @@ EXPERIMENT_MATRIX_SPECS: dict[str, ExperimentMatrixSpec] = {
         full_comm_reference="always_full",
         token_gate_basis="communication",
     ),
-    "configs/selective_comm/experiments/trigger_early_exit_v1.toml": ExperimentMatrixSpec(
+    "configs/selective_comm/experiments/trigger_early_exit_main.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,
         evidence_tier=EVIDENCE_HEADLINE,
         primary_method_name="hybrid_trigger",
@@ -98,7 +98,7 @@ EXPERIMENT_MATRIX_SPECS: dict[str, ExperimentMatrixSpec] = {
         full_comm_reference="always_communicate",
         token_gate_basis="communication",
     ),
-    "configs/selective_comm/experiments/trigger_voc_v2.toml": ExperimentMatrixSpec(
+    "configs/selective_comm/experiments/voc_trigger_main.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,
         evidence_tier=EVIDENCE_HEADLINE,
         primary_method_name="voc_trigger_v2",
@@ -106,7 +106,7 @@ EXPERIMENT_MATRIX_SPECS: dict[str, ExperimentMatrixSpec] = {
         full_comm_reference="always_communicate",
         token_gate_basis="communication",
     ),
-    "configs/sparc/experiments/sparc_v1_smoke.toml": ExperimentMatrixSpec(
+    "configs/sparc/experiments/end_to_end_main.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,
         evidence_tier=EVIDENCE_HEADLINE,
         primary_method_name="sparc_v1",
@@ -114,7 +114,7 @@ EXPERIMENT_MATRIX_SPECS: dict[str, ExperimentMatrixSpec] = {
         full_comm_reference="always_communicate",
         token_gate_basis="communication",
     ),
-    "configs/sparc/experiments/content_ablation_v1.toml": ExperimentMatrixSpec(
+    "configs/sparc/experiments/content_ablation.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,
         evidence_tier=EVIDENCE_DIAGNOSTIC,
         primary_method_name="task_adaptive",
@@ -122,7 +122,7 @@ EXPERIMENT_MATRIX_SPECS: dict[str, ExperimentMatrixSpec] = {
         full_comm_reference="full_cot",
         token_gate_basis="communication",
     ),
-    "configs/sparc/experiments/auditing_ablation_v1.toml": ExperimentMatrixSpec(
+    "configs/sparc/experiments/local_auditing_ablation.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,
         evidence_tier=EVIDENCE_SUPPORTING,
         primary_method_name="local_auditing",
@@ -130,15 +130,7 @@ EXPERIMENT_MATRIX_SPECS: dict[str, ExperimentMatrixSpec] = {
         full_comm_reference="final_round_vote",
         token_gate_basis="none",
     ),
-    "configs/sparc/experiments/aggregation_auditing_ablation_v1.toml": ExperimentMatrixSpec(
-        evaluation_track=TRACK_SAME_CONTEXT,
-        evidence_tier=EVIDENCE_SUPPORTING,
-        primary_method_name="local_auditing",
-        best_no_comm_candidates=("majority_vote",),
-        full_comm_reference="final_round_vote",
-        token_gate_basis="none",
-    ),
-    "configs/cue/experiments/cue_v1.toml": ExperimentMatrixSpec(
+    "configs/cue/experiments/cue_black_box_utility_main.toml": ExperimentMatrixSpec(
         evaluation_track=TRACK_SAME_CONTEXT,
         evidence_tier=EVIDENCE_DIAGNOSTIC,
         primary_method_name="cue_v1",
@@ -146,12 +138,7 @@ EXPERIMENT_MATRIX_SPECS: dict[str, ExperimentMatrixSpec] = {
         full_comm_reference="always_communicate",
         token_gate_basis="communication",
     ),
-    "configs/single_agent/experiments/local_ollama_smoke.toml": ExperimentMatrixSpec(
-        evaluation_track=TRACK_SAME_CONTEXT,
-        evidence_tier=EVIDENCE_DIAGNOSTIC,
-        primary_method_name="cot_1",
-        best_no_comm_candidates=("cot_1",),
-    ),
+
 }
 
 

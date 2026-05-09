@@ -1,6 +1,11 @@
-# 单智能体主基线实验入口。
-name = "main_baselines"
-description = "Main no-communication baselines on GSM8K, StrategyQA, and HotpotQA."
+# 同上下文核心基准上的单智能体无通信基线实验。
+name = "same_context_core_benchmarks"
+description = "同上下文核心基准上的单智能体无通信基线实验，对比 CoT 与 Self-Consistency。"
+experiment_note = """
+实验定位：单智能体主基线入口，覆盖 GSM8K、StrategyQA、HotpotQA。
+核心问题：在不引入通信机制的前提下，CoT 与 SC_k 的收益、成本与稳定性如何变化。
+结果用途：为多智能体、选择性通信、预算通信和 SPARC 相关实验提供统一 lower bound 与无通信对照。
+"""
 method_catalog = "configs/single_agent/methods/common.toml"
 benchmark_configs = [
   "configs/shared/benchmarks/gsm8k.toml",
@@ -14,6 +19,7 @@ max_concurrent_requests = 5
 requests_per_minute_limit = 50
 tokens_per_minute_limit = 1000000
 primary_model_ref = "xiaomimimo/mimo-v2.5"
+
 [phases.smoke20]
 split_suffix = "smoke20_seed42"
 methods = ["cot_1", "sc_5"]

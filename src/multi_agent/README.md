@@ -12,9 +12,9 @@
 ## 常用命令
 
 ```powershell
-uv run multi_agent_cli inspect-experiment --experiment configs/multi_agent/experiments/multi_agent_main.toml
-uv run multi_agent_cli run --experiment configs/multi_agent/experiments/multi_agent_main.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
-uv run multi_agent_cli report-debate-vs-vote --run-dir runs/multi_agent/multi_agent_main/smoke20/<run_id>
+uv run multi_agent_cli inspect-experiment --experiment configs/multi_agent/experiments/same_context_controlled_debate.toml
+uv run multi_agent_cli run --experiment configs/multi_agent/experiments/same_context_controlled_debate.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
+uv run multi_agent_cli report-debate-vs-vote --run-dir runs/multi_agent/same_context_controlled_debate/smoke20/<run_id>
 ```
 
 ## 维护约定

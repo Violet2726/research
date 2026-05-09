@@ -38,12 +38,12 @@ class MethodComparison:
 
 
 FIXED_COMPARISONS: tuple[MethodComparison, ...] = (
-    MethodComparison("hybrid_trigger_vs_always_communicate", "trigger_early_exit_v1", "hybrid_trigger", "always_communicate"),
-    MethodComparison("hybrid_trigger_vs_sc_6", "trigger_early_exit_v1", "hybrid_trigger", "sc_6"),
-    MethodComparison("voc_trigger_v2_vs_mv_6", "trigger_voc_v2", "voc_trigger_v2", "mv_6"),
-    MethodComparison("dala_same_vs_all_to_all_full", "dala_lite_same_context_v1", "dala_lite", "all_to_all_full"),
-    MethodComparison("hotpotqa_split_main_vs_split_no_comm_mv3", "hotpotqa_split_main", "full_packet_exchange", "split_no_comm_mv3"),
-    MethodComparison("dala_split_vs_all_to_all_full", "dala_lite_split_context_v1", "dala_lite", "all_to_all_full"),
+    MethodComparison("hybrid_trigger_vs_always_communicate", "trigger_early_exit_main", "hybrid_trigger", "always_communicate"),
+    MethodComparison("hybrid_trigger_vs_sc_6", "trigger_early_exit_main", "hybrid_trigger", "sc_6"),
+    MethodComparison("voc_trigger_v2_vs_mv_6", "voc_trigger_main", "voc_trigger_v2", "mv_6"),
+    MethodComparison("dala_same_vs_all_to_all_full", "dala_lite_same_context_main", "dala_lite", "all_to_all_full"),
+    MethodComparison("hotpot_split_comm_necessity_vs_split_no_comm_mv3", "hotpotqa_split_context_communication_necessity", "full_packet_exchange", "split_no_comm_mv3"),
+    MethodComparison("dala_split_vs_all_to_all_full", "dala_lite_split_context_main", "dala_lite", "all_to_all_full"),
 )
 
 

@@ -1,6 +1,11 @@
-# 早停型 trigger 主实验入口配置。
-name = "trigger_early_exit_v1"
-description = "Trigger and early-exit v1 with shared Stage A and shared Stage B for smoke20 selective communication analysis."
+# 触发式早停主实验入口。
+name = "trigger_early_exit_main"
+description = "触发式早停主实验，用于比较不同 selective communication 触发策略的成本收益。"
+experiment_note = """
+实验定位：选择性通信路线的主入口，覆盖同上下文核心 benchmark。
+核心问题：在共享 Stage A / Stage B 的框架下，何种触发与早停策略能以更低通信成本换取更高收益。
+结果用途：产出 selective communication 的 headline 结果，并与全通信、等预算对照进行比较。
+"""
 benchmark_configs = [
   "configs/shared/benchmarks/gsm8k.toml",
   "configs/shared/benchmarks/strategyqa.toml",

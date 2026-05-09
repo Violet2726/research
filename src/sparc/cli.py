@@ -82,7 +82,6 @@ def main() -> None:
             "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
             "workspace_defaults": workspace_defaults("sparc"),
             "primary_model_ref": experiment.primary_model_ref,
-            "confirmatory_model_ref": experiment.confirmatory_model_ref,
             "resolved_model": {
                 "name": resolved_model.name,
                 "provider": resolved_model.provider,
