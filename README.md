@@ -55,7 +55,7 @@ tests/               回归测试
 ## 安装
 
 ```powershell
-uv sync
+uv sync --group dev
 Copy-Item .env.example .env.local
 ```
 
@@ -74,31 +74,31 @@ $env:PYTHONUTF8 = "1"
 查看单智能体实验配置：
 
 ```powershell
-uv run single_agent_cli inspect-experiment --experiment configs/single_agent/experiments/main_baselines.toml
+uv run single_agent_cli inspect-experiment --experiment configs/single_agent/experiments/same_context_core_benchmarks.toml
 ```
 
 运行单智能体 `smoke20`：
 
 ```powershell
-uv run single_agent_cli run --experiment configs/single_agent/experiments/main_baselines.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
+uv run single_agent_cli run --experiment configs/single_agent/experiments/same_context_core_benchmarks.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
 ```
 
 查看多智能体实验配置：
 
 ```powershell
-uv run multi_agent_cli inspect-experiment --experiment configs/multi_agent/experiments/multi_agent_main.toml
+uv run multi_agent_cli inspect-experiment --experiment configs/multi_agent/experiments/same_context_controlled_debate.toml
 ```
 
 运行选择性通信实验：
 
 ```powershell
-uv run selective_comm_cli run --experiment configs/selective_comm/experiments/trigger_early_exit_v1.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
+uv run selective_comm_cli run --experiment configs/selective_comm/experiments/trigger_early_exit_main.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
 ```
 
 运行 CUE：
 
 ```powershell
-uv run cue_cli run --experiment configs/cue/experiments/cue_v1.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
+uv run cue_cli run --experiment configs/cue/experiments/cue_black_box_utility_main.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
 ```
 
 查看全量 `smoke20` 矩阵：
@@ -134,8 +134,14 @@ uv run cleanup_artifacts_cli --dry-run
 $env:RESEARCH_RUNS_ROOT = "artifacts/runs"
 $env:RESEARCH_REPORTS_ROOT = "artifacts/reports"
 $env:RESEARCH_CACHE_ROOT = "artifacts/cache"
-uv run selective_comm_cli inspect-experiment --experiment configs/selective_comm/experiments/trigger_early_exit_v1.toml
+uv run selective_comm_cli inspect-experiment --experiment configs/selective_comm/experiments/trigger_early_exit_main.toml
 ```
+
+## 产物策略
+
+- 本仓库当前按“源码 + 代表性实验档案”维护，`runs/`、`reports/` 和部分 `cache/` 产物可以作为可复查证据进入版本库。
+- 一次性试验、临时调参和个人分析建议通过 `RESEARCH_*_ROOT` 覆盖到独立目录，或写入 `local/`，不要把临时产物直接混入主线。
+- 批量跑矩阵阶段时，Linux / macOS 使用 [run_all_phases.sh](/d:/user/research/run_all_phases.sh)，Windows PowerShell 使用 [run_all_phases.ps1](/d:/user/research/run_all_phases.ps1)。
 
 ## 文档入口
 
@@ -143,3 +149,4 @@ uv run selective_comm_cli inspect-experiment --experiment configs/selective_comm
 - [src/experiment_core/README.md](src/experiment_core/README.md)
 - [configs/README.md](configs/README.md)
 - [docs/README.md](docs/README.md)
+- [CONTRIBUTING.md](CONTRIBUTING.md)

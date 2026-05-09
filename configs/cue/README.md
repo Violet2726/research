@@ -10,5 +10,6 @@ CUE 实验配置根目录。
 
 ## 维护约定
 
-- `cue_v1` 一类 experiment 负责装配框架版本，不在 experiment 名里带模型后缀。
+- 正式实验入口统一使用 `cue_black_box_utility_main.toml` 这类语义化命名，不再把历史框架版本直接写成 experiment 名。
+- `cue_v1.toml` 保留在 `policies/` 中作为效用策略配置，而不是正式 experiment 入口。
 - utility 组件、阈值和消息类型切换应保持配置化。

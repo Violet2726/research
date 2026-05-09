@@ -11,8 +11,8 @@
 
 ## 当前正式实验
 
-- `trigger_early_exit_v1`
-- `trigger_voc_v2`
+- `trigger_early_exit_main`
+- `voc_trigger_main`
 
 ## 维护约定
 
