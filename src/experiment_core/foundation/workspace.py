@@ -16,7 +16,7 @@ FILES_ROOT_ENV = "RESEARCH_FILES_ROOT"
 
 @dataclass(frozen=True)
 class WorkspaceLayout:
-    """仓库工作目录布局。"""
+    """表示当前进程生效的工作目录布局。"""
 
     runs_root: Path
     reports_root: Path

@@ -33,10 +33,10 @@ faithful_matrix / paper_package / reports/summary
 
 ## 关键约定
 
-- 正式图资产只落在 `runs/.../figures/`，`reports/` 只引用这些 canonical 图文件。
+- 正式图资产只落在 `runs/.../figures/`；`reports/` 只引用这些 canonical 图文件。
 - 各实验家族统一通过 `render_report()` 输出正式科研报告，并通过 CLI 子命令 `render-report` 重渲染。
 - 正式科研报告统一使用中文结构：摘要、实验概览、研究问题与实验设计、总体结果、机制诊断、结论与建议、局限性、复现与产物说明。
-- `figure_manifest.json` 是 run 级图资产的唯一目录索引，校验、发布和论文打包都基于它工作。
+- `figure_manifest.json` 是 run 级图资产的唯一索引，校验、发布和论文打包都基于它工作。
 
 ## 维护建议
 

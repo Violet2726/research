@@ -43,7 +43,7 @@ def render_trigger_diagnostic_report(
 
     return _render_appendix_table(
         title=title,
-        description="该附录表聚焦 trigger 决策行为本身，辅助判断策略是靠更高召回还是更低误触发获得收益。",
+        description="该附录表聚焦 trigger 决策行为本身，用于判断策略是靠更高召回还是更低误触发获得收益。",
         headers=["数据集", "策略", "触发率", "早退率", "Oracle 精确率", "Oracle 召回率", "误触发率", "漏掉有益通信率", "平均通信 token"],
         rows=[
             [
@@ -72,7 +72,7 @@ def render_audit_diagnostic_report(
     return _render_appendix_table(
         title=title,
         description="该附录表集中展示审计是否真正解决冲突、是否过度覆盖原始答案，以及其额外审计开销。",
-        headers=["数据集", "方法", "解决率", "弃权率", "错误覆写率", "少数派挽救数", "平均审计 token"],
+        headers=["数据集", "方法", "解决率", "弃权率", "错误覆盖率", "少数派挽救数", "平均审计 token"],
         rows=[
             [
                 f"`{row.get('dataset')}`",

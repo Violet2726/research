@@ -12,7 +12,7 @@ from experiment_core.reporting.run_figures import append_figure_gallery_markdown
 
 @dataclass(frozen=True)
 class SupplementalReport:
-    """除正式 `report.md` 之外的附加报告。"""
+    """表示除正式 `report.md` 外的附加报告。"""
 
     result_key: str
     filename: str

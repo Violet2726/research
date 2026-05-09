@@ -21,3 +21,5 @@
 - 实验家族之间不直接导入彼此代码。
 - 对外 CLI 名称与包名保持一致，统一使用 `snake_case`。
 - 运行产物路径、报告路径和缓存路径都走共享 workspace 入口，不在家族包里硬编码。
+
+更详细的共享层说明见 [experiment_core/README.md](/d:/user/research/src/experiment_core/README.md)。

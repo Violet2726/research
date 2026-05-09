@@ -6,7 +6,7 @@
 
 - `core/`：共享核心层、benchmark、faithful analysis、matrix 编排测试
 - `cli/`：CLI 冒烟测试
-- `contracts/`：运行产物与报告契约测试
+- `contracts/`：运行产物与报告合同测试
 - `methods/`：按实验线拆分的逻辑与 prompting 测试
 - `maintenance/`：导入边界、产物清理等工程约束测试
 

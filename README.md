@@ -1,14 +1,14 @@
 # Research Experiments
 
-统一的研究实验仓库，面向单智能体、多智能体、选择性通信、预算约束通信和局部审计等推理实验。
+统一的研究实验仓库，面向单智能体、多智能体、选择性通信、预算约束通信、局部审计与论文复现实验。
 
 ## 当前实验线
 
 - `single_agent`：单智能体 CoT / Self-Consistency 基线
 - `multi_agent`：标准多智能体 debate 与 vote 对照
 - `selective_comm`：trigger / early-exit 选择性通信
-- `sparc`：内容裁剪、局部审计与聚合消融
-- `budget_comm`：预算约束通信与 auction / knapsack 风格分配
+- `sparc`：内容裁剪、局部审计与联合消融
+- `budget_comm`：预算约束通信与分配策略实验
 - `sid_lite`：SID-lite 机制验证
 - `free_mad_lite`：Free-MAD-lite 机制验证
 - `comm_necessary`：HotpotQA split-context 通信必要性实验
@@ -19,15 +19,7 @@
 ```text
 src/
   experiment_core/   唯一共享核心层
-  single_agent/      单智能体实验
-  multi_agent/       多智能体实验
-  selective_comm/    选择性通信实验
-  sparc/             SPARC 相关实验
-  budget_comm/       预算约束通信实验
-  sid_lite/          SID-lite 实验
-  free_mad_lite/     Free-MAD-lite 实验
-  comm_necessary/    通信必要性实验
-  cue/               CUE 实验
+  <family>/          各实验线实现
 
 configs/
   shared/            benchmark / provider / model catalog
@@ -38,20 +30,21 @@ docs/                仓库级设计说明
 files/               研究笔记与参考资料
 runs/                默认运行产物
 reports/             默认发布报告
-tests/               回归测试
+tests/               自动化测试
 ```
 
-更详细的结构说明见 [docs/project_structure.md](docs/project_structure.md)。
+更详细的目录分层说明见 [docs/project_structure.md](/d:/user/research/docs/project_structure.md)。
 
 ## 仓库约定
 
 - 共享能力只放在 `src/experiment_core/`。
 - 不同实验包之间不直接互相导入。
-- 公共配置字段统一使用 `primary_model_ref`。
+- 公开配置字段统一使用 `primary_model_ref`。
 - 默认运行目录统一为 `runs/<family>/<experiment>/<phase>/<run_id>/`。
 - 默认报告目录统一为 `reports/<family>/`，跨家族汇总放在 `reports/summary/`。
 - 每个 run 的正式图资产统一固化在 `runs/<family>/<experiment>/<phase>/<run_id>/figures/`，并通过 `figure_manifest.json` 编目。
-- 文件统一使用 UTF-8。
+- 项目文本文件统一使用 UTF-8。
+- 注解、docstring 和仓库级说明默认使用中文；写法约定见 [docs/code_annotation_guidelines.md](/d:/user/research/docs/code_annotation_guidelines.md)。
 
 ## 安装
 
@@ -148,15 +141,17 @@ uv run selective_comm_cli inspect-experiment --experiment configs/selective_comm
 
 - 本仓库当前按“源码 + 代表性实验档案”维护，`runs/`、`reports/` 和部分 `cache/` 产物可以作为可复查证据进入版本库。
 - 图资产以 `runs/.../figures/` 为唯一规范落点；`reports/summary/` 与 `reports/<family>/` 中的 Markdown 只引用这些 canonical 图文件，不再复制图表到 `reports/figures/`。
-- 一次性试验、临时调参和个人分析建议通过 `RESEARCH_*_ROOT` 覆盖到独立目录，或写入 `local/`，不要把临时产物直接混入主线。
+- 一次性试验、临时调参与个人分析建议通过 `RESEARCH_*_ROOT` 输出到独立目录，或写入 `local/`，不要把临时产物直接混入主线。
 - 批量跑矩阵阶段时，Linux / macOS 使用 [run_all_phases.sh](/d:/user/research/run_all_phases.sh)，Windows PowerShell 使用 [run_all_phases.ps1](/d:/user/research/run_all_phases.ps1)。
 
 ## 文档入口
 
-- [src/README.md](src/README.md)
-- [src/experiment_core/README.md](src/experiment_core/README.md)
-- [configs/README.md](configs/README.md)
-- [docs/README.md](docs/README.md)
-- [docs/run_report_pipeline.md](docs/run_report_pipeline.md)
-- [runs/README.md](runs/README.md)
-- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [src/README.md](/d:/user/research/src/README.md)
+- [src/experiment_core/README.md](/d:/user/research/src/experiment_core/README.md)
+- [configs/README.md](/d:/user/research/configs/README.md)
+- [docs/README.md](/d:/user/research/docs/README.md)
+- [docs/project_structure.md](/d:/user/research/docs/project_structure.md)
+- [docs/run_report_pipeline.md](/d:/user/research/docs/run_report_pipeline.md)
+- [docs/code_annotation_guidelines.md](/d:/user/research/docs/code_annotation_guidelines.md)
+- [runs/README.md](/d:/user/research/runs/README.md)
+- [CONTRIBUTING.md](/d:/user/research/CONTRIBUTING.md)

@@ -6,9 +6,6 @@
 
 目录结构示例：
 `cache/providers/xiaomimimo/mimo-v2-5/strategyqa/requests.sqlite`
-
-同一家供应商的同一请求模型在同一数据集内共享缓存，不再区分端点。
-缓存键仅由 `provider + request_model + payload` 决定。
 """
 
 from __future__ import annotations

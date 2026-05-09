@@ -1,4 +1,11 @@
-"""共享的 OpenAI-compatible provider 客户端。"""
+"""共享的 OpenAI-compatible provider 客户端。
+
+本模块负责：
+- 统一构造请求载荷；
+- 复用长生命周期 HTTP 连接；
+- 规范化 provider 响应；
+- 为限流器提供 token 预留与 usage 对账辅助。
+"""
 
 from __future__ import annotations
 
@@ -17,7 +24,7 @@ from experiment_core.foundation.rate_limits import RateLimitReservation, Sliding
 
 @dataclass(frozen=True)
 class ProviderResponse:
-    """统一归一化后的 provider 响应。"""
+    """表示统一归一化后的 provider 响应。"""
 
     http_status: int
     raw_payload: dict[str, Any]
@@ -34,7 +41,7 @@ class ProviderResponse:
 
 @dataclass(frozen=True)
 class ProviderRequestError(RuntimeError):
-    """向 runner 暴露的 provider 请求失败。"""
+    """表示向 runner 暴露的 provider 请求失败。"""
 
     message: str
     http_status: int | None

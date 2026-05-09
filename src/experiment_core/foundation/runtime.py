@@ -1,7 +1,7 @@
 """运行时辅助工具。
 
-这里放置各实验线都会用到的轻量运行时原语，例如运行进度追踪、ETA 估计，
-以及带时间戳的稳定 `run_id` 生成逻辑。
+本模块放置各实验线都会复用的轻量运行时原语，例如进度快照、ETA 估计，
+以及带 UTC 时间戳的稳定 `run_id` 生成逻辑。
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import time
 
 
 class RunProgressTracker:
-    """把长时间实验的进度快照持续写入磁盘。"""
+    """把长时间实验的进度持续写入磁盘。"""
 
     def __init__(
         self,
