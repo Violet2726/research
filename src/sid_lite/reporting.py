@@ -1,8 +1,4 @@
-"""SID-lite 报告与摘要。
-
-报告层重点展示 SID-lite 与无通信 / 总是全通信 / 仅压缩通信之间的对比，
-突出 early-exit 触发比例、压缩比、通信成本和是否修正了原始错误。
-"""
+"""SID-lite 实验的科研报告与图资产生成。"""
 
 from __future__ import annotations
 
@@ -15,6 +11,7 @@ import random
 from typing import Any
 
 from sid_lite.logic import METHOD_ORDER
+from experiment_core.foundation.workspace import default_reports_root
 from experiment_core.reporting.analysis_reports import render_frontier_report, write_report
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
 from experiment_core.reporting.run_figures import (
@@ -26,11 +23,14 @@ from experiment_core.reporting.run_figures import (
     build_score_by_dataset_figure_spec,
     write_figure_bundle,
 )
-from experiment_core.foundation.workspace import default_reports_root
+from experiment_core.reporting.scientific_report import (
+    format_float,
+    render_run_reproducibility_section,
+    render_scientific_report,
+)
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
-    """输出简短运行摘要。"""
     metrics = _load_json(Path(run_dir) / "metrics.json")
     rows = metrics.get("summary", [])
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -45,7 +45,6 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
 
 
 def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) -> dict[str, Any]:
-    """渲染中文 Markdown 报告。"""
     publish_dir = publish_dir or default_reports_root("sid_lite")
     root = Path(run_dir)
     manifest = _load_json(root / "manifest.json")
@@ -57,7 +56,7 @@ def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) ->
     markdown = append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root)
     local_report = root / "report.md"
     local_report.write_text(markdown, encoding="utf-8")
-    write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="SID-lite Frontier"))
+    write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="SID-lite 前沿附录"))
     publish_path = Path(publish_dir) / _published_report_name(manifest)
     publish_path.parent.mkdir(parents=True, exist_ok=True)
     publish_path.write_text(
@@ -79,33 +78,33 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
     return [
         build_frontier_figure_spec(
             rows,
-            title="SID-lite frontier",
-            caption="Overall accuracy versus average total tokens across SID-lite controls and the main method.",
+            title="SID-lite 成本-性能前沿",
+            caption="总体结果上，各 SID-lite 变体的准确率相对于平均总 token 的位置关系。",
             score_field="accuracy_mean",
-            primary_metric="Accuracy",
+            primary_metric="准确率",
             method_label_field="method_name",
         ),
         build_efficiency_rank_figure_spec(
             rows,
-            title="SID-lite efficiency ranking",
-            caption="Overall efficiency ranking measured by accuracy per 1K tokens.",
+            title="SID-lite 效率排序",
+            caption="基于每千 token 准确率的总体效率排序。",
             efficiency_field="acc_per_1k_tokens",
-            primary_metric="Accuracy per 1K tokens",
+            primary_metric="每千 token 准确率",
             method_label_field="method_name",
         ),
         build_score_by_dataset_figure_spec(
             rows,
-            title="SID-lite score by dataset",
-            caption="Per-dataset accuracy map across SID-lite controls and the main method.",
+            title="SID-lite 跨数据集表现",
+            caption="各 SID-lite 变体在不同数据集上的准确率分布。",
             score_field="accuracy_mean",
-            primary_metric="Accuracy",
+            primary_metric="准确率",
             method_label_field="method_name",
         ),
         build_scatter_figure_spec(
             figure_id="sid_gate_tradeoff",
-            title="SID gate tradeoff",
-            caption="Overall early-exit rate versus accuracy across SID-lite variants.",
-            primary_metric="Accuracy",
+            title="SID 门控权衡",
+            caption="总体早退率相对于准确率的变化。",
+            primary_metric="准确率",
             data=[
                 {
                     "label": str(row.get("method_name") or "unknown"),
@@ -116,17 +115,17 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
                 }
                 for row in overall_rows
             ],
-            x_label="Early-exit rate",
-            y_label="Accuracy",
+            x_label="早退率",
+            y_label="准确率",
             source_kind="metrics.summary",
             dataset_scope="overall",
-            note="Points on the upper-left combine higher accuracy with fewer forced continuations.",
+            note="左上区域代表在较高准确率下完成更多零通信早退。",
         ),
         build_grouped_bar_figure_spec(
             figure_id="invalid_confidence_fail_open",
-            title="Invalid-confidence fail-open count",
-            caption="Run-level count of samples that fall back to fail-open due to invalid confidence signals.",
-            primary_metric="Count",
+            title="置信度失效 fail-open 计数",
+            caption="因置信度信号无效而触发 fail-open 的样本计数。",
+            primary_metric="计数",
             data=[
                 {
                     "label": "sid_lite",
@@ -134,11 +133,11 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
                     "invalid_confidence_fail_open_count": float(diagnostics.get("invalid_confidence_fail_open_count") or 0.0),
                 }
             ],
-            series=[("invalid_confidence_fail_open_count", "Fail-open count")],
-            x_label="Count",
+            series=[("invalid_confidence_fail_open_count", "Fail-open 计数")],
+            x_label="计数",
             source_kind="diagnostics",
             dataset_scope="run_level",
-            note="Lower counts indicate more stable confidence signaling under the black-box SID-lite approximation.",
+            note="该计数越低，说明黑盒条件下的 SID 近似信号越稳定。",
         ),
     ]
 
@@ -150,71 +149,110 @@ def _render_markdown(
     predictions: list[dict[str, Any]],
     run_dir: Path,
 ) -> str:
-    backbone = {"name": resolve_manifest_model_name(manifest)}
+    backbone_name = resolve_manifest_model_name(manifest)
     overall_rows = _ordered_rows([row for row in metrics.get("summary", []) if row.get("dataset") == "overall"])
+    best_row = max(overall_rows, key=lambda item: float(item.get("accuracy_mean") or 0.0), default=None)
+    best_efficiency_row = max(overall_rows, key=lambda item: float(item.get("acc_per_1k_tokens") or 0.0), default=None)
     ci_text = _bootstrap_ci_text(predictions, "sid_lite", "always_full")
-    lines = [
-        "# SID-lite Smoke20 报告",
-        "",
-        "## 1. 实验概览",
-        "",
-        f"- 实验名：`{manifest.get('experiment')}`",
-        f"- Phase：`{manifest.get('phase')}`",
-        f"- Backbone：`{backbone.get('name')}`",
-        f"- 运行目录：`{run_dir.as_posix()}`",
-        "- 方法：`mv_3`、`always_full`、`compression_only`、`sid_lite`。",
-        "- 说明：本实验是黑盒 SID-lite 近似，DashScope Chat API 不暴露 logits/attention，因此用自报置信度和结构化语义字段近似 self signals。",
-        "",
-        "## 2. 主结果表",
-        "",
-        "| Method | Accuracy | Avg Comm Tokens | Avg Total Tokens | Calls / Q | Acc / 1K Tokens | Early Exit | Compression |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+
+    abstract: list[str] = []
+    if best_row is not None:
+        abstract.append(f"总体准确率最高的方法是 `{best_row['method_name']}`，准确率为 {format_float(best_row.get('accuracy_mean'))}。")
+    if best_efficiency_row is not None:
+        abstract.append(f"总体效率最高的方法是 `{best_efficiency_row['method_name']}`，每千 token 准确率为 {format_float(best_efficiency_row.get('acc_per_1k_tokens'), 6)}。")
+    abstract.append(f"`sid_lite` 相对 `always_full` 的总体准确率差异 bootstrap 95% CI 为 `{ci_text}`。")
+
+    sections = [
+        {
+            "title": "研究问题与实验设计",
+            "bullets": [
+                "SID-lite 关注在黑盒条件下，能否用自报置信度和结构化语义字段近似 self-signals，从而在不读 logits 的情况下实现选择性通信。",
+                "主指标为准确率；成本指标采用平均通信 token / 题与平均总 token / 题；机制指标重点是早退率、压缩比和 fail-open 计数。",
+                "本实验固定比较 `mv_3`、`always_full`、`compression_only` 与 `sid_lite`，因此可以直接分离“只压缩”和“有门控”的差异。",
+            ],
+        },
+        {
+            "title": "总体结果",
+            "table": {
+                "headers": ["方法", "准确率", "平均通信 token / 题", "平均总 token / 题", "每题调用数", "每千 token 准确率", "早退率", "压缩比"],
+                "rows": [
+                    [
+                        f"`{row['method_name']}`",
+                        format_float(row.get("accuracy_mean")),
+                        format_float(row.get("communication_tokens_mean"), 2),
+                        format_float(row.get("total_tokens_mean"), 2),
+                        format_float(row.get("calls_per_question_mean"), 2),
+                        format_float(row.get("acc_per_1k_tokens"), 6),
+                        format_float(row.get("early_exit_rate")),
+                        format_float(row.get("compression_ratio_mean")) if row.get("compression_ratio_mean") is not None else "-",
+                    ]
+                    for row in overall_rows
+                ],
+            },
+        },
+        {
+            "title": "机制诊断",
+            "bullets": [
+                f"SID 早退率：`{diagnostics.get('sid_early_exit_rate', 0.0)}`。",
+                f"非法 confidence fail-open 计数：`{diagnostics.get('invalid_confidence_fail_open_count', 0)}`。",
+                "如果 `sid_lite` 的早退率很高，但准确率与 `always_full` 接近，说明门控近似已经具备明显工程价值。",
+                "如果 fail-open 计数偏高，则应优先改进置信度提取和结构化恢复逻辑，而不是继续压缩通信预算。",
+            ],
+        },
+        {
+            "title": "分数据集表现",
+            "tables": [
+                {
+                    "title": dataset,
+                    "headers": ["方法", "准确率", "平均通信 token / 题", "平均总 token / 题", "每千 token 准确率"],
+                    "rows": [
+                        [
+                            f"`{row['method_name']}`",
+                            format_float(row.get("accuracy_mean")),
+                            format_float(row.get("communication_tokens_mean"), 2),
+                            format_float(row.get("total_tokens_mean"), 2),
+                            format_float(row.get("acc_per_1k_tokens"), 6),
+                        ]
+                        for row in _ordered_rows([item for item in metrics.get("summary", []) if item.get("dataset") == dataset])
+                    ],
+                }
+                for dataset in sorted({row["dataset"] for row in metrics.get("summary", []) if row.get("dataset") != "overall"})
+            ],
+        },
+        {
+            "title": "结论与建议",
+            "bullets": [
+                "如果 `sid_lite` 能在明显降低通信成本时维持与 `always_full` 接近的准确率，则后续优先值得扩大样本确认。",
+                "若 `compression_only` 已经贡献了大部分成本收益，而 `sid_lite` 仅带来有限额外收益，应更谨慎评估门控复杂度是否值得。",
+                "正式进入更大规模 phase 前，应联合考察前沿图、早退率图和 fail-open 计数，避免只凭总体准确率判断。",
+            ],
+        },
+        {
+            "title": "局限性",
+            "bullets": [
+                "SID-lite 不读取真实 token logits 或 attention，因此并不是对完整 SID 的严格复现，而是黑盒近似版本。",
+                "当前报告只反映当前 phase 的机制验证结果，不直接等同于更大样本上的最终结论。",
+            ],
+        },
+        render_run_reproducibility_section(
+            run_dir=run_dir,
+            artifact_items=[
+                "关键产物：`metrics.json`、`diagnostics.json`、`report.md`、`figure_manifest.json`、`figures/`、`final_predictions.jsonl`。",
+                "本地报告与发布报告共享同一套 run 内图资产，便于后续复核和引用。",
+            ],
+        ),
     ]
-    for row in overall_rows:
-        compression = "-" if row.get("compression_ratio_mean") is None else f"{row['compression_ratio_mean']:.4f}"
-        lines.append(
-            f"| `{row['method_name']}` | {row['accuracy_mean']:.4f} | {row['communication_tokens_mean']:.2f} | "
-            f"{row['total_tokens_mean']:.2f} | {row['calls_per_question_mean']:.2f} | {row['acc_per_1k_tokens']:.6f} | "
-            f"{row['early_exit_rate']:.4f} | {compression} |"
-        )
-    lines.extend(
-        [
-            "",
-            "## 3. 机制诊断",
-            "",
-            f"- `sid_lite` 相对 `always_full` 的 overall accuracy delta 95% bootstrap CI：{ci_text}（smoke20 小样本，仅作方向性参考）。",
-            f"- SID 早退率：`{diagnostics.get('sid_early_exit_rate', 0.0)}`",
-            f"- 非法 confidence fail-open 数：`{diagnostics.get('invalid_confidence_fail_open_count', 0)}`",
-            "",
-            "## 4. 数据集分表",
-            "",
-        ]
+    return render_scientific_report(
+        title="SID-lite 科研报告",
+        abstract=abstract,
+        overview_items=[
+            ("实验名", str(manifest.get("experiment"))),
+            ("Phase", str(manifest.get("phase"))),
+            ("Backbone", backbone_name),
+            ("运行目录", run_dir.as_posix()),
+        ],
+        sections=sections,
     )
-    for dataset in sorted({row["dataset"] for row in metrics.get("summary", []) if row.get("dataset") != "overall"}):
-        lines.extend(
-            [
-                f"### {dataset}",
-                "",
-                "| Method | Accuracy | Avg Comm Tokens | Avg Total Tokens | Acc / 1K Tokens |",
-                "| --- | ---: | ---: | ---: | ---: |",
-            ]
-        )
-        for row in _ordered_rows([item for item in metrics.get("summary", []) if item.get("dataset") == dataset]):
-            lines.append(
-                f"| `{row['method_name']}` | {row['accuracy_mean']:.4f} | {row['communication_tokens_mean']:.2f} | "
-                f"{row['total_tokens_mean']:.2f} | {row['acc_per_1k_tokens']:.6f} |"
-            )
-        lines.append("")
-    lines.extend(
-        [
-            "## 5. 局限",
-            "",
-            "- 当前只运行 smoke20，不能作为最终显著性结论。",
-            "- SID-lite 不读取真实 token logits 或 attention maps，因此不是 full SID reproduction。",
-            "",
-        ]
-    )
-    return "\n".join(lines)
 
 
 def _ordered_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -280,4 +318,3 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
-

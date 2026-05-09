@@ -81,7 +81,7 @@ def append_figure_gallery_markdown(
     """在 Markdown 末尾追加图表画廊。"""
     if not figures:
         return markdown
-    body = markdown.rstrip() + "\n\n## Figures\n"
+    body = markdown.rstrip() + "\n\n## 图表资产\n"
     run_root = Path(run_dir)
     publish_target = Path(published_path) if published_path is not None else None
     for figure in figures:
@@ -176,9 +176,9 @@ def build_frontier_figure_spec(
         "source_kind": "metrics.summary",
         "dataset_scope": "overall",
         "primary_metric": primary_metric,
-        "x_label": "Average total tokens per question",
+        "x_label": "平均总 token / 题",
         "y_label": primary_metric,
-        "note": "Lower x is cheaper; higher y is better.",
+        "note": "横轴越小表示成本越低，纵轴越高表示性能越好。",
         "reference_y": 0.0 if primary_metric.lower().endswith("delta") else None,
         "data": sorted(data, key=lambda row: (float(row["x"]), -float(row["y"]), str(row["label"]))),
     }
@@ -215,7 +215,7 @@ def build_efficiency_rank_figure_spec(
         "dataset_scope": "overall",
         "primary_metric": primary_metric,
         "x_label": primary_metric,
-        "note": "Methods are sorted from high to low efficiency.",
+        "note": "方法按效率从高到低排序，便于直接比较成本收益。",
         "data": sorted(data, key=lambda row: (-float(row["value"]), str(row["label"]))),
     }
 
@@ -251,7 +251,7 @@ def build_score_by_dataset_figure_spec(
         "source_kind": "metrics.summary",
         "dataset_scope": "per_dataset",
         "primary_metric": primary_metric,
-        "note": "Dot size and color intensity both encode the reported score.",
+        "note": "圆点大小和颜色深浅共同编码分数，便于观察跨数据集稳定性。",
         "data": sorted(data, key=lambda row: (str(row["dataset"]), str(row["label"]))),
     }
 

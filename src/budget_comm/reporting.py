@@ -1,8 +1,4 @@
-"""`budget_comm` 报告与摘要。
-
-本模块负责把运行目录中的 JSON/JSONL 产物整理成面向研究阅读的中文 Markdown 报告，
-重点突出预算校准、通信成本、方法对比和是否值得进入 full DALA 的门槛判断。
-"""
+"""`budget_comm` 实验的科研报告与图资产生成。"""
 
 from __future__ import annotations
 
@@ -15,6 +11,7 @@ import random
 from typing import Any
 
 from budget_comm.logic import METHOD_ORDER
+from experiment_core.foundation.workspace import default_reports_root
 from experiment_core.reporting.analysis_reports import render_frontier_report, write_report
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
 from experiment_core.reporting.run_figures import (
@@ -26,16 +23,20 @@ from experiment_core.reporting.run_figures import (
     build_score_by_dataset_figure_spec,
     write_figure_bundle,
 )
-from experiment_core.foundation.workspace import default_reports_root
+from experiment_core.reporting.scientific_report import (
+    format_float,
+    render_run_reproducibility_section,
+    render_scientific_report,
+)
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
-    """输出简短运行摘要。"""
+    """输出结构化运行摘要。"""
     metrics = _load_json(Path(run_dir) / "metrics.json")
     rows = metrics.get("summary", [])
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
-        grouped[row["dataset"]].append(row)
+        grouped[str(row.get("dataset"))].append(row)
     return {
         "run_dir": str(Path(run_dir)),
         "row_count": len(rows),
@@ -48,7 +49,7 @@ def render_report(
     run_dir: str | Path,
     publish_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    """渲染并写出中文 Markdown 报告。"""
+    """渲染中文科研报告并刷新图资产。"""
     publish_dir = publish_dir or default_reports_root("budget_comm")
     root = Path(run_dir)
     manifest = _load_json(root / "manifest.json")
@@ -60,7 +61,7 @@ def render_report(
     markdown = append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root)
     local_report_path = root / "report.md"
     local_report_path.write_text(markdown, encoding="utf-8")
-    write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="Budget Communication Frontier"))
+    write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="预算通信前沿附录"))
 
     publish_path = Path(publish_dir) / _published_report_name(manifest)
     publish_path.parent.mkdir(parents=True, exist_ok=True)
@@ -83,30 +84,30 @@ def _build_figure_specs(metrics: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         build_frontier_figure_spec(
             rows,
-            title="Budget communication frontier",
-            caption="Overall accuracy versus average total tokens across budget-aware methods.",
+            title="预算通信成本-性能前沿",
+            caption="总体结果上，各预算通信方法的准确率相对于平均总 token 的位置关系。",
             score_field="accuracy_mean",
-            primary_metric="Accuracy",
+            primary_metric="准确率",
         ),
         build_efficiency_rank_figure_spec(
             rows,
-            title="Budget communication efficiency ranking",
-            caption="Overall efficiency ranking measured by accuracy per 1K tokens.",
+            title="预算通信效率排序",
+            caption="基于每千 token 准确率的总体效率排序。",
             efficiency_field="acc_per_1k_tokens",
-            primary_metric="Accuracy per 1K tokens",
+            primary_metric="每千 token 准确率",
         ),
         build_score_by_dataset_figure_spec(
             rows,
-            title="Budget communication score by dataset",
-            caption="Per-dataset accuracy map across budget-aware methods.",
+            title="预算通信跨数据集表现",
+            caption="各预算通信方法在不同数据集上的准确率分布。",
             score_field="accuracy_mean",
-            primary_metric="Accuracy",
+            primary_metric="准确率",
         ),
         build_grouped_bar_figure_spec(
             figure_id="packet_mode_mix",
-            title="Packet mode mix",
-            caption="Average packet selection ratios across the overall summary rows.",
-            primary_metric="Average selection ratio",
+            title="消息包模式构成",
+            caption="总体结果上，各方法选择 full / summary / keywords / silence 的平均比例。",
+            primary_metric="平均选择比例",
             data=[
                 {
                     "label": _method_label(row),
@@ -124,16 +125,16 @@ def _build_figure_specs(metrics: dict[str, Any]) -> list[dict[str, Any]]:
                 ("keywords_ratio_mean", "Keywords"),
                 ("silence_ratio_mean", "Silence"),
             ],
-            x_label="Average ratio",
+            x_label="平均比例",
             source_kind="metrics.summary",
             dataset_scope="overall",
-            note="Ratios sum to one for packet-selecting methods and expose how communication budget is allocated.",
+            note="各比例之和应接近 1，用于展示通信预算最终被分配到哪类消息包。",
         ),
         build_scatter_figure_spec(
             figure_id="budget_utilization_tradeoff",
-            title="Budget utilization tradeoff",
-            caption="Overall accuracy as a function of average budget utilization.",
-            primary_metric="Accuracy",
+            title="预算利用率权衡",
+            caption="总体准确率相对于平均预算利用率的变化。",
+            primary_metric="准确率",
             data=[
                 {
                     "label": _method_label(row),
@@ -145,11 +146,11 @@ def _build_figure_specs(metrics: dict[str, Any]) -> list[dict[str, Any]]:
                 for row in overall_rows
                 if row.get("budget_utilization_mean") is not None
             ],
-            x_label="Average budget utilization",
-            y_label="Accuracy",
+            x_label="平均预算利用率",
+            y_label="准确率",
             source_kind="metrics.summary",
             dataset_scope="overall",
-            note="The vertical reference line marks full use of the communication budget.",
+            note="参考线 x=1 表示预算被完全用满，可据此判断收益是否来自更激进的预算消耗。",
             reference_x=1.0,
         ),
     ]
@@ -166,144 +167,160 @@ def _render_markdown(
     predictions: list[dict[str, Any]],
     run_dir: Path,
 ) -> str:
-    """把 manifest、指标与诊断结果渲染成最终报告文本。"""
-    backbone = {"name": resolve_manifest_model_name(manifest)}
-    track_name = manifest.get("context_view", {}).get("track_name", "unknown")
+    backbone_name = resolve_manifest_model_name(manifest)
+    track_name = str(manifest.get("context_view", {}).get("track_name", "unknown"))
     calibration = diagnostics.get("calibration", {})
     full_gate = diagnostics.get("full_dala_gate", {})
     overall_rows = _ordered_rows([row for row in metrics.get("summary", []) if row.get("dataset") == "overall"])
-
-    lines = [
-        "# DALA-lite Smoke20 报告",
-        "",
-        "## 1. 实验概览",
-        "",
-        f"- 实验名：`{manifest.get('experiment')}`",
-        f"- 轨道：`{track_name}`",
-        f"- Phase：`{manifest.get('phase')}`",
-        f"- Backbone：`{backbone.get('name')}`",
-        f"- 运行目录：`{run_dir.as_posix()}`",
-        "- 方法固定为：`mv_3`、`all_to_all_full`、`budget_random`、`budget_confidence`、`dala_lite`。",
-        "",
-        "## 2. 预算冻结",
-        "",
-    ]
-    for dataset, row in calibration.items():
-        lines.append(
-            f"- `{dataset}`：校准样本数=`{row['sample_count']}`，"
-            f"`p50(all_to_all_full_comm_tokens)`=`{row['p50_all_to_all_full_communication_tokens']}`，"
-            f"`round_budget_tokens`=`{row['round_budget_tokens']}`。"
-        )
-
-    lines.extend(
-        [
-            "",
-            "## 3. 主结果表",
-            "",
-            "| Method | Accuracy | Avg Comm Tokens | Avg Total Tokens | Calls / Q | Acc / 1K Tokens |",
-            "| --- | ---: | ---: | ---: | ---: | ---: |",
-        ]
-    )
-    for row in overall_rows:
-        lines.append(
-            f"| `{row['display_name']}` | {row['accuracy_mean']:.4f} | {row['communication_tokens_mean']:.2f} | "
-            f"{row['total_tokens_mean']:.2f} | {row['calls_per_question_mean']:.2f} | {row['acc_per_1k_tokens']:.6f} |"
-        )
-
-    lines.extend(
-        [
-            "",
-            "## 4. 机制表",
-            "",
-            "| Method | Winner Set Size | Budget Utilization | Full Ratio | Summary Ratio | Keywords Ratio | Silence Ratio | Corrected | Harmed |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
-        ]
-    )
-    for row in overall_rows:
-        utilization = "-" if row["method_name"] in {"mv_3", "all_to_all_full"} else f"{row['budget_utilization_mean']:.4f}"
-        lines.append(
-            f"| `{row['display_name']}` | {row['winner_set_size_mean']:.4f} | {utilization} | "
-            f"{row['full_ratio_mean']:.4f} | {row['summary_ratio_mean']:.4f} | {row['keywords_ratio_mean']:.4f} | "
-            f"{row['silence_ratio_mean']:.4f} | {row['corrected_count']} | {row['harmed_count']} |"
-        )
-
-    per_dataset = sorted(
-        {
-            row["dataset"]
-            for row in metrics.get("summary", [])
-            if row.get("dataset") != "overall"
-        }
-    )
-    lines.extend(["", "## 5. 数据集分表", ""])
-    for dataset in per_dataset:
-        lines.extend(
-            [
-                f"### {dataset}",
-                "",
-                "| Method | Accuracy | Avg Comm Tokens | Avg Total Tokens | Acc / 1K Tokens |",
-                "| --- | ---: | ---: | ---: | ---: |",
-            ]
-        )
-        for row in _ordered_rows([item for item in metrics.get("summary", []) if item.get("dataset") == dataset]):
-            lines.append(
-                f"| `{row['display_name']}` | {row['accuracy_mean']:.4f} | {row['communication_tokens_mean']:.2f} | "
-                f"{row['total_tokens_mean']:.2f} | {row['acc_per_1k_tokens']:.6f} |"
-            )
-        lines.append("")
-
-    lines.extend(["## 6. 失败案例", ""])
+    per_dataset = sorted({row["dataset"] for row in metrics.get("summary", []) if row.get("dataset") != "overall"})
+    best_row = max(overall_rows, key=lambda item: float(item.get("accuracy_mean") or 0.0), default=None)
+    best_efficiency_row = max(overall_rows, key=lambda item: float(item.get("acc_per_1k_tokens") or 0.0), default=None)
     failure_cases = _select_failure_cases(predictions)
-    if not failure_cases:
-        lines.append("- 当前 smoke20 下没有收集到稳定失败案例。")
-        lines.append("")
-    else:
-        for index, case in enumerate(failure_cases, start=1):
-            lines.extend(
-                [
-                    f"### Case {index}",
-                    "",
-                    f"- 数据集：`{case['dataset']}`",
-                    f"- 样本：`{case['sample_id']}`",
-                    f"- 问题预览：{case['question_preview']}",
-                    f"- 金标：`{case['gold']}`",
-                    f"- `all_to_all_full`：`{case['full_prediction']}` / score=`{case['full_score']}`",
-                    f"- `dala_lite`：`{case['dala_prediction']}` / score=`{case['dala_score']}`",
-                    f"- 说明：{case['reason']}",
-                    "",
-                ]
-            )
-
     ci_text = _bootstrap_ci_text(predictions, "dala_lite", "all_to_all_full")
-    lines.extend(
-        [
-            "## 7. 探索性区间",
-            "",
-            f"- `dala_lite` 相对 `all_to_all_full` 的 overall accuracy delta 95% bootstrap CI：{ci_text}",
-            "",
-            "## 8. Full DALA 进入门槛",
-            "",
-            f"- 是否满足进入条件：`{full_gate.get('ready_for_full_dala', False)}`",
-            f"- 原因：`{full_gate.get('reason', 'unknown')}`",
-        ]
+
+    abstract: list[str] = []
+    if best_row is not None:
+        abstract.append(f"总体准确率最高的方法是 `{best_row['display_name']}`，准确率为 {format_float(best_row.get('accuracy_mean'))}。")
+    if best_efficiency_row is not None:
+        abstract.append(
+            f"总体效率最高的方法是 `{best_efficiency_row['display_name']}`，每千 token 准确率为 {format_float(best_efficiency_row.get('acc_per_1k_tokens'), 6)}。"
+        )
+    abstract.append(f"`dala_lite` 相对 `all_to_all_full` 的总体准确率差异 bootstrap 95% CI 为 `{ci_text}`。")
+    if full_gate:
+        abstract.append(
+            f"当前阶段对 Full DALA 的进入判断为 `{full_gate.get('ready_for_full_dala', False)}`，原因是 `{full_gate.get('reason', 'unknown')}`。"
+        )
+
+    sections = [
+        {
+            "title": "研究问题与实验设计",
+            "bullets": [
+                f"当前轨道为 `{track_name}`，核心问题是在受限通信预算下，DALA-lite 是否能逼近 `all_to_all_full` 的效果。",
+                "主指标为准确率；成本指标采用平均总 token / 题与平均通信 token / 题；效率指标采用每千 token 准确率。",
+                "本实验固定比较 `mv_3`、`all_to_all_full`、`budget_random`、`budget_confidence` 和 `dala_lite`，因此可以直接比较预算分配策略本身。",
+            ],
+        },
+        {
+            "title": "预算标定与进入门槛",
+            "bullets": [
+                f"`{dataset}`：样本数 {row['sample_count']}，`p50(all_to_all_full_comm_tokens)`={row['p50_all_to_all_full_communication_tokens']}`，`round_budget_tokens`={row['round_budget_tokens']}`。"
+                for dataset, row in calibration.items()
+            ] + [
+                f"`{name}`：`{passed}`" for name, passed in sorted(full_gate.get("conditions", {}).items())
+            ],
+        },
+        {
+            "title": "总体结果",
+            "table": {
+                "headers": ["方法", "准确率", "平均通信 token / 题", "平均总 token / 题", "每题调用数", "每千 token 准确率"],
+                "rows": [
+                    [
+                        f"`{row['display_name']}`",
+                        format_float(row.get("accuracy_mean")),
+                        format_float(row.get("communication_tokens_mean"), 2),
+                        format_float(row.get("total_tokens_mean"), 2),
+                        format_float(row.get("calls_per_question_mean"), 2),
+                        format_float(row.get("acc_per_1k_tokens"), 6),
+                    ]
+                    for row in overall_rows
+                ],
+            },
+        },
+        {
+            "title": "机制诊断",
+            "table": {
+                "headers": ["方法", "平均胜者集合大小", "预算利用率", "Full 比例", "Summary 比例", "Keywords 比例", "Silence 比例", "纠正题数", "伤害题数"],
+                "rows": [
+                    [
+                        f"`{row['display_name']}`",
+                        format_float(row.get("winner_set_size_mean")),
+                        "-" if row["method_name"] in {"mv_3", "all_to_all_full"} else format_float(row.get("budget_utilization_mean")),
+                        format_float(row.get("full_ratio_mean")),
+                        format_float(row.get("summary_ratio_mean")),
+                        format_float(row.get("keywords_ratio_mean")),
+                        format_float(row.get("silence_ratio_mean")),
+                        str(int(row.get("corrected_count") or 0)),
+                        str(int(row.get("harmed_count") or 0)),
+                    ]
+                    for row in overall_rows
+                ],
+            },
+            "bullets": [
+                "如果预算利用率长期偏低且准确率没有同步提升，应优先检查 winner set 大小与消息包模式是否过于保守。",
+                "若纠正题数显著高于伤害题数，说明预算被更多用于识别真正需要通信的样本。",
+            ],
+        },
+        {
+            "title": "分数据集表现",
+            "tables": [
+                {
+                    "title": dataset,
+                    "headers": ["方法", "准确率", "平均通信 token / 题", "平均总 token / 题", "每千 token 准确率"],
+                    "rows": [
+                        [
+                            f"`{row['display_name']}`",
+                            format_float(row.get("accuracy_mean")),
+                            format_float(row.get("communication_tokens_mean"), 2),
+                            format_float(row.get("total_tokens_mean"), 2),
+                            format_float(row.get("acc_per_1k_tokens"), 6),
+                        ]
+                        for row in _ordered_rows([item for item in metrics.get("summary", []) if item.get("dataset") == dataset])
+                    ],
+                }
+                for dataset in per_dataset
+            ],
+        },
+        {
+            "title": "典型案例",
+            "cases": [
+                {
+                    "数据集": case["dataset"],
+                    "样本 ID": case["sample_id"],
+                    "问题预览": case["question_preview"],
+                    "金标": case["gold"],
+                    "all_to_all_full": f"{case['full_prediction']} / {case['full_score']}",
+                    "dala_lite": f"{case['dala_prediction']} / {case['dala_score']}",
+                    "解释": case["reason"],
+                }
+                for case in failure_cases[:5]
+            ],
+            "bullets": ["当前阶段未收集到足够稳定的失败案例。"] if not failure_cases else [],
+        },
+        {
+            "title": "结论与建议",
+            "bullets": [
+                "若 `dala_lite` 已能在明显降低通信成本的同时保持与 `all_to_all_full` 接近的准确率，应优先进入更大样本 phase 做确认。",
+                "如果预算利用率升高但准确率没有同步改善，则应优先调整密度打分或消息包层级，而不是直接放宽预算。",
+                "正式推进 Full DALA 前，应同时复核成本-性能前沿图、预算利用率图和门槛条件，而不是只看单一准确率结果。",
+            ],
+        },
+        {
+            "title": "局限性",
+            "bullets": [
+                "当前报告只反映本 phase 的工程验证结果，不直接等同于更大样本下的正式结论。",
+                "当前实现是 DALA-lite 的无训练近似，不包含 MAPPO / value network 的学习版，因此更适合做机制与预算分析，而非完整算法复现。",
+            ],
+        },
+        render_run_reproducibility_section(
+            run_dir=run_dir,
+            artifact_items=[
+                "关键产物：`metrics.json`、`budget_diagnostics.json`、`report.md`、`figure_manifest.json`、`figures/`、`paper_summary.csv`。",
+                "本地报告与发布报告共享同一套 run 内图资产，便于复核和后续引用。",
+            ],
+        ),
+    ]
+    return render_scientific_report(
+        title="预算通信科研报告",
+        abstract=abstract,
+        overview_items=[
+            ("实验名", str(manifest.get("experiment"))),
+            ("轨道", track_name),
+            ("Phase", str(manifest.get("phase"))),
+            ("Backbone", backbone_name),
+            ("运行目录", run_dir.as_posix()),
+        ],
+        sections=sections,
     )
-    for name, passed in sorted(full_gate.get("conditions", {}).items()):
-        lines.append(f"- `{name}`：`{passed}`")
-    if "accuracy_gap_vs_all_to_all_full" in full_gate:
-        lines.append(f"- `accuracy_gap_vs_all_to_all_full`：`{full_gate['accuracy_gap_vs_all_to_all_full']}`")
-    if "communication_ratio_vs_all_to_all_full" in full_gate:
-        lines.append(f"- `communication_ratio_vs_all_to_all_full`：`{full_gate['communication_ratio_vs_all_to_all_full']}`")
-    lines.extend(
-        [
-            "",
-            "## 9. 局限",
-            "",
-            "- 当前只覆盖 smoke20，小样本结果仅用于机制验证与工程联调。",
-            "- split-context 轨道与 same-context 轨道分开报告，不直接合并成统一 overall 结论。",
-            "- 当前只实现 DALA-lite 的无训练近似，不包含 MAPPO/value network 学习版。",
-            "",
-        ]
-    )
-    return "\n".join(lines) + "\n"
 
 
 def _select_failure_cases(predictions: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -346,16 +363,15 @@ def _select_failure_cases(predictions: list[dict[str, Any]]) -> list[dict[str, A
 
 
 def _bootstrap_ci_text(predictions: list[dict[str, Any]], primary_method: str, reference_method: str) -> str:
-    """生成两种方法 accuracy delta 的 bootstrap 置信区间文本。"""
+    """生成两种方法准确率差异的 bootstrap 置信区间文本。"""
     paired = _paired_rows(predictions, primary_method, reference_method)
     if not paired:
-        return "未计算。"
+        return "未计算"
     deltas = _bootstrap_accuracy_delta(paired, iterations=2000, seed=42)
     return f"[{_quantile(deltas, 0.025):.6f}, {_quantile(deltas, 0.975):.6f}]（探索性）"
 
 
 def _paired_rows(predictions: list[dict[str, Any]], primary_method: str, reference_method: str) -> list[tuple[float, float]]:
-    """按样本 ID 配对两种方法的分数。"""
     lookup = {
         (row["dataset"], row["sample_id"], row["method_name"]): row
         for row in predictions
@@ -377,7 +393,6 @@ def _bootstrap_accuracy_delta(
     iterations: int,
     seed: int,
 ) -> list[float]:
-    """对两种方法的准确率差做配对 bootstrap 采样。"""
     rng = random.Random(seed)
     rows = list(paired_scores)
     samples: list[float] = []
@@ -390,12 +405,10 @@ def _bootstrap_accuracy_delta(
 
 
 def _ordered_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """按论文中约定的方法顺序排序。"""
     return sorted(rows, key=lambda row: METHOD_ORDER.index(row["method_name"]) if row["method_name"] in METHOD_ORDER else 999)
 
 
 def _published_report_name(manifest: dict[str, Any]) -> str:
-    """构造发布到 `reports/budget_comm` 的报告文件名。"""
     created_at = manifest.get("created_at")
     try:
         created_date = datetime.fromisoformat(created_at).date().isoformat() if created_at else "unknown-date"
@@ -408,7 +421,6 @@ def _published_report_name(manifest: dict[str, Any]) -> str:
 
 
 def _quantile(values: list[float], q: float) -> float:
-    """计算线性插值分位数。"""
     if not values:
         return 0.0
     ordered = sorted(values)
@@ -424,16 +436,13 @@ def _quantile(values: list[float], q: float) -> float:
 
 
 def _load_json(path: Path) -> dict[str, Any]:
-    """读取 UTF-8 JSON 文件；不存在时返回空字典。"""
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
-    """读取 UTF-8 JSONL 文件；不存在时返回空列表。"""
     if not path.exists():
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
-

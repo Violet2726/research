@@ -1,3 +1,5 @@
+"""CUE 实验的科研报告与图资产生成。"""
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -6,6 +8,7 @@ from pathlib import Path
 import json
 from typing import Any
 
+from experiment_core.foundation.workspace import default_reports_root
 from experiment_core.reporting.analysis_reports import render_frontier_report, write_report
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
 from experiment_core.reporting.run_figures import (
@@ -17,7 +20,11 @@ from experiment_core.reporting.run_figures import (
     build_score_by_dataset_figure_spec,
     write_figure_bundle,
 )
-from experiment_core.foundation.workspace import default_reports_root
+from experiment_core.reporting.scientific_report import (
+    format_float,
+    render_run_reproducibility_section,
+    render_scientific_report,
+)
 
 
 METHOD_ORDER = [
@@ -57,7 +64,7 @@ def render_cue_report(run_dir: str | Path, publish_dir: str | Path | None = None
     markdown = append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root)
     local_report_path = root / "report.md"
     local_report_path.write_text(markdown, encoding="utf-8")
-    write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="CUE Frontier"))
+    write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="CUE 前沿附录"))
     publish_path = Path(publish_dir) / _published_report_name(manifest)
     publish_path.parent.mkdir(parents=True, exist_ok=True)
     publish_path.write_text(
@@ -82,30 +89,30 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
     return [
         build_frontier_figure_spec(
             summary_rows,
-            title="CUE frontier",
-            caption="Overall accuracy versus average total tokens across CUE policies and controls.",
+            title="CUE 成本-性能前沿",
+            caption="总体结果上，各策略的准确率相对于平均总 token 的位置关系。",
             score_field="accuracy_mean",
-            primary_metric="Accuracy",
+            primary_metric="准确率",
         ),
         build_efficiency_rank_figure_spec(
             summary_rows,
-            title="CUE efficiency ranking",
-            caption="Overall efficiency ranking measured by accuracy per 1K tokens.",
+            title="CUE 效率排序",
+            caption="基于每千 token 准确率的总体效率排序。",
             efficiency_field="acc_per_1k_tokens",
-            primary_metric="Accuracy per 1K tokens",
+            primary_metric="每千 token 准确率",
         ),
         build_score_by_dataset_figure_spec(
             summary_rows,
-            title="CUE score by dataset",
-            caption="Per-dataset accuracy map across CUE policies and controls.",
+            title="CUE 跨数据集表现",
+            caption="各策略在不同数据集上的准确率分布。",
             score_field="accuracy_mean",
-            primary_metric="Accuracy",
+            primary_metric="准确率",
         ),
         build_scatter_figure_spec(
             figure_id="policy_tradeoff",
-            title="Policy tradeoff",
-            caption="Overall trigger rate versus accuracy across CUE policies.",
-            primary_metric="Accuracy",
+            title="策略触发率权衡",
+            caption="总体触发率相对于准确率的变化。",
+            primary_metric="准确率",
             data=[
                 {
                     "label": str(row.get("display_name") or row.get("policy_name") or "unknown"),
@@ -116,17 +123,17 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
                 }
                 for row in overall_policy_rows
             ],
-            x_label="Trigger rate",
-            y_label="Accuracy",
+            x_label="触发率",
+            y_label="准确率",
             source_kind="policy_diagnostics",
             dataset_scope="overall",
-            note="Policies on the upper-left achieve higher accuracy with fewer trigger events.",
+            note="左上区域的策略代表在较低触发频率下维持较高准确率。",
         ),
         build_grouped_bar_figure_spec(
             figure_id="oracle_alignment",
-            title="Oracle alignment",
-            caption="Overall oracle precision and recall across CUE policies.",
-            primary_metric="Rate",
+            title="Oracle 对齐情况",
+            caption="总体 Oracle 精确率与召回率对比。",
+            primary_metric="比率",
             data=[
                 {
                     "label": str(row.get("display_name") or row.get("policy_name") or "unknown"),
@@ -136,11 +143,11 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
                 }
                 for row in overall_policy_rows
             ],
-            series=[("precision", "Precision"), ("recall", "Recall")],
-            x_label="Rate",
+            series=[("precision", "精确率"), ("recall", "召回率")],
+            x_label="比率",
             source_kind="policy_diagnostics",
             dataset_scope="overall",
-            note="Precision and recall are computed against the communication-benefit oracle approximation.",
+            note="精确率和召回率共同衡量策略是否把通信机会分配给真正有收益的样本。",
         ),
     ]
 
@@ -152,7 +159,7 @@ def _render_markdown(
     oracle: dict[str, Any],
     run_dir: Path,
 ) -> str:
-    backbone = {"name": resolve_manifest_model_name(manifest)}
+    backbone_name = resolve_manifest_model_name(manifest)
     metric_rows = metrics.get("summary", [])
     policy_rows = diagnostics.get("policy_rows", [])
     overall_main_rows = _ordered_rows([row for row in metric_rows if row.get("dataset") == "overall"])
@@ -161,75 +168,125 @@ def _render_markdown(
         for dataset in sorted({row["dataset"] for row in metric_rows if row.get("dataset") != "overall"})
     }
     recommendation = diagnostics.get("recommended_next_default_policy", {})
-    lines = [
-        "# CUE 实验报告",
-        "",
-        "## 1. 实验概览",
-        "",
-        f"- 实验名：`{manifest.get('experiment')}`",
-        f"- Phase：`{manifest.get('phase')}`",
-        f"- Backbone：`{backbone.get('name')}`",
-        f"- Prompt Version：`{manifest.get('prompt_version')}`",
-        f"- 运行目录：`{run_dir.as_posix()}`",
-        "- 方法主线：独立求解 -> utility 估计 -> 定向通信 -> 可选局部审计。",
-        "",
-        "## 2. Overall 主结果",
-        "",
-        "| Method | Accuracy | Avg Comm Tokens | Avg Total Tokens | Calls / Q | Acc / 1K Tokens |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
+    best_row = max(overall_main_rows, key=lambda item: float(item.get("accuracy_mean") or 0.0), default=None)
+    best_policy_row = max(
+        [row for row in overall_main_rows if str(row.get("method_name")) in {"cue_v1", "consensus_freeze", "disagreement_triggered", "always_communicate"}],
+        key=lambda item: float(item.get("accuracy_mean") or 0.0),
+        default=None,
+    )
+
+    abstract: list[str] = []
+    if best_row is not None:
+        abstract.append(f"总体准确率最高的方法是 `{best_row['display_name']}`，准确率为 {format_float(best_row.get('accuracy_mean'))}。")
+    if best_policy_row is not None:
+        abstract.append(f"在通信策略中，`{best_policy_row['display_name']}` 的总体表现最佳。")
+    abstract.append(
+        f"当前推荐的下一轮默认策略为 `{recommendation.get('selected_policy', 'cue_v1')}`。"
+    )
+
+    sections = [
+        {
+            "title": "研究问题与方法结构",
+            "bullets": [
+                "CUE 的核心问题是：在黑盒条件下，能否先估计通信效用，再把通信机会定向分配给真正需要协同的样本。",
+                "主指标为准确率；成本指标采用平均总 token / 题与平均通信 token / 题；策略诊断侧重触发率、误触发率与漏掉有益通信率。",
+                "报告中特别关注 `cue_v1` 相对于 `always_communicate` 是否能够在显著降低成本时保持可接受的性能损失。",
+            ],
+        },
+        {
+            "title": "总体结果",
+            "table": {
+                "headers": ["方法", "准确率", "平均通信 token / 题", "平均总 token / 题", "每题调用数", "每千 token 准确率"],
+                "rows": [
+                    [
+                        f"`{row['display_name']}`",
+                        format_float(row.get("accuracy_mean")),
+                        format_float(row.get("communication_tokens_mean"), 2),
+                        format_float(row.get("total_tokens_mean"), 2),
+                        format_float(row.get("calls_per_question_mean"), 2),
+                        format_float(row.get("acc_per_1k_tokens"), 6),
+                    ]
+                    for row in overall_main_rows
+                ],
+            },
+        },
+        {
+            "title": "触发与 Oracle 诊断",
+            "table": {
+                "headers": ["策略", "触发率", "早退率", "Oracle 精确率", "Oracle 召回率", "误触发率", "漏掉有益通信率"],
+                "rows": [
+                    [
+                        f"`{row['display_name']}`",
+                        format_float(row.get("trigger_rate")),
+                        format_float(row.get("early_exit_rate")),
+                        format_float(row.get("precision")),
+                        format_float(row.get("recall")),
+                        format_float(row.get("false_trigger_rate")),
+                        format_float(row.get("missed_beneficial_comm_rate")),
+                    ]
+                    for row in _ordered_policy_rows([row for row in policy_rows if row.get("dataset") == "overall"])
+                ],
+            },
+            "bullets": [
+                f"推荐策略：`{recommendation.get('selected_policy', 'cue_v1')}`。",
+                f"相对 `always_communicate` 的准确率下降：`{recommendation.get('accuracy_drop_vs_always', 0.0)}`；总 token 降低比例：`{recommendation.get('token_drop_ratio_vs_always', 0.0)}`。",
+            ],
+        },
+        {
+            "title": "分数据集表现",
+            "tables": [
+                {
+                    "title": dataset,
+                    "headers": ["方法", "准确率", "平均通信 token / 题", "平均总 token / 题", "每千 token 准确率"],
+                    "rows": [
+                        [
+                            f"`{row['display_name']}`",
+                            format_float(row.get("accuracy_mean")),
+                            format_float(row.get("communication_tokens_mean"), 2),
+                            format_float(row.get("total_tokens_mean"), 2),
+                            format_float(row.get("acc_per_1k_tokens"), 6),
+                        ]
+                        for row in rows
+                    ],
+                }
+                for dataset, rows in per_dataset_rows.items()
+            ],
+        },
+        {
+            "title": "结论与建议",
+            "bullets": [
+                "若 CUE 的 Oracle 精确率和召回率同时偏低，则应优先改进 utility 估计，而不是直接增加通信预算。",
+                "若准确率接近 `always_communicate`，但总 token 明显下降，则说明 CUE 已具备作为默认策略的工程价值。",
+                "进入更大样本 phase 前，建议优先复核误触发率与漏掉有益通信率是否同时可控，避免只依赖总体准确率决策。",
+            ],
+        },
+        {
+            "title": "局限性",
+            "bullets": [
+                "当前 Oracle 是基于现有控制组构造的近似标签，因此更适合做策略筛选，而非最终机制证明。",
+                "本报告反映的是当前 phase 的黑盒实现效果，不能直接等同于可访问内部不确定性信号时的理想上界。",
+            ],
+        },
+        render_run_reproducibility_section(
+            run_dir=run_dir,
+            artifact_items=[
+                "关键产物：`policy_metrics.json`、`policy_diagnostics.json`、`report.md`、`figure_manifest.json`、`figures/`、`oracle_trigger_eval.json`。",
+                "本地报告与发布报告共享同一套 run 内图资产，便于后续引用与审稿期复核。",
+            ],
+        ),
     ]
-    for row in overall_main_rows:
-        lines.append(
-            f"| `{row['display_name']}` | {row['accuracy_mean']:.4f} | {row['communication_tokens_mean']:.2f} | "
-            f"{row['total_tokens_mean']:.2f} | {row['calls_per_question_mean']:.2f} | {row['acc_per_1k_tokens']:.6f} |"
-        )
-    lines.extend(
-        [
-            "",
-            "## 3. Trigger 诊断",
-            "",
-            "| Policy | Trigger Rate | Early Exit Rate | Oracle Precision | Oracle Recall | False Trigger Rate | Missed Beneficial Comm Rate |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
-        ]
+    return render_scientific_report(
+        title="CUE 科研报告",
+        abstract=abstract,
+        overview_items=[
+            ("实验名", str(manifest.get("experiment"))),
+            ("Phase", str(manifest.get("phase"))),
+            ("Backbone", backbone_name),
+            ("Prompt Version", str(manifest.get("prompt_version"))),
+            ("运行目录", run_dir.as_posix()),
+        ],
+        sections=sections,
     )
-    for row in _ordered_policy_rows([row for row in policy_rows if row.get("dataset") == "overall"]):
-        lines.append(
-            f"| `{row['display_name']}` | {row['trigger_rate']:.4f} | {row['early_exit_rate']:.4f} | "
-            f"{row['precision']:.4f} | {row['recall']:.4f} | {row['false_trigger_rate']:.4f} | {row['missed_beneficial_comm_rate']:.4f} |"
-        )
-    lines.extend(["", "## 4. 分数据集结果", ""])
-    for dataset, rows in per_dataset_rows.items():
-        lines.extend(
-            [
-                f"### {dataset}",
-                "",
-                "| Method | Accuracy | Avg Comm Tokens | Avg Total Tokens | Calls / Q | Acc / 1K Tokens |",
-                "| --- | ---: | ---: | ---: | ---: | ---: |",
-            ]
-        )
-        for row in rows:
-            lines.append(
-                f"| `{row['display_name']}` | {row['accuracy_mean']:.4f} | {row['communication_tokens_mean']:.2f} | "
-                f"{row['total_tokens_mean']:.2f} | {row['calls_per_question_mean']:.2f} | {row['acc_per_1k_tokens']:.6f} |"
-            )
-        lines.append("")
-    lines.extend(
-        [
-            "## 5. 默认策略建议",
-            "",
-            f"- 推荐策略：`{recommendation.get('selected_policy', 'cue_v1')}`",
-            f"- 相对 `always_communicate` 的准确率下降：`{recommendation.get('accuracy_drop_vs_always', 0.0)}`",
-            f"- 相对 `always_communicate` 的总 token 下降比例：`{recommendation.get('token_drop_ratio_vs_always', 0.0)}`",
-            "",
-            "## 6. 局限",
-            "",
-            "- 当前报告主要用于首轮机制验证。",
-            "- helpful / harmful 通信仍以 `always_communicate` 相对 `mv_3` 的变化作为 oracle 近似。",
-            "- 更大规模结论仍需更长周期实验进一步确认。",
-            "",
-        ]
-    )
-    return "\n".join(lines) + "\n"
 
 
 def _ordered_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -256,4 +313,3 @@ def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
-

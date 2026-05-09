@@ -115,6 +115,6 @@ def test_render_paper_package_writes_markdown_and_figures(tmp_path: Path) -> Non
     assert (state_dir / "figure_manifest.json").exists()
     svg_text = (state_dir / "figures" / "budget_frontier_same_context.svg").read_text(encoding="utf-8")
     package_markdown = (state_dir / "paper_package.md").read_text(encoding="utf-8")
-    assert "![Budget frontier: same-context headline methods]" in package_markdown
+    assert "![预算前沿：同上下文 headline 方法]" in package_markdown
     assert "Faithful score" in svg_text
 

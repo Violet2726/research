@@ -1,10 +1,4 @@
-"""选择性通信实验报告。
-
-报告层重点回答三类问题：
-1. 共享前缀是否真的节省了重复调用成本；
-2. 各 trigger 策略的触发率、early-exit 率与 oracle 对齐情况如何；
-3. 下一轮默认策略更适合选择哪一种。
-"""
+"""选择性通信实验的科研报告与图资产生成。"""
 
 from __future__ import annotations
 
@@ -14,6 +8,7 @@ from pathlib import Path
 import json
 from typing import Any
 
+from experiment_core.foundation.workspace import default_reports_root
 from experiment_core.reporting.analysis_reports import (
     render_frontier_report,
     render_trigger_diagnostic_report,
@@ -29,7 +24,11 @@ from experiment_core.reporting.run_figures import (
     build_score_by_dataset_figure_spec,
     write_figure_bundle,
 )
-from experiment_core.foundation.workspace import default_reports_root
+from experiment_core.reporting.scientific_report import (
+    format_float,
+    render_run_reproducibility_section,
+    render_scientific_report,
+)
 
 
 METHOD_ORDER = [
@@ -45,7 +44,6 @@ METHOD_ORDER = [
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
-    """输出简短运行摘要。"""
     metrics = _load_json(Path(run_dir) / "policy_metrics.json")
     rows = metrics.get("summary", [])
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -63,7 +61,6 @@ def render_trigger_report(
     run_dir: str | Path,
     publish_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    """渲染并写出中文 trigger 报告。"""
     publish_dir = publish_dir or default_reports_root("selective_comm")
     root = Path(run_dir)
     manifest = _load_json(root / "manifest.json")
@@ -77,8 +74,8 @@ def render_trigger_report(
     markdown = append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root)
     local_report_path = root / "report.md"
     local_report_path.write_text(markdown, encoding="utf-8")
-    write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="Selective Communication Frontier"))
-    write_report(root / "trigger_diagnostics.md", render_trigger_diagnostic_report(_analysis_trigger_rows(diagnostics), title="Selective Communication Trigger Diagnostics"))
+    write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="选择性通信前沿附录"))
+    write_report(root / "trigger_diagnostics.md", render_trigger_diagnostic_report(_analysis_trigger_rows(diagnostics), title="选择性通信触发诊断附录"))
 
     publish_path = Path(publish_dir) / _published_report_name(manifest)
     publish_path.parent.mkdir(parents=True, exist_ok=True)
@@ -98,38 +95,35 @@ def render_trigger_report(
 
 def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
     summary_rows = metrics.get("summary", [])
-    overall_policy_rows = [
-        row for row in diagnostics.get("policy_rows", [])
-        if row.get("dataset") == "overall"
-    ]
+    overall_policy_rows = [row for row in diagnostics.get("policy_rows", []) if row.get("dataset") == "overall"]
     shared_prefix_rows = list(diagnostics.get("shared_prefix_rows", []))
     return [
         build_frontier_figure_spec(
             summary_rows,
-            title="Selective communication frontier",
-            caption="Overall accuracy versus average total tokens across trigger policies and controls.",
+            title="选择性通信成本-性能前沿",
+            caption="总体结果上，各策略的准确率相对于平均总 token 的位置关系。",
             score_field="accuracy_mean",
-            primary_metric="Accuracy",
+            primary_metric="准确率",
         ),
         build_efficiency_rank_figure_spec(
             summary_rows,
-            title="Selective communication efficiency ranking",
-            caption="Overall efficiency ranking measured by accuracy per 1K tokens.",
+            title="选择性通信效率排序",
+            caption="基于每千 token 准确率的总体效率排序。",
             efficiency_field="acc_per_1k_tokens",
-            primary_metric="Accuracy per 1K tokens",
+            primary_metric="每千 token 准确率",
         ),
         build_score_by_dataset_figure_spec(
             summary_rows,
-            title="Selective communication score by dataset",
-            caption="Per-dataset accuracy map across trigger policies and controls.",
+            title="选择性通信跨数据集表现",
+            caption="各策略在不同数据集上的准确率分布。",
             score_field="accuracy_mean",
-            primary_metric="Accuracy",
+            primary_metric="准确率",
         ),
         build_scatter_figure_spec(
             figure_id="trigger_tradeoff",
-            title="Trigger tradeoff",
-            caption="Overall trigger rate versus accuracy across trigger policies.",
-            primary_metric="Accuracy",
+            title="触发率权衡",
+            caption="总体触发率相对于准确率的变化。",
+            primary_metric="准确率",
             data=[
                 {
                     "label": str(row.get("display_name") or row.get("policy_name") or "unknown"),
@@ -140,17 +134,17 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
                 }
                 for row in overall_policy_rows
             ],
-            x_label="Trigger rate",
-            y_label="Accuracy",
+            x_label="触发率",
+            y_label="准确率",
             source_kind="policy_diagnostics",
             dataset_scope="overall",
-            note="Policies on the upper-left achieve higher accuracy with fewer trigger events.",
+            note="左上区域的策略代表在较低触发频率下维持较高准确率。",
         ),
         build_grouped_bar_figure_spec(
             figure_id="shared_prefix_savings",
-            title="Shared-prefix savings",
-            caption="Savings from shared-prefix execution relative to naive independent trigger replays.",
-            primary_metric="Savings ratio",
+            title="共享前缀节省比",
+            caption="共享前缀执行相对于独立重跑的 token 节省比例。",
+            primary_metric="节省比例",
             data=[
                 {
                     "label": str(row.get("dataset") or "unknown"),
@@ -159,17 +153,17 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
                 }
                 for row in shared_prefix_rows
             ],
-            series=[("shared_prefix_savings_ratio", "Savings ratio")],
-            x_label="Savings ratio",
+            series=[("shared_prefix_savings_ratio", "节省比例")],
+            x_label="节省比例",
             source_kind="policy_diagnostics",
             dataset_scope="per_dataset",
-            note="Higher values indicate more request reuse from shared-prefix execution.",
+            note="值越高说明同一份 Stage A / Stage B 被更多策略复用。",
         ),
         build_grouped_bar_figure_spec(
             figure_id="oracle_alignment",
-            title="Oracle alignment",
-            caption="Overall oracle precision and recall across trigger policies.",
-            primary_metric="Rate",
+            title="Oracle 对齐情况",
+            caption="总体 Oracle 精确率与召回率对比。",
+            primary_metric="比率",
             data=[
                 {
                     "label": str(row.get("display_name") or row.get("policy_name") or "unknown"),
@@ -179,11 +173,11 @@ def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) ->
                 }
                 for row in overall_policy_rows
             ],
-            series=[("precision", "Precision"), ("recall", "Recall")],
-            x_label="Rate",
+            series=[("precision", "精确率"), ("recall", "召回率")],
+            x_label="比率",
             source_kind="policy_diagnostics",
             dataset_scope="overall",
-            note="Precision and recall are computed against the communication-benefit oracle approximation.",
+            note="精确率与召回率共同衡量策略是否把通信机会分配给真正有收益的样本。",
         ),
     ]
 
@@ -216,186 +210,183 @@ def _render_markdown(
     predictions: list[dict[str, Any]],
     run_dir: Path,
 ) -> str:
-    """渲染中文 Markdown 报告。"""
-    backbone = {"name": resolve_manifest_model_name(manifest)}
+    backbone_name = resolve_manifest_model_name(manifest)
     metric_rows = metrics.get("summary", [])
     policy_rows = diagnostics.get("policy_rows", [])
     voc_policy_rows = diagnostics.get("voc_policy_rows", [])
     shared_prefix_rows = diagnostics.get("shared_prefix_rows", [])
     recommendation = diagnostics.get("recommended_next_default_policy", {})
-
     overall_main_rows = _ordered_rows([row for row in metric_rows if row.get("dataset") == "overall"])
     per_dataset_rows = {
         dataset: _ordered_rows([row for row in metric_rows if row.get("dataset") == dataset])
-        for dataset in sorted(
-            {
-                row["dataset"]
-                for row in metric_rows
-                if row.get("dataset") not in {"overall"}
-            }
-        )
+        for dataset in sorted({row["dataset"] for row in metric_rows if row.get("dataset") not in {"overall"}})
     }
-
-    lines = [
-        "# Trigger / Early-exit 实验报告",
-        "",
-        "## 1. 实验范围与公平性说明",
-        "",
-        f"- 实验名：`{manifest.get('experiment')}`",
-        f"- Phase：`{manifest.get('phase')}`",
-        f"- Backbone：`{backbone.get('name')}`",
-        f"- Prompt Version：`{manifest.get('prompt_version')}`",
-        f"- 运行目录：`{run_dir.as_posix()}`",
-        "- 数据集：`GSM8K + StrategyQA + HotpotQA`，当前轮次只解释 `smoke20`。",
-        "- 共享前缀设计：4 个 trigger 策略共享同一份 Stage A 与同一份 Stage B，不重复发 4 套网络请求。",
-        "- 方法边界：本轮只回答“何时通信 / 何时 early exit”，不混入消息内容压缩和局部审计。",
-        "",
-        "## 2. 共享前缀设计与预算节省说明",
-        "",
-    ]
-
-    for row in shared_prefix_rows:
-        lines.append(
-            f"- `{row['dataset']}`：共享实际 token=`{row['shared_actual_tokens']:.2f}`；"
-            f"若按 4 套 trigger 独立重跑则为 `{row['naive_independent_tokens']:.2f}`；"
-            f"共享前缀节省比例=`{row['shared_prefix_savings_ratio']:.4f}`"
-        )
-    lines.extend(
-        [
-            "",
-            "## 3. 主结果表",
-            "",
-            "| Method | Accuracy | Avg Comm Tokens | Avg Total Tokens | Acc / 1K Tokens |",
-            "| --- | ---: | ---: | ---: | ---: |",
-        ]
-    )
-    for row in overall_main_rows:
-        lines.append(
-            f"| `{row['display_name']}` | {row['accuracy_mean']:.4f} | {row['communication_tokens_mean']:.2f} | "
-            f"{row['total_tokens_mean']:.2f} | {row['acc_per_1k_tokens']:.6f} |"
-        )
-
-    lines.extend(
-        [
-            "",
-            "## 4. Trigger 诊断表",
-            "",
-            "| Policy | Trigger Rate | Early Exit Rate | Oracle Precision | Oracle Recall | False Trigger Rate | Missed Beneficial Comm Rate | Avg Comm Tokens | Avg Total Tokens | Acc / 1K Tokens |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
-        ]
-    )
-    for row in _ordered_policy_rows([row for row in policy_rows if row.get("dataset") == "overall"]):
-        lines.append(
-            f"| `{row['display_name']}` | {row['trigger_rate']:.4f} | {row['early_exit_rate']:.4f} | "
-            f"{row['precision']:.4f} | {row['recall']:.4f} | {row['false_trigger_rate']:.4f} | "
-            f"{row['missed_beneficial_comm_rate']:.4f} | {row['communication_tokens_mean']:.2f} | "
-            f"{row['total_tokens_mean']:.2f} | {row['acc_per_1k_tokens']:.6f} |"
-        )
-
-    lines.extend(
-        [
-            "",
-            "## 5. VoC 诊断表",
-            "",
-            "| Policy | Helpful Recall | Harmful Trigger Rate | Neutral Waste Rate | Trigger Rate | Avg Comm Tokens | Avg Total Tokens |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
-        ]
-    )
-    for row in _ordered_policy_rows([row for row in voc_policy_rows if row.get("dataset") == "overall"]):
-        lines.append(
-            f"| `{row['display_name']}` | {row['helpful_recall']:.4f} | {row['harmful_trigger_rate']:.4f} | "
-            f"{row['neutral_waste_rate']:.4f} | {row['trigger_rate']:.4f} | "
-            f"{row['communication_tokens_mean']:.2f} | {row['total_tokens_mean']:.2f} |"
-        )
-
-    lines.extend(
-        [
-            "",
-            "## 6. 数据集分表",
-            "",
-        ]
-    )
-    for dataset, rows in per_dataset_rows.items():
-        lines.extend(
-            [
-                f"### {dataset}",
-                "",
-                "| Method | Accuracy | Avg Comm Tokens | Avg Total Tokens | Acc / 1K Tokens |",
-                "| --- | ---: | ---: | ---: | ---: |",
-            ]
-        )
-        for row in rows:
-            lines.append(
-                f"| `{row['display_name']}` | {row['accuracy_mean']:.4f} | {row['communication_tokens_mean']:.2f} | "
-                f"{row['total_tokens_mean']:.2f} | {row['acc_per_1k_tokens']:.6f} |"
-            )
-        dataset_policy_rows = _ordered_policy_rows([row for row in policy_rows if row.get("dataset") == dataset])
-        lines.extend(
-            [
-                "",
-                "| Policy | Trigger Rate | Early Exit Rate | Oracle Precision | Oracle Recall |",
-                "| --- | ---: | ---: | ---: | ---: |",
-            ]
-        )
-        for row in dataset_policy_rows:
-            lines.append(
-                f"| `{row['display_name']}` | {row['trigger_rate']:.4f} | {row['early_exit_rate']:.4f} | "
-                f"{row['precision']:.4f} | {row['recall']:.4f} |"
-            )
-        lines.append("")
-
-    lines.extend(
-        [
-            "## 7. 失败案例",
-            "",
-        ]
+    best_row = max(overall_main_rows, key=lambda item: float(item.get("accuracy_mean") or 0.0), default=None)
+    best_policy_row = max(
+        [row for row in policy_rows if row.get("dataset") == "overall"],
+        key=lambda item: float(item.get("accuracy_mean") or 0.0),
+        default=None,
     )
     failure_cases = _select_failure_cases(oracle.get("sample_rows", []), predictions)
-    if not failure_cases:
-        lines.append("- 当前 smoke20 下没有收集到可稳定复述的失败案例。")
-        lines.append("")
-    else:
-        for index, case in enumerate(failure_cases, start=1):
-            lines.extend(
-                [
-                    f"### Case {index}",
-                    "",
-                    f"- 数据集：`{case['dataset']}`",
-                    f"- 样本：`{case['sample_id']}`",
-                    f"- 问题预览：{case['question_preview']}",
-                    f"- 金标：`{case['gold']}`",
-                    f"- `mv_3`：`{case['mv_3_prediction']}` / score=`{case['mv_3_score']}`",
-                    f"- `always`：`{case['always_prediction']}` / score=`{case['always_score']}`",
-                    f"- 说明：{case['reason']}",
-                    "",
-                ]
-            )
 
-    lines.extend(
-        [
-            "## 8. 下一轮默认 trigger 建议",
-            "",
-            f"- 推荐策略：`{recommendation.get('selected_policy', 'disagreement_triggered')}`",
-            f"- 相对 `always_communicate` 的准确率下降：`{recommendation.get('accuracy_drop_vs_always', 0.0)}`",
-            f"- 相对 `always_communicate` 的总 token 下降比例：`{recommendation.get('token_drop_ratio_vs_always', 0.0)}`",
-            f"- 规则是否通过：`{recommendation.get('rule_passed', False)}`",
-            "",
-            "## 9. 局限",
-            "",
-            "- 本轮只覆盖 `smoke20`，因此只报告描述性结果，不做统计显著性结论。",
-            "- 当前只比较 trigger / early-exit，不比较消息内容压缩和局部审计。",
-            "- `mv_3` 直接复用共享 Stage A，因此它是本实验内部的无通信基线，不代表独立运行时的物理网络成本。",
-            "",
-        ]
+    abstract: list[str] = []
+    if best_row is not None:
+        abstract.append(f"总体准确率最高的方法是 `{best_row['display_name']}`，准确率为 {format_float(best_row.get('accuracy_mean'))}。")
+    if best_policy_row is not None:
+        abstract.append(f"触发策略中表现最佳的是 `{best_policy_row['display_name']}`。")
+    if shared_prefix_rows:
+        mean_savings = sum(float(row.get("shared_prefix_savings_ratio") or 0.0) for row in shared_prefix_rows) / len(shared_prefix_rows)
+        abstract.append(f"共享前缀机制的平均 token 节省比例约为 {format_float(mean_savings)}。")
+    abstract.append(f"当前推荐的下一轮默认策略为 `{recommendation.get('selected_policy', 'hybrid_trigger')}`。")
+
+    sections = [
+        {
+            "title": "研究问题与实验设计",
+            "bullets": [
+                "本实验回答三件事：是否真的通过共享前缀节省了请求成本；哪些 trigger 策略更接近通信收益 Oracle；默认策略该如何选择。",
+                "主指标为准确率；成本指标采用平均总 token / 题和平均通信 token / 题；策略诊断重点是触发率、早退率、误触发率和漏掉有益通信率。",
+                "所有 trigger 策略共享相同的 Stage A 与触发后的 Stage B，因此结论可直接归因于策略本身，而不是额外请求差异。",
+            ],
+        },
+        {
+            "title": "共享前缀节省情况",
+            "bullets": [
+                f"`{row['dataset']}`：共享执行实际 token=`{format_float(row.get('shared_actual_tokens'), 2)}`，独立重跑 token=`{format_float(row.get('naive_independent_tokens'), 2)}`，节省比例=`{format_float(row.get('shared_prefix_savings_ratio'))}`。"
+                for row in shared_prefix_rows
+            ],
+        },
+        {
+            "title": "总体结果",
+            "table": {
+                "headers": ["方法", "准确率", "平均通信 token / 题", "平均总 token / 题", "每千 token 准确率"],
+                "rows": [
+                    [
+                        f"`{row['display_name']}`",
+                        format_float(row.get("accuracy_mean")),
+                        format_float(row.get("communication_tokens_mean"), 2),
+                        format_float(row.get("total_tokens_mean"), 2),
+                        format_float(row.get("acc_per_1k_tokens"), 6),
+                    ]
+                    for row in overall_main_rows
+                ],
+            },
+        },
+        {
+            "title": "Trigger 诊断",
+            "table": {
+                "headers": ["策略", "触发率", "早退率", "Oracle 精确率", "Oracle 召回率", "误触发率", "漏掉有益通信率"],
+                "rows": [
+                    [
+                        f"`{row['display_name']}`",
+                        format_float(row.get("trigger_rate")),
+                        format_float(row.get("early_exit_rate")),
+                        format_float(row.get("precision")),
+                        format_float(row.get("recall")),
+                        format_float(row.get("false_trigger_rate")),
+                        format_float(row.get("missed_beneficial_comm_rate")),
+                    ]
+                    for row in _ordered_policy_rows([row for row in policy_rows if row.get("dataset") == "overall"])
+                ],
+            },
+        },
+        {
+            "title": "VoC 诊断",
+            "table": {
+                "headers": ["策略", "Helpful Recall", "Harmful Trigger Rate", "Neutral Waste Rate", "触发率", "平均通信 token / 题"],
+                "rows": [
+                    [
+                        f"`{row['display_name']}`",
+                        format_float(row.get("helpful_recall")),
+                        format_float(row.get("harmful_trigger_rate")),
+                        format_float(row.get("neutral_waste_rate")),
+                        format_float(row.get("trigger_rate")),
+                        format_float(row.get("communication_tokens_mean"), 2),
+                    ]
+                    for row in _ordered_policy_rows([row for row in voc_policy_rows if row.get("dataset") == "overall"])
+                ],
+            },
+            "bullets": [
+                f"推荐默认策略：`{recommendation.get('selected_policy', 'hybrid_trigger')}`。",
+                f"相对 `always_communicate` 的准确率下降：`{recommendation.get('accuracy_drop_vs_always', 0.0)}`；总 token 降低比例：`{recommendation.get('token_drop_ratio_vs_always', 0.0)}`。",
+            ],
+        },
+        {
+            "title": "分数据集表现",
+            "tables": [
+                {
+                    "title": dataset,
+                    "headers": ["方法", "准确率", "平均通信 token / 题", "平均总 token / 题", "每千 token 准确率"],
+                    "rows": [
+                        [
+                            f"`{row['display_name']}`",
+                            format_float(row.get("accuracy_mean")),
+                            format_float(row.get("communication_tokens_mean"), 2),
+                            format_float(row.get("total_tokens_mean"), 2),
+                            format_float(row.get("acc_per_1k_tokens"), 6),
+                        ]
+                        for row in rows
+                    ],
+                }
+                for dataset, rows in per_dataset_rows.items()
+            ],
+        },
+        {
+            "title": "典型案例",
+            "cases": [
+                {
+                    "数据集": case["dataset"],
+                    "样本 ID": case["sample_id"],
+                    "问题预览": case["question_preview"],
+                    "金标": case["gold"],
+                    "mv_3": f"{case['mv_3_prediction']} / {case['mv_3_score']}",
+                    "always_communicate": f"{case['always_prediction']} / {case['always_score']}",
+                    "解释": case["reason"],
+                }
+                for case in failure_cases[:5]
+            ],
+            "bullets": ["当前阶段未收集到足够稳定的失败案例。"] if not failure_cases else [],
+        },
+        {
+            "title": "结论与建议",
+            "bullets": [
+                "若某策略的 Oracle 召回率高但误触发率也高，说明它捕捉到了不少有益通信机会，但仍需进一步压缩无效通信。",
+                "若共享前缀节省比例稳定较高，则后续多策略评估应继续保持统一前缀，而不是拆成独立请求。",
+                "默认策略不应只看总体准确率，还应联合考察 Oracle 精确率、召回率和总 token 降幅。",
+            ],
+        },
+        {
+            "title": "局限性",
+            "bullets": [
+                "当前 Oracle 仍是基于控制组结果构造的近似标签，更适合作为工程决策辅助，而非最终机制证明。",
+                "本报告反映的是当前 phase 的黑盒策略效果，不直接等同于更长周期、更大样本下的最终主结论。",
+            ],
+        },
+        render_run_reproducibility_section(
+            run_dir=run_dir,
+            artifact_items=[
+                "关键产物：`policy_metrics.json`、`policy_diagnostics.json`、`oracle_trigger_eval.json`、`report.md`、`figure_manifest.json`、`figures/`。",
+                "本地报告与发布报告共享同一套 run 内图资产，便于复核和后续论文引用。",
+            ],
+        ),
+    ]
+    return render_scientific_report(
+        title="选择性通信科研报告",
+        abstract=abstract,
+        overview_items=[
+            ("实验名", str(manifest.get("experiment"))),
+            ("Phase", str(manifest.get("phase"))),
+            ("Backbone", backbone_name),
+            ("Prompt Version", str(manifest.get("prompt_version"))),
+            ("运行目录", run_dir.as_posix()),
+        ],
+        sections=sections,
     )
-    return "\n".join(lines) + "\n"
 
 
 def _select_failure_cases(
     oracle_rows: list[dict[str, Any]],
     predictions: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """挑选 3 至 5 个有代表性的失败案例。"""
     pred_lookup: dict[tuple[str, str, str], dict[str, Any]] = {}
     for row in predictions:
         pred_lookup[(row["dataset"], row["sample_id"], row["method_name"])] = row
@@ -418,7 +409,7 @@ def _select_failure_cases(
             reason = "通信会把答案从对带错，但 voc_trigger_v2 仍然触发了通信。"
         elif row.get("oracle_label") == "neutral" and disagreement_row and disagreement_row.get("triggered"):
             reason = "通信没有带来正确性变化，但 disagreement_triggered 仍然进入了通信。"
-        elif row["beneficial_communication"] and hybrid_row and not hybrid_row.get("triggered"):
+        elif row.get("beneficial_communication") and hybrid_row and not hybrid_row.get("triggered"):
             reason = "always_communicate 能纠错，但 hybrid_trigger 在该题 early exit，漏掉了有益通信。"
         elif float(always_row["score"]) < float(mv_3_row["score"]):
             reason = "always_communicate 比无通信的 `mv_3` 更差，说明该题存在通信伤害。"
@@ -441,17 +432,14 @@ def _select_failure_cases(
 
 
 def _ordered_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """按固定方法顺序排序。"""
     return sorted(rows, key=lambda row: METHOD_ORDER.index(row["method_name"]) if row["method_name"] in METHOD_ORDER else 999)
 
 
 def _ordered_policy_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """按 trigger 策略顺序排序。"""
     return sorted(rows, key=lambda row: METHOD_ORDER.index(row["policy_name"]) if row["policy_name"] in METHOD_ORDER else 999)
 
 
 def _published_report_name(manifest: dict[str, Any]) -> str:
-    """构造发布到 ``reports/selective_comm`` 的文件名。"""
     created_at = manifest.get("created_at")
     try:
         created_date = datetime.fromisoformat(created_at).date().isoformat() if created_at else "unknown-date"
@@ -464,16 +452,13 @@ def _published_report_name(manifest: dict[str, Any]) -> str:
 
 
 def _load_json(path: Path) -> dict[str, Any]:
-    """读取 UTF-8 JSON 文件。"""
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
-    """读取 UTF-8 JSONL 文件。"""
     if not path.exists():
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
-

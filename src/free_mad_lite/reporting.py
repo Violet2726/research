@@ -1,9 +1,4 @@
-"""Free-MAD-lite 报告与摘要。
-
-报告层重点展示三类结果：
-初始多数票、单轮反从众后的最终票，以及轨迹裁决器的最终选择，
-并强调 judge 回退比例与单轮机制收益。
-"""
+"""Free-MAD-lite 实验的科研报告与图资产生成。"""
 
 from __future__ import annotations
 
@@ -16,6 +11,7 @@ import random
 from typing import Any
 
 from free_mad_lite.logic import METHOD_ORDER
+from experiment_core.foundation.workspace import default_reports_root
 from experiment_core.reporting.analysis_reports import render_frontier_report, write_report
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
 from experiment_core.reporting.run_figures import (
@@ -26,11 +22,14 @@ from experiment_core.reporting.run_figures import (
     build_score_by_dataset_figure_spec,
     write_figure_bundle,
 )
-from experiment_core.foundation.workspace import default_reports_root
+from experiment_core.reporting.scientific_report import (
+    format_float,
+    render_run_reproducibility_section,
+    render_scientific_report,
+)
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
-    """输出简短运行摘要。"""
     metrics = _load_json(Path(run_dir) / "metrics.json")
     rows = metrics.get("summary", [])
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -45,7 +44,6 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
 
 
 def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) -> dict[str, Any]:
-    """渲染中文 Markdown 报告。"""
     publish_dir = publish_dir or default_reports_root("free_mad_lite")
     root = Path(run_dir)
     manifest = _load_json(root / "manifest.json")
@@ -57,7 +55,7 @@ def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) ->
     markdown = append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root)
     local_report = root / "report.md"
     local_report.write_text(markdown, encoding="utf-8")
-    write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="Free-MAD-lite Frontier"))
+    write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="Free-MAD-lite 前沿附录"))
     publish_path = Path(publish_dir) / _published_report_name(manifest)
     publish_path.parent.mkdir(parents=True, exist_ok=True)
     publish_path.write_text(
@@ -79,33 +77,33 @@ def _build_figure_specs(metrics: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         build_frontier_figure_spec(
             rows,
-            title="Free-MAD-lite frontier",
-            caption="Overall accuracy versus average total tokens across Free-MAD-lite variants.",
+            title="Free-MAD-lite 成本-性能前沿",
+            caption="总体结果上，各 Free-MAD-lite 变体的准确率相对于平均总 token 的位置关系。",
             score_field="accuracy_mean",
-            primary_metric="Accuracy",
+            primary_metric="准确率",
             method_label_field="method_name",
         ),
         build_efficiency_rank_figure_spec(
             rows,
-            title="Free-MAD-lite efficiency ranking",
-            caption="Overall efficiency ranking measured by accuracy per 1K tokens.",
+            title="Free-MAD-lite 效率排序",
+            caption="基于每千 token 准确率的总体效率排序。",
             efficiency_field="acc_per_1k_tokens",
-            primary_metric="Accuracy per 1K tokens",
+            primary_metric="每千 token 准确率",
             method_label_field="method_name",
         ),
         build_score_by_dataset_figure_spec(
             rows,
-            title="Free-MAD-lite score by dataset",
-            caption="Per-dataset accuracy map across Free-MAD-lite variants.",
+            title="Free-MAD-lite 跨数据集表现",
+            caption="各 Free-MAD-lite 变体在不同数据集上的准确率分布。",
             score_field="accuracy_mean",
-            primary_metric="Accuracy",
+            primary_metric="准确率",
             method_label_field="method_name",
         ),
         build_grouped_bar_figure_spec(
             figure_id="trajectory_score_panel",
-            title="Trajectory score panel",
-            caption="Overall change, correction, and harm rates across trajectory-selection variants.",
-            primary_metric="Rate",
+            title="轨迹裁决效果",
+            caption="总体层面 changed / corrected / harmed 三类比例对比。",
+            primary_metric="比例",
             data=[
                 {
                     "label": str(row.get("method_name") or "unknown"),
@@ -118,19 +116,19 @@ def _build_figure_specs(metrics: dict[str, Any]) -> list[dict[str, Any]]:
             ],
             series=[
                 ("changed_answer_rate", "Changed answer"),
-                ("corrected_rate", "Corrected"),
-                ("harmed_rate", "Harmed"),
+                ("corrected_rate", "Corrected rate"),
+                ("harmed_rate", "Harmed rate"),
             ],
-            x_label="Rate",
+            x_label="比例",
             source_kind="metrics.summary",
             dataset_scope="overall",
-            note="Correction and harm are normalized by question count to keep all series on the same rate scale.",
+            note="纠正和伤害都被标准化为题级比例，以便和答案变化率并列比较。",
         ),
         build_grouped_bar_figure_spec(
             figure_id="judge_fallback_summary",
-            title="Judge fallback summary",
-            caption="Overall judge fallback rate across Free-MAD-lite variants.",
-            primary_metric="Judge fallback rate",
+            title="Judge fallback 概览",
+            caption="总体层面 judge fallback rate 对比。",
+            primary_metric="Fallback rate",
             data=[
                 {
                     "label": str(row.get("method_name") or "unknown"),
@@ -140,10 +138,10 @@ def _build_figure_specs(metrics: dict[str, Any]) -> list[dict[str, Any]]:
                 for row in overall_rows
             ],
             series=[("judge_fallback_rate", "Judge fallback rate")],
-            x_label="Rate",
+            x_label="比例",
             source_kind="metrics.summary",
             dataset_scope="overall",
-            note="Lower fallback rates indicate more stable trajectory judging without retreating to the baseline vote.",
+            note="该比例越低，说明轨迹裁决器越少需要退回到基础投票结果。",
         ),
     ]
 
@@ -155,70 +153,109 @@ def _render_markdown(
     predictions: list[dict[str, Any]],
     run_dir: Path,
 ) -> str:
-    backbone = {"name": resolve_manifest_model_name(manifest)}
+    backbone_name = resolve_manifest_model_name(manifest)
     overall_rows = _ordered_rows([row for row in metrics.get("summary", []) if row.get("dataset") == "overall"])
+    best_row = max(overall_rows, key=lambda item: float(item.get("accuracy_mean") or 0.0), default=None)
+    best_efficiency_row = max(overall_rows, key=lambda item: float(item.get("acc_per_1k_tokens") or 0.0), default=None)
     ci_text = _bootstrap_ci_text(predictions, "free_mad_lite_llm_trajectory", "vanilla_mad_r1_final_vote")
-    lines = [
-        "# Free-MAD-lite Smoke20 报告",
-        "",
-        "## 1. 实验概览",
-        "",
-        f"- 实验名：`{manifest.get('experiment')}`",
-        f"- Phase：`{manifest.get('phase')}`",
-        f"- Backbone：`{backbone.get('name')}`",
-        f"- 运行目录：`{run_dir.as_posix()}`",
-        "- 方法：`mv_3_initial`、`vanilla_mad_r1_final_vote`、`anti_conformity_final_vote`、`free_mad_lite_llm_trajectory`。",
-        "- 说明：本实验只验证 single-round anti-conformity 与 LLM trajectory judge，不复现完整 Free-MAD score model 或攻击鲁棒性实验。",
-        "",
-        "## 2. 主结果表",
-        "",
-        "| Method | Accuracy | Avg Comm Tokens | Avg Total Tokens | Calls / Q | Acc / 1K Tokens | Judge Fallback | Changed Answer |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+
+    abstract: list[str] = []
+    if best_row is not None:
+        abstract.append(f"总体准确率最高的方法是 `{best_row['method_name']}`，准确率为 {format_float(best_row.get('accuracy_mean'))}。")
+    if best_efficiency_row is not None:
+        abstract.append(f"总体效率最高的方法是 `{best_efficiency_row['method_name']}`，每千 token 准确率为 {format_float(best_efficiency_row.get('acc_per_1k_tokens'), 6)}。")
+    abstract.append(f"`free_mad_lite_llm_trajectory` 相对 `vanilla_mad_r1_final_vote` 的总体准确率差异 bootstrap 95% CI 为 `{ci_text}`。")
+
+    sections = [
+        {
+            "title": "研究问题与实验设计",
+            "bullets": [
+                "Free-MAD-lite 关注单轮 anti-conformity 与 LLM trajectory judge 是否足以带来稳定收益，而不复现完整 score-model 训练流程。",
+                "主指标为准确率；成本指标采用平均总 token / 题与平均通信 token / 题；机制指标重点是 changed answer、corrected、harmed 与 judge fallback rate。",
+                "本实验固定比较 `mv_3_initial`、`vanilla_mad_r1_final_vote`、`anti_conformity_final_vote` 和 `free_mad_lite_llm_trajectory`，因此可以隔离轨迹裁决环节的贡献。",
+            ],
+        },
+        {
+            "title": "总体结果",
+            "table": {
+                "headers": ["方法", "准确率", "平均通信 token / 题", "平均总 token / 题", "每题调用数", "每千 token 准确率", "Judge fallback rate", "Changed answer rate"],
+                "rows": [
+                    [
+                        f"`{row['method_name']}`",
+                        format_float(row.get("accuracy_mean")),
+                        format_float(row.get("communication_tokens_mean"), 2),
+                        format_float(row.get("total_tokens_mean"), 2),
+                        format_float(row.get("calls_per_question_mean"), 2),
+                        format_float(row.get("acc_per_1k_tokens"), 6),
+                        format_float(row.get("judge_fallback_rate")),
+                        format_float(row.get("changed_answer_rate")),
+                    ]
+                    for row in overall_rows
+                ],
+            },
+        },
+        {
+            "title": "机制诊断",
+            "bullets": [
+                f"Judge fallback rate：`{diagnostics.get('judge_fallback_rate', 0.0)}`；Judge fallback count：`{diagnostics.get('judge_fallback_count', 0)}`。",
+                f"Anti-conformity prompt hash：`{diagnostics.get('anti_conformity_prompt_hash', manifest.get('anti_conformity_prompt_hash', 'unknown'))}`。",
+                "如果 changed answer rate 很高，但 corrected rate 没有同步提高，说明轨迹裁决更像是在频繁改写答案，而不是真正识别正确轨迹。",
+            ],
+        },
+        {
+            "title": "分数据集表现",
+            "tables": [
+                {
+                    "title": dataset,
+                    "headers": ["方法", "准确率", "平均通信 token / 题", "平均总 token / 题", "每千 token 准确率"],
+                    "rows": [
+                        [
+                            f"`{row['method_name']}`",
+                            format_float(row.get("accuracy_mean")),
+                            format_float(row.get("communication_tokens_mean"), 2),
+                            format_float(row.get("total_tokens_mean"), 2),
+                            format_float(row.get("acc_per_1k_tokens"), 6),
+                        ]
+                        for row in _ordered_rows([item for item in metrics.get("summary", []) if item.get("dataset") == dataset])
+                    ],
+                }
+                for dataset in sorted({row["dataset"] for row in metrics.get("summary", []) if row.get("dataset") != "overall"})
+            ],
+        },
+        {
+            "title": "结论与建议",
+            "bullets": [
+                "若 `free_mad_lite_llm_trajectory` 在总体准确率和每千 token 准确率上都优于 `vanilla_mad_r1_final_vote`，说明轨迹裁决在当前设置下具有独立价值。",
+                "若 judge fallback rate 偏高，应优先增强 judge 的稳定性，再考虑扩大 anti-conformity 的使用范围。",
+                "进入更大样本 phase 前，建议同时核对轨迹裁决效果图和 fallback 图，避免只看总体准确率结论。",
+            ],
+        },
+        {
+            "title": "局限性",
+            "bullets": [
+                "当前实现只验证单轮 anti-conformity 与 LLM trajectory judge，不包含论文中的完整 score-based 决策训练流程。",
+                "本报告反映的是当前 phase 的机制验证结果，不直接等同于更大样本上的最终结论。",
+            ],
+        },
+        render_run_reproducibility_section(
+            run_dir=run_dir,
+            artifact_items=[
+                "关键产物：`metrics.json`、`diagnostics.json`、`report.md`、`figure_manifest.json`、`figures/`、`trajectory_scores.jsonl`。",
+                "本地报告与发布报告共享同一套 run 内图资产，便于复核与后续引用。",
+            ],
+        ),
     ]
-    for row in overall_rows:
-        lines.append(
-            f"| `{row['method_name']}` | {row['accuracy_mean']:.4f} | {row['communication_tokens_mean']:.2f} | "
-            f"{row['total_tokens_mean']:.2f} | {row['calls_per_question_mean']:.2f} | {row['acc_per_1k_tokens']:.6f} | "
-            f"{row['judge_fallback_rate']:.4f} | {row['changed_answer_rate']:.4f} |"
-        )
-    lines.extend(
-        [
-            "",
-            "## 3. 机制诊断",
-            "",
-            f"- `free_mad_lite_llm_trajectory` 相对 `vanilla_mad_r1_final_vote` 的 overall accuracy delta 95% bootstrap CI：{ci_text}（smoke20 小样本，仅作方向性参考）。",
-            f"- Judge fallback rate：`{diagnostics.get('judge_fallback_rate', 0.0)}`",
-            f"- Anti-conformity prompt hash：`{manifest.get('anti_conformity_prompt_hash')}`",
-            "",
-            "## 4. 数据集分表",
-            "",
-        ]
+    return render_scientific_report(
+        title="Free-MAD-lite 科研报告",
+        abstract=abstract,
+        overview_items=[
+            ("实验名", str(manifest.get("experiment"))),
+            ("Phase", str(manifest.get("phase"))),
+            ("Backbone", backbone_name),
+            ("运行目录", run_dir.as_posix()),
+        ],
+        sections=sections,
     )
-    for dataset in sorted({row["dataset"] for row in metrics.get("summary", []) if row.get("dataset") != "overall"}):
-        lines.extend(
-            [
-                f"### {dataset}",
-                "",
-                "| Method | Accuracy | Avg Comm Tokens | Avg Total Tokens | Acc / 1K Tokens |",
-                "| --- | ---: | ---: | ---: | ---: |",
-            ]
-        )
-        for row in _ordered_rows([item for item in metrics.get("summary", []) if item.get("dataset") == dataset]):
-            lines.append(
-                f"| `{row['method_name']}` | {row['accuracy_mean']:.4f} | {row['communication_tokens_mean']:.2f} | "
-                f"{row['total_tokens_mean']:.2f} | {row['acc_per_1k_tokens']:.6f} |"
-            )
-        lines.append("")
-    lines.extend(
-        [
-            "## 5. 局限",
-            "",
-            "- 当前只运行 smoke20，不能作为最终显著性结论。",
-            "- Free-MAD-lite 使用 LLM judge 近似轨迹裁决，不包含论文完整 score-based decision 训练或攻击场景。",
-            "",
-        ]
-    )
-    return "\n".join(lines)
 
 
 def _ordered_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -284,4 +321,3 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
-

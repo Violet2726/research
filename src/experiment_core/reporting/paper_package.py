@@ -167,43 +167,43 @@ def build_paper_package_payload(
 def render_paper_package_markdown(package: dict[str, Any]) -> str:
     """Render the package payload as a compact paper-oriented Markdown report."""
     lines = [
-        "# Paper Package",
+        "# 论文产物包",
         "",
         f"- generated_at: `{package.get('generated_at')}`",
         f"- phase_name: `{package.get('phase_name')}`",
         f"- model_ref: `{package.get('model_ref')}`",
         f"- counts: `{json.dumps(package.get('counts', {}), ensure_ascii=False)}`",
         "",
-        "## Same-Context Main Table",
+        "## 同上下文主结果表",
         "",
     ]
     lines.extend(_render_result_table(package["sections"]["same_context_main_table"]))
-    lines.extend(["", "## Split-Context Main Table", ""])
+    lines.extend(["", "## 分视角主结果表", ""])
     lines.extend(_render_result_table(package["sections"]["split_context_main_table"]))
-    lines.extend(["", "## Supporting Evidence", ""])
+    lines.extend(["", "## 支撑证据", ""])
     lines.extend(_render_result_table(package["sections"]["supporting_evidence_table"]))
-    lines.extend(["", "## Diagnostic Evidence", ""])
+    lines.extend(["", "## 诊断证据", ""])
     lines.extend(_render_result_table(package["sections"]["diagnostic_evidence_table"]))
-    lines.extend(["", "## Equal-Budget Single-Agent References", ""])
+    lines.extend(["", "## 等预算单智能体参照", ""])
     lines.extend(_render_budget_baseline_table(package.get("budget_matched_single_agent_references", [])))
-    lines.extend(["", "## Fixed Statistical Comparisons", ""])
+    lines.extend(["", "## 固定统计比较", ""])
     lines.extend(_render_statistics_table(package.get("statistics", {}).get("comparisons", []), package.get("statistics", {})))
-    lines.extend(["", "## Helpful / Harmful Communication", ""])
+    lines.extend(["", "## 有益 / 有害通信", ""])
     lines.extend(_render_helpful_table(package.get("helpful_harmful_communication", [])))
     figure_paths = package.get("figure_paths", {})
     if figure_paths:
-        lines.extend(["", "## Figures", ""])
+        lines.extend(["", "## 图表索引", ""])
         for name, path in sorted(figure_paths.items()):
             lines.append(f"- `{name}`: `{path}`")
     lines.extend(
         [
             "",
-            "## Interpretation Guardrails",
+            "## 解释边界",
             "",
-            "- Headline tables are the only rows intended for main-text claims.",
-            "- Supporting and diagnostic rows explain mechanisms, limits, and ablations.",
-            "- Equal-budget single-agent rows are evaluation controls, not new method steps.",
-            "- If confirmatory results weaken a headline claim, demote the claim rather than changing the method graph.",
+            "- 主结果表中的 headline 行才用于正文主结论。",
+            "- supporting 和 diagnostic 行用于解释机制、限制和消融，不直接替代主结论。",
+            "- 等预算单智能体行是评测控制组，不代表新增方法步骤。",
+            "- 如果 confirmatory 结果削弱了 headline 结论，应下调结论强度，而不是事后改写方法图。",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -422,48 +422,48 @@ def _build_figure_specs(package: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         build_scatter_figure_spec(
             figure_id="budget_frontier_same_context",
-            title="Budget frontier: same-context headline methods",
-            caption="Faithful score versus token ratio relative to full communication.",
+            title="预算前沿：同上下文 headline 方法",
+            caption="Faithful score 相对于 full communication token 比率的位置关系。",
             primary_metric="Faithful score",
             data=_frontier_points(sections.get("same_context_main_table", [])),
-            x_label="Token ratio vs full communication",
+            x_label="相对 full communication 的 token 比率",
             y_label="Faithful score",
             source_kind="faithful_analysis",
             dataset_scope="same_context_overall",
-            note="Lower x is cheaper. The vertical reference line marks the full-communication baseline.",
+            note="横轴越小表示成本越低；参考线 x=1 表示 full communication 基线。",
             reference_x=1.0,
         ),
         build_scatter_figure_spec(
             figure_id="budget_frontier_split_context",
-            title="Budget frontier: split-context headline methods",
-            caption="Faithful score versus token ratio relative to full communication or matched references.",
+            title="预算前沿：分视角 headline 方法",
+            caption="Faithful score 相对于 full communication 或匹配参照 token 比率的位置关系。",
             primary_metric="Faithful score",
             data=_frontier_points(sections.get("split_context_main_table", [])),
-            x_label="Token ratio vs full communication",
+            x_label="相对 full communication 的 token 比率",
             y_label="Faithful score",
             source_kind="faithful_analysis",
             dataset_scope="split_context_overall",
-            note="Lower x is cheaper. The vertical reference line marks the full-communication baseline.",
+            note="横轴越小表示成本越低；参考线 x=1 表示 full communication 基线。",
             reference_x=1.0,
         ),
         build_scatter_figure_spec(
             figure_id="trigger_utility",
-            title="Trigger utility",
-            caption="Utility of trigger-style methods relative to the best no-communication baseline.",
-            primary_metric="Delta vs best no-communication baseline",
+            title="Trigger 收益",
+            caption="trigger 类方法相对于最优无通信基线的收益。",
+            primary_metric="相对最优无通信基线的差值",
             data=_trigger_utility_points(sections.get("same_context_main_table", [])),
-            x_label="Token ratio vs full communication",
-            y_label="Delta vs best no-communication baseline",
+            x_label="相对 full communication 的 token 比率",
+            y_label="相对最优无通信基线的差值",
             source_kind="faithful_analysis",
             dataset_scope="same_context_overall",
-            note="Positive y indicates improvement over the strongest no-communication control.",
+            note="纵轴为正表示相对于最强无通信控制组有提升。",
             reference_x=1.0,
             reference_y=0.0,
         ),
         build_interval_figure_spec(
             figure_id="stage_ceiling_gap",
-            title="Distance to stage ceiling",
-            caption="Absolute gap between faithful score and the stage ceiling across headline and supporting runs.",
+            title="距 stage ceiling 的差距",
+            caption="headline 与 supporting 运行中 faithful score 到 stage ceiling 的绝对差距。",
             primary_metric="Stage ceiling gap",
             data=[
                 {
@@ -476,22 +476,22 @@ def _build_figure_specs(package: dict[str, Any]) -> list[dict[str, Any]]:
                 }
                 for point in stage_points
             ],
-            x_label="Gap to stage ceiling (lower is better)",
+            x_label="到 stage ceiling 的差距（越低越好）",
             source_kind="faithful_analysis",
             dataset_scope="matrix_overall",
-            note="Smaller gaps indicate less headroom between current score and the stage ceiling.",
+            note="差距越小，说明当前方法距离该阶段可达到的上界越近。",
         ),
         build_grouped_bar_figure_spec(
             figure_id="helpful_harmful_comm",
-            title="Helpful versus harmful communication",
-            caption="Helpful and harmful communication rates across communication-using experiments.",
-            primary_metric="Rate over communication-using samples",
+            title="有益与有害通信对比",
+            caption="各通信实验中有益通信率与有害通信率的并列比较。",
+            primary_metric="通信样本上的比例",
             data=helpful_points,
             series=[("helpful_rate", "Helpful"), ("harmful_rate", "Harmful")],
-            x_label="Rate",
+            x_label="比例",
             source_kind="prediction_rows",
             dataset_scope="matrix_overall",
-            note="Helpful and harmful rates are shown separately to avoid visual cancellation.",
+            note="有益与有害比例分开呈现，避免净值抵消带来的误读。",
         ),
     ]
 
