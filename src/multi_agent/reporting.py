@@ -15,8 +15,8 @@ import math
 import random
 from typing import Any
 
-from experiment_core.reporting_utils import resolve_manifest_model_name
-from experiment_core.workspace import default_reports_root
+from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
+from experiment_core.foundation.workspace import default_reports_root
 
 def load_metrics(run_dir: str | Path) -> dict[str, Any]:
     """读取多智能体运行目录中的 `metrics.json`。"""
@@ -302,7 +302,7 @@ def _enrich_prediction_row(row: dict[str, Any]) -> dict[str, Any]:
 
 def _score_like_dataset(dataset: str, predicted: str, gold: str) -> float:
     """轻量复用任务级打分逻辑，避免 reporting 层循环依赖 runner。"""
-    from experiment_core.evaluation import score_prediction
+    from experiment_core.foundation.evaluation import score_prediction
 
     return float(score_prediction(dataset, predicted, gold))
 
@@ -360,3 +360,4 @@ def _ratio(numerator: int, denominator: int) -> float:
     if denominator == 0:
         return 0.0
     return round(numerator / denominator, 6)
+

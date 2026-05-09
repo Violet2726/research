@@ -18,7 +18,7 @@ from cue.config import (
 from cue.reporting import render_cue_report, summarize_run
 from cue.runner import run_experiment
 from cue.validation import validate_run
-from experiment_core.workspace import default_cache_root, default_reports_root, default_runs_root, workspace_defaults
+from experiment_core.foundation.workspace import default_cache_root, default_reports_root, default_runs_root, workspace_defaults
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -119,3 +119,4 @@ def asdict_like(obj: object) -> dict[str, object]:
 
 if __name__ == "__main__":
     main()
+

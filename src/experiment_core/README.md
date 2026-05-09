@@ -2,23 +2,38 @@
 
 `experiment_core/` 是全仓唯一共享核心层，负责为所有实验家族提供通用运行能力。
 
-## 主要内容
+## 分层结构
 
-- `config.py`：共享 benchmark / provider / model catalog 解析
-- `datasets.py`：数据集读取与 frozen split 支持
-- `providers/`：OpenAI-compatible provider 封装与重试逻辑
-- `structured_output.py`：结构化输出校验与恢复
-- `evaluation.py`：统一评分逻辑
-- `runtime.py`：运行进度、时间戳和 `run_id`
-- `workspace.py`：默认 `runs/`、`reports/`、`cache/`、`files/` 路径
-- `cache.py`：按真实端点分库的请求缓存与统计能力
-- `rate_limits.py`：请求并发与 RPM / TPM 节流
-- `faithful_matrix.py`：统一的 faithful 实验矩阵入口，支持 `smoke20` 与 `pilot100`
-- `artifact_cleanup.py`：失效运行与失效报告清理工具
-- `cache_inspector.py`：缓存分库统计与端点定位工具
+- `foundation/`
+  - 基础设施层，放配置解析、数据集加载、缓存、运行时、provider、结构化输出、通用评测等能力。
+- `controls/`
+  - 跨实验复用的控制逻辑层，放无通信对照执行器、选择性通信信号工具等。
+- `matrix/`
+  - faithful 实验矩阵层，放矩阵入口、实验规格、分析与验收逻辑。
+- `reporting/`
+  - 论文与报告产物层，放统计汇总、图表渲染与发布文档生成。
+- `tools/`
+  - 运维工具层，放缓存检查、失效产物清理等 CLI 工具。
+
+## 目录责任
+
+- `foundation/config.py`：共享 benchmark / provider / model catalog 解析
+- `foundation/datasets.py`：数据集读取与 frozen split 支持
+- `foundation/providers/`：OpenAI-compatible provider 封装与重试逻辑
+- `foundation/structured_output.py`：结构化输出校验与恢复
+- `foundation/evaluation.py`：统一评分逻辑
+- `foundation/runtime.py`：运行进度、时间戳与 `run_id`
+- `foundation/workspace.py`：默认 `runs/`、`reports/`、`cache/`、`files/` 路径
+- `foundation/cache.py`：请求缓存、分库路由与统计能力
+- `foundation/rate_limits.py`：请求并发与 RPM / TPM 节流
+- `matrix/faithful_matrix.py`：统一的 faithful 实验矩阵入口，支持 `smoke20` 与 `pilot100`
+- `reporting/paper_package.py`：论文打包、figure 产物与摘要文档生成
+- `tools/artifact_cleanup.py`：失效运行与失效报告清理工具
+- `tools/cache_inspector.py`：缓存分库统计与目标定位工具
 
 ## 维护约定
 
-- 这里只放跨实验复用能力，不放某个实验独有策略。
-- 新的结构化输出恢复逻辑优先放到共享层，而不是在单个 runner 里做临时补丁。
+- 这里只放跨实验复用能力，不放某个实验家族私有策略。
+- 新的共享能力优先按职责落到对应子层，不再堆回 `experiment_core/` 根目录。
+- 高层矩阵编排、论文产物和运维工具不再和基础设施模块并列混放。
 - 文本 I/O 统一显式使用 `encoding="utf-8"`。

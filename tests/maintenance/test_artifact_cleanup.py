@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 
-from experiment_core.artifact_cleanup import (
+from experiment_core.tools.artifact_cleanup import (
     cleanup_invalid_artifacts,
     collect_report_statuses,
     collect_run_statuses,
@@ -140,7 +140,7 @@ def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
 
 
 def _fake_run_status(passed: bool):
-    from experiment_core.artifact_cleanup import RunStatus
+    from experiment_core.tools.artifact_cleanup import RunStatus
 
     return RunStatus(
         package_name="multi_agent",
@@ -150,3 +150,4 @@ def _fake_run_status(passed: bool):
         passed=passed,
         reason=None if passed else "validation_failed",
     )
+

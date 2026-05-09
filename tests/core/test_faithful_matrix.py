@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from budget_comm.config import load_experiment_config as load_budget_experiment_config
-from experiment_core.faithful_matrix import (
+from experiment_core.matrix.faithful_matrix import (
     MATRIX_EXPERIMENT_KIND,
     RuntimeOverrides,
     _prepare_orchestrator_paths,
@@ -167,26 +167,26 @@ def test_resume_faithful_matrix_continues_rerun_needed_and_pending_entries(
         run_dir.mkdir(parents=True, exist_ok=True)
         return run_dir
 
-    monkeypatch.setattr("experiment_core.faithful_matrix._execute_entry", _fake_execute_entry)
-    monkeypatch.setattr("experiment_core.faithful_matrix._validate_entry", lambda family, run_dir: {"passed": True})
+    monkeypatch.setattr("experiment_core.matrix.faithful_matrix._execute_entry", _fake_execute_entry)
+    monkeypatch.setattr("experiment_core.matrix.faithful_matrix._validate_entry", lambda family, run_dir: {"passed": True})
     monkeypatch.setattr(
-        "experiment_core.faithful_matrix.review_run_health",
+        "experiment_core.matrix.faithful_matrix.review_run_health",
         lambda run_dir, family: type("Review", (), {"passed": True, "notes": "validation_passed_and_metrics_nonempty"})(),
     )
     monkeypatch.setattr(
-        "experiment_core.faithful_matrix.render_faithful_analysis",
+        "experiment_core.matrix.faithful_matrix.render_faithful_analysis",
         lambda *args, **kwargs: {},
     )
     monkeypatch.setattr(
-        "experiment_core.faithful_matrix.render_acceptance_summary",
+        "experiment_core.matrix.faithful_matrix.render_acceptance_summary",
         lambda *args, **kwargs: {},
     )
     monkeypatch.setattr(
-        "experiment_core.faithful_matrix.render_paper_statistics",
+        "experiment_core.matrix.faithful_matrix.render_paper_statistics",
         lambda *args, **kwargs: {},
     )
     monkeypatch.setattr(
-        "experiment_core.faithful_matrix.render_paper_package",
+        "experiment_core.matrix.faithful_matrix.render_paper_package",
         lambda *args, **kwargs: {},
     )
 
@@ -196,3 +196,4 @@ def test_resume_faithful_matrix_continues_rerun_needed_and_pending_entries(
     resumed = json.loads(state_path.read_text(encoding="utf-8"))
     statuses = {item["experiment_name"]: item["status"] for item in resumed["semantic_entries"]}
     assert statuses["hotpotqa_split_context_communication_necessity"] == "completed"
+

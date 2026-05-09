@@ -6,9 +6,9 @@ import io
 import json
 from contextlib import redirect_stdout
 
-from experiment_core.cache import CachedResponse, RequestCacheRouter, json_dump
-from experiment_core.cache_inspector import main as cache_inspector_main
-from experiment_core.faithful_matrix import main as faithful_matrix_main
+from experiment_core.foundation.cache import CachedResponse, RequestCacheRouter, json_dump
+from experiment_core.tools.cache_inspector import main as cache_inspector_main
+from experiment_core.matrix.faithful_matrix import main as faithful_matrix_main
 from multi_agent.cli import main as multi_agent_main
 from budget_comm.cli import main as budget_main
 from comm_necessary.cli import main as comm_necessary_main
@@ -256,3 +256,4 @@ def test_cache_inspector_summarize_cli(tmp_path) -> None:
     assert payload["providers"][0]["provider"] == "deepseek"
     assert payload["providers"][0]["model_count"] == 1
     assert payload["providers"][0]["dataset_count"] == 1
+

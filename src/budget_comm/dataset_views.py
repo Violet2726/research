@@ -13,7 +13,7 @@ from hashlib import sha256
 from typing import Any
 
 from budget_comm.config import ContextViewConfig
-from experiment_core.datasets import DatasetSample
+from experiment_core.foundation.datasets import DatasetSample
 
 
 @dataclass(frozen=True)
@@ -301,3 +301,4 @@ def _stable_hash(text: str) -> str:
 def asdict_view(view: ContextView) -> dict[str, Any]:
     """提供给测试与调试使用的 dataclass 序列化。"""
     return asdict(view)
+

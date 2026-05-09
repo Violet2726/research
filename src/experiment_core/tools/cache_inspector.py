@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from experiment_core.cache import (
+from experiment_core.foundation.cache import (
     CacheRootSummary,
     CacheShardSummary,
     format_bytes,
@@ -14,7 +14,7 @@ from experiment_core.cache import (
     resolve_cache_shard_path,
     summarize_cache_root,
 )
-from experiment_core.workspace import default_cache_root
+from experiment_core.foundation.workspace import default_cache_root
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -173,3 +173,4 @@ def _print_shard_summary(shard: CacheShardSummary, cache_root: Path, indent: str
     if shard.error:
         line += f" | 错误 {shard.error}"
     print(f"{indent}{line}")
+

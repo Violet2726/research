@@ -12,15 +12,15 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from experiment_core.config import (
+from experiment_core.foundation.config import (
     DEFAULT_MODEL_CATALOG_PATH,
     load_benchmark_config,
     load_model_catalog,
     resolve_model_ref,
 )
-from experiment_core.datasets import generate_split_manifests
-from experiment_core.methods import load_method_catalog
-from experiment_core.workspace import default_cache_root, default_runs_root, workspace_defaults
+from experiment_core.foundation.datasets import generate_split_manifests
+from experiment_core.foundation.methods import load_method_catalog
+from experiment_core.foundation.workspace import default_cache_root, default_runs_root, workspace_defaults
 from single_agent.config import (
     load_experiment_config,
     required_benchmark_tags,
@@ -232,3 +232,4 @@ def _serialize_method(method) -> dict[str, object]:
 
 if __name__ == "__main__":
     main()
+

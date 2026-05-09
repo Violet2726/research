@@ -7,7 +7,7 @@ import json
 
 from dotenv import load_dotenv
 
-from experiment_core.workspace import (
+from experiment_core.foundation.workspace import (
     default_cache_root,
     default_reports_root,
     default_runs_root,
@@ -190,3 +190,4 @@ def _serialize_model(backbone: object) -> dict[str, object]:
 
 if __name__ == "__main__":
     main()
+

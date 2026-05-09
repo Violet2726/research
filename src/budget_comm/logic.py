@@ -15,7 +15,7 @@ import math
 import random
 from typing import Any
 
-from experiment_core.selective_signals import normalize_confidence
+from experiment_core.controls.selective_signals import normalize_confidence
 
 
 METHOD_ORDER = [
@@ -694,3 +694,4 @@ def _is_better_decision(
     if math.isclose(score, current.total_score, abs_tol=1e-12) and cost == current.total_cost and winner_ids < current.winner_agent_ids:
         return True
     return False
+

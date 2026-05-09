@@ -21,7 +21,7 @@ import zipfile
 
 import pyarrow.parquet as pq
 
-from experiment_core.config import BenchmarkConfig
+from experiment_core.foundation.config import BenchmarkConfig
 
 
 @dataclass(frozen=True)
@@ -464,3 +464,4 @@ def _normalize_option_letter(value: object) -> str | None:
     if "A" <= candidate <= "J":
         return candidate
     return None
+

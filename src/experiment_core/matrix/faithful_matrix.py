@@ -24,13 +24,13 @@ from cue.config import load_experiment_config as load_cue_experiment_config
 from cue.config import resolve_model as resolve_cue_model
 from cue.runner import run_experiment as run_cue_experiment
 from cue.validation import validate_run as validate_cue_run
-from experiment_core.config import load_benchmark_config, resolve_model_ref
-from experiment_core.faithful_acceptance import render_acceptance_summary
-from experiment_core.faithful_analysis import render_faithful_analysis
-from experiment_core.matrix_specs import get_experiment_matrix_spec
-from experiment_core.paper_package import render_paper_package
-from experiment_core.paper_statistics import render_paper_statistics
-from experiment_core.workspace import default_runs_root, workspace_defaults
+from experiment_core.foundation.config import load_benchmark_config, resolve_model_ref
+from experiment_core.matrix.faithful_acceptance import render_acceptance_summary
+from experiment_core.matrix.faithful_analysis import render_faithful_analysis
+from experiment_core.matrix.matrix_specs import get_experiment_matrix_spec
+from experiment_core.reporting.paper_package import render_paper_package
+from experiment_core.reporting.paper_statistics import render_paper_statistics
+from experiment_core.foundation.workspace import default_runs_root, workspace_defaults
 from free_mad_lite.config import load_experiment_config as load_free_mad_experiment_config
 from free_mad_lite.config import resolve_model as resolve_free_mad_model
 from free_mad_lite.runner import run_experiment as run_free_mad_experiment
@@ -711,3 +711,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

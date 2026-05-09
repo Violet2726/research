@@ -59,7 +59,7 @@
 
 ## 4. 默认输出目录
 
-默认输出统一由 `src/experiment_core/workspace.py` 负责，不再在各实验包里散落硬编码。
+默认输出统一由 `src/experiment_core/foundation/workspace.py` 负责，不再在各实验包里散落硬编码。
 
 ### 默认值
 

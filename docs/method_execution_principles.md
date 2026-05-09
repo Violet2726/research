@@ -149,7 +149,7 @@
 
 ## 4. `faithful_matrix` 的角色
 
-`src/experiment_core/faithful_matrix.py` 不是方法本体，而是**顶层实验编排器**。
+`src/experiment_core/matrix/faithful_matrix.py` 不是方法本体，而是**顶层实验编排器**。
 
 它负责：
 

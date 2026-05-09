@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from experiment_core.faithful_acceptance import build_acceptance_summary
+from experiment_core.matrix.faithful_acceptance import build_acceptance_summary
 
 
 def test_build_acceptance_summary_classifies_same_and_split_tracks() -> None:
@@ -69,3 +69,4 @@ def test_build_acceptance_summary_classifies_same_and_split_tracks() -> None:
     assert summary["counts"]["accepted_same_context"] == 1
     assert summary["counts"]["accepted_split_context"] == 1
     assert summary["counts"]["negative_control_family"] == 1
+

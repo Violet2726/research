@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 import tomllib
 
-from experiment_core.config import BenchmarkConfig, ResolvedModelConfig, load_benchmark_config, resolve_model_ref
+from experiment_core.foundation.config import BenchmarkConfig, ResolvedModelConfig, load_benchmark_config, resolve_model_ref
 
 
 EXPERIMENT_KIND_VALUES = {"content_ablation", "auditing_ablation", "sparc_v1"}
@@ -144,3 +144,4 @@ def _first_str(primary: dict[str, Any], key: str, secondary: dict[str, Any]) -> 
     if value is not None:
         return value
     return _optional_str(secondary, key)
+

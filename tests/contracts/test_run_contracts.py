@@ -23,7 +23,7 @@ from sid_lite.reporting import summarize_run as summarize_sid
 from sid_lite.validation import validate_run as validate_sid
 from single_agent.reporting import summarize_run as summarize_single_agent
 from single_agent.validation import validate_run as validate_single_agent
-from experiment_core.structured_output import _recover_selective_output_from_reasoning_text
+from experiment_core.foundation.structured_output import _recover_selective_output_from_reasoning_text
 
 
 def test_single_agent_reporting_and_validation_use_method_name(tmp_path: Path) -> None:
@@ -756,3 +756,4 @@ def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
 
 def _touch_json(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+

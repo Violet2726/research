@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from experiment_core.faithful_analysis import build_faithful_analysis, render_faithful_analysis
+from experiment_core.matrix.faithful_analysis import build_faithful_analysis, render_faithful_analysis
 
 
 def test_build_faithful_analysis_computes_reference_deltas_and_stage_ceiling(tmp_path: Path) -> None:
@@ -258,3 +258,4 @@ def test_build_faithful_analysis_synthesizes_overall_when_metrics_lack_it(tmp_pa
     assert overall_row["faithful_score"] == 0.85
     assert overall_row["best_no_comm_control"] == "mv_6"
     assert overall_row["best_no_comm_score"] == 0.725
+

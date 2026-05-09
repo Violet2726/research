@@ -19,26 +19,26 @@ from typing import Callable
 
 from dotenv import load_dotenv
 
-from experiment_core.cache import CachedResponse, RequestCache, RequestCacheRouter, build_request_cache_key, json_dump
-from experiment_core.datasets import DatasetSample, load_split_ids, select_samples
-from experiment_core.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from experiment_core.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
-from experiment_core.rate_limits import SlidingWindowRateLimiter
-from experiment_core.runtime import RunProgressTracker, build_run_id
-from experiment_core.selective_signals import (
+from experiment_core.foundation.cache import CachedResponse, RequestCache, RequestCacheRouter, build_request_cache_key, json_dump
+from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
+from experiment_core.foundation.evaluation import aggregate_majority, normalize_prediction, score_prediction
+from experiment_core.foundation.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
+from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
+from experiment_core.foundation.runtime import RunProgressTracker, build_run_id
+from experiment_core.controls.selective_signals import (
     confidence_display,
     decide_trigger_from_policy,
     normalize_confidence,
     summarize_divergence_rows,
     summarize_confidence_rows,
 )
-from experiment_core.methods import MethodConfig
-from experiment_core.structured_output import (
+from experiment_core.foundation.methods import MethodConfig
+from experiment_core.foundation.structured_output import (
     ARTIFACT_VERSION,
     OUTPUT_MODE_SELECTIVE_COMM,
     validate_or_recover_structured_output,
 )
-from experiment_core.workspace import default_cache_root, default_runs_root
+from experiment_core.foundation.workspace import default_cache_root, default_runs_root
 from selective_comm.config import (
     SelectiveCommExperimentConfig,
     SharedDebateProtocolConfig,
@@ -1484,3 +1484,4 @@ def _load_json_file(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+

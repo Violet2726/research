@@ -20,14 +20,14 @@ from typing import Callable
 
 from dotenv import load_dotenv
 
-from experiment_core.cache import CachedResponse, RequestCache, RequestCacheRouter, build_request_cache_key, json_dump
-from experiment_core.datasets import DatasetSample, load_split_ids, select_samples
-from experiment_core.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from experiment_core.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
-from experiment_core.rate_limits import SlidingWindowRateLimiter
-from experiment_core.runtime import RunProgressTracker, build_run_id
-from experiment_core.selective_signals import decide_trigger, normalize_confidence, summarize_confidence_rows
-from experiment_core.structured_output import (
+from experiment_core.foundation.cache import CachedResponse, RequestCache, RequestCacheRouter, build_request_cache_key, json_dump
+from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
+from experiment_core.foundation.evaluation import aggregate_majority, normalize_prediction, score_prediction
+from experiment_core.foundation.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
+from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
+from experiment_core.foundation.runtime import RunProgressTracker, build_run_id
+from experiment_core.controls.selective_signals import decide_trigger, normalize_confidence, summarize_confidence_rows
+from experiment_core.foundation.structured_output import (
     ARTIFACT_VERSION,
     OUTPUT_MODE_CORE,
     OUTPUT_MODE_SPARC_AUDIT,
@@ -35,7 +35,7 @@ from experiment_core.structured_output import (
     OUTPUT_MODE_SPARC_SOLVER,
     validate_or_recover_structured_output,
 )
-from experiment_core.workspace import default_cache_root, default_runs_root
+from experiment_core.foundation.workspace import default_cache_root, default_runs_root
 from sparc.config import (
     SparcExperimentConfig,
     SparcProtocolConfig,
@@ -1758,3 +1758,4 @@ def _mean(values) -> float:
     if not materialized:
         return 0.0
     return round(sum(materialized) / len(materialized), 6)
+

@@ -6,9 +6,9 @@ from pathlib import Path
 import json
 from typing import Any
 
-from experiment_core.analysis_reports import render_frontier_report, write_report
-from experiment_core.reporting_utils import resolve_manifest_model_name
-from experiment_core.workspace import default_reports_root
+from experiment_core.reporting.analysis_reports import render_frontier_report, write_report
+from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
+from experiment_core.foundation.workspace import default_reports_root
 
 
 METHOD_ORDER = [
@@ -169,3 +169,4 @@ def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+

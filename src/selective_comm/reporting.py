@@ -14,13 +14,13 @@ from pathlib import Path
 import json
 from typing import Any
 
-from experiment_core.analysis_reports import (
+from experiment_core.reporting.analysis_reports import (
     render_frontier_report,
     render_trigger_diagnostic_report,
     write_report,
 )
-from experiment_core.reporting_utils import resolve_manifest_model_name
-from experiment_core.workspace import default_reports_root
+from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
+from experiment_core.foundation.workspace import default_reports_root
 
 
 METHOD_ORDER = [
@@ -369,3 +369,4 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+

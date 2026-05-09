@@ -50,7 +50,7 @@ tests/               回归测试
 - 公共配置字段统一使用 `primary_model_ref`。
 - 默认运行目录统一为 `runs/<family>/<experiment>/<phase>/<run_id>/`。
 - 默认报告目录统一为 `reports/<family>/`，跨家族汇总放在 `reports/summary/`。
-- 文本文件统一使用 UTF-8。
+- 文件统一使用 UTF-8。
 
 ## 安装
 
@@ -121,7 +121,7 @@ uv run cleanup_artifacts_cli --dry-run
 
 ## 运行时目录覆盖
 
-默认工作目录由 `src/experiment_core/workspace.py` 统一管理，可通过环境变量覆盖：
+默认工作目录由 `src/experiment_core/foundation/workspace.py` 统一管理，可通过环境变量覆盖：
 
 - `RESEARCH_RUNS_ROOT`
 - `RESEARCH_REPORTS_ROOT`

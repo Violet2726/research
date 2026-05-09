@@ -1,4 +1,4 @@
-# experiment_core.providers
+# experiment_core.foundation.providers
 
 这里放共享 provider 适配层。
 

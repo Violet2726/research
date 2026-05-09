@@ -19,33 +19,33 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from experiment_core.cache import CachedResponse, RequestCache, RequestCacheRouter, build_request_cache_key, json_dump
-from experiment_core.config import (
+from experiment_core.foundation.cache import CachedResponse, RequestCache, RequestCacheRouter, build_request_cache_key, json_dump
+from experiment_core.foundation.config import (
     BenchmarkConfig,
     ResolvedModelConfig,
 )
-from experiment_core.datasets import (
+from experiment_core.foundation.datasets import (
     DatasetSample,
     generate_split_manifests as core_generate_split_manifests,
     load_split_ids,
     select_samples,
 )
-from experiment_core.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from experiment_core.methods import MethodConfig, load_method_catalog
-from experiment_core.providers import (
+from experiment_core.foundation.evaluation import aggregate_majority, normalize_prediction, score_prediction
+from experiment_core.foundation.methods import MethodConfig, load_method_catalog
+from experiment_core.foundation.providers import (
     OpenAICompatibleProvider,
     ProviderRequestError,
     build_payload,
     estimate_request_tokens,
 )
-from experiment_core.rate_limits import SlidingWindowRateLimiter
-from experiment_core.runtime import RunProgressTracker, build_run_id
-from experiment_core.structured_output import (
+from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
+from experiment_core.foundation.runtime import RunProgressTracker, build_run_id
+from experiment_core.foundation.structured_output import (
     ARTIFACT_VERSION,
     OUTPUT_MODE_CORE,
     validate_or_recover_structured_output,
 )
-from experiment_core.workspace import (
+from experiment_core.foundation.workspace import (
     default_cache_root,
     default_reports_root,
     default_runs_root,
@@ -694,3 +694,4 @@ def _ensure_run_has_eligible_work(
             f"Benchmark tag requirements: {json.dumps(benchmark_requirements, ensure_ascii=False)} | "
             f"model tags: [{', '.join(model.tags)}]"
         )
+

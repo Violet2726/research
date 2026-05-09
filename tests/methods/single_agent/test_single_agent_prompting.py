@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from experiment_core.datasets import DatasetSample
+from experiment_core.foundation.datasets import DatasetSample
 from single_agent.prompting import DEFAULT_PROMPT_VERSION, build_messages
 
 
@@ -31,3 +31,4 @@ def test_single_prompt_requires_reasoning_key_in_user_instruction() -> None:
     assert '"reasoning"' in messages[1]["content"]
     assert '"final_answer"' in messages[1]["content"]
     assert "Return exactly one JSON object like" in messages[1]["content"]
+

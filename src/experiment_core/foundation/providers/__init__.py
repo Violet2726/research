@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from experiment_core.config import ResolvedModelConfig
+from experiment_core.foundation.config import ResolvedModelConfig
 
 
 @dataclass(frozen=True)

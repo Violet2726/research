@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 import tomllib
 
-from experiment_core.config import BenchmarkConfig, ResolvedModelConfig, load_benchmark_config, resolve_model_ref
+from experiment_core.foundation.config import BenchmarkConfig, ResolvedModelConfig, load_benchmark_config, resolve_model_ref
 
 
 @dataclass(frozen=True)
@@ -110,3 +110,4 @@ def _optional_int(payload: dict[str, Any], key: str) -> int | None:
     if value is None:
         return None
     return int(value)
+

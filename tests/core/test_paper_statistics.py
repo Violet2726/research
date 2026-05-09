@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from experiment_core.paper_statistics import build_paper_statistics, render_paper_statistics
+from experiment_core.reporting.paper_statistics import build_paper_statistics, render_paper_statistics
 
 
 def test_build_paper_statistics_pairs_binary_predictions(tmp_path: Path) -> None:
@@ -76,3 +76,4 @@ def test_render_paper_statistics_writes_fixed_artifacts(tmp_path: Path) -> None:
     assert Path(paths["paired_win_loss"]).exists()
     assert Path(paths["mcnemar_tests"]).exists()
     assert Path(paths["dataset_breakdown"]).exists()
+

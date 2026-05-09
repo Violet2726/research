@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any
 import tomllib
 
-from experiment_core.config import BenchmarkConfig, ResolvedModelConfig, load_benchmark_config, resolve_model_ref
-from experiment_core.methods import MethodConfig, load_method_catalog
+from experiment_core.foundation.config import BenchmarkConfig, ResolvedModelConfig, load_benchmark_config, resolve_model_ref
+from experiment_core.foundation.methods import MethodConfig, load_method_catalog
 
 GENERAL_QA_BENCHMARKS = {"strategyqa", "hotpotqa"}
 
@@ -179,3 +179,4 @@ def _optional_float(payload: dict[str, Any], key: str) -> float | None:
     if value is None:
         return None
     return float(value)
+

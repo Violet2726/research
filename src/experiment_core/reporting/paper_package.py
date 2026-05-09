@@ -10,7 +10,7 @@ import math
 from statistics import mean
 from typing import Any
 
-from experiment_core.matrix_specs import (
+from experiment_core.matrix.matrix_specs import (
     EVIDENCE_DIAGNOSTIC,
     EVIDENCE_HEADLINE,
     EVIDENCE_REFERENCE,
@@ -19,7 +19,7 @@ from experiment_core.matrix_specs import (
     TRACK_SPLIT_CONTEXT,
     get_experiment_matrix_spec,
 )
-from experiment_core.paper_statistics import render_paper_statistics
+from experiment_core.reporting.paper_statistics import render_paper_statistics
 
 
 PREDICTION_FILE_CANDIDATES = (
@@ -77,7 +77,7 @@ def render_paper_package(
 
     analysis_path = root / "faithful_analysis.json"
     if not analysis_path.exists():
-        from experiment_core.faithful_analysis import render_faithful_analysis
+        from experiment_core.matrix.faithful_analysis import render_faithful_analysis
 
         render_faithful_analysis(state_path)
     statistics_path = root / "paper_statistics.json"
@@ -1214,3 +1214,4 @@ def _track_display_label(track: str) -> str:
     if track == TRACK_SPLIT_CONTEXT:
         return "split"
     return "other"
+

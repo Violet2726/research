@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from experiment_core.datasets import DatasetSample
-from experiment_core.prompt_contracts import build_json_system_prompt, dataset_instruction_for_sample
+from experiment_core.foundation.datasets import DatasetSample
+from experiment_core.foundation.prompt_contracts import build_json_system_prompt, dataset_instruction_for_sample
 
 
 DEFAULT_PROMPT_VERSION = "multi_agent_debate_json"
@@ -114,3 +114,4 @@ def _revision_instruction(sample: DatasetSample, prompt_version: str) -> str:
             "context-grounded span."
         )
     return "Revise your reasoning only if peer arguments reveal a concrete mistake or stronger evidence."
+

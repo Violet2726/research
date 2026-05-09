@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from experiment_core.paper_package import build_paper_package_payload, render_paper_package
+from experiment_core.reporting.paper_package import build_paper_package_payload, render_paper_package
 
 
 def test_build_paper_package_payload_splits_evidence_tiers() -> None:
@@ -116,3 +116,4 @@ def test_render_paper_package_writes_markdown_and_figures(tmp_path: Path) -> Non
     svg_text = (tmp_path / "figures" / "budget_frontier_same_context.svg").read_text(encoding="utf-8")
     assert "Budget frontier" in svg_text
     assert "Faithful score" in svg_text
+

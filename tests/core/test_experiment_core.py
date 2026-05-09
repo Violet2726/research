@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from experiment_core.cache import (
+from experiment_core.foundation.cache import (
     CachedResponse,
     RequestCache,
     RequestCacheRouter,
@@ -18,12 +18,12 @@ from experiment_core.cache import (
     resolve_cache_shard_path,
     summarize_cache_root,
 )
-from experiment_core.config import load_benchmark_config, load_model_catalog, parse_model_ref, resolve_model_ref
-from experiment_core.datasets import generate_split_manifests, load_split_ids, select_samples
-from experiment_core.providers import _extract_message_channels, build_payload
-from experiment_core.rate_limits import SlidingWindowRateLimiter
-from experiment_core.selective_signals import decide_trigger, summarize_confidence_rows, summarize_divergence_rows
-from experiment_core.structured_output import (
+from experiment_core.foundation.config import load_benchmark_config, load_model_catalog, parse_model_ref, resolve_model_ref
+from experiment_core.foundation.datasets import generate_split_manifests, load_split_ids, select_samples
+from experiment_core.foundation.providers import _extract_message_channels, build_payload
+from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
+from experiment_core.controls.selective_signals import decide_trigger, summarize_confidence_rows, summarize_divergence_rows
+from experiment_core.foundation.structured_output import (
     OUTPUT_MODE_BUDGET_BELIEF_UPDATE,
     OUTPUT_MODE_BUDGET_SOLVER,
     OUTPUT_MODE_COMM_NECESSARY_BELIEF,
@@ -39,7 +39,7 @@ from experiment_core.structured_output import (
     validate_or_recover_structured_output,
     validate_structured_output,
 )
-from experiment_core.workspace import (
+from experiment_core.foundation.workspace import (
     default_cache_root,
     default_files_root,
     default_reports_root,
@@ -902,3 +902,4 @@ def test_rate_limiter_without_waiting() -> None:
     limiter.acquire(10)
     limiter.acquire(10)
     assert time.monotonic() - started < 1.0
+

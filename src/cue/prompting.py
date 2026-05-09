@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-from experiment_core.datasets import DatasetSample
-from experiment_core.prompt_contracts import build_json_system_prompt, dataset_instruction_for_sample
+from experiment_core.foundation.datasets import DatasetSample
+from experiment_core.foundation.prompt_contracts import build_json_system_prompt, dataset_instruction_for_sample
 
 
 DEFAULT_PROMPT_VERSION = "cue_v1_json"
@@ -146,3 +146,4 @@ def _audit_system_prompt() -> str:
 
 def _dataset_instruction(sample: DatasetSample) -> str:
     return dataset_instruction_for_sample(sample, hotpot_style="shortest_span")
+

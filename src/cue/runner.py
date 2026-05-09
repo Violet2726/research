@@ -38,23 +38,23 @@ from cue.logic import (
 from cue.prompting import build_audit_messages, build_communication_messages, build_solver_messages
 from cue.reporting import render_cue_report
 from cue.validation import validate_run
-from experiment_core.cache import CachedResponse, RequestCache, RequestCacheRouter, build_request_cache_key, json_dump
-from experiment_core.datasets import DatasetSample, select_samples
-from experiment_core.evaluation import aggregate_majority as eval_aggregate_majority
-from experiment_core.evaluation import normalize_prediction, score_prediction
-from experiment_core.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
-from experiment_core.rate_limits import SlidingWindowRateLimiter
-from experiment_core.runtime import RunProgressTracker, build_run_id
-from experiment_core.selective_signals import confidence_display, normalize_confidence
-from experiment_core.structured_output import (
+from experiment_core.foundation.cache import CachedResponse, RequestCache, RequestCacheRouter, build_request_cache_key, json_dump
+from experiment_core.foundation.datasets import DatasetSample, select_samples
+from experiment_core.foundation.evaluation import aggregate_majority as eval_aggregate_majority
+from experiment_core.foundation.evaluation import normalize_prediction, score_prediction
+from experiment_core.foundation.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
+from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
+from experiment_core.foundation.runtime import RunProgressTracker, build_run_id
+from experiment_core.controls.selective_signals import confidence_display, normalize_confidence
+from experiment_core.foundation.structured_output import (
     ARTIFACT_VERSION,
     OUTPUT_MODE_CUE_AUDIT,
     OUTPUT_MODE_CUE_BELIEF_UPDATE,
     OUTPUT_MODE_CUE_SOLVER,
     validate_or_recover_structured_output,
 )
-from experiment_core.workspace import default_cache_root, default_runs_root
-from experiment_core.methods import MethodConfig
+from experiment_core.foundation.workspace import default_cache_root, default_runs_root
+from experiment_core.foundation.methods import MethodConfig
 
 
 DISPLAY_NAME_MAP = {
@@ -1258,3 +1258,4 @@ def _ratio(numerator: int, denominator: int) -> float:
     if denominator == 0:
         return 0.0
     return round(numerator / denominator, 6)
+

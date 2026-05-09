@@ -9,7 +9,7 @@ import json
 from statistics import mean
 from typing import Any
 
-from experiment_core.matrix_specs import get_experiment_matrix_spec
+from experiment_core.matrix.matrix_specs import get_experiment_matrix_spec
 
 
 POLICY_METRIC_FAMILIES = {"cue", "selective_comm"}
@@ -477,3 +477,4 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
                 continue
             rows.append(json.loads(stripped))
     return rows
+
