@@ -38,11 +38,12 @@ from cue.logic import (
 from cue.prompting import build_audit_messages, build_communication_messages, build_solver_messages
 from cue.reporting import render_report
 from cue.validation import validate_run
+from experiment_core.foundation.artifacts import BufferedJsonlWriter
 from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
 from experiment_core.foundation.datasets import DatasetSample, select_samples
 from experiment_core.foundation.evaluation import aggregate_majority as eval_aggregate_majority
 from experiment_core.foundation.evaluation import normalize_prediction, score_prediction
-from experiment_core.foundation.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
+from experiment_core.foundation.providers import OpenAICompatibleProvider, build_payload, execute_completion_request
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id
 from experiment_core.controls.selective_signals import confidence_display, normalize_confidence
@@ -248,6 +249,11 @@ def run_experiment(
         run_paths.control_turns.open("w", encoding="utf-8") as control_handle,
         run_paths.policy_predictions.open("w", encoding="utf-8") as prediction_handle,
     ):
+        stage_a_writer = BufferedJsonlWriter(stage_a_handle)
+        communication_writer = BufferedJsonlWriter(communication_handle)
+        audit_writer = BufferedJsonlWriter(audit_handle)
+        control_writer = BufferedJsonlWriter(control_handle)
+        prediction_writer = BufferedJsonlWriter(prediction_handle)
         for benchmark in benchmarks:
             cache = cache_router.for_request_target(
                 provider=backbone.provider,
@@ -275,11 +281,11 @@ def run_experiment(
                 limiter=limiter,
                 on_complete=partial(
                     _write_sample_result,
-                    stage_a_handle=stage_a_handle,
-                    communication_handle=communication_handle,
-                    audit_handle=audit_handle,
-                    control_handle=control_handle,
-                    prediction_handle=prediction_handle,
+                    stage_a_handle=stage_a_writer,
+                    communication_handle=communication_writer,
+                    audit_handle=audit_writer,
+                    control_handle=control_writer,
+                    prediction_handle=prediction_writer,
                     progress=progress,
                     all_stage_a_turns=all_stage_a_turns,
                     all_communication_turns=all_communication_turns,
@@ -298,6 +304,7 @@ def run_experiment(
     render_report(run_paths.root)
     run_paths.run_validation.write_text(json.dumps(validate_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
     progress.mark_completed()
+    provider.close()
     cache_router.close()
     return run_paths.root
 
@@ -880,30 +887,11 @@ def _execute_turn(
     )
     cached = cache.get(cache_key)
     if cached is None:
-        limiter.acquire(estimate_request_tokens(payload))
-        try:
-            response = provider.chat_completion(payload)
-            response_payload = {
-                "http_status": response.http_status,
-                "assistant_text": response.assistant_text,
-                "provider_reasoning_text": response.provider_reasoning_text,
-                "usage_reported": response.usage_reported,
-                "usage_estimated": response.usage_estimated,
-                "latency_ms": response.latency_ms,
-                "provider_request_id": response.provider_request_id,
-                "request_error": None,
-            }
-        except ProviderRequestError as exc:
-            response_payload = {
-                "http_status": exc.http_status,
-                "assistant_text": "",
-                "provider_reasoning_text": "",
-                "usage_reported": None,
-                "usage_estimated": None,
-                "latency_ms": 0.0,
-                "provider_request_id": exc.provider_request_id,
-                "request_error": exc.message,
-            }
+        response_payload = execute_completion_request(
+            provider,
+            payload,
+            limiter=limiter,
+        )
         cache_hit = False
     else:
         response_payload = json.loads(cached.response_json)
@@ -1188,15 +1176,13 @@ def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: s
 
 def _write_rows(handle, rows: list[dict[str, Any]], progress: RunProgressTracker) -> None:
     for row in rows:
-        handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+        handle.write_row(row)
         progress.record_call(row)
-    handle.flush()
 
 
 def _write_predictions(handle, rows: list[dict[str, Any]], progress: RunProgressTracker) -> None:
     for row in rows:
-        handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-    handle.flush()
+        handle.write_row(row)
     if rows:
         progress.record_predictions(len(rows), str(rows[0].get("dataset")), str(rows[0].get("method_name")))
 
@@ -1204,16 +1190,11 @@ def _write_predictions(handle, rows: list[dict[str, Any]], progress: RunProgress
 def _execute_turn_batch(turn_specs: list[dict[str, Any]], *, max_workers: int) -> list[dict[str, Any]]:
     if not turn_specs:
         return []
-    results: list[dict[str, Any] | None] = [None] * len(turn_specs)
-    with ThreadPoolExecutor(max_workers=max(1, min(max_workers, len(turn_specs)))) as executor:
-        future_to_index = {
-            executor.submit(_execute_turn, **spec): index
-            for index, spec in enumerate(turn_specs)
-        }
-        for future in as_completed(future_to_index):
-            index = future_to_index[future]
-            results[index] = future.result()
-    return [result for result in results if result is not None]
+    # CUE 的样本级外层已经并发；这里顺序执行，避免再嵌套一层线程池。
+    return [_execute_turn(**spec) for spec in turn_specs]
+
+
+    return [_execute_turn(**spec) for spec in turn_specs]
 
 
 def _trace_hash(rows: list[dict[str, Any]]) -> str:

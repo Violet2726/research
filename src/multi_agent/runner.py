@@ -18,11 +18,12 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from experiment_core.foundation.artifacts import BufferedJsonlWriter
 from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import aggregate_majority, normalize_prediction, score_prediction
 from experiment_core.controls.no_comm_controls import run_no_comm_control_batch
-from experiment_core.foundation.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
+from experiment_core.foundation.providers import OpenAICompatibleProvider, build_payload, execute_completion_request
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id
 from experiment_core.foundation.structured_output import (
@@ -222,6 +223,9 @@ def run_experiment(
         run_paths.debate_messages.open("w", encoding="utf-8") as debate_handle,
         run_paths.final_predictions.open("w", encoding="utf-8") as prediction_handle,
     ):
+        turn_writer = BufferedJsonlWriter(turn_handle)
+        debate_writer = BufferedJsonlWriter(debate_handle)
+        prediction_writer = BufferedJsonlWriter(prediction_handle)
         for benchmark in benchmarks:
             cache = cache_router.for_request_target(
                 provider=backbone.provider,
@@ -254,9 +258,9 @@ def run_experiment(
                     sample_results=mad_results,
                     dataset_slug=benchmark.slug,
                     progress=progress,
-                    turn_handle=turn_handle,
-                    debate_handle=debate_handle,
-                    prediction_handle=prediction_handle,
+                    turn_handle=turn_writer,
+                    debate_handle=debate_writer,
+                    prediction_handle=prediction_writer,
                     all_turns=all_turns,
                     debate_messages=debate_messages,
                     final_predictions=final_predictions,
@@ -286,9 +290,9 @@ def run_experiment(
                     sample_results=control_results,
                     dataset_slug=benchmark.slug,
                     progress=progress,
-                    turn_handle=turn_handle,
-                    debate_handle=debate_handle,
-                    prediction_handle=prediction_handle,
+                    turn_handle=turn_writer,
+                    debate_handle=debate_writer,
+                    prediction_handle=prediction_writer,
                     all_turns=all_turns,
                     debate_messages=debate_messages,
                     final_predictions=final_predictions,
@@ -305,6 +309,7 @@ def run_experiment(
     render_report(run_paths.root)
     run_paths.run_validation.write_text(json.dumps(validate_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
     progress.mark_completed()
+    provider.close()
     cache_router.close()
     return run_paths.root
 
@@ -373,11 +378,11 @@ def _write_sample_outputs(
     """把 worker 返回的样本结果按稳定顺序写盘，并同步更新进度。"""
     for _, turn_rows, debate_rows, prediction_row in sample_results:
         for row in turn_rows:
-            turn_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+            turn_handle.write_row(row)
             progress.record_call(row, method_key="method_name")
         for row in debate_rows:
-            debate_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-        prediction_handle.write(json.dumps(prediction_row, ensure_ascii=False) + "\n")
+            debate_handle.write_row(row)
+        prediction_handle.write_row(prediction_row)
         progress.record_predictions(1, dataset_slug, prediction_row["method_name"])
         all_turns.extend(turn_rows)
         debate_messages.extend(debate_rows)
@@ -676,30 +681,11 @@ def _execute_turn(
     )
     cached = cache.get(cache_key)
     if cached is None:
-        limiter.acquire(estimate_request_tokens(payload))
-        try:
-            response = provider.chat_completion(payload)
-            response_payload = {
-                "http_status": response.http_status,
-                "assistant_text": response.assistant_text,
-                "provider_reasoning_text": response.provider_reasoning_text,
-                "usage_reported": response.usage_reported,
-                "usage_estimated": response.usage_estimated,
-                "latency_ms": response.latency_ms,
-                "provider_request_id": response.provider_request_id,
-                "request_error": None,
-            }
-        except ProviderRequestError as exc:
-            response_payload = {
-                "http_status": exc.http_status,
-                "assistant_text": "",
-                "provider_reasoning_text": "",
-                "usage_reported": None,
-                "usage_estimated": None,
-                "latency_ms": 0.0,
-                "provider_request_id": exc.provider_request_id,
-                "request_error": exc.message,
-            }
+        response_payload = execute_completion_request(
+            provider,
+            payload,
+            limiter=limiter,
+        )
         cache_hit = False
     else:
         response_payload = json.loads(cached.response_json)

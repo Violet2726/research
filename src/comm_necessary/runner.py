@@ -40,11 +40,12 @@ from comm_necessary.logic import (
     support_facts_to_jsonable,
 )
 from comm_necessary.prompting import build_belief_update_messages, build_solver_messages
+from experiment_core.foundation.artifacts import BufferedJsonlWriter
 from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
 from experiment_core.foundation.config import ResolvedModelConfig
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import normalize_prediction
-from experiment_core.foundation.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
+from experiment_core.foundation.providers import OpenAICompatibleProvider, build_payload, execute_completion_request, estimate_request_tokens
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id
 from experiment_core.foundation.structured_output import (
@@ -150,6 +151,11 @@ def run_experiment(
             paths.stage_b_turns.open("w", encoding="utf-8") as stage_b_handle,
             paths.final_predictions.open("w", encoding="utf-8") as predictions_handle,
         ):
+            views_writer = BufferedJsonlWriter(views_handle)
+            stage_a_writer = BufferedJsonlWriter(stage_a_handle)
+            packets_writer = BufferedJsonlWriter(packets_handle)
+            stage_b_writer = BufferedJsonlWriter(stage_b_handle)
+            predictions_writer = BufferedJsonlWriter(predictions_handle)
             for benchmark in benchmarks:
                 cache = cache_router.for_request_target(
                     provider=backbone.provider,
@@ -174,23 +180,18 @@ def run_experiment(
                 )
                 for result in results:
                     for row in result.sample_views:
-                        views_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-                    views_handle.flush()
+                        views_writer.write_row(row)
                     for row in result.stage_a_turns:
-                        stage_a_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+                        stage_a_writer.write_row(row)
                         progress.record_call(row, method_key="stage_name")
-                    stage_a_handle.flush()
                     for row in result.message_packets:
-                        packets_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-                    packets_handle.flush()
+                        packets_writer.write_row(row)
                     for row in result.stage_b_turns:
-                        stage_b_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+                        stage_b_writer.write_row(row)
                         progress.record_call(row, method_key="method_name")
-                    stage_b_handle.flush()
                     for row in result.final_predictions:
-                        predictions_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+                        predictions_writer.write_row(row)
                         progress.record_predictions(1, str(row["dataset"]), str(row["method_name"]))
-                    predictions_handle.flush()
                     all_views.extend(result.sample_views)
                     all_stage_a.extend(result.stage_a_turns)
                     all_packets.extend(result.message_packets)
@@ -208,6 +209,7 @@ def run_experiment(
         progress.mark_completed()
         return paths.root
     finally:
+        provider.close()
         cache_router.close()
 
 
@@ -729,35 +731,14 @@ def _execute_turn(
     )
     cached = cache.get(cache_key)
     if cached is None:
-        limiter.acquire(estimated_tokens)
         request_started_at = datetime.now(timezone.utc).isoformat()
-        try:
-            response = provider.chat_completion(payload)
-            response_payload = {
-                "http_status": response.http_status,
-                "assistant_text": response.assistant_text,
-                "provider_reasoning_text": response.provider_reasoning_text,
-                "usage_reported": response.usage_reported,
-                "usage_estimated": response.usage_estimated,
-                "latency_ms": response.latency_ms,
-                "provider_request_id": response.provider_request_id,
-                "request_error": None,
-                "request_started_at": request_started_at,
-                "estimated_request_tokens": estimated_tokens,
-            }
-        except ProviderRequestError as exc:
-            response_payload = {
-                "http_status": exc.http_status,
-                "assistant_text": "",
-                "provider_reasoning_text": "",
-                "usage_reported": None,
-                "usage_estimated": None,
-                "latency_ms": 0.0,
-                "provider_request_id": exc.provider_request_id,
-                "request_error": exc.message,
-                "request_started_at": request_started_at,
-                "estimated_request_tokens": estimated_tokens,
-            }
+        response_payload = execute_completion_request(
+            provider,
+            payload,
+            limiter=limiter,
+        )
+        response_payload["request_started_at"] = request_started_at
+        response_payload["estimated_request_tokens"] = estimated_tokens
         cache_hit = False
     else:
         response_payload = json.loads(cached.response_json)

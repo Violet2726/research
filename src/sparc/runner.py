@@ -20,10 +20,11 @@ from typing import Callable
 
 from dotenv import load_dotenv
 
+from experiment_core.foundation.artifacts import BufferedJsonlWriter
 from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from experiment_core.foundation.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
+from experiment_core.foundation.providers import OpenAICompatibleProvider, build_payload, execute_completion_request
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id
 from experiment_core.controls.selective_signals import decide_trigger, normalize_confidence, summarize_confidence_rows
@@ -183,6 +184,11 @@ def run_experiment(
         run_paths.audit_turns.open("w", encoding="utf-8") as audit_handle,
         run_paths.final_predictions.open("w", encoding="utf-8") as prediction_handle,
     ):
+        stage_a_writer = BufferedJsonlWriter(stage_a_handle)
+        message_writer = BufferedJsonlWriter(message_handle)
+        belief_writer = BufferedJsonlWriter(belief_handle)
+        audit_writer = BufferedJsonlWriter(audit_handle)
+        prediction_writer = BufferedJsonlWriter(prediction_handle)
         for benchmark in benchmarks:
             cache = cache_router.for_request_target(
                 provider=backbone.provider,
@@ -205,11 +211,11 @@ def run_experiment(
                 trigger_selection=trigger_selection,
                 on_complete=partial(
                     _write_sample_result,
-                    stage_a_handle=stage_a_handle,
-                    message_handle=message_handle,
-                    belief_handle=belief_handle,
-                    audit_handle=audit_handle,
-                    prediction_handle=prediction_handle,
+                    stage_a_handle=stage_a_writer,
+                    message_handle=message_writer,
+                    belief_handle=belief_writer,
+                    audit_handle=audit_writer,
+                    prediction_handle=prediction_writer,
                     progress=progress,
                     all_stage_a_turns=all_stage_a_turns,
                     all_message_packets=all_message_packets,
@@ -227,6 +233,7 @@ def run_experiment(
     render_report(run_paths.root)
     run_paths.run_validation.write_text(json.dumps(validate_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
     progress.mark_completed()
+    provider.close()
     cache_router.close()
     return run_paths.root
 
@@ -285,24 +292,19 @@ def _write_sample_result(
     all_prediction_rows: list[dict[str, Any]],
 ) -> None:
     for row in result.stage_a_turns:
-        stage_a_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+        stage_a_handle.write_row(row)
         progress.record_call(row)
-    stage_a_handle.flush()
     for row in result.message_packets:
-        message_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-    message_handle.flush()
+        message_handle.write_row(row)
     for row in result.belief_updates:
-        belief_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+        belief_handle.write_row(row)
         progress.record_call(row)
-    belief_handle.flush()
     for row in result.audit_turns:
-        audit_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+        audit_handle.write_row(row)
         progress.record_call(row)
-    audit_handle.flush()
     for row in result.prediction_rows:
-        prediction_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+        prediction_handle.write_row(row)
         progress.record_predictions(1, str(row["dataset"]), str(row["method_name"]))
-    prediction_handle.flush()
     all_stage_a_turns.extend(result.stage_a_turns)
     all_message_packets.extend(result.message_packets)
     all_belief_updates.extend(result.belief_updates)
@@ -1536,21 +1538,13 @@ def _execute_turn(
     )
     cached = cache.get(cache_key)
     if cached is None:
-        limiter.acquire(estimate_request_tokens(payload))
-        try:
-            response = provider.chat_completion(payload)
-            response_payload = {
-                "http_status": response.http_status,
-                "assistant_text": response.assistant_text,
-                "provider_reasoning_text": response.provider_reasoning_text,
-                "usage_reported": response.usage_reported,
-                "usage_estimated": response.usage_estimated,
-                "latency_ms": response.latency_ms,
-                "provider_request_id": response.provider_request_id,
-                "request_error": None,
-                "sanitized_fallback_used": False,
-            }
-        except ProviderRequestError as exc:
+        response_payload = execute_completion_request(
+            provider,
+            payload,
+            limiter=limiter,
+        )
+        response_payload["sanitized_fallback_used"] = False
+        if response_payload.get("request_error"):
             response_payload = _maybe_retry_with_sanitized_messages(
                 provider=provider,
                 limiter=limiter,
@@ -1560,7 +1554,9 @@ def _execute_turn(
                 top_p=top_p,
                 max_output_tokens=max_output_tokens,
                 seed=seed,
-                error=exc,
+                error_message=str(response_payload.get("request_error") or ""),
+                error_http_status=response_payload.get("http_status"),
+                error_provider_request_id=response_payload.get("provider_request_id"),
             )
         cache_hit = False
     else:
@@ -1680,18 +1676,20 @@ def _maybe_retry_with_sanitized_messages(
     top_p: float,
     max_output_tokens: int,
     seed: int,
-    error: ProviderRequestError,
+    error_message: str,
+    error_http_status: int | None,
+    error_provider_request_id: str | None,
 ) -> dict[str, Any]:
-    if "data_inspection_failed" not in str(error.message):
+    if "data_inspection_failed" not in error_message:
         return {
-            "http_status": error.http_status,
+            "http_status": error_http_status,
             "assistant_text": "",
             "provider_reasoning_text": "",
             "usage_reported": None,
             "usage_estimated": None,
             "latency_ms": 0.0,
-            "provider_request_id": error.provider_request_id,
-            "request_error": error.message,
+            "provider_request_id": error_provider_request_id,
+            "request_error": error_message,
             "sanitized_fallback_used": False,
         }
     sanitized_messages = _sanitize_messages_for_provider(original_messages)
@@ -1703,32 +1701,13 @@ def _maybe_retry_with_sanitized_messages(
         max_output_tokens=max_output_tokens,
         seed=seed,
     )
-    limiter.acquire(estimate_request_tokens(fallback_payload))
-    try:
-        response = provider.chat_completion(fallback_payload)
-        return {
-            "http_status": response.http_status,
-            "assistant_text": response.assistant_text,
-            "provider_reasoning_text": response.provider_reasoning_text,
-            "usage_reported": response.usage_reported,
-            "usage_estimated": response.usage_estimated,
-            "latency_ms": response.latency_ms,
-            "provider_request_id": response.provider_request_id,
-            "request_error": None,
-            "sanitized_fallback_used": True,
-        }
-    except ProviderRequestError as retry_error:
-        return {
-            "http_status": retry_error.http_status,
-            "assistant_text": "",
-            "provider_reasoning_text": "",
-            "usage_reported": None,
-            "usage_estimated": None,
-            "latency_ms": 0.0,
-            "provider_request_id": retry_error.provider_request_id,
-            "request_error": retry_error.message,
-            "sanitized_fallback_used": True,
-        }
+    response_payload = execute_completion_request(
+        provider,
+        fallback_payload,
+        limiter=limiter,
+    )
+    response_payload["sanitized_fallback_used"] = True
+    return response_payload
 
 
 def _sanitize_messages_for_provider(messages: list[dict[str, str]]) -> list[dict[str, str]]:

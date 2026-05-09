@@ -19,10 +19,11 @@ from typing import Callable
 
 from dotenv import load_dotenv
 
+from experiment_core.foundation.artifacts import BufferedJsonlWriter
 from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from experiment_core.foundation.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
+from experiment_core.foundation.providers import OpenAICompatibleProvider, build_payload, execute_completion_request
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id
 from experiment_core.controls.selective_signals import (
@@ -190,14 +191,19 @@ def run_experiment(
         run_paths.trigger_decisions.open("w", encoding="utf-8") as trigger_handle,
         run_paths.policy_predictions.open("w", encoding="utf-8") as prediction_handle,
     ):
+        stage_a_writer = BufferedJsonlWriter(stage_a_handle)
+        stage_b_writer = BufferedJsonlWriter(stage_b_handle)
+        control_writer = BufferedJsonlWriter(control_handle)
+        trigger_writer = BufferedJsonlWriter(trigger_handle)
+        prediction_writer = BufferedJsonlWriter(prediction_handle)
         if resume_state is not None:
             _write_seed_rows(
                 resume_state,
-                stage_a_handle=stage_a_handle,
-                stage_b_handle=stage_b_handle,
-                control_handle=control_handle,
-                trigger_handle=trigger_handle,
-                prediction_handle=prediction_handle,
+                stage_a_handle=stage_a_writer,
+                stage_b_handle=stage_b_writer,
+                control_handle=control_writer,
+                trigger_handle=trigger_writer,
+                prediction_handle=prediction_writer,
             )
         for benchmark in benchmarks:
             cache = cache_router.for_request_target(
@@ -230,11 +236,11 @@ def run_experiment(
                 limiter=limiter,
                 on_complete=partial(
                     _write_sample_result,
-                    stage_a_handle=stage_a_handle,
-                    stage_b_handle=stage_b_handle,
-                    control_handle=control_handle,
-                    trigger_handle=trigger_handle,
-                    prediction_handle=prediction_handle,
+                    stage_a_handle=stage_a_writer,
+                    stage_b_handle=stage_b_writer,
+                    control_handle=control_writer,
+                    trigger_handle=trigger_writer,
+                    prediction_handle=prediction_writer,
                     progress=progress,
                     all_stage_a_turns=all_stage_a_turns,
                     all_stage_b_turns=all_stage_b_turns,
@@ -253,6 +259,7 @@ def run_experiment(
     render_report(run_paths.root)
     run_paths.run_validation.write_text(json.dumps(validate_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
     progress.mark_completed()
+    provider.close()
     cache_router.close()
     return run_paths.root
 
@@ -268,20 +275,15 @@ def _write_seed_rows(
 ) -> None:
     """把旧 run 中已完成样本的结果复制到新 run。"""
     for row in resume_state.stage_a_turns:
-        stage_a_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-    stage_a_handle.flush()
+        stage_a_handle.write_row(row)
     for row in resume_state.stage_b_turns:
-        stage_b_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-    stage_b_handle.flush()
+        stage_b_handle.write_row(row)
     for row in resume_state.control_turns:
-        control_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-    control_handle.flush()
+        control_handle.write_row(row)
     for row in resume_state.trigger_rows:
-        trigger_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-    trigger_handle.flush()
+        trigger_handle.write_row(row)
     for row in resume_state.prediction_rows:
-        prediction_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-    prediction_handle.flush()
+        prediction_handle.write_row(row)
 
 
 def _load_resume_seed_state(
@@ -457,24 +459,19 @@ def _write_sample_result(
 ) -> None:
     """把单题结果立刻写盘并刷新进度。"""
     for row in result.stage_a_turns:
-        stage_a_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+        stage_a_handle.write_row(row)
         progress.record_call(row, method_key="stage_name")
-    stage_a_handle.flush()
     for row in result.stage_b_turns:
-        stage_b_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+        stage_b_handle.write_row(row)
         progress.record_call(row, method_key="stage_name")
-    stage_b_handle.flush()
     for row in result.control_turns:
-        control_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+        control_handle.write_row(row)
         progress.record_call(row, method_key="method_name")
-    control_handle.flush()
     for row in result.trigger_rows:
-        trigger_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-    trigger_handle.flush()
+        trigger_handle.write_row(row)
     for row in result.prediction_rows:
-        prediction_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+        prediction_handle.write_row(row)
         progress.record_predictions(1, row["dataset"], row["method_name"])
-    prediction_handle.flush()
     all_stage_a_turns.extend(result.stage_a_turns)
     all_stage_b_turns.extend(result.stage_b_turns)
     all_control_turns.extend(result.control_turns)
@@ -960,30 +957,11 @@ def _execute_turn(
     )
     cached = cache.get(cache_key)
     if cached is None:
-        limiter.acquire(estimate_request_tokens(payload))
-        try:
-            response = provider.chat_completion(payload)
-            response_payload = {
-                "http_status": response.http_status,
-                "assistant_text": response.assistant_text,
-                "provider_reasoning_text": response.provider_reasoning_text,
-                "usage_reported": response.usage_reported,
-                "usage_estimated": response.usage_estimated,
-                "latency_ms": response.latency_ms,
-                "provider_request_id": response.provider_request_id,
-                "request_error": None,
-            }
-        except ProviderRequestError as exc:
-            response_payload = {
-                "http_status": exc.http_status,
-                "assistant_text": "",
-                "provider_reasoning_text": "",
-                "usage_reported": None,
-                "usage_estimated": None,
-                "latency_ms": 0.0,
-                "provider_request_id": exc.provider_request_id,
-                "request_error": exc.message,
-            }
+        response_payload = execute_completion_request(
+            provider,
+            payload,
+            limiter=limiter,
+        )
         cache_hit = False
     else:
         response_payload = json.loads(cached.response_json)

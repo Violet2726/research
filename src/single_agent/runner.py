@@ -19,6 +19,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from experiment_core.foundation.artifacts import BufferedJsonlWriter
 from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
 from experiment_core.foundation.config import (
     BenchmarkConfig,
@@ -34,9 +35,8 @@ from experiment_core.foundation.evaluation import aggregate_majority, normalize_
 from experiment_core.foundation.methods import MethodConfig, load_method_catalog
 from experiment_core.foundation.providers import (
     OpenAICompatibleProvider,
-    ProviderRequestError,
     build_payload,
-    estimate_request_tokens,
+    execute_completion_request,
 )
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id
@@ -181,6 +181,8 @@ def run_experiment(
         run_paths.raw_responses.open("w", encoding="utf-8") as raw_handle,
         run_paths.predictions.open("w", encoding="utf-8") as pred_handle,
     ):
+        raw_writer = BufferedJsonlWriter(raw_handle)
+        prediction_writer = BufferedJsonlWriter(pred_handle)
         for model in models:
             if not _model_is_allowed(experiment, phase_name, model):
                 continue
@@ -216,12 +218,12 @@ def run_experiment(
                             rate_limiter=rate_limiter,
                             progress=progress,
                             rerun_index=rerun_index,
-                            raw_handle=raw_handle,
+                            raw_writer=raw_writer,
                         )
                         for record in batch_predictions:
-                            pred_handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-                        pred_handle.flush()
+                            prediction_writer.write_row(record)
                         all_predictions.extend(batch_predictions)
+            provider.close()
 
     metrics_payload = _aggregate_metrics(all_predictions)
     run_paths.metrics.write_text(json.dumps(metrics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -254,7 +256,7 @@ def _run_method_batch(
     rate_limiter: SlidingWindowRateLimiter,
     progress: RunProgressTracker,
     rerun_index: int,
-    raw_handle,
+    raw_writer: BufferedJsonlWriter,
 ) -> list[dict[str, Any]]:
     """执行一个模型-数据集-方法-重跑组合下的一整批样本。"""
     split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
@@ -317,8 +319,7 @@ def _run_method_batch(
         for future in as_completed(future_to_spec):
             call_log = future.result()
             call_logs.append(call_log)
-            raw_handle.write(json.dumps(call_log, ensure_ascii=False) + "\n")
-            raw_handle.flush()
+            raw_writer.write_row(call_log)
             progress.record_call(call_log)
 
     grouped_logs: dict[str, list[dict[str, Any]]] = {}
@@ -375,38 +376,11 @@ def _execute_call(
 
     if cached is None:
         # 只有真正发出网络请求时才占用限流配额；缓存命中不计入。
-        rate_limiter.acquire(estimate_request_tokens(spec.payload))
-        try:
-            provider_response = provider.chat_completion(spec.payload)
-            response_payload = {
-                "http_status": provider_response.http_status,
-                "raw_payload": provider_response.raw_payload,
-                "assistant_text": provider_response.assistant_text,
-                "provider_reasoning_text": provider_response.provider_reasoning_text,
-                "finish_reason": provider_response.finish_reason,
-                "usage_reported": provider_response.usage_reported,
-                "usage_estimated": provider_response.usage_estimated,
-                "usage_source": provider_response.usage_source,
-                "latency_ms": provider_response.latency_ms,
-                "provider_request_id": provider_response.provider_request_id,
-                "response_id": provider_response.response_id,
-                "request_error": None,
-            }
-        except ProviderRequestError as exc:
-            response_payload = {
-                "http_status": exc.http_status,
-                "raw_payload": {"error": exc.message},
-                "assistant_text": "",
-                "provider_reasoning_text": "",
-                "finish_reason": None,
-                "usage_reported": None,
-                "usage_estimated": None,
-                "usage_source": "missing",
-                "latency_ms": 0.0,
-                "provider_request_id": exc.provider_request_id,
-                "response_id": None,
-                "request_error": exc.message,
-            }
+        response_payload = execute_completion_request(
+            provider,
+            spec.payload,
+            limiter=rate_limiter,
+        )
         cache_hit = False
     else:
         response_payload = json.loads(cached.response_json)

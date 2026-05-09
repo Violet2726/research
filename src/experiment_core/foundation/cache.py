@@ -81,6 +81,8 @@ class RequestCache:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self.connection = sqlite3.connect(self.db_path, check_same_thread=False)
+        self.connection.execute("PRAGMA journal_mode=WAL")
+        self.connection.execute("PRAGMA synchronous=NORMAL")
         self.connection.execute(
             """
             CREATE TABLE IF NOT EXISTS requests (
@@ -95,6 +97,8 @@ class RequestCache:
             """
         )
         self.connection.commit()
+        self._pending_writes = 0
+        self._commit_every = 32
 
     def get(self, cache_key: str) -> CachedResponse | None:
         """按缓存键读取记录；未命中时返回 `None`。"""
@@ -129,11 +133,17 @@ class RequestCache:
                     record.provider_request_id,
                 ),
             )
-            self.connection.commit()
+            self._pending_writes += 1
+            if self._pending_writes >= self._commit_every:
+                self.connection.commit()
+                self._pending_writes = 0
 
     def close(self) -> None:
         """关闭底层数据库连接。"""
         with self._lock:
+            if self._pending_writes > 0:
+                self.connection.commit()
+                self._pending_writes = 0
             self.connection.close()
 
 

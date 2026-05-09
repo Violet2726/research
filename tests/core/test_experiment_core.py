@@ -8,6 +8,7 @@ import time
 
 import pytest
 
+from experiment_core.foundation.artifacts import BufferedJsonlWriter
 from experiment_core.foundation.cache import (
     CachedResponse,
     RequestCache,
@@ -21,7 +22,13 @@ from experiment_core.foundation.cache import (
 )
 from experiment_core.foundation.config import load_benchmark_config, load_model_catalog, parse_model_ref, resolve_model_ref
 from experiment_core.foundation.datasets import generate_split_manifests, load_split_ids, select_samples
-from experiment_core.foundation.providers import _extract_message_channels, build_payload
+from experiment_core.foundation.providers import (
+    OpenAICompatibleProvider,
+    ProviderResponse,
+    _extract_message_channels,
+    build_payload,
+    execute_completion_request,
+)
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
 from experiment_core.controls.selective_signals import decide_trigger, summarize_confidence_rows, summarize_divergence_rows
 from experiment_core.foundation.structured_output import (
@@ -923,4 +930,88 @@ def test_rate_limiter_without_waiting() -> None:
     limiter.acquire(10)
     limiter.acquire(10)
     assert time.monotonic() - started < 1.0
+
+
+def test_rate_limiter_settle_releases_reserved_tokens() -> None:
+    limiter = SlidingWindowRateLimiter(
+        requests_per_minute=None,
+        tokens_per_minute=200,
+        window_seconds=0.05,
+    )
+    reservation = limiter.acquire(90)
+    limiter.settle(reservation, 10)
+    started = time.monotonic()
+    limiter.acquire(90)
+    assert time.monotonic() - started < 0.02
+
+
+def test_execute_completion_request_reconciles_usage() -> None:
+    class FakeProvider:
+        def chat_completion(self, payload: dict[str, object]) -> ProviderResponse:
+            return ProviderResponse(
+                http_status=200,
+                raw_payload={"ok": True},
+                assistant_text='{"final_answer": "42", "reasoning": "ok"}',
+                provider_reasoning_text="",
+                finish_reason="stop",
+                usage_reported={"prompt_tokens": 8, "completion_tokens": 12, "total_tokens": 20},
+                usage_estimated={"prompt_tokens": 8, "completion_tokens": 64, "total_tokens": 72},
+                usage_source="reported",
+                latency_ms=10.0,
+                provider_request_id="req_test",
+                response_id="resp_test",
+            )
+
+    limiter = SlidingWindowRateLimiter(
+        requests_per_minute=None,
+        tokens_per_minute=200,
+        window_seconds=0.05,
+    )
+    payload = {
+        "messages": [{"role": "user", "content": "hello"}],
+        "max_tokens": 512,
+    }
+    response_payload = execute_completion_request(FakeProvider(), payload, limiter=limiter)
+    assert response_payload["request_error"] is None
+    assert response_payload["usage_reported"]["total_tokens"] == 20
+    assert sum(event.tokens for event in limiter.token_events) == 20
+
+
+def test_provider_reuses_shared_http_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    created_clients: list[object] = []
+
+    class DummyClient:
+        def __init__(self, **_: object) -> None:
+            created_clients.append(self)
+
+        def close(self) -> None:
+            return None
+
+    model = resolve_model_ref("xiaomimimo/mimo-v2.5")
+    monkeypatch.setenv(model.api_key_env, "test-key")
+    monkeypatch.setattr("experiment_core.foundation.providers.httpx.Client", DummyClient)
+    OpenAICompatibleProvider._shared_clients.clear()
+    provider_a = None
+    provider_b = None
+    try:
+        provider_a = OpenAICompatibleProvider(model)
+        provider_b = OpenAICompatibleProvider(model)
+        assert len(created_clients) == 1
+    finally:
+        if provider_a is not None:
+            provider_a.close()
+        if provider_b is not None:
+            provider_b.close()
+
+
+def test_buffered_jsonl_writer_writes_rows(tmp_path: Path) -> None:
+    target = tmp_path / "rows.jsonl"
+    with target.open("w", encoding="utf-8") as handle:
+        writer = BufferedJsonlWriter(handle, flush_every=2, flush_interval_seconds=60.0)
+        writer.write_row({"id": 1})
+        writer.write_row({"id": 2})
+        writer.write_row({"id": 3})
+        writer.close()
+    rows = [json.loads(line) for line in target.read_text(encoding="utf-8").splitlines()]
+    assert rows == [{"id": 1}, {"id": 2}, {"id": 3}]
 

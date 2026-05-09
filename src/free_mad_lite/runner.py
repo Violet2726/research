@@ -19,11 +19,12 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from experiment_core.foundation.artifacts import BufferedJsonlWriter
 from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
 from experiment_core.foundation.config import ResolvedModelConfig
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import normalize_prediction, score_prediction
-from experiment_core.foundation.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
+from experiment_core.foundation.providers import OpenAICompatibleProvider, build_payload, execute_completion_request
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id
 from experiment_core.controls.selective_signals import normalize_confidence
@@ -132,6 +133,10 @@ def run_experiment(
             run_paths.trajectory_scores.open("w", encoding="utf-8") as score_handle,
             run_paths.final_predictions.open("w", encoding="utf-8") as prediction_handle,
         ):
+            turn_writer = BufferedJsonlWriter(turn_handle)
+            debate_writer = BufferedJsonlWriter(debate_handle)
+            score_writer = BufferedJsonlWriter(score_handle)
+            prediction_writer = BufferedJsonlWriter(prediction_handle)
             for benchmark in benchmarks:
                 cache = cache_router.for_request_target(
                     provider=backbone.provider,
@@ -156,19 +161,15 @@ def run_experiment(
                 )
                 for _, turn_rows, debate_rows, score_rows, prediction_rows in results:
                     for row in turn_rows:
-                        turn_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+                        turn_writer.write_row(row)
                         progress.record_call(row, method_key="method_name")
-                    turn_handle.flush()
                     for row in debate_rows:
-                        debate_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-                    debate_handle.flush()
+                        debate_writer.write_row(row)
                     for row in score_rows:
-                        score_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-                    score_handle.flush()
+                        score_writer.write_row(row)
                     for row in prediction_rows:
-                        prediction_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+                        prediction_writer.write_row(row)
                         progress.record_predictions(1, str(row["dataset"]), str(row["method_name"]))
-                    prediction_handle.flush()
                     all_turns.extend(turn_rows)
                     all_debate_messages.extend(debate_rows)
                     all_scores.extend(score_rows)
@@ -185,6 +186,7 @@ def run_experiment(
         progress.mark_completed()
         return run_paths.root
     finally:
+        provider.close()
         cache_router.close()
 
 
@@ -656,30 +658,11 @@ def _execute_turn(
     )
     cached = cache.get(cache_key)
     if cached is None:
-        limiter.acquire(estimate_request_tokens(payload))
-        try:
-            response = provider.chat_completion(payload)
-            response_payload = {
-                "http_status": response.http_status,
-                "assistant_text": response.assistant_text,
-                "provider_reasoning_text": response.provider_reasoning_text,
-                "usage_reported": response.usage_reported,
-                "usage_estimated": response.usage_estimated,
-                "latency_ms": response.latency_ms,
-                "provider_request_id": response.provider_request_id,
-                "request_error": None,
-            }
-        except ProviderRequestError as exc:
-            response_payload = {
-                "http_status": exc.http_status,
-                "assistant_text": "",
-                "provider_reasoning_text": "",
-                "usage_reported": None,
-                "usage_estimated": None,
-                "latency_ms": 0.0,
-                "provider_request_id": exc.provider_request_id,
-                "request_error": exc.message,
-            }
+        response_payload = execute_completion_request(
+            provider,
+            payload,
+            limiter=limiter,
+        )
         cache_hit = False
     else:
         response_payload = json.loads(cached.response_json)

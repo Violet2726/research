@@ -5,12 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import os
+from threading import Lock
 import time
 from typing import Any
 
 import httpx
 
 from experiment_core.foundation.config import ResolvedModelConfig
+from experiment_core.foundation.rate_limits import RateLimitReservation, SlidingWindowRateLimiter
 
 
 @dataclass(frozen=True)
@@ -43,8 +45,19 @@ class ProviderRequestError(RuntimeError):
         return self.message
 
 
+@dataclass
+class _SharedClientHandle:
+    """表示一个按 provider/base_url 共享的长生命周期 HTTP client。"""
+
+    client: httpx.Client
+    refcount: int = 0
+
+
 class OpenAICompatibleProvider:
     """最小可用的 OpenAI-compatible provider 包装器。"""
+
+    _shared_clients: dict[str, _SharedClientHandle] = {}
+    _shared_clients_lock = Lock()
 
     def __init__(self, config: ResolvedModelConfig) -> None:
         self.config = config
@@ -55,9 +68,27 @@ class OpenAICompatibleProvider:
                 "Create `.env.local` or export it in the current shell."
             )
         self.api_key = api_key
+        self._client_key = f"{config.provider}|{config.base_url.rstrip('/')}"
+        self._closed = False
+        self._client = self._acquire_shared_client()
+
+    def close(self) -> None:
+        """释放当前 provider 持有的共享传输层引用。"""
+        if self._closed:
+            return
+        with self._shared_clients_lock:
+            handle = self._shared_clients.get(self._client_key)
+            if handle is not None:
+                handle.refcount -= 1
+                if handle.refcount <= 0:
+                    handle.client.close()
+                    self._shared_clients.pop(self._client_key, None)
+        self._closed = True
 
     def chat_completion(self, payload: dict[str, Any]) -> ProviderResponse:
         """执行一次带有限重试的 chat completion 请求。"""
+        if self._closed:
+            raise RuntimeError("Provider client has already been closed.")
         url = self.config.base_url.rstrip("/") + self.config.chat_path
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -71,8 +102,7 @@ class OpenAICompatibleProvider:
         for attempt in range(self.config.max_retries + 1):
             started = time.perf_counter()
             try:
-                with httpx.Client(timeout=timeout) as client:
-                    response = client.post(url, headers=headers, json=active_payload)
+                response = self._client.post(url, headers=headers, json=active_payload, timeout=timeout)
                 latency_ms = (time.perf_counter() - started) * 1000
                 response.raise_for_status()
                 body = response.json()
@@ -135,6 +165,24 @@ class OpenAICompatibleProvider:
             provider_request_id=None,
         )
 
+    def _acquire_shared_client(self) -> httpx.Client:
+        with self._shared_clients_lock:
+            handle = self._shared_clients.get(self._client_key)
+            if handle is None:
+                handle = _SharedClientHandle(
+                    client=httpx.Client(
+                        http2=True,
+                        limits=httpx.Limits(
+                            max_connections=128,
+                            max_keepalive_connections=32,
+                            keepalive_expiry=30.0,
+                        ),
+                    )
+                )
+                self._shared_clients[self._client_key] = handle
+            handle.refcount += 1
+            return handle.client
+
 
 def build_payload(
     config: ResolvedModelConfig,
@@ -163,11 +211,92 @@ def build_payload(
 
 
 def estimate_request_tokens(payload: dict[str, Any]) -> int:
-    """用仓库内的轻量规则估算一次请求的 token 数。"""
+    """估算一次请求需要预留的 token 配额。"""
+    prompt_tokens = estimate_prompt_tokens(payload)
+    completion_reserve = estimate_completion_reservation(payload, prompt_tokens=prompt_tokens)
+    return prompt_tokens + completion_reserve
+
+
+def estimate_prompt_tokens(payload: dict[str, Any]) -> int:
+    """估算 prompt 部分的 token 数。"""
     prompt_chars = len(json.dumps(payload.get("messages", []), ensure_ascii=False))
-    prompt_tokens = max(1, prompt_chars // 4)
-    completion_tokens = int(payload.get("max_tokens") or 0)
-    return prompt_tokens + completion_tokens
+    return max(1, prompt_chars // 4)
+
+
+def estimate_completion_reservation(payload: dict[str, Any], *, prompt_tokens: int | None = None) -> int:
+    """为 completion 预留一个比 `max_tokens` 更保守、但不至于过满的上界。"""
+    prompt_estimate = prompt_tokens if prompt_tokens is not None else estimate_prompt_tokens(payload)
+    max_completion_tokens = max(0, int(payload.get("max_tokens") or 0))
+    if max_completion_tokens <= 0:
+        return 0
+    heuristic_completion = max(128, min(512, prompt_estimate))
+    return min(max_completion_tokens, heuristic_completion)
+
+
+def realized_total_tokens(response_payload: dict[str, Any]) -> int:
+    """从响应载荷中提取真实或回退估算的总 token 数。"""
+    usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
+    total_tokens = usage.get("total_tokens")
+    if total_tokens is not None:
+        try:
+            return max(0, int(float(total_tokens)))
+        except (TypeError, ValueError):
+            pass
+    prompt_tokens = usage.get("prompt_tokens")
+    completion_tokens = usage.get("completion_tokens")
+    try:
+        return max(0, int(float(prompt_tokens or 0)) + int(float(completion_tokens or 0)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def execute_completion_request(
+    provider: OpenAICompatibleProvider,
+    payload: dict[str, Any],
+    *,
+    limiter: SlidingWindowRateLimiter | None = None,
+) -> dict[str, Any]:
+    """统一执行一次 provider 请求，并在限流器上做预留与对账。"""
+    reservation: RateLimitReservation | None = None
+    response_payload: dict[str, Any] | None = None
+    if limiter is not None:
+        reservation = limiter.acquire(estimate_request_tokens(payload))
+    try:
+        response = provider.chat_completion(payload)
+        response_payload = {
+            "http_status": response.http_status,
+            "raw_payload": response.raw_payload,
+            "assistant_text": response.assistant_text,
+            "provider_reasoning_text": response.provider_reasoning_text,
+            "finish_reason": response.finish_reason,
+            "usage_reported": response.usage_reported,
+            "usage_estimated": response.usage_estimated,
+            "usage_source": response.usage_source,
+            "latency_ms": response.latency_ms,
+            "provider_request_id": response.provider_request_id,
+            "response_id": response.response_id,
+            "request_error": None,
+        }
+        return response_payload
+    except ProviderRequestError as exc:
+        response_payload = {
+            "http_status": exc.http_status,
+            "raw_payload": {"error": exc.message},
+            "assistant_text": "",
+            "provider_reasoning_text": "",
+            "finish_reason": None,
+            "usage_reported": None,
+            "usage_estimated": None,
+            "usage_source": "missing",
+            "latency_ms": 0.0,
+            "provider_request_id": exc.provider_request_id,
+            "response_id": None,
+            "request_error": exc.message,
+        }
+        return response_payload
+    finally:
+        if limiter is not None and reservation is not None and response_payload is not None:
+            limiter.settle(reservation, realized_total_tokens(response_payload))
 
 
 def _apply_thinking_control(config: ResolvedModelConfig, payload: dict[str, Any]) -> None:

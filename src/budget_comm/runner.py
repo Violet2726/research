@@ -49,10 +49,11 @@ from budget_comm.logic import (
     evaluate_full_dala_gate,
 )
 from budget_comm.prompting import build_belief_update_messages, build_solver_messages
+from experiment_core.foundation.artifacts import BufferedJsonlWriter
 from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from experiment_core.foundation.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
+from experiment_core.foundation.providers import OpenAICompatibleProvider, build_payload, execute_completion_request
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id
 from experiment_core.controls.selective_signals import confidence_display, normalize_confidence
@@ -204,6 +205,12 @@ def run_experiment(
         run_paths.belief_updates.open("w", encoding="utf-8") as belief_handle,
         run_paths.final_predictions.open("w", encoding="utf-8") as prediction_handle,
     ):
+        sample_view_writer = BufferedJsonlWriter(sample_view_handle)
+        stage_a_writer = BufferedJsonlWriter(stage_a_handle)
+        candidate_writer = BufferedJsonlWriter(candidate_handle)
+        auction_writer = BufferedJsonlWriter(auction_handle)
+        belief_writer = BufferedJsonlWriter(belief_handle)
+        prediction_writer = BufferedJsonlWriter(prediction_handle)
         for benchmark in benchmarks:
             cache = cache_router.for_request_target(
                 provider=backbone.provider,
@@ -231,12 +238,12 @@ def run_experiment(
                 sample_results=sample_results,
                 dataset_slug=benchmark.slug,
                 progress=progress,
-                sample_view_handle=sample_view_handle,
-                stage_a_handle=stage_a_handle,
-                candidate_handle=candidate_handle,
-                auction_handle=auction_handle,
-                belief_handle=belief_handle,
-                prediction_handle=prediction_handle,
+                sample_view_handle=sample_view_writer,
+                stage_a_handle=stage_a_writer,
+                candidate_handle=candidate_writer,
+                auction_handle=auction_writer,
+                belief_handle=belief_writer,
+                prediction_handle=prediction_writer,
                 all_sample_views=all_sample_views,
                 all_stage_a_turns=all_stage_a_turns,
                 all_candidate_packets=all_candidate_packets,
@@ -253,6 +260,7 @@ def run_experiment(
     render_report(run_paths.root)
     run_paths.run_validation.write_text(json.dumps(validate_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
     progress.mark_completed()
+    provider.close()
     cache_router.close()
     return run_paths.root
 
@@ -392,26 +400,20 @@ def _write_sample_results(
     """把单题结果稳定写盘，并同步更新内存聚合与进度快照。"""
     for result in sample_results:
         for row in result.sample_views:
-            sample_view_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-        sample_view_handle.flush()
+            sample_view_handle.write_row(row)
         for row in result.stage_a_turns:
-            stage_a_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+            stage_a_handle.write_row(row)
             progress.record_call(row, method_key="stage_name")
-        stage_a_handle.flush()
         for row in result.candidate_packets:
-            candidate_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-        candidate_handle.flush()
+            candidate_handle.write_row(row)
         for row in result.auction_decisions:
-            auction_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-        auction_handle.flush()
+            auction_handle.write_row(row)
         for row in result.belief_updates:
-            belief_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+            belief_handle.write_row(row)
             progress.record_call(row, method_key="method_name")
-        belief_handle.flush()
         for row in result.prediction_rows:
-            prediction_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+            prediction_handle.write_row(row)
             progress.record_predictions(1, dataset_slug, str(row["method_name"]))
-        prediction_handle.flush()
         all_sample_views.extend(result.sample_views)
         all_stage_a_turns.extend(result.stage_a_turns)
         all_candidate_packets.extend(result.candidate_packets)
@@ -1051,30 +1053,11 @@ def _execute_turn(
     cached = cache.get(cache_key)
     if cached is None:
         # 只有真正发网路请求时才占用限流配额；缓存命中不计入。
-        limiter.acquire(estimate_request_tokens(payload))
-        try:
-            response = provider.chat_completion(payload)
-            response_payload = {
-                "http_status": response.http_status,
-                "assistant_text": response.assistant_text,
-                "provider_reasoning_text": response.provider_reasoning_text,
-                "usage_reported": response.usage_reported,
-                "usage_estimated": response.usage_estimated,
-                "latency_ms": response.latency_ms,
-                "provider_request_id": response.provider_request_id,
-                "request_error": None,
-            }
-        except ProviderRequestError as exc:
-            response_payload = {
-                "http_status": exc.http_status,
-                "assistant_text": "",
-                "provider_reasoning_text": "",
-                "usage_reported": None,
-                "usage_estimated": None,
-                "latency_ms": 0.0,
-                "provider_request_id": exc.provider_request_id,
-                "request_error": exc.message,
-            }
+        response_payload = execute_completion_request(
+            provider,
+            payload,
+            limiter=limiter,
+        )
         cache_hit = False
     else:
         response_payload = json.loads(cached.response_json)

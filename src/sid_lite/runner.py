@@ -19,11 +19,12 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from experiment_core.foundation.artifacts import BufferedJsonlWriter
 from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
 from experiment_core.foundation.config import ResolvedModelConfig
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import normalize_prediction, score_prediction
-from experiment_core.foundation.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
+from experiment_core.foundation.providers import OpenAICompatibleProvider, build_payload, execute_completion_request
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id
 from experiment_core.controls.selective_signals import normalize_confidence
@@ -126,6 +127,10 @@ def run_experiment(
             run_paths.belief_updates.open("w", encoding="utf-8") as belief_handle,
             run_paths.final_predictions.open("w", encoding="utf-8") as prediction_handle,
         ):
+            stage_a_writer = BufferedJsonlWriter(stage_a_handle)
+            packet_writer = BufferedJsonlWriter(packet_handle)
+            belief_writer = BufferedJsonlWriter(belief_handle)
+            prediction_writer = BufferedJsonlWriter(prediction_handle)
             for benchmark in benchmarks:
                 cache = cache_router.for_request_target(
                     provider=backbone.provider,
@@ -150,20 +155,16 @@ def run_experiment(
                 )
                 for _, stage_a_rows, packet_rows, belief_rows, prediction_rows in results:
                     for row in stage_a_rows:
-                        stage_a_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+                        stage_a_writer.write_row(row)
                         progress.record_call(row, method_key="stage_name")
-                    stage_a_handle.flush()
                     for row in packet_rows:
-                        packet_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-                    packet_handle.flush()
+                        packet_writer.write_row(row)
                     for row in belief_rows:
-                        belief_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+                        belief_writer.write_row(row)
                         progress.record_call(row, method_key="method_name")
-                    belief_handle.flush()
                     for row in prediction_rows:
-                        prediction_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+                        prediction_writer.write_row(row)
                         progress.record_predictions(1, str(row["dataset"]), str(row["method_name"]))
-                    prediction_handle.flush()
                     all_stage_a.extend(stage_a_rows)
                     all_packets.extend(packet_rows)
                     all_beliefs.extend(belief_rows)
@@ -180,6 +181,7 @@ def run_experiment(
         progress.mark_completed()
         return run_paths.root
     finally:
+        provider.close()
         cache_router.close()
 
 
@@ -621,30 +623,11 @@ def _execute_turn(
     )
     cached = cache.get(cache_key)
     if cached is None:
-        limiter.acquire(estimate_request_tokens(payload))
-        try:
-            response = provider.chat_completion(payload)
-            response_payload = {
-                "http_status": response.http_status,
-                "assistant_text": response.assistant_text,
-                "provider_reasoning_text": response.provider_reasoning_text,
-                "usage_reported": response.usage_reported,
-                "usage_estimated": response.usage_estimated,
-                "latency_ms": response.latency_ms,
-                "provider_request_id": response.provider_request_id,
-                "request_error": None,
-            }
-        except ProviderRequestError as exc:
-            response_payload = {
-                "http_status": exc.http_status,
-                "assistant_text": "",
-                "provider_reasoning_text": "",
-                "usage_reported": None,
-                "usage_estimated": None,
-                "latency_ms": 0.0,
-                "provider_request_id": exc.provider_request_id,
-                "request_error": exc.message,
-            }
+        response_payload = execute_completion_request(
+            provider,
+            payload,
+            limiter=limiter,
+        )
         cache_hit = False
     else:
         response_payload = json.loads(cached.response_json)
