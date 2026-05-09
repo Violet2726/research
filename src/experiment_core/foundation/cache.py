@@ -203,6 +203,32 @@ def build_request_cache_key(
     return sha256(json_dump(fingerprint).encode("utf-8")).hexdigest()
 
 
+def cache_successful_response(
+    cache: RequestCache,
+    *,
+    cache_key: str,
+    payload: dict[str, Any],
+    response_payload: dict[str, Any],
+) -> None:
+    """仅在请求成功且解析成功后落盘缓存记录。"""
+    if response_payload.get("request_error") is not None:
+        raise ValueError("Request failures must not be cached.")
+    cache.put(
+        CachedResponse(
+            cache_key=cache_key,
+            payload_json=json_dump(payload),
+            response_json=json_dump(response_payload),
+            http_status=int(response_payload.get("http_status") or 0),
+            latency_ms=float(response_payload.get("latency_ms") or 0.0),
+            provider_request_id=(
+                str(response_payload["provider_request_id"])
+                if response_payload.get("provider_request_id") is not None
+                else None
+            ),
+        )
+    )
+
+
 def resolve_cache_shard_path(
     cache_root: str | Path,
     *,

@@ -18,7 +18,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from experiment_core.foundation.cache import CachedResponse, RequestCache, RequestCacheRouter, build_request_cache_key, json_dump
+from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import aggregate_majority, normalize_prediction, score_prediction
 from experiment_core.controls.no_comm_controls import run_no_comm_control_batch
@@ -689,16 +689,6 @@ def _execute_turn(
                 "provider_request_id": response.provider_request_id,
                 "request_error": None,
             }
-            cache.put(
-                CachedResponse(
-                    cache_key=cache_key,
-                    payload_json=json_dump(payload),
-                    response_json=json_dump(response_payload),
-                    http_status=response.http_status,
-                    latency_ms=response.latency_ms,
-                    provider_request_id=response.provider_request_id,
-                )
-            )
         except ProviderRequestError as exc:
             response_payload = {
                 "http_status": exc.http_status,
@@ -729,6 +719,13 @@ def _execute_turn(
             )
             output_status = "ok"
             final_answer = validated_output["final_answer"]
+            if not cache_hit:
+                cache_successful_response(
+                    cache,
+                    cache_key=cache_key,
+                    payload=payload,
+                    response_payload=response_payload,
+                )
         except Exception:
             validated_output = {}
             output_status = "schema_fail"

@@ -13,6 +13,7 @@ from experiment_core.foundation.cache import (
     RequestCache,
     RequestCacheRouter,
     build_request_cache_key,
+    cache_successful_response,
     inspect_cache_shard,
     json_dump,
     resolve_cache_shard_path,
@@ -784,6 +785,26 @@ def test_build_request_cache_key_depends_only_on_payload() -> None:
         request_model="demo_model",
         payload={**payload, "temperature": 0.7},
     )
+
+
+def test_cache_successful_response_rejects_failed_request(tmp_path: Path) -> None:
+    cache = RequestCache(tmp_path / "requests.sqlite")
+    with pytest.raises(ValueError, match="must not be cached"):
+        cache_successful_response(
+            cache,
+            cache_key="abc",
+            payload={"model": "demo"},
+            response_payload={
+                "http_status": 500,
+                "assistant_text": "",
+                "provider_reasoning_text": "",
+                "latency_ms": 0.0,
+                "provider_request_id": "req_failed",
+                "request_error": "boom",
+            },
+        )
+    assert cache.get("abc") is None
+    cache.close()
 
 
 def test_request_cache_router_shards_by_provider_and_model(tmp_path: Path) -> None:

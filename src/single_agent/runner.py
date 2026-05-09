@@ -19,7 +19,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from experiment_core.foundation.cache import CachedResponse, RequestCache, RequestCacheRouter, build_request_cache_key, json_dump
+from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
 from experiment_core.foundation.config import (
     BenchmarkConfig,
     ResolvedModelConfig,
@@ -390,16 +390,6 @@ def _execute_call(
                 "response_id": provider_response.response_id,
                 "request_error": None,
             }
-            cache.put(
-                CachedResponse(
-                    cache_key=spec.cache_key,
-                    payload_json=json_dump(spec.payload),
-                    response_json=json_dump(response_payload),
-                    http_status=provider_response.http_status,
-                    latency_ms=provider_response.latency_ms,
-                    provider_request_id=provider_response.provider_request_id,
-                )
-            )
         except ProviderRequestError as exc:
             response_payload = {
                 "http_status": exc.http_status,
@@ -434,6 +424,13 @@ def _execute_call(
             )
             output_status = "ok"
             final_answer = validated_output["final_answer"]
+            if not cache_hit:
+                cache_successful_response(
+                    cache,
+                    cache_key=spec.cache_key,
+                    payload=spec.payload,
+                    response_payload=response_payload,
+                )
         except Exception:
             validated_output = {}
             output_status = "schema_fail"

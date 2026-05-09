@@ -49,7 +49,7 @@ from budget_comm.logic import (
     evaluate_full_dala_gate,
 )
 from budget_comm.prompting import build_belief_update_messages, build_solver_messages
-from experiment_core.foundation.cache import CachedResponse, RequestCache, RequestCacheRouter, build_request_cache_key, json_dump
+from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import aggregate_majority, normalize_prediction, score_prediction
 from experiment_core.foundation.providers import OpenAICompatibleProvider, ProviderRequestError, build_payload, estimate_request_tokens
@@ -1064,16 +1064,6 @@ def _execute_turn(
                 "provider_request_id": response.provider_request_id,
                 "request_error": None,
             }
-            cache.put(
-                CachedResponse(
-                    cache_key=cache_key,
-                    payload_json=json_dump(payload),
-                    response_json=json_dump(response_payload),
-                    http_status=response.http_status,
-                    latency_ms=response.latency_ms,
-                    provider_request_id=response.provider_request_id,
-                )
-            )
         except ProviderRequestError as exc:
             response_payload = {
                 "http_status": exc.http_status,
@@ -1107,6 +1097,13 @@ def _execute_turn(
                 answer_for_normalization = str(validated_output.get("new_answer") or "")
             else:
                 answer_for_normalization = str(validated_output.get("final_answer") or "")
+            if not cache_hit:
+                cache_successful_response(
+                    cache,
+                    cache_key=cache_key,
+                    payload=payload,
+                    response_payload=response_payload,
+                )
         except Exception:
             # `budget_comm` 对截断 JSON 做一次保守修复，
             # 尽量把“轻微格式问题”与“真正逻辑错误”区分开来。

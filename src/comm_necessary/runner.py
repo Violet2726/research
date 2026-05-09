@@ -40,7 +40,7 @@ from comm_necessary.logic import (
     support_facts_to_jsonable,
 )
 from comm_necessary.prompting import build_belief_update_messages, build_solver_messages
-from experiment_core.foundation.cache import CachedResponse, RequestCache, RequestCacheRouter, build_request_cache_key, json_dump
+from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
 from experiment_core.foundation.config import ResolvedModelConfig
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import normalize_prediction
@@ -745,16 +745,6 @@ def _execute_turn(
                 "request_started_at": request_started_at,
                 "estimated_request_tokens": estimated_tokens,
             }
-            cache.put(
-                CachedResponse(
-                    cache_key=cache_key,
-                    payload_json=json_dump(payload),
-                    response_json=json_dump(response_payload),
-                    http_status=response.http_status,
-                    latency_ms=response.latency_ms,
-                    provider_request_id=response.provider_request_id,
-                )
-            )
         except ProviderRequestError as exc:
             response_payload = {
                 "http_status": exc.http_status,
@@ -785,6 +775,13 @@ def _execute_turn(
                 provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
             )
             output_status = "ok"
+            if not cache_hit:
+                cache_successful_response(
+                    cache,
+                    cache_key=cache_key,
+                    payload=payload,
+                    response_payload=response_payload,
+                )
         except Exception:
             validated_output = {}
             output_status = "schema_fail"

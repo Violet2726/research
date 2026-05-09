@@ -38,7 +38,7 @@ from cue.logic import (
 from cue.prompting import build_audit_messages, build_communication_messages, build_solver_messages
 from cue.reporting import render_cue_report
 from cue.validation import validate_run
-from experiment_core.foundation.cache import CachedResponse, RequestCache, RequestCacheRouter, build_request_cache_key, json_dump
+from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
 from experiment_core.foundation.datasets import DatasetSample, select_samples
 from experiment_core.foundation.evaluation import aggregate_majority as eval_aggregate_majority
 from experiment_core.foundation.evaluation import normalize_prediction, score_prediction
@@ -893,16 +893,6 @@ def _execute_turn(
                 "provider_request_id": response.provider_request_id,
                 "request_error": None,
             }
-            cache.put(
-                CachedResponse(
-                    cache_key=cache_key,
-                    payload_json=json_dump(payload),
-                    response_json=json_dump(response_payload),
-                    http_status=response.http_status,
-                    latency_ms=response.latency_ms,
-                    provider_request_id=response.provider_request_id,
-                )
-            )
         except ProviderRequestError as exc:
             response_payload = {
                 "http_status": exc.http_status,
@@ -938,6 +928,13 @@ def _execute_turn(
                 final_answer = str(validated_output.get("new_answer") or "")
             elif output_mode == OUTPUT_MODE_CUE_AUDIT:
                 final_answer = str(validated_output.get("verified_answer") or "")
+            if not cache_hit:
+                cache_successful_response(
+                    cache,
+                    cache_key=cache_key,
+                    payload=payload,
+                    response_payload=response_payload,
+                )
         except Exception:
             validated_output = {}
             output_status = "schema_fail"
