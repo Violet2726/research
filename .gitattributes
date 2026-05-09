@@ -1,3 +1,1 @@
-cache/providers/xiaomimimo/mimo-v2-5/requests.sqlite filter=lfs diff=lfs merge=lfs -text
-cache/providers/xiaomimimo/mimo-v2-5/*/requests.sqlite filter=lfs diff=lfs merge=lfs -text
 cache/**/*.sqlite filter=lfs diff=lfs merge=lfs -text
