@@ -33,7 +33,7 @@
 - `prompting.py`：提示词构造
 - `logic.py`：实验机制或策略逻辑
 - `runner.py`：主执行流程
-- `reporting.py`：摘要与 Markdown 报告
+- `reporting.py`：摘要、run 级 `figures/` 图资产与 Markdown 报告
 - `validation.py`：运行结果校验
 - `cli.py`：命令行入口
 
@@ -86,7 +86,7 @@ $env:RESEARCH_FILES_ROOT = "artifacts/files"
 
 ## 5. `runs/` 与 `local/` 的关系
 
-- `runs/`：默认运行产物目录，适合保留实验结果与归档
+- `runs/`：默认运行产物目录，适合保留实验结果、`figures/` 图资产与归档
 - `reports/`：默认正式报告目录，适合统一发布各实验线报告
 - `local/`：本地临时目录，适合放不打算入库的草稿与调试文件
 

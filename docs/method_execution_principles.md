@@ -228,6 +228,9 @@
 7. 汇总出：
    - `predictions.jsonl`
    - `metrics.json`
+   - `report.md`
+   - `figure_manifest.json`
+   - `figures/`
    - `paper_tables.md`
    - `run_validation.json`
 

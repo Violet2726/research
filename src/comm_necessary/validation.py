@@ -13,6 +13,7 @@ import json
 from typing import Any
 
 from comm_necessary.logic import METHOD_ORDER
+from experiment_core.reporting.run_figures import validate_figure_contract
 
 
 REQUIRED_FILES = [
@@ -27,6 +28,7 @@ REQUIRED_FILES = [
     "progress.json",
     "report.md",
     "paper_summary.csv",
+    "figure_manifest.json",
 ]
 
 
@@ -50,6 +52,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     packet_cap_check = _packet_cap_check(packet_rows)
     hotpot_prediction_check = _hotpot_prediction_files_check(root, prediction_rows)
     rate_limit_check = _rate_limit_check(turn_rows, manifest)
+    figure_contract = validate_figure_contract(root)
 
     passed = all(
         [
@@ -62,6 +65,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             packet_cap_check["passed"],
             hotpot_prediction_check["passed"],
             rate_limit_check["passed"],
+            figure_contract["passed"],
             bool(prediction_rows),
         ]
     )
@@ -78,6 +82,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             "packet_cap_check": packet_cap_check,
             "hotpot_prediction_files_check": hotpot_prediction_check,
             "rate_limit_check": rate_limit_check,
+            "figure_contract": figure_contract,
         },
         "methods": dict(Counter(row.get("method_name") for row in prediction_rows)),
     }

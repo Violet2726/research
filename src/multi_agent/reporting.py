@@ -16,6 +16,15 @@ import random
 from typing import Any
 
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
+from experiment_core.reporting.run_figures import (
+    append_figure_gallery_markdown,
+    build_efficiency_rank_figure_spec,
+    build_frontier_figure_spec,
+    build_grouped_bar_figure_spec,
+    build_interval_figure_spec,
+    build_score_by_dataset_figure_spec,
+    write_figure_bundle,
+)
 from experiment_core.foundation.workspace import default_reports_root
 
 def load_metrics(run_dir: str | Path) -> dict[str, Any]:
@@ -46,6 +55,7 @@ def report_debate_vs_vote(
     publish_dir = publish_dir or default_reports_root("multi_agent")
     root = Path(run_dir)
     manifest = _load_json(root / "manifest.json")
+    metrics = load_metrics(root)
     prediction_rows = _load_jsonl(root / "final_predictions.jsonl")
     mad_rows = [row for row in prediction_rows if row.get("method_type") == "mad"]
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
@@ -69,13 +79,18 @@ def report_debate_vs_vote(
     paired_json_path = root / "paired_debate_vs_vote.json"
     paired_json_path.write_text(json.dumps(paired_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    markdown = _render_debate_vs_vote_report(manifest, dataset_rows, root)
+    figure_bundle = write_figure_bundle(root, _build_figure_specs(metrics, dataset_rows))
+    base_markdown = _render_debate_vs_vote_report(manifest, dataset_rows, root)
+    markdown = append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root)
     local_report_path = root / "report.md"
     local_report_path.write_text(markdown, encoding="utf-8")
 
     publish_path = Path(publish_dir) / _published_report_name(manifest)
     publish_path.parent.mkdir(parents=True, exist_ok=True)
-    publish_path.write_text(markdown, encoding="utf-8")
+    publish_path.write_text(
+        append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root, published_path=publish_path),
+        encoding="utf-8",
+    )
 
     return {
         "run_dir": str(root),
@@ -83,7 +98,89 @@ def report_debate_vs_vote(
         "local_report": str(local_report_path),
         "published_report": str(publish_path),
         "dataset_count": len(dataset_rows),
+        "figure_manifest": str(root / "figure_manifest.json"),
     }
+
+
+def _build_figure_specs(metrics: dict[str, Any], dataset_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summary_rows = metrics.get("summary", [])
+    interval_rows = []
+    for row in dataset_rows:
+        stats = row.get("statistics") or {}
+        ci = stats.get("bootstrap_ci_95")
+        if not stats.get("computed") or not isinstance(ci, list) or len(ci) != 2:
+            continue
+        interval_rows.append(
+            {
+                "label": f"{row['dataset']}:{row['method_name']}",
+                "short_label": str(row["dataset"]),
+                "value": float(row.get("accuracy_delta") or 0.0),
+                "low": float(ci[0]),
+                "high": float(ci[1]),
+            }
+        )
+    return [
+        build_frontier_figure_spec(
+            summary_rows,
+            title="Multi-agent frontier",
+            caption="Overall accuracy versus average total tokens across multi-agent methods and matched controls.",
+            score_field="accuracy_mean",
+            primary_metric="Accuracy",
+            method_label_field="method_name",
+        ),
+        build_efficiency_rank_figure_spec(
+            summary_rows,
+            title="Multi-agent efficiency ranking",
+            caption="Overall efficiency ranking measured by accuracy per 1K tokens.",
+            efficiency_field="accuracy_per_1k_tokens",
+            primary_metric="Accuracy per 1K tokens",
+            method_label_field="method_name",
+        ),
+        build_score_by_dataset_figure_spec(
+            summary_rows,
+            title="Multi-agent score by dataset",
+            caption="Per-dataset accuracy map across multi-agent methods and matched controls.",
+            score_field="accuracy_mean",
+            primary_metric="Accuracy",
+            method_label_field="method_name",
+        ),
+        build_grouped_bar_figure_spec(
+            figure_id="debate_delta_breakdown",
+            title="Debate delta breakdown",
+            caption="Per-dataset correction and harm rates alongside the net accuracy delta.",
+            primary_metric="Rate or delta",
+            data=[
+                {
+                    "label": f"{row['dataset']}:{row['method_name']}",
+                    "short_label": str(row["dataset"]),
+                    "corrected_rate": (float(row.get("corrected_count") or 0.0) / float(row.get("question_count") or 1.0)),
+                    "harmed_rate": (float(row.get("harmed_count") or 0.0) / float(row.get("question_count") or 1.0)),
+                    "accuracy_delta": float(row.get("accuracy_delta") or 0.0),
+                }
+                for row in dataset_rows
+            ],
+            series=[
+                ("corrected_rate", "Corrected rate"),
+                ("harmed_rate", "Harmed rate"),
+                ("accuracy_delta", "Accuracy delta"),
+            ],
+            x_label="Rate or delta",
+            source_kind="paired_debate_vs_vote",
+            dataset_scope="per_dataset",
+            note="Correction and harm are normalized by question count; the delta series preserves signed paired gain.",
+        ),
+        build_interval_figure_spec(
+            figure_id="paired_effect_ci",
+            title="Paired effect confidence intervals",
+            caption="Paired bootstrap intervals for the debate-minus-vote accuracy delta.",
+            primary_metric="Accuracy delta",
+            data=interval_rows,
+            x_label="Accuracy delta",
+            source_kind="paired_debate_vs_vote",
+            dataset_scope="per_dataset",
+            note="Intervals that stay above zero indicate a stable paired debate gain for the reported dataset.",
+        ),
+    ]
 
 
 def _paired_summary_for_group(

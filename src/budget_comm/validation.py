@@ -13,6 +13,7 @@ import json
 from typing import Any
 
 from budget_comm.logic import METHOD_ORDER, assign_density_tiers, solve_knapsack
+from experiment_core.reporting.run_figures import validate_figure_contract
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
@@ -31,6 +32,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "progress.json",
         "report.md",
         "paper_summary.csv",
+        "figure_manifest.json",
     ]
     missing = [name for name in required if not (root / name).exists()]
 
@@ -53,6 +55,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     paired_check = _validate_paired_design(prediction_rows)
     leak_check = _validate_context_leak(sample_views, manifest)
     shard_union_check = _validate_shard_union(sample_views, manifest)
+    figure_contract = validate_figure_contract(root)
 
     passed = all(
         [
@@ -66,6 +69,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             paired_check["passed"],
             leak_check["passed"],
             shard_union_check["passed"],
+            figure_contract["passed"],
             bool(prediction_rows),
         ]
     )
@@ -83,6 +87,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             "paired_design_check": paired_check,
             "context_leak_check": leak_check,
             "shard_union_check": shard_union_check,
+            "figure_contract": figure_contract,
         },
         "methods": dict(Counter(row.get("method_name") for row in prediction_rows)),
     }

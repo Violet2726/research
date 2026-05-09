@@ -11,6 +11,8 @@ from pathlib import Path
 import json
 from typing import Any
 
+from experiment_core.reporting.run_figures import validate_figure_contract
+
 
 REQUIRED_FILES = [
     "manifest.json",
@@ -22,6 +24,7 @@ REQUIRED_FILES = [
     "diagnostics.json",
     "progress.json",
     "report.md",
+    "figure_manifest.json",
 ]
 
 
@@ -52,6 +55,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "anti_conformity_prompt_hash": manifest.get("anti_conformity_prompt_hash"),
     }
     judge_schema_check = _judge_schema_check(score_rows)
+    figure_contract = validate_figure_contract(root)
     passed = (
         not missing
         and request_failures == 0
@@ -61,6 +65,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         and round_check["passed"]
         and prompt_hash_check["passed"]
         and judge_schema_check["passed"]
+        and figure_contract["passed"]
     )
     return {
         "run_dir": str(root),
@@ -74,6 +79,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             "single_round_check": round_check,
             "anti_conformity_prompt_hash_check": prompt_hash_check,
             "trajectory_judge_schema_check": judge_schema_check,
+            "figure_contract": figure_contract,
         },
         "methods": dict(Counter(row.get("method_name") for row in prediction_rows)),
     }

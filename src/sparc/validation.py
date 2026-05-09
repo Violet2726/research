@@ -11,6 +11,8 @@ from pathlib import Path
 import json
 from typing import Any
 
+from experiment_core.reporting.run_figures import validate_figure_contract
+
 
 DEFAULT_AUDITING_METHODS = ["majority_vote", "single_judge", "final_round_vote", "local_auditing"]
 
@@ -32,6 +34,7 @@ def validate_run(run_dir: str | Path, compare_run_dir: str | Path | None = None)
         "progress.json",
         "paper_summary.csv",
         report_name,
+        "figure_manifest.json",
     ]
     missing = [name for name in required if not (root / name).exists()]
     stage_a_rows = _load_jsonl(root / "stage_a_turns.jsonl")
@@ -45,6 +48,7 @@ def validate_run(run_dir: str | Path, compare_run_dir: str | Path | None = None)
     local_audit_scope_check = _validate_local_audit_scope(audit_rows)
     auditing_paired_check = _validate_auditing_paired_design(manifest, prediction_rows)
     compare_check = _validate_compare_run(prediction_rows, compare_run_dir)
+    figure_contract = validate_figure_contract(root)
     return {
         "run_dir": str(root),
         "passed": all(
@@ -57,6 +61,7 @@ def validate_run(run_dir: str | Path, compare_run_dir: str | Path | None = None)
                 local_audit_scope_check["passed"],
                 auditing_paired_check["passed"],
                 compare_check["passed"],
+                figure_contract["passed"],
                 bool(prediction_rows),
             ]
         ),
@@ -69,6 +74,7 @@ def validate_run(run_dir: str | Path, compare_run_dir: str | Path | None = None)
             "local_audit_scope_check": local_audit_scope_check,
             "auditing_ablation_paired_design_check": auditing_paired_check,
             "compare_run_sample_ids_check": compare_check,
+            "figure_contract": figure_contract,
         },
         "methods": dict(Counter(row.get("method_name") for row in prediction_rows)),
     }

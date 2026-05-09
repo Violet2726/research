@@ -20,13 +20,13 @@ from experiment_core.foundation.config import (
 )
 from experiment_core.foundation.datasets import generate_split_manifests
 from experiment_core.foundation.methods import load_method_catalog
-from experiment_core.foundation.workspace import default_cache_root, default_runs_root, workspace_defaults
+from experiment_core.foundation.workspace import default_cache_root, default_reports_root, default_runs_root, workspace_defaults
 from single_agent.config import (
     load_experiment_config,
     required_benchmark_tags,
     required_model_tags,
 )
-from single_agent.reporting import export_paper_tables, summarize_run
+from single_agent.reporting import export_paper_tables, render_report, summarize_run
 from single_agent.runner import run_experiment
 from single_agent.validation import validate_run
 
@@ -73,6 +73,10 @@ def build_parser() -> argparse.ArgumentParser:
     export = subparsers.add_parser("export-paper-tables", help="Export paper-ready markdown tables.")
     export.add_argument("--run-dir", required=True)
     export.add_argument("--output", default=None)
+
+    report = subparsers.add_parser("render-report", help="Render the formal single-agent markdown report with figures.")
+    report.add_argument("--run-dir", required=True)
+    report.add_argument("--publish-dir", default=default_reports_root("single_agent"))
 
     validate = subparsers.add_parser("validate-run", help="Run validation checks for one run.")
     validate.add_argument("--run-dir", required=True)
@@ -180,6 +184,10 @@ def main() -> None:
         output = args.output or str(Path(args.run_dir) / "paper_tables.md")
         path = export_paper_tables(args.run_dir, output)
         print(path.as_posix())
+        return
+
+    if args.command == "render-report":
+        print(json.dumps(render_report(args.run_dir, publish_dir=args.publish_dir), ensure_ascii=False, indent=2))
         return
 
     if args.command == "validate-run":

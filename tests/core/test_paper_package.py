@@ -107,13 +107,14 @@ def test_render_paper_package_writes_markdown_and_figures(tmp_path: Path) -> Non
     paths = render_paper_package(
         state_dir,
         published_path=tmp_path / "published.md",
-        figures_root=tmp_path / "figures",
     )
 
     assert Path(paths["package_markdown"]).exists()
     assert Path(paths["published_path"]).exists()
-    assert (tmp_path / "figures" / "budget_frontier_same_context.svg").exists()
-    svg_text = (tmp_path / "figures" / "budget_frontier_same_context.svg").read_text(encoding="utf-8")
-    assert "Budget frontier" in svg_text
+    assert (state_dir / "figures" / "budget_frontier_same_context.svg").exists()
+    assert (state_dir / "figure_manifest.json").exists()
+    svg_text = (state_dir / "figures" / "budget_frontier_same_context.svg").read_text(encoding="utf-8")
+    package_markdown = (state_dir / "paper_package.md").read_text(encoding="utf-8")
+    assert "![Budget frontier: same-context headline methods]" in package_markdown
     assert "Faithful score" in svg_text
 

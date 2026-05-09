@@ -25,6 +25,7 @@ def test_collect_run_statuses_flags_failed_multi_agent_run(tmp_path: Path) -> No
     _touch_json(valid_run / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
     _touch_json(valid_run / "cost_breakdown.json", {"rows": []})
     _touch_json(valid_run / "debate_diagnostics.json", {"rows": []})
+    _touch_figure_contract(valid_run)
 
     invalid_run = runs_root / "multi_agent" / "invalid_run"
     invalid_run.mkdir(parents=True)
@@ -80,6 +81,7 @@ def test_cleanup_invalid_artifacts_deletes_invalid_runs_and_reports(tmp_path: Pa
     _touch_json(valid_run / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
     _touch_json(valid_run / "cost_breakdown.json", {"rows": []})
     _touch_json(valid_run / "debate_diagnostics.json", {"rows": []})
+    _touch_figure_contract(valid_run)
 
     invalid_run = runs_root / "multi_agent" / "invalid_run"
     invalid_run.mkdir(parents=True)
@@ -150,4 +152,30 @@ def _fake_run_status(passed: bool):
         passed=passed,
         reason=None if passed else "validation_failed",
     )
+
+
+def _touch_figure_contract(root: Path) -> None:
+    figures_dir = root / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for figure_id in ("frontier_overall", "efficiency_rank_overall", "score_by_dataset"):
+        (figures_dir / f"{figure_id}.svg").write_text("<svg></svg>\n", encoding="utf-8")
+        (figures_dir / f"{figure_id}.csv").write_text("label,value\nx,1\n", encoding="utf-8")
+        rows.append(
+            {
+                "figure_id": figure_id,
+                "title": figure_id,
+                "caption": "test",
+                "svg_path": f"figures/{figure_id}.svg",
+                "csv_path": f"figures/{figure_id}.csv",
+                "source_kind": "test",
+                "dataset_scope": "overall",
+                "primary_metric": "Accuracy",
+            }
+        )
+    (root / "figure_manifest.json").write_text(
+        json.dumps({"generated_at": "2026-01-01T00:00:00+00:00", "figure_count": len(rows), "figures": rows}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (root / "report.md").write_text("# report\n\n![Frontier](figures/frontier_overall.svg)\n", encoding="utf-8")
 

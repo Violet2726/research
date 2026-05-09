@@ -12,6 +12,8 @@ from pathlib import Path
 import json
 from typing import Any
 
+from experiment_core.reporting.run_figures import validate_figure_contract
+
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
     """检查多智能体运行目录中的关键产物是否齐全且基本可用。"""
@@ -24,6 +26,8 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "metrics.json",
         "cost_breakdown.json",
         "debate_diagnostics.json",
+        "report.md",
+        "figure_manifest.json",
     ]
     missing = [name for name in required if not (root / name).exists()]
     agent_rows = _load_jsonl(root / "agent_turns.jsonl") if (root / "agent_turns.jsonl").exists() else []
@@ -31,9 +35,10 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     request_failures = sum(1 for row in agent_rows if row.get("output_status") == "request_fail")
     schema_failures = sum(1 for row in agent_rows if row.get("output_status") == "schema_fail")
     methods = Counter(row.get("method_name") for row in prediction_rows)
+    figure_contract = validate_figure_contract(root)
     return {
         "run_dir": str(root),
-        "passed": not missing and request_failures == 0 and schema_failures == 0 and bool(prediction_rows),
+        "passed": not missing and request_failures == 0 and schema_failures == 0 and bool(prediction_rows) and figure_contract["passed"],
         "missing_files": missing,
         "request_failures": request_failures,
         "schema_failures": schema_failures,
@@ -41,6 +46,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "methods": dict(methods),
         "paired_analysis_present": (root / "paired_debate_vs_vote.json").exists(),
         "paired_report_present": (root / "report.md").exists(),
+        "figure_contract": figure_contract,
     }
 
 

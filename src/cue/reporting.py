@@ -8,6 +8,15 @@ from typing import Any
 
 from experiment_core.reporting.analysis_reports import render_frontier_report, write_report
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
+from experiment_core.reporting.run_figures import (
+    append_figure_gallery_markdown,
+    build_efficiency_rank_figure_spec,
+    build_frontier_figure_spec,
+    build_grouped_bar_figure_spec,
+    build_scatter_figure_spec,
+    build_score_by_dataset_figure_spec,
+    write_figure_bundle,
+)
 from experiment_core.foundation.workspace import default_reports_root
 
 
@@ -43,19 +52,97 @@ def render_cue_report(run_dir: str | Path, publish_dir: str | Path | None = None
     metrics = _load_json(root / "policy_metrics.json")
     diagnostics = _load_json(root / "policy_diagnostics.json")
     oracle = _load_json(root / "oracle_trigger_eval.json")
-    markdown = _render_markdown(manifest, metrics, diagnostics, oracle, root)
+    figure_bundle = write_figure_bundle(root, _build_figure_specs(metrics, diagnostics))
+    base_markdown = _render_markdown(manifest, metrics, diagnostics, oracle, root)
+    markdown = append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root)
     local_report_path = root / "report.md"
     local_report_path.write_text(markdown, encoding="utf-8")
     write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="CUE Frontier"))
     publish_path = Path(publish_dir) / _published_report_name(manifest)
     publish_path.parent.mkdir(parents=True, exist_ok=True)
-    publish_path.write_text(markdown, encoding="utf-8")
+    publish_path.write_text(
+        append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root, published_path=publish_path),
+        encoding="utf-8",
+    )
     return {
         "run_dir": str(root),
         "local_report": str(local_report_path),
         "published_report": str(publish_path),
         "frontier_report": str(root / "frontier_report.md"),
+        "figure_manifest": str(root / "figure_manifest.json"),
     }
+
+
+def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
+    summary_rows = metrics.get("summary", [])
+    overall_policy_rows = [
+        row for row in diagnostics.get("policy_rows", [])
+        if row.get("dataset") == "overall"
+    ]
+    return [
+        build_frontier_figure_spec(
+            summary_rows,
+            title="CUE frontier",
+            caption="Overall accuracy versus average total tokens across CUE policies and controls.",
+            score_field="accuracy_mean",
+            primary_metric="Accuracy",
+        ),
+        build_efficiency_rank_figure_spec(
+            summary_rows,
+            title="CUE efficiency ranking",
+            caption="Overall efficiency ranking measured by accuracy per 1K tokens.",
+            efficiency_field="acc_per_1k_tokens",
+            primary_metric="Accuracy per 1K tokens",
+        ),
+        build_score_by_dataset_figure_spec(
+            summary_rows,
+            title="CUE score by dataset",
+            caption="Per-dataset accuracy map across CUE policies and controls.",
+            score_field="accuracy_mean",
+            primary_metric="Accuracy",
+        ),
+        build_scatter_figure_spec(
+            figure_id="policy_tradeoff",
+            title="Policy tradeoff",
+            caption="Overall trigger rate versus accuracy across CUE policies.",
+            primary_metric="Accuracy",
+            data=[
+                {
+                    "label": str(row.get("display_name") or row.get("policy_name") or "unknown"),
+                    "short_label": str(row.get("display_name") or row.get("policy_name") or "unknown"),
+                    "x": float(row.get("trigger_rate") or 0.0),
+                    "y": float(row.get("accuracy_mean") or 0.0),
+                    "value": float(row.get("accuracy_mean") or 0.0),
+                }
+                for row in overall_policy_rows
+            ],
+            x_label="Trigger rate",
+            y_label="Accuracy",
+            source_kind="policy_diagnostics",
+            dataset_scope="overall",
+            note="Policies on the upper-left achieve higher accuracy with fewer trigger events.",
+        ),
+        build_grouped_bar_figure_spec(
+            figure_id="oracle_alignment",
+            title="Oracle alignment",
+            caption="Overall oracle precision and recall across CUE policies.",
+            primary_metric="Rate",
+            data=[
+                {
+                    "label": str(row.get("display_name") or row.get("policy_name") or "unknown"),
+                    "short_label": str(row.get("display_name") or row.get("policy_name") or "unknown"),
+                    "precision": float(row.get("precision") or 0.0),
+                    "recall": float(row.get("recall") or 0.0),
+                }
+                for row in overall_policy_rows
+            ],
+            series=[("precision", "Precision"), ("recall", "Recall")],
+            x_label="Rate",
+            source_kind="policy_diagnostics",
+            dataset_scope="overall",
+            note="Precision and recall are computed against the communication-benefit oracle approximation.",
+        ),
+    ]
 
 
 def _render_markdown(

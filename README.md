@@ -50,6 +50,7 @@ tests/               回归测试
 - 公共配置字段统一使用 `primary_model_ref`。
 - 默认运行目录统一为 `runs/<family>/<experiment>/<phase>/<run_id>/`。
 - 默认报告目录统一为 `reports/<family>/`，跨家族汇总放在 `reports/summary/`。
+- 每个 run 的正式图资产统一固化在 `runs/<family>/<experiment>/<phase>/<run_id>/figures/`，并通过 `figure_manifest.json` 编目。
 - 文件统一使用 UTF-8。
 
 ## 安装
@@ -81,6 +82,12 @@ uv run single_agent_cli inspect-experiment --experiment configs/single_agent/exp
 
 ```powershell
 uv run single_agent_cli run --experiment configs/single_agent/experiments/same_context_core_benchmarks.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
+```
+
+重渲染单智能体正式报告与图表：
+
+```powershell
+uv run single_agent_cli render-report --run-dir runs/single_agent/main_baselines/smoke20/<run_id>
 ```
 
 查看多智能体实验配置：
@@ -140,6 +147,7 @@ uv run selective_comm_cli inspect-experiment --experiment configs/selective_comm
 ## 产物策略
 
 - 本仓库当前按“源码 + 代表性实验档案”维护，`runs/`、`reports/` 和部分 `cache/` 产物可以作为可复查证据进入版本库。
+- 图资产以 `runs/.../figures/` 为唯一规范落点；`reports/summary/` 与 `reports/<family>/` 中的 Markdown 只引用这些 canonical 图文件，不再复制图表到 `reports/figures/`。
 - 一次性试验、临时调参和个人分析建议通过 `RESEARCH_*_ROOT` 覆盖到独立目录，或写入 `local/`，不要把临时产物直接混入主线。
 - 批量跑矩阵阶段时，Linux / macOS 使用 [run_all_phases.sh](/d:/user/research/run_all_phases.sh)，Windows PowerShell 使用 [run_all_phases.ps1](/d:/user/research/run_all_phases.ps1)。
 

@@ -11,7 +11,7 @@
 - `matrix/`
   - faithful 实验矩阵层，放矩阵入口、实验规格、分析与验收逻辑。
 - `reporting/`
-  - 论文与报告产物层，放统计汇总、图表渲染与发布文档生成。
+  - 论文与报告产物层，放统计汇总、run 级图资产渲染、figure manifest 与发布文档生成。
 - `tools/`
   - 运维工具层，放缓存检查、失效产物清理等 CLI 工具。
 
@@ -27,7 +27,8 @@
 - `foundation/cache.py`：请求缓存、分库路由与统计能力
 - `foundation/rate_limits.py`：请求并发与 RPM / TPM 节流
 - `matrix/faithful_matrix.py`：统一的 faithful 实验矩阵入口，支持 `smoke20` 与 `pilot100`
-- `reporting/paper_package.py`：论文打包、figure 产物与摘要文档生成
+- `reporting/run_figures.py`：run 级 `figures/`、`figure_manifest.json` 与科研图 SVG/CSV 渲染
+- `reporting/paper_package.py`：论文打包、matrix 级 figure 产物与摘要文档生成
 - `tools/artifact_cleanup.py`：失效运行与失效报告清理工具
 - `tools/cache_inspector.py`：缓存分库统计与目标定位工具
 

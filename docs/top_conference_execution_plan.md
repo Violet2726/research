@@ -99,7 +99,7 @@ uv run faithful_matrix_cli resume --state-path <matrix_run_dir> --reference-stat
 - `paper_package.json`
 - `paper_package.md`
 - `reports/summary/<run_id>-paper_package.md`
-- `reports/figures/<run_id>/`
+- `<matrix_run_dir>/figures/`
 
 离线重渲染命令：
 
@@ -179,6 +179,6 @@ uv run faithful_matrix_cli render-paper-package --state-path <matrix_run_dir>
 
 - 矩阵：`runs/faithful_matrix_iterative/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5`
 - 论文包：`reports/summary/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5-paper_package.md`
-- 图表：`reports/figures/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5/`
+- 图表：`runs/faithful_matrix_iterative/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5/figures/`
 
 该回放用于验证统计和报告链路，不替代后续 `confirmatory300` 正式运行。

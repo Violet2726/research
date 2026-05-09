@@ -27,6 +27,7 @@ from experiment_core.foundation.structured_output import _recover_selective_outp
 
 
 def test_single_agent_reporting_and_validation_use_method_name(tmp_path: Path) -> None:
+    _touch_json(tmp_path / "manifest.json", {})
     _write_jsonl(
         tmp_path / "raw_responses.jsonl",
         [
@@ -78,6 +79,7 @@ def test_single_agent_reporting_and_validation_use_method_name(tmp_path: Path) -
         ),
         encoding="utf-8",
     )
+    _touch_figure_contract(tmp_path)
 
     summary = summarize_single_agent(tmp_path)
     validation = validate_single_agent(tmp_path)
@@ -93,6 +95,7 @@ def test_multi_agent_validation_contract(tmp_path: Path) -> None:
     _touch_json(tmp_path / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
     _touch_json(tmp_path / "cost_breakdown.json", {"rows": []})
     _touch_json(tmp_path / "debate_diagnostics.json", {"rows": []})
+    _touch_figure_contract(tmp_path)
     assert summarize_multi_agent(tmp_path)["row_count"] == 1
     assert validate_multi_agent(tmp_path)["passed"] is True
 
@@ -160,7 +163,7 @@ def test_selective_comm_validation_contract(tmp_path: Path) -> None:
     )
     _touch_json(tmp_path / "oracle_trigger_eval.json", {"summary_rows": []})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
+    _touch_figure_contract(tmp_path)
 
     assert summarize_selective(tmp_path)["row_count"] == 1
     assert validate_selective(tmp_path)["passed"] is True
@@ -331,7 +334,7 @@ def test_sparc_validation_contract(tmp_path: Path) -> None:
     _touch_json(tmp_path / "diagnostics.json", {"recommended_next_default": {"method_name": "full_cot"}})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
     (tmp_path / "paper_summary.csv").write_text("dataset,model_name,method_name,accuracy_mean,communication_tokens_mean,total_tokens_mean,calls_per_question_mean,acc_per_1k_tokens\n", encoding="utf-8")
-    (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
+    _touch_figure_contract(tmp_path)
 
     assert summarize_sparc(tmp_path)["row_count"] == 1
     assert validate_sparc(tmp_path)["passed"] is True
@@ -369,7 +372,7 @@ def test_sparc_auditing_ablation_paired_design_contract(tmp_path: Path) -> None:
     _touch_json(tmp_path / "diagnostics.json", {"recommended_next_default": {"method_name": "local_auditing"}})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
     (tmp_path / "paper_summary.csv").write_text("dataset,model_name,method_name,accuracy_mean,communication_tokens_mean,total_tokens_mean,calls_per_question_mean,acc_per_1k_tokens\n", encoding="utf-8")
-    (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
+    _touch_figure_contract(tmp_path)
 
     validation = validate_sparc(tmp_path)
     assert validation["passed"] is True
@@ -486,7 +489,7 @@ def test_budget_comm_validation_contract(tmp_path: Path) -> None:
     _touch_json(tmp_path / "metrics.json", {"summary": [{"dataset": "overall"}]})
     _touch_json(tmp_path / "budget_diagnostics.json", {"full_dala_gate": {"ready_for_full_dala": False}})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
+    _touch_figure_contract(tmp_path)
     (tmp_path / "paper_summary.csv").write_text("dataset,track_name,model_name,method_name,accuracy_mean,communication_tokens_mean,total_tokens_mean,calls_per_question_mean,acc_per_1k_tokens\n", encoding="utf-8")
 
     assert summarize_budget(tmp_path)["row_count"] == 1
@@ -522,7 +525,7 @@ def test_sid_lite_validation_contract(tmp_path: Path) -> None:
     _touch_json(tmp_path / "metrics.json", {"summary": [{"dataset": "overall"}]})
     _touch_json(tmp_path / "diagnostics.json", {"sid_early_exit_rate": 1.0})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
+    _touch_figure_contract(tmp_path)
 
     assert summarize_sid(tmp_path)["row_count"] == 1
     assert validate_sid(tmp_path)["passed"] is True
@@ -568,7 +571,7 @@ def test_free_mad_lite_validation_contract(tmp_path: Path) -> None:
     _touch_json(tmp_path / "metrics.json", {"summary": [{"dataset": "overall"}]})
     _touch_json(tmp_path / "diagnostics.json", {"judge_fallback_rate": 0.0})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
+    _touch_figure_contract(tmp_path)
 
     assert summarize_free_mad(tmp_path)["row_count"] == 1
     assert validate_free_mad(tmp_path)["passed"] is True
@@ -699,7 +702,7 @@ def test_comm_necessary_validation_contract(tmp_path: Path) -> None:
     _touch_json(tmp_path / "metrics.json", {"summary": [{"dataset": "overall"}]})
     _touch_json(tmp_path / "diagnostics.json", {"key_deltas": []})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
+    _touch_figure_contract(tmp_path)
     (tmp_path / "paper_summary.csv").write_text("dataset,model_name,method_name,answer_em_mean\n", encoding="utf-8")
     hotpot_dir = tmp_path / "hotpot_predictions"
     hotpot_dir.mkdir()
@@ -756,4 +759,40 @@ def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
 
 def _touch_json(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _touch_figure_contract(root: Path, report_name: str = "report.md") -> None:
+    figures_dir = root / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    figure_rows = []
+    for figure_id, title, metric in [
+        ("frontier_overall", "Frontier", "Accuracy"),
+        ("efficiency_rank_overall", "Efficiency Rank", "Accuracy per 1K tokens"),
+        ("score_by_dataset", "Score by Dataset", "Accuracy"),
+    ]:
+        (figures_dir / f"{figure_id}.svg").write_text(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"><text>test</text></svg>\n",
+            encoding="utf-8",
+        )
+        (figures_dir / f"{figure_id}.csv").write_text("label,value\nexample,1\n", encoding="utf-8")
+        figure_rows.append(
+            {
+                "figure_id": figure_id,
+                "title": title,
+                "caption": "test figure",
+                "svg_path": f"figures/{figure_id}.svg",
+                "csv_path": f"figures/{figure_id}.csv",
+                "source_kind": "test",
+                "dataset_scope": "overall",
+                "primary_metric": metric,
+            }
+        )
+    (root / "figure_manifest.json").write_text(
+        json.dumps({"generated_at": "2026-01-01T00:00:00+00:00", "figure_count": len(figure_rows), "figures": figure_rows}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (root / report_name).write_text(
+        "# report\n\n![Frontier](figures/frontier_overall.svg)\n",
+        encoding="utf-8",
+    )
 

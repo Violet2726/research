@@ -11,6 +11,8 @@ from pathlib import Path
 import json
 from typing import Any
 
+from experiment_core.reporting.run_figures import validate_figure_contract
+
 
 def validate_run(
     run_dir: str | Path,
@@ -18,6 +20,15 @@ def validate_run(
 ) -> dict[str, Any]:
     """对单智能体运行产物执行完整性与一致性检查。"""
     root = Path(run_dir)
+    required = [
+        "manifest.json",
+        "metrics.json",
+        "raw_responses.jsonl",
+        "predictions.jsonl",
+        "report.md",
+        "figure_manifest.json",
+    ]
+    missing_files = [name for name in required if not (root / name).exists()]
     raw_rows = _load_jsonl(root / "raw_responses.jsonl")
     prediction_rows = _load_jsonl(root / "predictions.jsonl")
     metrics = json.loads((root / "metrics.json").read_text(encoding="utf-8"))
@@ -40,23 +51,28 @@ def validate_run(
         }
 
     split_count_check = _validate_prediction_counts(prediction_rows)
+    figure_contract = validate_figure_contract(root)
 
     passed = all(
         [
+            not missing_files,
             request_failures == 0,
             output_success_rate >= output_success_threshold,
             split_count_check["passed"],
+            figure_contract["passed"],
         ]
     )
 
     return {
         "run_dir": str(root),
         "passed": passed,
+        "missing_files": missing_files,
         "checks": {
             "request_failures_total": request_failures,
             "output_success_rate": output_success_rate,
             "output_success_threshold": output_success_threshold,
             "prediction_count_check": split_count_check,
+            "figure_contract": figure_contract,
         },
         "output_by_group": output_by_group,
         "metric_rows": metrics.get("summary", []),

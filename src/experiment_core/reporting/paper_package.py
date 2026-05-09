@@ -7,6 +7,7 @@ from html import escape
 from pathlib import Path
 import json
 import math
+import os
 from statistics import mean
 from typing import Any
 
@@ -20,6 +21,15 @@ from experiment_core.matrix.matrix_specs import (
     get_experiment_matrix_spec,
 )
 from experiment_core.reporting.paper_statistics import render_paper_statistics
+from experiment_core.reporting.run_figures import (
+    append_figure_gallery_markdown,
+    build_grouped_bar_figure_spec,
+    build_interval_figure_spec,
+    build_scatter_figure_spec,
+    write_figure_bundle,
+    _render_points_csv,
+    _render_svg,
+)
 
 
 PREDICTION_FILE_CANDIDATES = (
@@ -90,24 +100,34 @@ def render_paper_package(
     package = build_paper_package_payload(state_payload, analysis, statistics)
 
     run_id = state_path.parent.name
-    figure_dir = Path(figures_root) if figures_root is not None else Path("reports") / "figures" / run_id
-    figure_dir.mkdir(parents=True, exist_ok=True)
-    figure_paths = _render_figures(package, figure_dir)
-    package["figure_paths"] = {name: path.as_posix() for name, path in figure_paths.items()}
+    figure_dir = Path(figures_root) if figures_root is not None else root / "figures"
+    figure_specs = _build_figure_specs(package)
+    figure_bundle = write_figure_bundle(root, figure_specs) if figures_root is None else _write_external_figure_bundle(root, figure_dir, figure_specs)
+    package["figure_paths"] = {
+        row["figure_id"]: row["svg_path"]
+        for row in figure_bundle["figures"]
+    }
 
     package_json = root / "paper_package.json"
     package_md = root / "paper_package.md"
     published = Path(published_path) if published_path is not None else Path("reports") / "summary" / f"{run_id}-paper_package.md"
-    markdown = render_paper_package_markdown(package)
+    markdown = append_figure_gallery_markdown(render_paper_package_markdown(package), figure_bundle["figures"], run_dir=root)
+    published_markdown = append_figure_gallery_markdown(
+        render_paper_package_markdown(package),
+        figure_bundle["figures"],
+        run_dir=root,
+        published_path=published,
+    )
     package_json.write_text(json.dumps(package, ensure_ascii=False, indent=2), encoding="utf-8")
     package_md.write_text(markdown, encoding="utf-8")
     published.parent.mkdir(parents=True, exist_ok=True)
-    published.write_text(markdown, encoding="utf-8")
+    published.write_text(published_markdown, encoding="utf-8")
     return {
         "package_json": package_json.as_posix(),
         "package_markdown": package_md.as_posix(),
         "published_path": published.as_posix(),
         "figures_root": figure_dir.as_posix(),
+        "figure_manifest": figure_bundle["figure_manifest"],
     }
 
 
@@ -395,40 +415,118 @@ def _build_helpful_harmful_breakdown(entries: list[dict[str, Any]]) -> list[dict
     return rows
 
 
-def _render_figures(package: dict[str, Any], figure_dir: Path) -> dict[str, Path]:
+def _build_figure_specs(package: dict[str, Any]) -> list[dict[str, Any]]:
     sections = package.get("sections", {})
-    figure_specs = {
-        "budget_frontier_same_context": {
-            "points": _frontier_points(sections.get("same_context_main_table", [])),
-            "renderer": _render_budget_frontier_svg,
-        },
-        "budget_frontier_split_context": {
-            "points": _frontier_points(sections.get("split_context_main_table", [])),
-            "renderer": _render_budget_frontier_svg,
-        },
-        "trigger_utility": {
-            "points": _trigger_utility_points(sections.get("same_context_main_table", [])),
-            "renderer": _render_trigger_utility_svg,
-        },
-        "stage_ceiling_gap": {
-            "points": _stage_gap_points(sections),
-            "renderer": _render_stage_gap_svg,
-        },
-        "helpful_harmful_comm": {
-            "points": _helpful_points(package.get("helpful_harmful_communication", [])),
-            "renderer": _render_helpful_harmful_svg,
-        },
+    stage_points = _stage_gap_points(sections)
+    helpful_points = _helpful_points(package.get("helpful_harmful_communication", []))
+    return [
+        build_scatter_figure_spec(
+            figure_id="budget_frontier_same_context",
+            title="Budget frontier: same-context headline methods",
+            caption="Faithful score versus token ratio relative to full communication.",
+            primary_metric="Faithful score",
+            data=_frontier_points(sections.get("same_context_main_table", [])),
+            x_label="Token ratio vs full communication",
+            y_label="Faithful score",
+            source_kind="faithful_analysis",
+            dataset_scope="same_context_overall",
+            note="Lower x is cheaper. The vertical reference line marks the full-communication baseline.",
+            reference_x=1.0,
+        ),
+        build_scatter_figure_spec(
+            figure_id="budget_frontier_split_context",
+            title="Budget frontier: split-context headline methods",
+            caption="Faithful score versus token ratio relative to full communication or matched references.",
+            primary_metric="Faithful score",
+            data=_frontier_points(sections.get("split_context_main_table", [])),
+            x_label="Token ratio vs full communication",
+            y_label="Faithful score",
+            source_kind="faithful_analysis",
+            dataset_scope="split_context_overall",
+            note="Lower x is cheaper. The vertical reference line marks the full-communication baseline.",
+            reference_x=1.0,
+        ),
+        build_scatter_figure_spec(
+            figure_id="trigger_utility",
+            title="Trigger utility",
+            caption="Utility of trigger-style methods relative to the best no-communication baseline.",
+            primary_metric="Delta vs best no-communication baseline",
+            data=_trigger_utility_points(sections.get("same_context_main_table", [])),
+            x_label="Token ratio vs full communication",
+            y_label="Delta vs best no-communication baseline",
+            source_kind="faithful_analysis",
+            dataset_scope="same_context_overall",
+            note="Positive y indicates improvement over the strongest no-communication control.",
+            reference_x=1.0,
+            reference_y=0.0,
+        ),
+        build_interval_figure_spec(
+            figure_id="stage_ceiling_gap",
+            title="Distance to stage ceiling",
+            caption="Absolute gap between faithful score and the stage ceiling across headline and supporting runs.",
+            primary_metric="Stage ceiling gap",
+            data=[
+                {
+                    "label": str(point["short_label"]),
+                    "short_label": str(point["short_label"]),
+                    "value": float(point["value"]),
+                    "low": 0.0,
+                    "high": float(point["value"]),
+                    "track": str(point.get("track") or ""),
+                }
+                for point in stage_points
+            ],
+            x_label="Gap to stage ceiling (lower is better)",
+            source_kind="faithful_analysis",
+            dataset_scope="matrix_overall",
+            note="Smaller gaps indicate less headroom between current score and the stage ceiling.",
+        ),
+        build_grouped_bar_figure_spec(
+            figure_id="helpful_harmful_comm",
+            title="Helpful versus harmful communication",
+            caption="Helpful and harmful communication rates across communication-using experiments.",
+            primary_metric="Rate over communication-using samples",
+            data=helpful_points,
+            series=[("helpful_rate", "Helpful"), ("harmful_rate", "Harmful")],
+            x_label="Rate",
+            source_kind="prediction_rows",
+            dataset_scope="matrix_overall",
+            note="Helpful and harmful rates are shown separately to avoid visual cancellation.",
+        ),
+    ]
+
+
+def _write_external_figure_bundle(run_root: Path, figure_dir: Path, figure_specs: list[dict[str, Any]]) -> dict[str, Any]:
+    figure_dir.mkdir(parents=True, exist_ok=True)
+    rows: list[dict[str, Any]] = []
+    relative_prefix = Path(os.path.relpath(figure_dir, run_root)).as_posix()
+    for spec in figure_specs:
+        figure_id = str(spec["figure_id"])
+        normalized = {
+            "figure_id": figure_id,
+            "title": str(spec["title"]),
+            "caption": str(spec["caption"]),
+            "svg_path": f"{relative_prefix}/{figure_id}.svg",
+            "csv_path": f"{relative_prefix}/{figure_id}.csv",
+            "source_kind": str(spec.get("source_kind") or ""),
+            "dataset_scope": str(spec.get("dataset_scope") or ""),
+            "primary_metric": str(spec.get("primary_metric") or ""),
+        }
+        (figure_dir / f"{figure_id}.svg").write_text(_render_svg(spec), encoding="utf-8")
+        (figure_dir / f"{figure_id}.csv").write_text(_render_points_csv(spec.get("data", [])), encoding="utf-8")
+        rows.append(normalized)
+    manifest = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "figure_count": len(rows),
+        "figures": rows,
     }
-    paths: dict[str, Path] = {}
-    for name, spec in figure_specs.items():
-        points = spec["points"]
-        path = figure_dir / f"{name}.svg"
-        path.write_text(spec["renderer"](name, points), encoding="utf-8")
-        paths[name] = path
-        data_path = figure_dir / f"{name}.csv"
-        data_path.write_text(_render_points_csv(points), encoding="utf-8")
-        paths[f"{name}_data"] = data_path
-    return paths
+    manifest_path = run_root / "figure_manifest.json"
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {
+        "figures_dir": figure_dir.as_posix(),
+        "figure_manifest": manifest_path.as_posix(),
+        "figures": rows,
+    }
 
 
 def _frontier_points(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

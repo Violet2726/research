@@ -57,7 +57,7 @@ from single_agent.config import (
     required_model_tags,
 )
 from single_agent.prompting import build_messages
-from single_agent.reporting import export_paper_tables, summarize_run
+from single_agent.reporting import export_paper_tables, render_report, summarize_run
 from single_agent.validation import validate_run
 
 
@@ -71,6 +71,7 @@ class RunPaths:
     predictions: Path
     metrics: Path
     run_summary: Path
+    report_markdown: Path
     paper_tables: Path
     run_validation: Path
     progress: Path
@@ -229,6 +230,7 @@ def run_experiment(
         json.dumps(summarize_run(run_paths.root), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    render_report(run_paths.root)
     export_paper_tables(run_paths.root, run_paths.paper_tables)
     run_paths.run_validation.write_text(
         json.dumps(validate_run(run_paths.root), ensure_ascii=False, indent=2),
@@ -563,6 +565,7 @@ def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: s
         predictions=root / "predictions.jsonl",
         metrics=root / "metrics.json",
         run_summary=root / "run_summary.json",
+        report_markdown=root / "report.md",
         paper_tables=root / "paper_tables.md",
         run_validation=root / "run_validation.json",
         progress=root / "progress.json",

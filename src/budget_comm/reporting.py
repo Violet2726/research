@@ -17,6 +17,15 @@ from typing import Any
 from budget_comm.logic import METHOD_ORDER
 from experiment_core.reporting.analysis_reports import render_frontier_report, write_report
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
+from experiment_core.reporting.run_figures import (
+    append_figure_gallery_markdown,
+    build_efficiency_rank_figure_spec,
+    build_frontier_figure_spec,
+    build_grouped_bar_figure_spec,
+    build_scatter_figure_spec,
+    build_score_by_dataset_figure_spec,
+    write_figure_bundle,
+)
 from experiment_core.foundation.workspace import default_reports_root
 
 
@@ -46,20 +55,108 @@ def render_report(
     metrics = _load_json(root / "metrics.json")
     diagnostics = _load_json(root / "budget_diagnostics.json")
     predictions = _load_jsonl(root / "final_predictions.jsonl")
-    markdown = _render_markdown(manifest, metrics, diagnostics, predictions, root)
+    figure_bundle = write_figure_bundle(root, _build_figure_specs(metrics))
+    base_markdown = _render_markdown(manifest, metrics, diagnostics, predictions, root)
+    markdown = append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root)
     local_report_path = root / "report.md"
     local_report_path.write_text(markdown, encoding="utf-8")
     write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="Budget Communication Frontier"))
 
     publish_path = Path(publish_dir) / _published_report_name(manifest)
     publish_path.parent.mkdir(parents=True, exist_ok=True)
-    publish_path.write_text(markdown, encoding="utf-8")
+    publish_path.write_text(
+        append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root, published_path=publish_path),
+        encoding="utf-8",
+    )
     return {
         "run_dir": str(root),
         "local_report": str(local_report_path),
         "published_report": str(publish_path),
         "frontier_report": str(root / "frontier_report.md"),
+        "figure_manifest": str(root / "figure_manifest.json"),
     }
+
+
+def _build_figure_specs(metrics: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = metrics.get("summary", [])
+    overall_rows = [row for row in rows if row.get("dataset") == "overall"]
+    return [
+        build_frontier_figure_spec(
+            rows,
+            title="Budget communication frontier",
+            caption="Overall accuracy versus average total tokens across budget-aware methods.",
+            score_field="accuracy_mean",
+            primary_metric="Accuracy",
+        ),
+        build_efficiency_rank_figure_spec(
+            rows,
+            title="Budget communication efficiency ranking",
+            caption="Overall efficiency ranking measured by accuracy per 1K tokens.",
+            efficiency_field="acc_per_1k_tokens",
+            primary_metric="Accuracy per 1K tokens",
+        ),
+        build_score_by_dataset_figure_spec(
+            rows,
+            title="Budget communication score by dataset",
+            caption="Per-dataset accuracy map across budget-aware methods.",
+            score_field="accuracy_mean",
+            primary_metric="Accuracy",
+        ),
+        build_grouped_bar_figure_spec(
+            figure_id="packet_mode_mix",
+            title="Packet mode mix",
+            caption="Average packet selection ratios across the overall summary rows.",
+            primary_metric="Average selection ratio",
+            data=[
+                {
+                    "label": _method_label(row),
+                    "short_label": _method_label(row),
+                    "full_ratio_mean": float(row.get("full_ratio_mean") or 0.0),
+                    "summary_ratio_mean": float(row.get("summary_ratio_mean") or 0.0),
+                    "keywords_ratio_mean": float(row.get("keywords_ratio_mean") or 0.0),
+                    "silence_ratio_mean": float(row.get("silence_ratio_mean") or 0.0),
+                }
+                for row in overall_rows
+            ],
+            series=[
+                ("full_ratio_mean", "Full"),
+                ("summary_ratio_mean", "Summary"),
+                ("keywords_ratio_mean", "Keywords"),
+                ("silence_ratio_mean", "Silence"),
+            ],
+            x_label="Average ratio",
+            source_kind="metrics.summary",
+            dataset_scope="overall",
+            note="Ratios sum to one for packet-selecting methods and expose how communication budget is allocated.",
+        ),
+        build_scatter_figure_spec(
+            figure_id="budget_utilization_tradeoff",
+            title="Budget utilization tradeoff",
+            caption="Overall accuracy as a function of average budget utilization.",
+            primary_metric="Accuracy",
+            data=[
+                {
+                    "label": _method_label(row),
+                    "short_label": _method_label(row),
+                    "x": float(row.get("budget_utilization_mean") or 0.0),
+                    "y": float(row.get("accuracy_mean") or 0.0),
+                    "value": float(row.get("accuracy_mean") or 0.0),
+                }
+                for row in overall_rows
+                if row.get("budget_utilization_mean") is not None
+            ],
+            x_label="Average budget utilization",
+            y_label="Accuracy",
+            source_kind="metrics.summary",
+            dataset_scope="overall",
+            note="The vertical reference line marks full use of the communication budget.",
+            reference_x=1.0,
+        ),
+    ]
+
+
+def _method_label(row: dict[str, Any]) -> str:
+    return str(row.get("display_name") or row.get("method_name") or "unknown")
 
 
 def _render_markdown(

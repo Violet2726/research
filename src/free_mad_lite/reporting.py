@@ -18,6 +18,14 @@ from typing import Any
 from free_mad_lite.logic import METHOD_ORDER
 from experiment_core.reporting.analysis_reports import render_frontier_report, write_report
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
+from experiment_core.reporting.run_figures import (
+    append_figure_gallery_markdown,
+    build_efficiency_rank_figure_spec,
+    build_frontier_figure_spec,
+    build_grouped_bar_figure_spec,
+    build_score_by_dataset_figure_spec,
+    write_figure_bundle,
+)
 from experiment_core.foundation.workspace import default_reports_root
 
 
@@ -44,19 +52,100 @@ def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) ->
     metrics = _load_json(root / "metrics.json")
     diagnostics = _load_json(root / "diagnostics.json")
     predictions = _load_jsonl(root / "final_predictions.jsonl")
-    markdown = _render_markdown(manifest, metrics, diagnostics, predictions, root)
+    figure_bundle = write_figure_bundle(root, _build_figure_specs(metrics))
+    base_markdown = _render_markdown(manifest, metrics, diagnostics, predictions, root)
+    markdown = append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root)
     local_report = root / "report.md"
     local_report.write_text(markdown, encoding="utf-8")
     write_report(root / "frontier_report.md", render_frontier_report(metrics.get("summary", []), title="Free-MAD-lite Frontier"))
     publish_path = Path(publish_dir) / _published_report_name(manifest)
     publish_path.parent.mkdir(parents=True, exist_ok=True)
-    publish_path.write_text(markdown, encoding="utf-8")
+    publish_path.write_text(
+        append_figure_gallery_markdown(base_markdown, figure_bundle["figures"], run_dir=root, published_path=publish_path),
+        encoding="utf-8",
+    )
     return {
         "run_dir": str(root),
         "local_report": str(local_report),
         "published_report": str(publish_path),
         "frontier_report": str(root / "frontier_report.md"),
+        "figure_manifest": str(root / "figure_manifest.json"),
     }
+
+
+def _build_figure_specs(metrics: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = metrics.get("summary", [])
+    overall_rows = [row for row in rows if row.get("dataset") == "overall"]
+    return [
+        build_frontier_figure_spec(
+            rows,
+            title="Free-MAD-lite frontier",
+            caption="Overall accuracy versus average total tokens across Free-MAD-lite variants.",
+            score_field="accuracy_mean",
+            primary_metric="Accuracy",
+            method_label_field="method_name",
+        ),
+        build_efficiency_rank_figure_spec(
+            rows,
+            title="Free-MAD-lite efficiency ranking",
+            caption="Overall efficiency ranking measured by accuracy per 1K tokens.",
+            efficiency_field="acc_per_1k_tokens",
+            primary_metric="Accuracy per 1K tokens",
+            method_label_field="method_name",
+        ),
+        build_score_by_dataset_figure_spec(
+            rows,
+            title="Free-MAD-lite score by dataset",
+            caption="Per-dataset accuracy map across Free-MAD-lite variants.",
+            score_field="accuracy_mean",
+            primary_metric="Accuracy",
+            method_label_field="method_name",
+        ),
+        build_grouped_bar_figure_spec(
+            figure_id="trajectory_score_panel",
+            title="Trajectory score panel",
+            caption="Overall change, correction, and harm rates across trajectory-selection variants.",
+            primary_metric="Rate",
+            data=[
+                {
+                    "label": str(row.get("method_name") or "unknown"),
+                    "short_label": str(row.get("method_name") or "unknown"),
+                    "changed_answer_rate": float(row.get("changed_answer_rate") or 0.0),
+                    "corrected_rate": (float(row.get("corrected_count") or 0.0) / float(row.get("question_count") or 1.0)),
+                    "harmed_rate": (float(row.get("harmed_count") or 0.0) / float(row.get("question_count") or 1.0)),
+                }
+                for row in overall_rows
+            ],
+            series=[
+                ("changed_answer_rate", "Changed answer"),
+                ("corrected_rate", "Corrected"),
+                ("harmed_rate", "Harmed"),
+            ],
+            x_label="Rate",
+            source_kind="metrics.summary",
+            dataset_scope="overall",
+            note="Correction and harm are normalized by question count to keep all series on the same rate scale.",
+        ),
+        build_grouped_bar_figure_spec(
+            figure_id="judge_fallback_summary",
+            title="Judge fallback summary",
+            caption="Overall judge fallback rate across Free-MAD-lite variants.",
+            primary_metric="Judge fallback rate",
+            data=[
+                {
+                    "label": str(row.get("method_name") or "unknown"),
+                    "short_label": str(row.get("method_name") or "unknown"),
+                    "judge_fallback_rate": float(row.get("judge_fallback_rate") or 0.0),
+                }
+                for row in overall_rows
+            ],
+            series=[("judge_fallback_rate", "Judge fallback rate")],
+            x_label="Rate",
+            source_kind="metrics.summary",
+            dataset_scope="overall",
+            note="Lower fallback rates indicate more stable trajectory judging without retreating to the baseline vote.",
+        ),
+    ]
 
 
 def _render_markdown(
