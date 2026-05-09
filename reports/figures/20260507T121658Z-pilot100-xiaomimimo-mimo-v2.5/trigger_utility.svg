@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="360" viewBox="0 0 900 360">
-<rect width="100%" height="100%" fill="#ffffff"/>
-<text x="48" y="28" font-size="18" font-family="Arial" fill="#111827">trigger_utility</text>
-<line x1="48" y1="266.48" x2="852" y2="266.48" stroke="#9ca3af" stroke-width="1"/>
-<rect x="124.50" y="266.48" width="249" height="45.52" fill="#dc2626" opacity="0.86"/>
-<text x="124.50" y="344" font-size="10" font-family="Arial" transform="rotate(-35 124.50,344)">trigger_early_exit_v1</text>
-<rect x="526.50" y="48.00" width="249" height="218.48" fill="#2563eb" opacity="0.86"/>
-<text x="526.50" y="344" font-size="10" font-family="Arial" transform="rotate(-35 526.50,344)">trigger_voc_v2</text>
-</svg>
