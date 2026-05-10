@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import json
 import shutil
 import tempfile
@@ -28,12 +28,13 @@ def push_latest_cache_snapshot(
     token: str | None = None,
     create_repo: bool = True,
     private: bool = True,
+    shard_filters: list[str] | None = None,
 ) -> dict[str, Any]:
     """压缩当前 cache 根目录并发布到 HF dataset repo。"""
     root = Path(cache_root)
     with tempfile.TemporaryDirectory(prefix="research-cache-publish-") as temp_dir:
         staging_root = Path(temp_dir)
-        summary = build_cache_snapshot(root, staging_root=staging_root)
+        summary = build_cache_snapshot(root, staging_root=staging_root, shard_filters=shard_filters)
         api = HfApi(token=token)
         if create_repo:
             api.create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
@@ -42,7 +43,7 @@ def push_latest_cache_snapshot(
             repo_type="dataset",
             folder_path=staging_root.as_posix(),
             path_in_repo="",
-            commit_message=f"更新 cache 快照 {summary['generated_at']}",
+            commit_message=_build_cache_snapshot_commit_message(summary),
         )
     return {
         **summary,
@@ -59,6 +60,7 @@ def push_cache_snapshot_if_configured(
     token: str | None = None,
     create_repo: bool = True,
     private: bool = True,
+    shard_filters: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """按环境约定推送 cache 最新快照；未启用时返回 `None`。"""
     if not auto_push_cache_snapshot_enabled():
@@ -73,6 +75,7 @@ def push_cache_snapshot_if_configured(
         token=token,
         create_repo=create_repo,
         private=private,
+        shard_filters=shard_filters,
     )
 
 
@@ -81,6 +84,7 @@ def pull_latest_cache_snapshot(
     *,
     repo_id: str,
     token: str | None = None,
+    shard_filters: list[str] | None = None,
 ) -> dict[str, Any]:
     """从 HF dataset repo 拉取最新 cache 快照，并恢复 sqlite 分库。"""
     destination = Path(target_root)
@@ -92,7 +96,7 @@ def pull_latest_cache_snapshot(
             local_dir=temp_root,
             token=token,
         )
-        restored_shards = restore_cache_snapshot(temp_root, destination)
+        restored_shards = restore_cache_snapshot(temp_root, destination, shard_filters=shard_filters)
     return {
         "target_root": destination.as_posix(),
         "remote_repo": repo_id,
@@ -101,11 +105,17 @@ def pull_latest_cache_snapshot(
     }
 
 
-def build_cache_snapshot(cache_root: str | Path, *, staging_root: str | Path) -> dict[str, Any]:
+def build_cache_snapshot(
+    cache_root: str | Path,
+    *,
+    staging_root: str | Path,
+    shard_filters: list[str] | None = None,
+) -> dict[str, Any]:
     """把 cache 根目录压缩成适合远程同步的最新快照目录。"""
     root = Path(cache_root)
     stage = Path(staging_root)
     stage.mkdir(parents=True, exist_ok=True)
+    normalized_filters = _normalize_shard_filters(shard_filters, base_root=root)
     shards_payload: list[dict[str, Any]] = []
     total_original_size = 0
     total_compressed_size = 0
@@ -115,6 +125,8 @@ def build_cache_snapshot(cache_root: str | Path, *, staging_root: str | Path) ->
             continue
         source_path = shard.shard_path
         relative_dir = source_path.parent.relative_to(root).as_posix()
+        if normalized_filters and not _matches_shard_filter(relative_dir, normalized_filters):
+            continue
         target_dir = stage / relative_dir
         target_dir.mkdir(parents=True, exist_ok=True)
         compressed_path = target_dir / "requests.sqlite.zst"
@@ -166,16 +178,24 @@ def build_cache_snapshot(cache_root: str | Path, *, staging_root: str | Path) ->
     return payload
 
 
-def restore_cache_snapshot(snapshot_root: str | Path, target_root: str | Path) -> tuple[str, ...]:
+def restore_cache_snapshot(
+    snapshot_root: str | Path,
+    target_root: str | Path,
+    *,
+    shard_filters: list[str] | None = None,
+) -> tuple[str, ...]:
     """从本地快照目录恢复 requests.sqlite 分库。"""
     source = Path(snapshot_root)
     destination = Path(target_root)
     manifest = _load_json(source / CACHE_SNAPSHOT_MANIFEST)
+    normalized_filters = _normalize_shard_filters(shard_filters)
     restored_shards: list[str] = []
     for row in manifest.get("shards", []):
         if not isinstance(row, dict):
             continue
         relative_dir = str(row.get("relative_dir") or "")
+        if normalized_filters and not _matches_shard_filter(relative_dir, normalized_filters):
+            continue
         compressed_name = str(row.get("compressed_name") or "")
         compressed_path = source / relative_dir / compressed_name
         target_sqlite = destination / relative_dir / "requests.sqlite"
@@ -203,3 +223,51 @@ def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _build_cache_snapshot_commit_message(summary: dict[str, Any]) -> str:
+    shard_count = int(summary.get("shard_count") or 0)
+    original_size = _format_mib(float(summary.get("total_original_size_bytes") or 0.0))
+    compressed_size = _format_mib(float(summary.get("total_compressed_size_bytes") or 0.0))
+    generated_at = str(summary.get("generated_at") or "")
+    return f"更新 cache 快照 | {shard_count} shards | {original_size} -> {compressed_size} | {generated_at}"
+
+
+def _format_mib(size_bytes: float) -> str:
+    return f"{size_bytes / (1024 * 1024):.2f} MiB"
+
+
+def _normalize_shard_filters(
+    shard_filters: list[str] | None,
+    *,
+    base_root: Path | None = None,
+) -> tuple[str, ...]:
+    if not shard_filters:
+        return ()
+    normalized: list[str] = []
+    for item in shard_filters:
+        value = str(item).strip()
+        if not value:
+            continue
+        candidate = Path(value)
+        if base_root is not None and candidate.is_absolute():
+            relative = candidate.resolve().relative_to(base_root.resolve()).as_posix()
+        elif base_root is not None and (base_root / candidate).exists():
+            relative = (base_root / candidate).resolve().relative_to(base_root.resolve()).as_posix()
+        else:
+            relative = PurePosixPath(value.replace("\\", "/")).as_posix().lstrip("./")
+        if relative.endswith("/requests.sqlite"):
+            relative = relative[: -len("/requests.sqlite")]
+        if relative.endswith("/requests.sqlite.zst"):
+            relative = relative[: -len("/requests.sqlite.zst")]
+        normalized_path = PurePosixPath(relative).as_posix().strip("/")
+        if not normalized_path:
+            continue
+        if ".." in PurePosixPath(normalized_path).parts:
+            raise ValueError(f"cache shard filter must stay within cache root: {item}")
+        normalized.append(normalized_path)
+    return tuple(sorted(dict.fromkeys(normalized)))
+
+
+def _matches_shard_filter(relative_dir: str, normalized_filters: tuple[str, ...]) -> bool:
+    return any(relative_dir == item or relative_dir.startswith(f"{item}/") for item in normalized_filters)

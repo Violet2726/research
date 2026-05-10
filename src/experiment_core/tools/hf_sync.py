@@ -19,6 +19,8 @@ def build_parser() -> argparse.ArgumentParser:
     push_workspace = subparsers.add_parser("push-workspace", help="批量推送本地 runs 与 cache。")
     push_workspace.add_argument("--runs-root", default=workspace_layout().runs_root.as_posix())
     push_workspace.add_argument("--cache-root", default=default_cache_root())
+    push_workspace.add_argument("--run-dir", action="append", default=[], help="仅推送某个或某些本地 run 目录，可重复传入。")
+    push_workspace.add_argument("--cache-shard", action="append", default=[], help="仅推送某个或某些 cache 分库目录，可重复传入。")
     push_workspace.add_argument("--runs-repo")
     push_workspace.add_argument("--cache-repo")
     push_workspace.add_argument("--token")
@@ -33,12 +35,14 @@ def build_parser() -> argparse.ArgumentParser:
     pull_workspace = subparsers.add_parser("pull-workspace", help="批量回拉远端 runs 与 cache。")
     pull_workspace.add_argument("--runs-root", default=workspace_layout().runs_root.as_posix())
     pull_workspace.add_argument("--cache-root", default=default_cache_root())
+    pull_workspace.add_argument("--run-id", action="append", default=[], help="仅回拉某个或某些 run_id，可重复传入。")
+    pull_workspace.add_argument("--run-prefix", action="append", default=[], help="仅回拉某个或某些远端 run 目录前缀，可重复传入。")
+    pull_workspace.add_argument("--cache-shard", action="append", default=[], help="仅回拉某个或某些 cache 分库目录，可重复传入。")
     pull_workspace.add_argument("--runs-repo")
     pull_workspace.add_argument("--cache-repo")
     pull_workspace.add_argument("--token")
     pull_workspace.add_argument("--skip-runs", action="store_true")
     pull_workspace.add_argument("--skip-cache", action="store_true")
-    pull_workspace.add_argument("--include", choices=["traces", "predictions", "all"], default="all")
     pull_workspace.add_argument("--keep-existing-runs", action="store_true")
     pull_workspace.add_argument("--json", action="store_true")
 
@@ -70,6 +74,8 @@ def main() -> None:
             push_cache=not args.skip_cache,
             include_matrix=not args.no_matrix,
             force_runs=args.force_runs,
+            selected_run_dirs=args.run_dir,
+            cache_shard_filters=args.cache_shard,
             private_cache_repo=not args.public_cache,
             continue_on_error=not args.stop_on_error,
         )
@@ -82,8 +88,10 @@ def main() -> None:
             token=args.token,
             fetch_runs=not args.skip_runs,
             pull_cache=not args.skip_cache,
-            extract_mode=args.include,
             overwrite_runs=not args.keep_existing_runs,
+            selected_run_ids=args.run_id,
+            selected_run_prefixes=args.run_prefix,
+            cache_shard_filters=args.cache_shard,
         )
     elif args.command == "status":
         payload = collect_hf_sync_status(

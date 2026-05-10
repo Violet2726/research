@@ -163,7 +163,7 @@ def publish_run_to_hub(
             repo_type="dataset",
             folder_path=staging_root.as_posix(),
             path_in_repo=str(summary["remote_prefix"]),
-            commit_message=f"发布 run {manifest_payload.get('run_id') or root.name}",
+            commit_message=_build_run_publish_commit_message(str(summary["remote_prefix"])),
         )
 
     return {
@@ -204,51 +204,49 @@ def publish_run_if_configured(
 
 
 def fetch_run_from_hub(
-    run_id: str,
+    run_id: str | None = None,
     *,
     repo_id: str,
-    include: str = "all",
+    remote_prefix: str | None = None,
     token: str | None = None,
     target_root: str | Path | None = None,
 ) -> dict[str, Any]:
-    """从 HF dataset repo 拉取单个 run，并按需解压归档包。"""
-    normalized_include = include.strip().lower()
-    if normalized_include not in {"traces", "predictions", "all"}:
-        raise ValueError(f"Unsupported include mode: {include}")
+    """从 HF dataset repo 拉取单个 run，并直接完成归档解压。"""
+    if bool(run_id) == bool(remote_prefix):
+        raise ValueError("Please provide exactly one of run_id or remote_prefix.")
 
     api = HfApi(token=token)
-    remote_prefix = _discover_remote_prefix(api, repo_id=repo_id, run_id=run_id)
+    resolved_remote_prefix = (
+        _normalize_remote_prefix(remote_prefix)
+        if remote_prefix is not None
+        else _discover_remote_prefix(api, repo_id=repo_id, run_id=str(run_id))
+    )
     target_base = Path(target_root) if target_root is not None else workspace_layout().runs_root
-    target_run_root = target_base / remote_prefix
+    target_run_root = target_base / resolved_remote_prefix
     if target_run_root.exists():
         shutil.rmtree(target_run_root)
     target_run_root.parent.mkdir(parents=True, exist_ok=True)
     snapshot_download(
         repo_id=repo_id,
         repo_type="dataset",
-        allow_patterns=[f"{remote_prefix}/**"],
+        allow_patterns=[f"{resolved_remote_prefix}/**"],
         local_dir=target_base,
         token=token,
     )
 
-    extracted_members = extract_selected_archives(target_run_root, include=normalized_include)
+    extracted_members = extract_run_archives(target_run_root)
     return {
-        "run_id": run_id,
+        "run_id": run_id or PurePosixPath(resolved_remote_prefix).name,
         "remote_repo": repo_id,
-        "remote_prefix": remote_prefix,
+        "remote_prefix": resolved_remote_prefix,
         "target_run_root": target_run_root.as_posix(),
-        "include": normalized_include,
         "extracted_member_count": len(extracted_members),
         "extracted_members": list(extracted_members),
     }
 
 
-def extract_selected_archives(
-    run_dir: str | Path,
-    *,
-    include: str = "all",
-) -> tuple[str, ...]:
-    """在本地 run 目录中按归档分组解压重型文件。"""
+def extract_run_archives(run_dir: str | Path) -> tuple[str, ...]:
+    """在本地 run 目录中解压全部归档包。"""
     root = Path(run_dir)
     payload = _load_json(root / ARCHIVE_MANIFEST_FILENAME)
     archives = payload.get("archives", []) if isinstance(payload, dict) else []
@@ -256,11 +254,6 @@ def extract_selected_archives(
     extracted: list[str] = []
     for row in archives:
         if not isinstance(row, dict):
-            continue
-        group_kind = str(row.get("group_kind") or "")
-        if include == "traces" and group_kind not in {"traces", "artifacts"}:
-            continue
-        if include == "predictions" and group_kind not in {"predictions", "artifacts"}:
             continue
         archive_path = root / str(row.get("archive_path") or "")
         if not archive_path.exists():
@@ -388,6 +381,13 @@ def _discover_remote_prefix(api: HfApi, *, repo_id: str, run_id: str) -> str:
     return unique[0]
 
 
+def _normalize_remote_prefix(value: str) -> str:
+    normalized = PurePosixPath(value.replace("\\", "/")).as_posix().strip("/")
+    if not normalized:
+        raise ValueError("remote_prefix must not be empty.")
+    return normalized
+
+
 def _list_run_files(root: Path) -> list[str]:
     return sorted(
         path.relative_to(root).as_posix()
@@ -414,6 +414,19 @@ def _infer_remote_prefix(run_root: Path, runs_root: str | Path | None) -> str:
         except ValueError:
             continue
     return run_root.name
+
+
+def _build_run_publish_commit_message(remote_prefix: str) -> str:
+    normalized_parts = [part for part in PurePosixPath(remote_prefix).parts if part]
+    if len(normalized_parts) >= 4:
+        family, experiment, phase, run_id = normalized_parts[:4]
+        return f"发布 run [{family}] {experiment} | {phase} | {run_id}"
+    if len(normalized_parts) == 2:
+        family, run_id = normalized_parts
+        return f"发布 run [{family}] {run_id}"
+    if normalized_parts:
+        return f"发布 run {' / '.join(normalized_parts)}"
+    return "发布 run"
 
 
 def _load_json(path: Path) -> dict[str, Any]:

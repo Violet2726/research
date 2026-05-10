@@ -262,53 +262,6 @@ def test_cache_inspector_summarize_cli(tmp_path) -> None:
     assert payload["providers"][0]["dataset_count"] == 1
 
 
-def test_archive_runs_pack_run_cli(tmp_path) -> None:
-    (tmp_path / "manifest.json").write_text(json.dumps({"run_id": "test-run"}, ensure_ascii=False, indent=2), encoding="utf-8")
-    (tmp_path / "metrics.json").write_text(json.dumps({"summary": []}, ensure_ascii=False, indent=2), encoding="utf-8")
-    (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
-    (tmp_path / "raw_responses.jsonl").write_text("{}\n", encoding="utf-8")
-    (tmp_path / "predictions.jsonl").write_text("{}\n", encoding="utf-8")
-    figures_dir = tmp_path / "figures"
-    figures_dir.mkdir()
-    (figures_dir / "frontier_overall.svg").write_text("<svg/>\n", encoding="utf-8")
-    (figures_dir / "frontier_overall.csv").write_text("label,value\nx,1\n", encoding="utf-8")
-    (tmp_path / "figure_manifest.json").write_text(
-        json.dumps(
-            {
-                "generated_at": "2026-01-01T00:00:00+00:00",
-                "figure_count": 1,
-                "figures": [
-                    {
-                        "figure_id": "frontier_overall",
-                        "title": "Frontier",
-                        "caption": "test figure",
-                        "svg_path": "figures/frontier_overall.svg",
-                        "csv_path": "figures/frontier_overall.csv",
-                        "source_kind": "test",
-                        "dataset_scope": "overall",
-                        "primary_metric": "Accuracy",
-                    }
-                ],
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    payload = _run_cli(
-        archive_runs_main,
-        [
-            "archive_runs_cli",
-            "pack-run",
-            "--run-root",
-            str(tmp_path),
-            "--json",
-        ],
-    )
-    assert payload["archive_count"] == 2
-    assert Path(payload["archive_manifest"]).exists()
-
-
 def test_archive_runs_publish_uses_repo_env(monkeypatch, tmp_path) -> None:
     (tmp_path / "manifest.json").write_text(json.dumps({"run_id": "test-run"}, ensure_ascii=False, indent=2), encoding="utf-8")
     monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
@@ -337,15 +290,46 @@ def test_archive_runs_publish_uses_repo_env(monkeypatch, tmp_path) -> None:
     assert payload["published"] is True
 
 
+def test_archive_runs_fetch_accepts_run_prefix(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
+    monkeypatch.setattr(
+        "experiment_core.tools.archive_runs.fetch_run_from_hub",
+        lambda run_id, repo_id, remote_prefix, token, target_root: {
+            "run_id": run_id,
+            "remote_repo": repo_id,
+            "remote_prefix": remote_prefix,
+            "target_root": str(target_root),
+        },
+    )
+
+    payload = _run_cli(
+        archive_runs_main,
+        [
+            "archive_runs_cli",
+            "fetch-run",
+            "--run-prefix",
+            "single_agent/demo/smoke20/20260510T000000Z-model",
+            "--target-root",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    assert payload["remote_repo"] == "owner/research-runs"
+    assert payload["remote_prefix"] == "single_agent/demo/smoke20/20260510T000000Z-model"
+    assert payload["run_id"] is None
+
+
 def test_cache_archive_push_uses_repo_env(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
     monkeypatch.setattr(
         "experiment_core.tools.cache_archive.push_latest_cache_snapshot",
-        lambda cache_root, repo_id, token, create_repo, private: {
+        lambda cache_root, repo_id, token, create_repo, private, shard_filters=None: {
             "cache_root": str(cache_root),
             "remote_repo": repo_id,
             "published": True,
             "private_repo": private,
+            "shard_filters": shard_filters or [],
         },
     )
 
@@ -364,6 +348,34 @@ def test_cache_archive_push_uses_repo_env(monkeypatch, tmp_path) -> None:
     assert payload["private_repo"] is True
 
 
+def test_cache_archive_pull_accepts_cache_shard(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
+    monkeypatch.setattr(
+        "experiment_core.tools.cache_archive.pull_latest_cache_snapshot",
+        lambda target, repo_id, token, shard_filters=None: {
+            "target_root": str(target),
+            "remote_repo": repo_id,
+            "shard_filters": shard_filters or [],
+        },
+    )
+
+    payload = _run_cli(
+        cache_archive_main,
+        [
+            "cache_archive_cli",
+            "pull-latest",
+            "--target",
+            str(tmp_path),
+            "--cache-shard",
+            "providers/xiaomimimo/mimo-v2-5/strategyqa",
+            "--json",
+        ],
+    )
+
+    assert payload["remote_repo"] == "owner/research-cache"
+    assert payload["shard_filters"] == ["providers/xiaomimimo/mimo-v2-5/strategyqa"]
+
+
 def test_hf_sync_push_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
     monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
@@ -374,6 +386,8 @@ def test_hf_sync_push_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
             "cache_repo": kwargs["cache_repo_id"],
             "publish_runs": kwargs["publish_runs"],
             "push_cache": kwargs["push_cache"],
+            "selected_run_dirs": kwargs["selected_run_dirs"],
+            "cache_shard_filters": kwargs["cache_shard_filters"],
         },
     )
 
@@ -386,6 +400,10 @@ def test_hf_sync_push_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
             str(tmp_path / "runs"),
             "--cache-root",
             str(tmp_path / "cache"),
+            "--run-dir",
+            str(tmp_path / "runs" / "single_agent" / "demo"),
+            "--cache-shard",
+            "providers/xiaomimimo/mimo-v2-5/strategyqa",
             "--json",
         ],
     )
@@ -394,6 +412,8 @@ def test_hf_sync_push_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
     assert payload["cache_repo"] == "owner/research-cache"
     assert payload["publish_runs"] is True
     assert payload["push_cache"] is True
+    assert payload["selected_run_dirs"] == [str(tmp_path / "runs" / "single_agent" / "demo")]
+    assert payload["cache_shard_filters"] == ["providers/xiaomimimo/mimo-v2-5/strategyqa"]
 
 
 def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
@@ -406,6 +426,9 @@ def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
             "cache_repo": kwargs["cache_repo_id"],
             "fetch_runs": kwargs["fetch_runs"],
             "pull_cache": kwargs["pull_cache"],
+            "selected_run_ids": kwargs["selected_run_ids"],
+            "selected_run_prefixes": kwargs["selected_run_prefixes"],
+            "cache_shard_filters": kwargs["cache_shard_filters"],
         },
     )
 
@@ -418,6 +441,12 @@ def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
             str(tmp_path / "runs"),
             "--cache-root",
             str(tmp_path / "cache"),
+            "--run-id",
+            "20260510T000000Z-model",
+            "--run-prefix",
+            "single_agent/demo/smoke20/20260510T000000Z-model",
+            "--cache-shard",
+            "providers/xiaomimimo/mimo-v2-5/strategyqa",
             "--json",
         ],
     )
@@ -426,4 +455,7 @@ def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
     assert payload["cache_repo"] == "owner/research-cache"
     assert payload["fetch_runs"] is True
     assert payload["pull_cache"] is True
+    assert payload["selected_run_ids"] == ["20260510T000000Z-model"]
+    assert payload["selected_run_prefixes"] == ["single_agent/demo/smoke20/20260510T000000Z-model"]
+    assert payload["cache_shard_filters"] == ["providers/xiaomimimo/mimo-v2-5/strategyqa"]
 

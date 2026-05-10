@@ -2,6 +2,7 @@
 
 项目采用两套不同的远程治理语义：
 
+- 完整操作索引见：[huggingface_operations.md](/d:/user/research/docs/huggingface_operations.md)。
 - `runs`：公开 Hugging Face dataset repo，强调正式科研档案与在线浏览
 - `cache`：latest-only 快照，强调可替换加速资产，不和 `runs` 混仓
 
@@ -36,13 +37,14 @@
 常用命令：
 
 ```powershell
-uv run archive_runs_cli pack-run --run-root local/runs/<family>/<experiment>/<phase>/<run_id>
 uv run archive_runs_cli publish-run --run-root local/runs/<family>/<experiment>/<phase>/<run_id>
-uv run archive_runs_cli fetch-run --run-id <run_id> --include all
+uv run archive_runs_cli fetch-run --run-id <run_id>
 ```
 
 说明：
 
+- `publish-run` 会在推送前自动完成打包，不需要单独执行打包命令
+- `fetch-run` 会在拉取后自动完成归档解压，不需要单独执行解压命令
 - 若 `RESEARCH_RUNS_HF_REPO` 已配置，`publish-run` 可省略 `--repo`
 - 若 `RESEARCH_AUTO_PUBLISH_RUNS=1` 已配置，family 级 run 完成后会自动发布
 
@@ -68,7 +70,7 @@ uv run cache_archive_cli pull-latest --target local/cache
 ```powershell
 uv run hf_sync_cli status
 uv run hf_sync_cli push-workspace
-uv run hf_sync_cli pull-workspace --include all
+uv run hf_sync_cli pull-workspace
 ```
 
 说明：

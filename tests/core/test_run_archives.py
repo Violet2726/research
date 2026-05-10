@@ -7,7 +7,8 @@ import json
 import shutil
 
 from experiment_core.foundation.run_archives import (
-    extract_selected_archives,
+    _build_run_publish_commit_message,
+    extract_run_archives,
     pack_run_artifacts,
     validate_archive_contract,
 )
@@ -33,7 +34,7 @@ def test_pack_run_artifacts_creates_split_archives(tmp_path: Path) -> None:
     assert manifest["artifacts_packaged"] is True
 
 
-def test_extract_selected_archives_restores_removed_files(tmp_path: Path) -> None:
+def test_extract_run_archives_restores_removed_files(tmp_path: Path) -> None:
     _seed_run_dir(tmp_path)
     pack_run_artifacts(tmp_path, runs_root=tmp_path.parent)
 
@@ -41,7 +42,7 @@ def test_extract_selected_archives_restores_removed_files(tmp_path: Path) -> Non
     (tmp_path / "final_predictions.jsonl").unlink()
     shutil.rmtree(tmp_path / "hotpot_predictions")
 
-    restored = extract_selected_archives(tmp_path, include="all")
+    restored = extract_run_archives(tmp_path)
 
     assert "raw_responses.jsonl" in restored
     assert "final_predictions.jsonl" in restored
@@ -49,6 +50,19 @@ def test_extract_selected_archives_restores_removed_files(tmp_path: Path) -> Non
     assert (tmp_path / "raw_responses.jsonl").exists()
     assert (tmp_path / "final_predictions.jsonl").exists()
     assert (tmp_path / "hotpot_predictions" / "method_a.json").exists()
+
+
+def test_build_run_publish_commit_message_is_human_readable() -> None:
+    message = _build_run_publish_commit_message(
+        "comm_necessary/hotpotqa_split_context_communication_necessity/confirmatory300/20260510T045655Z-xiaomimimo-mimo-v2.5"
+    )
+    assert (
+        message
+        == "发布 run [comm_necessary] hotpotqa_split_context_communication_necessity | confirmatory300 | 20260510T045655Z-xiaomimimo-mimo-v2.5"
+    )
+
+    matrix_message = _build_run_publish_commit_message("faithful_matrix/20260510T045449Z-smoke20-xiaomimimo-mimo-v2.5")
+    assert matrix_message == "发布 run [faithful_matrix] 20260510T045449Z-smoke20-xiaomimimo-mimo-v2.5"
 
 
 def _seed_run_dir(root: Path) -> None:

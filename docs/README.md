@@ -7,6 +7,7 @@
 - `project_structure.md`：项目分层、目录职责、默认工作区与 UTF-8 约定
 - `run_report_pipeline.md`：实验执行到图资产、正式报告与论文包的完整链路
 - `huggingface_archive_workflow.md`：`runs/cache` 的 Hugging Face 归档工作流
+- `huggingface_operations.md`：Hugging Face 支持的单个、多个与整批同步操作总览
 - `code_annotation_guidelines.md`：中文注解、docstring 与仓库文档写作规范
 
 ## 使用约定

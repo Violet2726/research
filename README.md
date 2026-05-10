@@ -128,9 +128,8 @@ HF_TOKEN=hf_xxx
 常用归档命令：
 
 ```powershell
-uv run archive_runs_cli pack-run --run-root local/runs/<family>/<experiment>/<phase>/<run_id>
 uv run archive_runs_cli publish-run --run-root local/runs/<family>/<experiment>/<phase>/<run_id>
-uv run archive_runs_cli fetch-run --run-id <run_id> --include all
+uv run archive_runs_cli fetch-run --run-id <run_id>
 ```
 
 ```powershell
@@ -141,7 +140,7 @@ uv run cache_archive_cli pull-latest --target local/cache
 ```powershell
 uv run hf_sync_cli status
 uv run hf_sync_cli push-workspace
-uv run hf_sync_cli pull-workspace --include all
+uv run hf_sync_cli pull-workspace
 ```
 
 说明：
@@ -158,4 +157,5 @@ uv run hf_sync_cli pull-workspace --include all
 - [docs/project_structure.md](/d:/user/research/docs/project_structure.md)
 - [docs/run_report_pipeline.md](/d:/user/research/docs/run_report_pipeline.md)
 - [docs/huggingface_archive_workflow.md](/d:/user/research/docs/huggingface_archive_workflow.md)
+- [docs/huggingface_operations.md](/d:/user/research/docs/huggingface_operations.md)
 - [CONTRIBUTING.md](/d:/user/research/CONTRIBUTING.md)

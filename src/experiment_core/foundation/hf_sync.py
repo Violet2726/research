@@ -13,7 +13,7 @@ from experiment_core.foundation.cache_snapshots import pull_latest_cache_snapsho
 from experiment_core.foundation.run_archives import (
     ARCHIVE_MANIFEST_FILENAME,
     HF_PUBLISH_STATUS_FILENAME,
-    extract_selected_archives,
+    extract_run_archives,
     publish_run_to_hub,
 )
 from experiment_core.foundation.workspace import default_cache_hf_repo, default_runs_hf_repo, workspace_layout
@@ -55,6 +55,8 @@ def push_workspace_to_hub(
     push_cache: bool = True,
     include_matrix: bool = True,
     force_runs: bool = False,
+    selected_run_dirs: list[str] | None = None,
+    cache_shard_filters: list[str] | None = None,
     create_runs_repo: bool = True,
     create_cache_repo: bool = True,
     private_cache_repo: bool = True,
@@ -71,7 +73,15 @@ def push_workspace_to_hub(
     if push_cache and not resolved_cache_repo:
         raise RuntimeError("缺少 cache Hugging Face repo；请传入 `--cache-repo` 或配置 `RESEARCH_CACHE_HF_REPO`。")
 
-    run_candidates = discover_publishable_runs(resolved_runs_root, include_matrix=include_matrix) if publish_runs else ()
+    run_candidates = (
+        _select_run_candidates(
+            resolved_runs_root,
+            include_matrix=include_matrix,
+            selected_run_dirs=selected_run_dirs,
+        )
+        if publish_runs
+        else ()
+    )
     run_results: list[dict[str, Any]] = []
     published_runs: list[dict[str, Any]] = []
     skipped_runs: list[dict[str, Any]] = []
@@ -136,6 +146,7 @@ def push_workspace_to_hub(
             token=token,
             create_repo=create_cache_repo,
             private=private_cache_repo,
+            shard_filters=cache_shard_filters,
         )
 
     return {
@@ -164,14 +175,12 @@ def pull_workspace_from_hub(
     token: str | None = None,
     fetch_runs: bool = True,
     pull_cache: bool = True,
-    extract_mode: str = "all",
     overwrite_runs: bool = True,
+    selected_run_ids: list[str] | None = None,
+    selected_run_prefixes: list[str] | None = None,
+    cache_shard_filters: list[str] | None = None,
 ) -> dict[str, Any]:
     """批量回拉 Hugging Face 上的 runs 与 cache。"""
-    normalized_extract_mode = extract_mode.strip().lower()
-    if normalized_extract_mode not in {"traces", "predictions", "all"}:
-        raise ValueError(f"Unsupported extract mode: {extract_mode}")
-
     resolved_runs_root = Path(runs_root) if runs_root is not None else workspace_layout().runs_root
     resolved_cache_root = Path(cache_root) if cache_root is not None else workspace_layout().cache_root
     resolved_runs_repo = (runs_repo_id or default_runs_hf_repo() or "").strip() or None
@@ -185,7 +194,11 @@ def pull_workspace_from_hub(
     fetched_runs: list[dict[str, Any]] = []
     if fetch_runs:
         api = HfApi(token=token)
-        remote_prefixes = list_remote_run_prefixes(api, repo_id=resolved_runs_repo)
+        remote_prefixes = _filter_remote_prefixes(
+            list_remote_run_prefixes(api, repo_id=resolved_runs_repo),
+            selected_run_ids=selected_run_ids,
+            selected_run_prefixes=selected_run_prefixes,
+        )
         for remote_prefix in remote_prefixes:
             target_run_root = resolved_runs_root / PurePosixPath(remote_prefix)
             if overwrite_runs and target_run_root.exists():
@@ -198,7 +211,7 @@ def pull_workspace_from_hub(
                 local_dir=resolved_runs_root,
                 token=token,
             )
-            extracted_members = extract_selected_archives(target_run_root, include=normalized_extract_mode)
+            extracted_members = extract_run_archives(target_run_root)
             fetched_runs.append(
                 {
                     "remote_prefix": remote_prefix,
@@ -213,6 +226,7 @@ def pull_workspace_from_hub(
             resolved_cache_root,
             repo_id=resolved_cache_repo,
             token=token,
+            shard_filters=cache_shard_filters,
         )
 
     return {
@@ -287,6 +301,78 @@ def list_remote_run_prefixes(api: HfApi, *, repo_id: str) -> list[str]:
         if path.endswith(f"/{ARCHIVE_MANIFEST_FILENAME}")
     ]
     return sorted(dict.fromkeys(prefixes))
+
+
+def _select_run_candidates(
+    runs_root: Path,
+    *,
+    include_matrix: bool,
+    selected_run_dirs: list[str] | None,
+) -> tuple[dict[str, Any], ...]:
+    if not selected_run_dirs:
+        return discover_publishable_runs(runs_root, include_matrix=include_matrix)
+
+    discovered: dict[str, dict[str, Any]] = {}
+    for item in selected_run_dirs:
+        run_root = _resolve_requested_run_root(item, runs_root)
+        key = run_root.as_posix()
+        if key in discovered:
+            continue
+        if _looks_like_standard_run(run_root):
+            discovered[key] = _describe_standard_run(run_root)
+            continue
+        if include_matrix and _looks_like_matrix_run(run_root):
+            discovered[key] = _describe_matrix_run(run_root)
+            continue
+        raise RuntimeError(f"指定目录不是可发布的 run：{run_root.as_posix()}")
+    return tuple(discovered[key] for key in sorted(discovered))
+
+
+def _filter_remote_prefixes(
+    remote_prefixes: list[str],
+    *,
+    selected_run_ids: list[str] | None,
+    selected_run_prefixes: list[str] | None,
+) -> list[str]:
+    normalized_prefix_filters = {
+        PurePosixPath(item.replace("\\", "/")).as_posix().strip("/")
+        for item in (selected_run_prefixes or [])
+        if str(item).strip()
+    }
+    normalized_run_ids = {str(item).strip() for item in (selected_run_ids or []) if str(item).strip()}
+    if not normalized_prefix_filters and not normalized_run_ids:
+        return remote_prefixes
+
+    filtered = [
+        prefix
+        for prefix in remote_prefixes
+        if prefix in normalized_prefix_filters or PurePosixPath(prefix).name in normalized_run_ids
+    ]
+    matched_run_ids = {PurePosixPath(prefix).name for prefix in filtered}
+    missing_prefixes = normalized_prefix_filters.difference(filtered)
+    missing_run_ids = normalized_run_ids.difference(matched_run_ids)
+    if missing_prefixes or missing_run_ids:
+        messages: list[str] = []
+        if missing_prefixes:
+            messages.append(f"未找到 run_prefix: {sorted(missing_prefixes)}")
+        if missing_run_ids:
+            messages.append(f"未找到 run_id: {sorted(missing_run_ids)}")
+        raise FileNotFoundError("；".join(messages))
+    return filtered
+
+
+def _resolve_requested_run_root(requested: str, runs_root: Path) -> Path:
+    candidate = Path(requested)
+    candidates: list[Path] = []
+    if candidate.is_absolute():
+        candidates.append(candidate)
+    else:
+        candidates.append(runs_root / candidate)
+        candidates.append(candidate)
+    for path in candidates:
+        if path.exists():
+            return path.resolve()
+    raise FileNotFoundError(f"未找到指定 run 目录：{requested}")
 
 
 def _looks_like_standard_run(run_root: Path) -> bool:

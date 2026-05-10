@@ -77,11 +77,12 @@ def test_push_workspace_to_hub_batches_runs_and_cache(monkeypatch, tmp_path: Pat
     )
     monkeypatch.setattr(
         "experiment_core.foundation.hf_sync.push_latest_cache_snapshot",
-        lambda cache_root, repo_id, token, create_repo, private: {
+        lambda cache_root, repo_id, token, create_repo, private, shard_filters=None: {
             "cache_root": str(cache_root),
             "remote_repo": repo_id,
             "published": True,
             "private_repo": private,
+            "shard_filters": shard_filters or [],
         },
     )
 
@@ -116,15 +117,16 @@ def test_pull_workspace_from_hub_batches_runs_and_cache(monkeypatch, tmp_path: P
         or (Path(local_dir) / allow_patterns[0][:-3]).mkdir(parents=True, exist_ok=True),
     )
     monkeypatch.setattr(
-        "experiment_core.foundation.hf_sync.extract_selected_archives",
-        lambda run_dir, include: ("a.jsonl", "b.jsonl"),
+        "experiment_core.foundation.hf_sync.extract_run_archives",
+        lambda run_dir: ("a.jsonl", "b.jsonl"),
     )
     monkeypatch.setattr(
         "experiment_core.foundation.hf_sync.pull_latest_cache_snapshot",
-        lambda target_root, repo_id, token: {
+        lambda target_root, repo_id, token, shard_filters=None: {
             "target_root": str(target_root),
             "remote_repo": repo_id,
             "restored_shard_count": 6,
+            "shard_filters": shard_filters or [],
         },
     )
 
@@ -141,3 +143,90 @@ def test_pull_workspace_from_hub_batches_runs_and_cache(monkeypatch, tmp_path: P
     ]
     assert payload["fetched_run_count"] == 2
     assert payload["cache_pulled"] is True
+
+
+def test_push_workspace_to_hub_can_target_selected_run_dirs(monkeypatch, tmp_path: Path) -> None:
+    standard_root = tmp_path / "runs" / "single_agent" / "demo" / "smoke20" / "20260510T000000Z-model"
+    _write_json(standard_root / "manifest.json", {"run_id": "20260510T000000Z-model"})
+    (standard_root / "report.md").write_text("# report\n", encoding="utf-8")
+    _write_json(standard_root / "run_validation.json", {"passed": True})
+
+    another_root = tmp_path / "runs" / "budget_comm" / "demo" / "smoke20" / "20260510T000001Z-model"
+    _write_json(another_root / "manifest.json", {"run_id": "20260510T000001Z-model"})
+    (another_root / "report.md").write_text("# report\n", encoding="utf-8")
+    _write_json(another_root / "run_validation.json", {"passed": True})
+
+    published_roots: list[str] = []
+    monkeypatch.setattr(
+        "experiment_core.foundation.hf_sync.publish_run_to_hub",
+        lambda run_dir, repo_id, token, runs_root, create_repo: published_roots.append(str(run_dir))
+        or {
+            "run_dir": str(run_dir),
+            "remote_repo": repo_id,
+            "remote_prefix": Path(run_dir).name,
+            "published": True,
+        },
+    )
+    monkeypatch.setattr(
+        "experiment_core.foundation.hf_sync.push_latest_cache_snapshot",
+        lambda cache_root, repo_id, token, create_repo, private, shard_filters=None: {
+            "cache_root": str(cache_root),
+            "remote_repo": repo_id,
+            "published": True,
+        },
+    )
+
+    payload = push_workspace_to_hub(
+        runs_root=tmp_path / "runs",
+        cache_root=tmp_path / "cache",
+        runs_repo_id="owner/research-runs",
+        cache_repo_id="owner/research-cache",
+        selected_run_dirs=[standard_root.as_posix()],
+    )
+
+    assert published_roots == [str(standard_root)]
+    assert payload["candidate_run_count"] == 1
+    assert payload["published_run_count"] == 1
+
+
+def test_pull_workspace_from_hub_can_target_selected_run_ids_and_prefixes(monkeypatch, tmp_path: Path) -> None:
+    downloaded_prefixes: list[str] = []
+    monkeypatch.setattr(
+        "experiment_core.foundation.hf_sync.list_remote_run_prefixes",
+        lambda api, repo_id: [
+            "single_agent/demo/smoke20/20260510T000000Z-model",
+            "budget_comm/demo/smoke20/20260510T000001Z-model",
+        ],
+    )
+    monkeypatch.setattr(
+        "experiment_core.foundation.hf_sync.snapshot_download",
+        lambda repo_id, repo_type, allow_patterns, local_dir, token: downloaded_prefixes.append(allow_patterns[0][:-3])
+        or (Path(local_dir) / allow_patterns[0][:-3]).mkdir(parents=True, exist_ok=True),
+    )
+    monkeypatch.setattr(
+        "experiment_core.foundation.hf_sync.extract_run_archives",
+        lambda run_dir: (),
+    )
+    monkeypatch.setattr(
+        "experiment_core.foundation.hf_sync.pull_latest_cache_snapshot",
+        lambda target_root, repo_id, token, shard_filters=None: {
+            "target_root": str(target_root),
+            "remote_repo": repo_id,
+            "restored_shard_count": 0,
+        },
+    )
+
+    payload = pull_workspace_from_hub(
+        runs_root=tmp_path / "runs",
+        cache_root=tmp_path / "cache",
+        runs_repo_id="owner/research-runs",
+        cache_repo_id="owner/research-cache",
+        selected_run_ids=["20260510T000000Z-model"],
+        selected_run_prefixes=["budget_comm/demo/smoke20/20260510T000001Z-model"],
+    )
+
+    assert downloaded_prefixes == [
+        "single_agent/demo/smoke20/20260510T000000Z-model",
+        "budget_comm/demo/smoke20/20260510T000001Z-model",
+    ]
+    assert payload["fetched_run_count"] == 2
