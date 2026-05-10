@@ -5,7 +5,7 @@
 2. `RequestCacheRouter`：按 `provider + request_model + dataset` 路由到对应分库。
 
 目录结构示例：
-`cache/providers/xiaomimimo/mimo-v2-5/strategyqa/requests.sqlite`
+`local/cache/providers/xiaomimimo/mimo-v2-5/strategyqa/requests.sqlite`
 """
 
 from __future__ import annotations

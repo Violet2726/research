@@ -12,7 +12,7 @@ dist/
 .pytest_cache/
 .mypy_cache/
 *.log
-local/
 
-# `runs/`、`reports/` 与部分 `cache/` 在当前仓库中作为研究档案保留，
-# 临时实验产物优先通过 `RESEARCH_*_ROOT` 或 `local/` 隔离，不在这里做全局忽略。
+/local/*
+!/local/README.md
+

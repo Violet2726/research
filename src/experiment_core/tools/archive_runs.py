@@ -8,7 +8,7 @@ import json
 from dotenv import load_dotenv
 
 from experiment_core.foundation.run_archives import fetch_run_from_hub, pack_run_artifacts, publish_run_to_hub
-from experiment_core.foundation.workspace import workspace_layout
+from experiment_core.foundation.workspace import default_runs_hf_repo, workspace_layout
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,14 +22,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     publish_run = subparsers.add_parser("publish-run", help="把单个 run 发布到 Hugging Face dataset repo。")
     publish_run.add_argument("--run-root", required=True)
-    publish_run.add_argument("--repo", required=True)
+    publish_run.add_argument("--repo")
     publish_run.add_argument("--token")
     publish_run.add_argument("--no-create-repo", action="store_true")
     publish_run.add_argument("--json", action="store_true")
 
     fetch_run = subparsers.add_parser("fetch-run", help="从 Hugging Face dataset repo 回取单个 run。")
     fetch_run.add_argument("--run-id", required=True)
-    fetch_run.add_argument("--repo", required=True)
+    fetch_run.add_argument("--repo")
     fetch_run.add_argument("--include", choices=["traces", "predictions", "all"], default="all")
     fetch_run.add_argument("--target-root", default=workspace_layout().runs_root.as_posix())
     fetch_run.add_argument("--token")
@@ -46,14 +46,14 @@ def main() -> None:
     elif args.command == "publish-run":
         payload = publish_run_to_hub(
             args.run_root,
-            repo_id=args.repo,
+            repo_id=_require_repo(args.repo),
             token=args.token,
             create_repo=not args.no_create_repo,
         )
     elif args.command == "fetch-run":
         payload = fetch_run_from_hub(
             args.run_id,
-            repo_id=args.repo,
+            repo_id=_require_repo(args.repo),
             include=args.include,
             token=args.token,
             target_root=args.target_root,
@@ -65,3 +65,10 @@ def main() -> None:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
     print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _require_repo(explicit_repo: str | None) -> str:
+    repo_id = (explicit_repo or default_runs_hf_repo() or "").strip()
+    if not repo_id:
+        raise RuntimeError("缺少 runs Hugging Face repo；请传 `--repo` 或配置 `RESEARCH_RUNS_HF_REPO`。")
+    return repo_id

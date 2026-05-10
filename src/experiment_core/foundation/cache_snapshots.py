@@ -13,6 +13,7 @@ from huggingface_hub import HfApi, snapshot_download
 
 from experiment_core.foundation.archive_common import sha256_file
 from experiment_core.foundation.cache import collect_cache_shard_summaries
+from experiment_core.foundation.workspace import auto_push_cache_snapshot_enabled, default_cache_hf_repo, workspace_layout
 
 import zstandard as zstd
 
@@ -49,6 +50,30 @@ def push_latest_cache_snapshot(
         "published": True,
         "private_repo": private,
     }
+
+
+def push_cache_snapshot_if_configured(
+    cache_root: str | Path | None = None,
+    *,
+    repo_id: str | None = None,
+    token: str | None = None,
+    create_repo: bool = True,
+    private: bool = True,
+) -> dict[str, Any] | None:
+    """按环境约定推送 cache 最新快照；未启用时返回 `None`。"""
+    if not auto_push_cache_snapshot_enabled():
+        return None
+    resolved_repo = repo_id or default_cache_hf_repo()
+    if not resolved_repo:
+        return None
+    resolved_cache_root = cache_root or workspace_layout().cache_root
+    return push_latest_cache_snapshot(
+        resolved_cache_root,
+        repo_id=resolved_repo,
+        token=token,
+        create_repo=create_repo,
+        private=private,
+    )
 
 
 def pull_latest_cache_snapshot(

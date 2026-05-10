@@ -5,45 +5,33 @@
 ## 分层结构
 
 - `foundation/`
-  基础设施层，放配置解析、数据集加载、缓存、运行时、provider、结构化输出、通用评测等能力。
+  基础设施层，包含配置、数据集、缓存、provider、限流、运行时、归档与工作区管理。
 - `controls/`
-  跨实验复用的控制逻辑层，放无通信对照执行器、选择性通信信号工具等。
+  跨实验复用的控制逻辑，如选择性通信信号与无通信对照。
 - `matrix/`
-  faithful 实验矩阵层，放矩阵入口、实验规格、分析与验收逻辑。
+  faithful matrix 编排、分析与验收。
 - `reporting/`
-  论文与报告产物层，放统计汇总、run 级图资产渲染、`figure_manifest.json` 与发布文档生成。
+  科研报告、图资产、论文包与统计输出。
 - `tools/`
-  运维工具层，放缓存检查、失效产物清理等 CLI 工具。
+  缓存检查、归档、清理等 CLI 工具。
 
-## 目录责任
+## 关键职责
 
-- `foundation/config.py`：共享 benchmark / provider / model catalog 解析
-- `foundation/datasets.py`：数据集读取与 frozen split 支持
-- `foundation/providers/`：OpenAI-compatible provider 封装、连接复用与请求对账
-- `foundation/structured_output.py`：结构化输出校验与恢复
-- `foundation/evaluation.py`：统一评测逻辑
-- `foundation/runtime.py`：运行进度、ETA 与带时间戳的 `run_id`
-- `foundation/workspace.py`：默认 `runs/`、`reports/`、`cache/`、`files/` 路径
-- `foundation/cache.py`：请求缓存、分库路由与缓存统计
-- `foundation/rate_limits.py`：RPM / TPM 限流与 usage 对账
-- `foundation/artifacts.py`：JSONL 批量写盘与统一 JSON 输出辅助
-- `matrix/faithful_matrix.py`：统一的 faithful 矩阵入口
-- `reporting/run_figures.py`：run 级 `figures/`、`figure_manifest.json` 与科研图 SVG/CSV 渲染
-- `reporting/report_pipeline.py`：正式 `report.md`、发布报告和附录报告的统一输出管线
-- `reporting/report_views.py`：报告层使用的显式 summary / diagnostic / matrix view
-- `reporting/paper_package.py`：论文打包、matrix 级图表与摘要文档生成
-- `tools/artifact_cleanup.py`：失效运行与失效报告清理工具
-- `tools/cache_inspector.py`：缓存分库统计与目标定位工具
+- `foundation/workspace.py`
+  统一管理 `local/runs`、`local/reports`、`local/cache`、`files/` 与 HF 归档环境变量。
+- `foundation/runtime.py`
+  统一管理进度、`run_id` 与 run 收尾流程。
+- `foundation/run_archives.py`
+  统一打包 run 重型文件，并提供 HF 发布与回取能力。
+- `foundation/cache_snapshots.py`
+  统一管理 cache latest-only 快照的压缩、恢复与 HF 同步。
+- `reporting/report_pipeline.py`
+  统一输出本地报告、图资产与附录报告。
+- `matrix/faithful_matrix.py`
+  统一 faithful matrix 的编排、恢复、分析与矩阵级摘要输出。
 
 ## 维护约定
 
-- 这里只放跨实验复用能力，不放某个实验家族私有策略。
-- 新的共享能力优先按职责落到对应子层，不再堆回 `experiment_core/` 根目录。
-- 高层矩阵编排、论文产物和运维工具不再和基础设施模块并列混放。
-- 文本 I/O 统一显式使用 `encoding="utf-8"`。
-- 新增 docstring 与注释默认使用中文，写法见 [docs/code_annotation_guidelines.md](/d:/user/research/docs/code_annotation_guidelines.md)。
-
-## 归档补充
-
-- `tools/archive_runs.py`：run 级归档打包、发布与回取工具
-- `tools/cache_archive.py`：cache latest-only 快照同步工具
+- 新共享能力只进入 `experiment_core`
+- 新增运行产物时，优先补 `workspace.py`、归档合同与文档
+- `runs/` 与 `cache/` 的正式远程归档统一走 Hugging Face dataset repo，不再发明实验家族私有同步逻辑

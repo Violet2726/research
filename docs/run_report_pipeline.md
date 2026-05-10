@@ -16,35 +16,50 @@ raw_responses.jsonl / predictions.jsonl / metrics.json / diagnostics.json
             v
 experiment_core.reporting.run_figures
             |
-            +--> runs/<family>/<experiment>/<phase>/<run_id>/figures/*.svg
-            +--> runs/<family>/<experiment>/<phase>/<run_id>/figures/*.csv
-            +--> runs/<family>/<experiment>/<phase>/<run_id>/figure_manifest.json
+            +--> local/runs/<family>/<experiment>/<phase>/<run_id>/figures/*.svg
+            +--> local/runs/<family>/<experiment>/<phase>/<run_id>/figures/*.csv
+            +--> local/runs/<family>/<experiment>/<phase>/<run_id>/figure_manifest.json
             |
             v
 experiment_core.reporting.report_pipeline
             |
-            +--> runs/.../report.md
-            +--> runs/.../frontier_report.md 等附录报告
-            +--> reports/<family>/<date>-<experiment>-<phase>-<backbone>-report.md
+            +--> local/runs/.../report.md
+            +--> local/runs/.../frontier_report.md 等附录报告
+            +--> local/reports/<family>/<date>-<experiment>-<phase>-<backbone>-report.md
             |
             v
-faithful_matrix / paper_package / reports/summary
+experiment_core.foundation.run_archives
+            |
+            +--> local/runs/.../archive_manifest.json
+            +--> local/runs/.../traces.tar.zst
+            +--> local/runs/.../predictions.tar.zst
+            +--> local/runs/.../artifacts.tar.zst
+            |
+            v
+Hugging Face dataset repo
 ```
 
 ## 关键约定
 
-- 正式图资产只落在 `runs/.../figures/`；`reports/` 只引用这些 canonical 图文件。
-- 各实验家族统一通过 `render_report()` 输出正式科研报告，并通过 CLI 子命令 `render-report` 重渲染。
-- 正式科研报告统一使用中文结构：摘要、实验概览、研究问题与实验设计、总体结果、机制诊断、结论与建议、局限性、复现与产物说明。
-- `figure_manifest.json` 是 run 级图资产的唯一索引，校验、发布和论文打包都基于它工作。
+- 正式图资产只落在 `local/runs/.../figures/`
+- `local/reports/` 是本地发布视图，不是正式长期归档
+- 正式远程归档以 Hugging Face dataset repo 为准
+- `figure_manifest.json` 是 run 级图资产的唯一索引
+- `archive_manifest.json` 是 run 级重型文件归档的唯一索引
+
+## 运行后自动动作
+
+- family 级 runner 在 `finalize_run_outputs()` 中统一执行：
+  - 打包重型文件
+  - 写出 `run_validation.json`
+  - 按环境开关自动发布到 `RESEARCH_RUNS_HF_REPO`
+- `run_all_phases.ps1` / `run_all_phases.sh`
+  - 顺序运行 `smoke20 -> pilot100 -> confirmatory300`
+  - 每个阶段结束后要求 matrix 全部成功
+  - 若启用 `RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT=1`，则在三阶段结束后推送 `local/cache` 最新快照
 
 ## 维护建议
 
-- 新增实验家族时，优先复用 `experiment_core.reporting.report_pipeline`，不要再手写 local report / published report / figure manifest 的重复逻辑。
-- 新增图表时，优先扩展 `run_figures.py` 的 figure spec，而不是在各家族 `reporting.py` 中重复写 SVG。
-- 临时实验应优先通过 `RESEARCH_*_ROOT` 输出到隔离目录，避免把未确认产物混入正式 `runs/`。
-
-## 远程归档补充
-
-- 正式 run 还会生成 `archive_manifest.json`，把可浏览的报告与图资产和重型 trace / prediction 归档包明确分开。
-- 远程发布默认采用 Hugging Face dataset repo，不再依赖 Git LFS 承载 `runs/` 与 `cache/`。
+- 新增实验家族时，优先复用 `report_pipeline.py`
+- 新增图表时，优先扩展 `run_figures.py`
+- 临时实验优先通过 `RESEARCH_*_ROOT` 输出到隔离目录，不直接写入正式工作区

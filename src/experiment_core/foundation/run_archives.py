@@ -7,15 +7,17 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 import json
 import shutil
+import tempfile
 from typing import Any
 
 from huggingface_hub import HfApi, snapshot_download
 
 from experiment_core.foundation.archive_common import copy_relative_files, extract_tar_zst, pack_tar_zst
-from experiment_core.foundation.workspace import workspace_layout
+from experiment_core.foundation.workspace import auto_publish_runs_enabled, default_runs_hf_repo, workspace_layout
 
 
 ARCHIVE_MANIFEST_FILENAME = "archive_manifest.json"
+HF_PUBLISH_STATUS_FILENAME = "hf_publish.json"
 ARCHIVE_SCHEMA_VERSION = 1
 KNOWN_ARCHIVE_NAMES = (
     "traces.tar.zst",
@@ -169,6 +171,36 @@ def publish_run_to_hub(
         "remote_repo": repo_id,
         "published": True,
     }
+
+
+def publish_run_if_configured(
+    run_dir: str | Path,
+    *,
+    repo_id: str | None = None,
+    token: str | None = None,
+    runs_root: str | Path | None = None,
+    create_repo: bool = True,
+    validation: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """按环境约定自动发布单个正式 run；未启用时返回 `None`。"""
+    if not auto_publish_runs_enabled():
+        return None
+    resolved_repo = repo_id or default_runs_hf_repo()
+    if not resolved_repo:
+        return None
+    if validation is not None and not bool(validation.get("passed")):
+        return None
+
+    payload = publish_run_to_hub(
+        run_dir,
+        repo_id=resolved_repo,
+        token=token,
+        runs_root=runs_root,
+        create_repo=create_repo,
+    )
+    status_path = Path(run_dir) / HF_PUBLISH_STATUS_FILENAME
+    status_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
 
 
 def fetch_run_from_hub(

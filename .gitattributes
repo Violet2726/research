@@ -1,2 +1,2 @@
-# 旧的 Git LFS 规则已移除。
-# `runs/` 与 `cache/` 现统一通过仓库内的 Hugging Face 归档工作流管理。
+# `runs/`、`reports/` 与 `cache/` 已迁移为本地工作区 + Hugging Face 归档模式。
+# 仓库不再依赖 Git LFS 管理这些运行产物。

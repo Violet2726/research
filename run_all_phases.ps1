@@ -38,7 +38,6 @@ function Invoke-MatrixPhase {
     )
 
     $env:FAITHFUL_PHASE = $Phase
-    $env:FAITHFUL_STATE_ROOT = "runs/faithful_matrix_iterative"
     if ($ReferenceStatePath) {
         $env:FAITHFUL_REFERENCE_STATE = $ReferenceStatePath
     } else {
@@ -48,9 +47,9 @@ function Invoke-MatrixPhase {
     $pythonScript = @'
 import os
 
-from experiment_core.matrix.faithful_matrix import RuntimeOverrides, run_faithful_matrix
+from experiment_core.matrix.faithful_matrix import RuntimeOverrides, assert_matrix_succeeded, run_faithful_matrix
 
-kwargs = {"state_root": os.environ["FAITHFUL_STATE_ROOT"]}
+kwargs = {}
 reference_state = os.environ.get("FAITHFUL_REFERENCE_STATE")
 if reference_state:
     kwargs["reference_state_path_or_root"] = reference_state
@@ -59,6 +58,7 @@ run_dir = run_faithful_matrix(
     RuntimeOverrides(phase_name=os.environ["FAITHFUL_PHASE"]),
     **kwargs,
 )
+assert_matrix_succeeded(run_dir)
 print(run_dir.as_posix())
 '@
 
@@ -84,5 +84,17 @@ Write-Host "[$(Get-Date -Format s)] pilot100 阶段完成: $pilot100Dir"
 Write-Host "[$(Get-Date -Format s)] 开始运行 confirmatory300 阶段..."
 $confirmatory300Dir = Invoke-MatrixPhase -Phase "confirmatory300" -ReferenceStatePath $pilot100Dir
 Write-Host "[$(Get-Date -Format s)] confirmatory300 阶段完成: $confirmatory300Dir"
+
+$autoPushCache = if ([string]::IsNullOrWhiteSpace($env:RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT)) { "" } else { $env:RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT.ToLowerInvariant() }
+if (
+    ($autoPushCache -in @("1", "true", "yes", "on")) -and
+    -not [string]::IsNullOrWhiteSpace($env:RESEARCH_CACHE_HF_REPO)
+) {
+    $cacheRoot = if ([string]::IsNullOrWhiteSpace($env:RESEARCH_CACHE_ROOT)) { "local/cache" } else { $env:RESEARCH_CACHE_ROOT }
+    Write-Host "[$(Get-Date -Format s)] 开始推送 cache 最新快照到 Hugging Face: $cacheRoot"
+    $pushOutput = uv run cache_archive_cli push-latest --cache-root $cacheRoot --repo $env:RESEARCH_CACHE_HF_REPO --json
+    $pushSummary = ($pushOutput -join "`n") | ConvertFrom-Json
+    Write-Host "[$(Get-Date -Format s)] cache 快照推送完成: $($pushSummary.remote_repo)"
+}
 
 Write-Host "[$(Get-Date -Format s)] 所有阶段运行完成。"

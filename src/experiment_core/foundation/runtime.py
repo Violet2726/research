@@ -12,7 +12,7 @@ import json
 import time
 from typing import Any, Callable
 
-from experiment_core.foundation.run_archives import pack_run_artifacts
+from experiment_core.foundation.run_archives import pack_run_artifacts, publish_run_if_configured
 
 
 class RunProgressTracker:
@@ -123,4 +123,8 @@ def finalize_run_outputs(
     validation = validator(root)
     output_path = Path(validation_path) if validation_path is not None else root / "run_validation.json"
     output_path.write_text(json.dumps(validation, ensure_ascii=False, indent=2), encoding="utf-8")
+    publish_payload = publish_run_if_configured(root, validation=validation)
+    if publish_payload is not None:
+        validation["hf_publish"] = publish_payload
+        output_path.write_text(json.dumps(validation, ensure_ascii=False, indent=2), encoding="utf-8")
     return validation

@@ -1,20 +1,20 @@
 # Hugging Face 归档工作流
 
-项目后续采用两套不同的远程治理语义：
+项目采用两套不同的远程治理语义：
 
-- `runs/`：公开 Hugging Face dataset repo，强调版本化科研档案与在线浏览
-- `cache/`：latest-only 快照，强调可替换加速资产，不和 `runs` 混仓
+- `runs`：公开 Hugging Face dataset repo，强调正式科研档案与在线浏览
+- `cache`：latest-only 快照，强调可替换加速资产，不和 `runs` 混仓
 
-## runs：可浏览外壳 + 压缩内核
+## 1. runs：可浏览外壳 + 压缩内核
 
-每个正式 run 在本地完成后会自动生成：
+每个正式 run 在本地完成后会生成：
 
 - `archive_manifest.json`
 - `traces.tar.zst`
 - `predictions.tar.zst`
 - `artifacts.tar.zst`（仅在需要时生成）
 
-默认保留在线可浏览的文件：
+在线保留的可浏览文件：
 
 - `report.md`
 - `metrics.json`
@@ -23,7 +23,7 @@
 - `figures/*.csv`
 - 其他小型诊断、附录与摘要文件
 
-默认压缩的重型文件：
+重型文件默认压入归档包：
 
 - `raw_responses.jsonl`
 - `*_turns.jsonl`
@@ -36,20 +36,19 @@
 常用命令：
 
 ```powershell
-uv run archive_runs_cli pack-run --run-root runs/<family>/<experiment>/<phase>/<run_id>
+uv run archive_runs_cli pack-run --run-root local/runs/<family>/<experiment>/<phase>/<run_id>
+uv run archive_runs_cli publish-run --run-root local/runs/<family>/<experiment>/<phase>/<run_id>
+uv run archive_runs_cli fetch-run --run-id <run_id> --include all
 ```
 
-```powershell
-uv run archive_runs_cli publish-run --run-root runs/<family>/<experiment>/<phase>/<run_id> --repo <owner>/research-runs
-```
+说明：
 
-```powershell
-uv run archive_runs_cli fetch-run --run-id <run_id> --repo <owner>/research-runs --include all
-```
+- 若 `RESEARCH_RUNS_HF_REPO` 已配置，`publish-run` 可省略 `--repo`
+- 若 `RESEARCH_AUTO_PUBLISH_RUNS=1` 已配置，family 级 run 完成后会自动发布
 
-## cache：latest-only 快照
+## 2. cache：latest-only 快照
 
-`cache/` 不再依赖 Git LFS。远程同步时保持“只保最新快照”的语义：
+`local/cache/` 不再依赖 Git LFS。远程同步时保持“只保最新快照”的语义：
 
 - 目录结构保持 `providers/<provider>/<request_model>/<dataset>/`
 - 每个分库压缩为 `requests.sqlite.zst`
@@ -58,16 +57,32 @@ uv run archive_runs_cli fetch-run --run-id <run_id> --repo <owner>/research-runs
 常用命令：
 
 ```powershell
-uv run cache_archive_cli push-latest --cache-root cache --repo <owner>/research-cache
+uv run cache_archive_cli push-latest --cache-root local/cache
+uv run cache_archive_cli pull-latest --target local/cache
 ```
 
-```powershell
-uv run cache_archive_cli pull-latest --target cache --repo <owner>/research-cache
+说明：
+
+- 若 `RESEARCH_CACHE_HF_REPO` 已配置，命令可省略 `--repo`
+- 若 `RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT=1` 已配置，`run_all_phases` 会在三阶段结束后自动推送最新快照
+
+## 3. 推荐环境变量
+
+```text
+RESEARCH_RUNS_ROOT=local/runs
+RESEARCH_REPORTS_ROOT=local/reports
+RESEARCH_CACHE_ROOT=local/cache
+
+RESEARCH_RUNS_HF_REPO=Violet1307/research-runs
+RESEARCH_CACHE_HF_REPO=Violet1307/research-cache
+RESEARCH_AUTO_PUBLISH_RUNS=1
+RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT=1
+HF_TOKEN=hf_xxx
 ```
 
-## 维护建议
+## 4. 维护建议
 
-- `runs` 与 `cache` 使用不同的 HF repo，不要混仓。
-- `runs` 优先公开；`cache` 优先私有或仅本地备份。
-- published report 继续只引用 `runs/.../figures/`，不要把大图或 trace 复制回代码仓库。
-- 若只是临时实验，优先通过 `RESEARCH_RUNS_ROOT` / `RESEARCH_CACHE_ROOT` 输出到隔离目录，不要直接进入正式归档链。
+- `runs` 与 `cache` 使用不同的 HF repo，不要混仓
+- `runs` 优先公开；`cache` 优先私有
+- `local/reports/` 是本地发布视图，不再作为 Git 正式产物
+- 若只是临时实验，优先通过 `RESEARCH_*_ROOT` 输出到隔离目录
