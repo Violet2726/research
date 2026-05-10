@@ -138,6 +138,12 @@ uv run cache_archive_cli push-latest --cache-root local/cache
 uv run cache_archive_cli pull-latest --target local/cache
 ```
 
+```powershell
+uv run hf_sync_cli status
+uv run hf_sync_cli push-workspace
+uv run hf_sync_cli pull-workspace --include all
+```
+
 说明：
 
 - family 级 run 在 `finalize_run_outputs()` 后会按环境开关自动发布到 `RESEARCH_RUNS_HF_REPO`

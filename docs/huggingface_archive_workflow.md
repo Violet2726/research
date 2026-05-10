@@ -61,12 +61,29 @@ uv run cache_archive_cli push-latest --cache-root local/cache
 uv run cache_archive_cli pull-latest --target local/cache
 ```
 
+## 3. 一键工作区同步
+
+当你希望把 `local/runs` 与 `local/cache` 作为一个整体处理时，可直接使用统一总控命令：
+
+```powershell
+uv run hf_sync_cli status
+uv run hf_sync_cli push-workspace
+uv run hf_sync_cli pull-workspace --include all
+```
+
 说明：
+
+- `push-workspace` 会批量扫描 `local/runs`，只发布验证通过的标准 run，以及已经完整收敛的 `faithful_matrix` 目录
+- 默认会跳过已经写入 `hf_publish.json` 且远端仓库一致的 run；需要重推时可加 `--force-runs`
+- `pull-workspace` 会按远端 `archive_manifest.json` 列表批量回拉 runs，并自动解压归档包
+- 若需要只同步其中一侧，可加 `--skip-runs` 或 `--skip-cache`
+
+## 4. 额外说明
 
 - 若 `RESEARCH_CACHE_HF_REPO` 已配置，命令可省略 `--repo`
 - 若 `RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT=1` 已配置，`run_all_phases` 会在三阶段结束后自动推送最新快照
 
-## 3. 推荐环境变量
+## 5. 推荐环境变量
 
 ```text
 RESEARCH_RUNS_ROOT=local/runs
@@ -80,7 +97,7 @@ RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT=1
 HF_TOKEN=hf_xxx
 ```
 
-## 4. 维护建议
+## 6. 维护建议
 
 - `runs` 与 `cache` 使用不同的 HF repo，不要混仓
 - `runs` 优先公开；`cache` 优先私有

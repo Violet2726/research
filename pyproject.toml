@@ -37,6 +37,7 @@ faithful_matrix_cli = "experiment_core.matrix.faithful_matrix:main"
 cache_inspector_cli = "experiment_core.tools.cache_inspector:main"
 archive_runs_cli = "experiment_core.tools.archive_runs:main"
 cache_archive_cli = "experiment_core.tools.cache_archive:main"
+hf_sync_cli = "experiment_core.tools.hf_sync:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -47,4 +48,3 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--import-mode=importlib"]
-

@@ -11,6 +11,7 @@ from experiment_core.foundation.cache import CachedResponse, RequestCacheRouter,
 from experiment_core.tools.archive_runs import main as archive_runs_main
 from experiment_core.tools.cache_archive import main as cache_archive_main
 from experiment_core.tools.cache_inspector import main as cache_inspector_main
+from experiment_core.tools.hf_sync import main as hf_sync_main
 from experiment_core.matrix.faithful_matrix import main as faithful_matrix_main
 from multi_agent.cli import main as multi_agent_main
 from budget_comm.cli import main as budget_main
@@ -361,4 +362,68 @@ def test_cache_archive_push_uses_repo_env(monkeypatch, tmp_path) -> None:
 
     assert payload["remote_repo"] == "owner/research-cache"
     assert payload["private_repo"] is True
+
+
+def test_hf_sync_push_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
+    monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
+    monkeypatch.setattr(
+        "experiment_core.tools.hf_sync.push_workspace_to_hub",
+        lambda **kwargs: {
+            "runs_repo": kwargs["runs_repo_id"],
+            "cache_repo": kwargs["cache_repo_id"],
+            "publish_runs": kwargs["publish_runs"],
+            "push_cache": kwargs["push_cache"],
+        },
+    )
+
+    payload = _run_cli(
+        hf_sync_main,
+        [
+            "hf_sync_cli",
+            "push-workspace",
+            "--runs-root",
+            str(tmp_path / "runs"),
+            "--cache-root",
+            str(tmp_path / "cache"),
+            "--json",
+        ],
+    )
+
+    assert payload["runs_repo"] == "owner/research-runs"
+    assert payload["cache_repo"] == "owner/research-cache"
+    assert payload["publish_runs"] is True
+    assert payload["push_cache"] is True
+
+
+def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
+    monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
+    monkeypatch.setattr(
+        "experiment_core.tools.hf_sync.pull_workspace_from_hub",
+        lambda **kwargs: {
+            "runs_repo": kwargs["runs_repo_id"],
+            "cache_repo": kwargs["cache_repo_id"],
+            "fetch_runs": kwargs["fetch_runs"],
+            "pull_cache": kwargs["pull_cache"],
+        },
+    )
+
+    payload = _run_cli(
+        hf_sync_main,
+        [
+            "hf_sync_cli",
+            "pull-workspace",
+            "--runs-root",
+            str(tmp_path / "runs"),
+            "--cache-root",
+            str(tmp_path / "cache"),
+            "--json",
+        ],
+    )
+
+    assert payload["runs_repo"] == "owner/research-runs"
+    assert payload["cache_repo"] == "owner/research-cache"
+    assert payload["fetch_runs"] is True
+    assert payload["pull_cache"] is True
 

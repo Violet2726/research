@@ -26,7 +26,8 @@ LEGACY_REPORT_COMMANDS = (
 )
 MARKDOWN_DOCS = [
     ROOT / "README.md",
-    ROOT / "docs" / "cue_framework_guide.md",
+    ROOT / "docs" / "huggingface_archive_workflow.md",
+    ROOT / "docs" / "run_report_pipeline.md",
     ROOT / "src" / "budget_comm" / "README.md",
     ROOT / "src" / "comm_necessary" / "README.md",
     ROOT / "src" / "cue" / "README.md",
