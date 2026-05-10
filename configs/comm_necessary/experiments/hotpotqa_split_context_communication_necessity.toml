@@ -33,5 +33,8 @@ split_suffix = "pilot100_seed42"
 [phases.confirmatory300]
 split_suffix = "dev300_seed42"
 
+[phases.confirmatory500]
+split_suffix = "confirmatory500_seed42"
+
 [phases.main]
 split_suffix = "split500_seed42"

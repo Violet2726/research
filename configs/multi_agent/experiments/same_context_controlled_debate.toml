@@ -36,3 +36,7 @@ setups = ["mad_3a_r1"]
 [phases.confirmatory300]
 split_overrides = { gsm8k = "dev300_seed42", strategyqa = "dev_full_229_seed42", hotpotqa = "dev300_seed42" }
 setups = ["mad_3a_r1"]
+
+[phases.confirmatory500]
+split_overrides = { gsm8k = "confirmatory500_seed42", strategyqa = "dev_full_229_seed42", hotpotqa = "confirmatory500_seed42" }
+setups = ["mad_3a_r1"]

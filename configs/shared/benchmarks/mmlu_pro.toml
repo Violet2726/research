@@ -33,6 +33,12 @@ field = "category"
 size = 300
 
 [[split_presets]]
+name = "strat500_seed42"
+strategy = "stratified"
+field = "category"
+size = 500
+
+[[split_presets]]
 name = "strat1200_seed42"
 strategy = "stratified"
 field = "category"

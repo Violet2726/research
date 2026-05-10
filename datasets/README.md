@@ -56,7 +56,7 @@ uv run dataset_assets_cli prepare-all-sources --force
 - 上游 split：`test`
 - 样本数：`1319`
 - 文件大小：`732.17 KiB`
-- 冻结 split：`gsm8k-dev300_seed42.json`, `gsm8k-pilot100_seed42.json`, `gsm8k-smoke20_seed42.json`
+- 冻结 split：`gsm8k-confirmatory500_seed42.json`, `gsm8k-dev300_seed42.json`, `gsm8k-pilot100_seed42.json`, `gsm8k-smoke20_seed42.json`
 
 ### GSM-Symbolic (`gsm_symbolic`)
 
@@ -66,7 +66,7 @@ uv run dataset_assets_cli prepare-all-sources --force
 - 上游 split：`test`
 - 样本数：`5000`
 - 文件大小：`5.94 MiB`
-- 冻结 split：`gsm_symbolic-pilot100_seed42.json`, `gsm_symbolic-robustness200_seed42.json`, `gsm_symbolic-smoke20_seed42.json`
+- 冻结 split：`gsm_symbolic-pilot100_seed42.json`, `gsm_symbolic-robustness200_seed42.json`, `gsm_symbolic-robustness500_seed42.json`, `gsm_symbolic-smoke20_seed42.json`
 - 说明：公开版本只提供生成后的 test 集。
 
 ### HotpotQA (`hotpotqa`)
@@ -77,7 +77,7 @@ uv run dataset_assets_cli prepare-all-sources --force
 - 上游 split：`validation_distractor`
 - 样本数：`7405`
 - 文件大小：`26.18 MiB`
-- 冻结 split：`hotpotqa-dev1000_seed42.json`, `hotpotqa-dev300_seed42.json`, `hotpotqa-pilot100_seed42.json`, `hotpotqa-smoke20_seed42.json`, `hotpotqa-split500_seed42.json`
+- 冻结 split：`hotpotqa-confirmatory500_seed42.json`, `hotpotqa-dev1000_seed42.json`, `hotpotqa-dev300_seed42.json`, `hotpotqa-pilot100_seed42.json`, `hotpotqa-smoke20_seed42.json`, `hotpotqa-split500_seed42.json`
 
 ### MATH500 (`math500`)
 
@@ -87,7 +87,7 @@ uv run dataset_assets_cli prepare-all-sources --force
 - 上游 split：`test`
 - 样本数：`500`
 - 文件大小：`436.10 KiB`
-- 冻结 split：`math500-confirmatory300_seed42.json`, `math500-full500_seed42.json`, `math500-pilot100_seed42.json`, `math500-smoke20_seed42.json`
+- 冻结 split：`math500-confirmatory300_seed42.json`, `math500-confirmatory500_seed42.json`, `math500-full500_seed42.json`, `math500-pilot100_seed42.json`, `math500-smoke20_seed42.json`
 - 说明：官方公开数据仅提供 test 集。
 
 ### MMLU-Pro (`mmlu_pro`)
@@ -98,7 +98,7 @@ uv run dataset_assets_cli prepare-all-sources --force
 - 上游 split：`test`
 - 样本数：`12032`
 - 文件大小：`3.95 MiB`
-- 冻结 split：`mmlu_pro-pilot100_seed42.json`, `mmlu_pro-smoke20_seed42.json`, `mmlu_pro-strat1200_seed42.json`, `mmlu_pro-strat300_seed42.json`, `mmlu_pro-test_full_12032_seed42.json`
+- 冻结 split：`mmlu_pro-pilot100_seed42.json`, `mmlu_pro-smoke20_seed42.json`, `mmlu_pro-strat1200_seed42.json`, `mmlu_pro-strat300_seed42.json`, `mmlu_pro-strat500_seed42.json`, `mmlu_pro-test_full_12032_seed42.json`
 
 ### StrategyQA (`strategyqa`)
 

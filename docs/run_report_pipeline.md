@@ -54,9 +54,9 @@ Hugging Face dataset repo
   - 写出 `run_validation.json`
   - 按环境开关自动发布到 `RESEARCH_RUNS_HF_REPO`
 - `run_all_phases.ps1` / `run_all_phases.sh`
-  - 顺序运行 `smoke20 -> pilot100 -> confirmatory300`
+  - 顺序运行 `smoke20 -> pilot100 -> confirmatory300 -> confirmatory500`
   - 每个阶段结束后要求 matrix 全部成功
-  - 若启用 `RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT=1`，则在三阶段结束后推送 `local/cache` 最新快照
+  - 若启用 `RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT=1`，则在四阶段结束后推送 `local/cache` 最新快照
 
 ## 维护建议
 

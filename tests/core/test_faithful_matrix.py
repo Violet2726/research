@@ -81,6 +81,25 @@ def test_build_run_matrix_counts_expected_for_confirmatory300() -> None:
     }
 
 
+def test_build_run_matrix_counts_expected_for_confirmatory500() -> None:
+    overrides = RuntimeOverrides(phase_name="confirmatory500")
+    matrix = build_run_matrix(overrides)
+    semantic_counts = Counter(entry.status for entry in matrix.semantic_entries)
+    entry_counts = Counter(entry.status for entry in matrix.entries)
+
+    assert len(matrix.semantic_entries) == 15
+    assert semantic_counts["pending"] == 15
+    assert entry_counts["excluded"] == 0
+    assert matrix.counts["semantic_unique_targets"] == 15
+    comm_entry = next(
+        entry
+        for entry in matrix.semantic_entries
+        if entry.experiment_name == "hotpotqa_split_context_communication_necessity"
+    )
+    assert comm_entry.phase_name == "confirmatory500"
+    assert comm_entry.evidence_tier == "headline"
+
+
 def test_apply_runtime_overrides_clears_single_agent_smoke20_tag_constraints() -> None:
     overrides = RuntimeOverrides()
     experiment = load_single_agent_experiment_config("configs/single_agent/experiments/cross_provider_robustness.toml")

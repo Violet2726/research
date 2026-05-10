@@ -28,3 +28,8 @@ size = 100
 name = "robustness200_seed42"
 strategy = "shuffle"
 size = 200
+
+[[split_presets]]
+name = "robustness500_seed42"
+strategy = "shuffle"
+size = 500

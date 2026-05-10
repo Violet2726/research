@@ -36,3 +36,6 @@ split_suffix = "pilot100_seed42"
 
 [phases.confirmatory300]
 split_overrides = { gsm8k = "dev300_seed42", math500 = "confirmatory300_seed42", strategyqa = "dev_full_229_seed42", hotpotqa = "dev300_seed42", mmlu_pro = "strat300_seed42" }
+
+[phases.confirmatory500]
+split_overrides = { gsm8k = "confirmatory500_seed42", math500 = "confirmatory500_seed42", strategyqa = "dev_full_229_seed42", hotpotqa = "confirmatory500_seed42", mmlu_pro = "strat500_seed42" }

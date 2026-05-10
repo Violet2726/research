@@ -36,6 +36,11 @@ split_overrides = { math500 = "confirmatory300_seed42", hotpotqa = "dev300_seed4
 methods = ["cot_1", "sc_5"]
 reruns_override = 1
 
+[phases.confirmatory500]
+split_overrides = { math500 = "confirmatory500_seed42", hotpotqa = "confirmatory500_seed42", mmlu_pro = "strat500_seed42", gpqa_diamond = "full_seed42" }
+methods = ["cot_1", "sc_5"]
+reruns_override = 1
+
 [phases.main]
 split_overrides = { math500 = "full500_seed42", hotpotqa = "dev1000_seed42", mmlu_pro = "strat1200_seed42", gpqa_diamond = "full_seed42" }
 methods = ["cot_1", "sc_5"]

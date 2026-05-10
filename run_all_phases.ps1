@@ -71,7 +71,7 @@ print(run_dir.as_posix())
 
 Import-DotEnvLocal
 
-Write-Host "开始运行 faithful_matrix 三个阶段..."
+Write-Host "开始运行 faithful_matrix 四个阶段..."
 
 Write-Host "[$(Get-Date -Format s)] 开始运行 smoke20 阶段..."
 $smoke20Dir = Invoke-MatrixPhase -Phase "smoke20"
@@ -84,6 +84,10 @@ Write-Host "[$(Get-Date -Format s)] pilot100 阶段完成: $pilot100Dir"
 Write-Host "[$(Get-Date -Format s)] 开始运行 confirmatory300 阶段..."
 $confirmatory300Dir = Invoke-MatrixPhase -Phase "confirmatory300" -ReferenceStatePath $pilot100Dir
 Write-Host "[$(Get-Date -Format s)] confirmatory300 阶段完成: $confirmatory300Dir"
+
+Write-Host "[$(Get-Date -Format s)] 开始运行 confirmatory500 阶段..."
+$confirmatory500Dir = Invoke-MatrixPhase -Phase "confirmatory500" -ReferenceStatePath $confirmatory300Dir
+Write-Host "[$(Get-Date -Format s)] confirmatory500 阶段完成: $confirmatory500Dir"
 
 $autoPushCache = if ([string]::IsNullOrWhiteSpace($env:RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT)) { "" } else { $env:RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT.ToLowerInvariant() }
 if (

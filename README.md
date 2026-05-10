@@ -161,7 +161,7 @@ uv run hf_sync_cli pull-workspace
 说明：
 
 - family 级 run 在 `finalize_run_outputs()` 后会按环境开关自动发布到 `RESEARCH_RUNS_HF_REPO`
-- `run_all_phases.ps1` / `run_all_phases.sh` 在启用 `RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT=1` 时，会在三阶段结束后自动推送 cache 最新快照
+- `run_all_phases.ps1` / `run_all_phases.sh` 在启用 `RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT=1` 时，会在四阶段结束后自动推送 cache 最新快照
 - 本仓库不再以 Git 形式承载 `runs/`、`reports/`、`cache/` 的正式产物
 
 ## 文档入口
