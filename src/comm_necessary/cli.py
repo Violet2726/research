@@ -7,10 +7,9 @@ CLI 暴露实验检查、执行、摘要、校验与报告生成能力，
 from __future__ import annotations
 
 import argparse
-import json
-
 from dotenv import load_dotenv
 
+from experiment_core.foundation.cli_output import configure_utf8_stdio, emit_json
 from experiment_core.foundation.workspace import (
     default_cache_root,
     default_reports_root,
@@ -58,6 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    configure_utf8_stdio()
     parser = build_parser()
     args = parser.parse_args()
 
@@ -100,7 +100,7 @@ def main() -> None:
                 for phase_name in experiment.raw["phases"]
             },
         }
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        emit_json(payload)
         return
 
     if args.command == "run":
@@ -117,15 +117,15 @@ def main() -> None:
         return
 
     if args.command == "summarize-run":
-        print(json.dumps(summarize_run(args.run_dir), ensure_ascii=False, indent=2))
+        emit_json(summarize_run(args.run_dir))
         return
 
     if args.command == "validate-run":
-        print(json.dumps(validate_run(args.run_dir), ensure_ascii=False, indent=2))
+        emit_json(validate_run(args.run_dir))
         return
 
     if args.command == "render-report":
-        print(json.dumps(render_report(args.run_dir, publish_dir=args.publish_dir), ensure_ascii=False, indent=2))
+        emit_json(render_report(args.run_dir, publish_dir=args.publish_dir))
         return
 
     parser.error(f"Unsupported command: {args.command}")

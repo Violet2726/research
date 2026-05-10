@@ -18,6 +18,7 @@ from selective_comm.validation import validate_run as validate_selective_comm
 from sid_lite.validation import validate_run as validate_sid_lite
 from single_agent.validation import validate_run as validate_single_agent
 from sparc.validation import validate_run as validate_sparc
+from experiment_core.foundation.cli_output import configure_utf8_stdio, emit_json
 
 
 RUN_ID_PATTERN = re.compile(r"20\d{6}T\d{6}Z-[A-Za-z0-9._:-]+")
@@ -91,6 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """命令行入口。"""
+    configure_utf8_stdio()
     args = build_parser().parse_args()
     workspace_root = Path(args.workspace_root).resolve()
     runs_root = workspace_root / args.runs_root
@@ -103,7 +105,7 @@ def main() -> None:
         revalidate_runs=args.revalidate_runs,
     )
     if args.json:
-        print(json.dumps(_summary_to_dict(summary), ensure_ascii=False, indent=2))
+        emit_json(_summary_to_dict(summary))
         return
     _print_summary(summary, workspace_root)
 

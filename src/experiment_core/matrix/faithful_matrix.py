@@ -25,6 +25,7 @@ from cue.config import resolve_model as resolve_cue_model
 from cue.runner import run_experiment as run_cue_experiment
 from cue.validation import validate_run as validate_cue_run
 from experiment_core.foundation.config import load_benchmark_config, resolve_model_ref
+from experiment_core.foundation.cli_output import configure_utf8_stdio, emit_json
 from experiment_core.foundation.run_archives import publish_run_if_configured
 from experiment_core.matrix.faithful_acceptance import render_acceptance_summary
 from experiment_core.matrix.faithful_analysis import render_faithful_analysis
@@ -690,6 +691,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """命令行入口。"""
+    configure_utf8_stdio()
     parser = build_parser()
     args = parser.parse_args()
 
@@ -709,7 +711,7 @@ def main() -> None:
             "entries": [asdict(entry) for entry in matrix.entries],
             "semantic_entries": [asdict(entry) for entry in matrix.semantic_entries],
         }
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        emit_json(payload)
         return
 
     if args.command == "run":
@@ -741,22 +743,22 @@ def main() -> None:
             args.state_path,
             reference_state_path_or_root=args.reference_state_path,
         )
-        print(json.dumps(paths, ensure_ascii=False, indent=2))
+        emit_json(paths)
         return
 
     if args.command == "evaluate-acceptance":
         paths = render_acceptance_summary(args.analysis_path)
-        print(json.dumps(paths, ensure_ascii=False, indent=2))
+        emit_json(paths)
         return
 
     if args.command == "render-statistics":
         paths = render_paper_statistics(args.state_path)
-        print(json.dumps(paths, ensure_ascii=False, indent=2))
+        emit_json(paths)
         return
 
     if args.command == "render-paper-package":
         paths = render_paper_package(args.state_path)
-        print(json.dumps(paths, ensure_ascii=False, indent=2))
+        emit_json(paths)
         return
 
     parser.error(f"Unsupported command: {args.command}")

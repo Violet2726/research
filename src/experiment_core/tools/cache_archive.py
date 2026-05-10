@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import argparse
-import json
 
 from dotenv import load_dotenv
 
 from experiment_core.foundation.cache_snapshots import pull_latest_cache_snapshot, push_latest_cache_snapshot
+from experiment_core.foundation.cli_output import configure_utf8_stdio, emit_json
 from experiment_core.foundation.workspace import default_cache_hf_repo, default_cache_root
 
 
 def build_parser() -> argparse.ArgumentParser:
     """构造 cache 快照命令行参数。"""
+
     parser = argparse.ArgumentParser(description="同步 cache 的 latest-only Hugging Face 快照。")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -25,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     push_latest.add_argument("--no-create-repo", action="store_true")
     push_latest.add_argument("--json", action="store_true")
 
-    pull_latest = subparsers.add_parser("pull-latest", help="从远程 latest-only 快照恢复 cache。")
+    pull_latest = subparsers.add_parser("pull-latest", help="从远端 latest-only 快照恢复 cache。")
     pull_latest.add_argument("--target", required=True)
     pull_latest.add_argument("--cache-shard", action="append", default=[], help="仅恢复某个或某些分库目录，可重复传入。")
     pull_latest.add_argument("--repo")
@@ -36,7 +37,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """命令行入口。"""
+
     load_dotenv(".env.local", override=False)
+    configure_utf8_stdio()
     args = build_parser().parse_args()
     if args.command == "push-latest":
         payload = push_latest_cache_snapshot(
@@ -58,9 +61,9 @@ def main() -> None:
         raise RuntimeError(f"Unsupported command: {args.command}")
 
     if args.json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        emit_json(payload)
         return
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    emit_json(payload)
 
 
 def _require_repo(explicit_repo: str | None) -> str:
@@ -68,3 +71,7 @@ def _require_repo(explicit_repo: str | None) -> str:
     if not repo_id:
         raise RuntimeError("缺少 cache Hugging Face repo；请传 `--repo` 或配置 `RESEARCH_CACHE_HF_REPO`。")
     return repo_id
+
+
+if __name__ == "__main__":
+    main()

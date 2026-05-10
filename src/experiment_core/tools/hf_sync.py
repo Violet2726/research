@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import argparse
-import json
 
 from dotenv import load_dotenv
 
+from experiment_core.foundation.cli_output import configure_utf8_stdio, emit_json
 from experiment_core.foundation.hf_sync import collect_hf_sync_status, pull_workspace_from_hub, push_workspace_to_hub
 from experiment_core.foundation.workspace import default_cache_hf_repo, default_cache_root, default_runs_hf_repo, workspace_layout
 
 
 def build_parser() -> argparse.ArgumentParser:
     """构造 Hugging Face 同步命令行参数。"""
+
     parser = argparse.ArgumentParser(description="批量同步本地 runs 与 cache 到 Hugging Face。")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -60,7 +61,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """命令行入口。"""
+
     load_dotenv(".env.local", override=False)
+    configure_utf8_stdio()
     args = build_parser().parse_args()
 
     if args.command == "push-workspace":
@@ -103,7 +106,14 @@ def main() -> None:
             include_remote=not args.local_only,
             include_matrix=not args.no_matrix,
         )
-    else:  # pragma: no cover - argparse 已保证不走到这里
+    else:  # pragma: no cover - argparse 已保证不会走到这里
         raise RuntimeError(f"Unsupported command: {args.command}")
 
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    if args.json:
+        emit_json(payload)
+        return
+    emit_json(payload)
+
+
+if __name__ == "__main__":
+    main()

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import json
 
 from dotenv import load_dotenv
 
+from experiment_core.foundation.cli_output import configure_utf8_stdio, emit_json
 from experiment_core.foundation.dataset_assets import (
     build_primary_dataset_specs,
     build_supplementary_dataset_specs,
@@ -22,8 +22,9 @@ from experiment_core.foundation.dataset_assets import (
 
 def build_parser() -> argparse.ArgumentParser:
     """构建数据集资产命令行。"""
+
     load_dotenv(".env.local", override=False)
-    parser = argparse.ArgumentParser(description="Download and prepare project benchmark datasets.")
+    parser = argparse.ArgumentParser(description="下载并准备项目 benchmark 数据集。")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     list_used = subparsers.add_parser("list-used", help="列出项目当前使用的 benchmark 与数据集资产。")
@@ -60,6 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """解析并执行数据集资产命令。"""
+
+    configure_utf8_stdio()
     parser = build_parser()
     args = parser.parse_args()
 
@@ -80,39 +83,39 @@ def main() -> None:
             "primary_assets": [_serialize_spec(spec) for spec in build_primary_dataset_specs(benchmarks)],
             "supplementary_assets": [_serialize_spec(spec) for spec in build_supplementary_dataset_specs(benchmarks)],
         }
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        emit_json(payload)
         return
 
     if args.command == "download-used":
         benchmarks = load_used_benchmark_configs(args.configs_root)
         results = download_primary_dataset_sources(benchmarks, force=args.force)
-        print(json.dumps({"download_count": len(results), "downloads": [_serialize_result(item) for item in results]}, ensure_ascii=False, indent=2))
+        emit_json({"download_count": len(results), "downloads": [_serialize_result(item) for item in results]})
         return
 
     if args.command == "download-training":
         benchmarks = load_used_benchmark_configs(args.configs_root)
         results = download_supplementary_dataset_sources(benchmarks, force=args.force)
-        print(json.dumps({"download_count": len(results), "downloads": [_serialize_result(item) for item in results]}, ensure_ascii=False, indent=2))
+        emit_json({"download_count": len(results), "downloads": [_serialize_result(item) for item in results]})
         return
 
     if args.command == "generate-splits":
         benchmarks = load_used_benchmark_configs(args.configs_root)
         created = regenerate_used_dataset_splits(benchmarks, output_dir=args.splits_root)
-        print(json.dumps({"split_count": len(created), "splits": [path.as_posix() for path in created]}, ensure_ascii=False, indent=2))
+        emit_json({"split_count": len(created), "splits": [path.as_posix() for path in created]})
         return
 
     if args.command == "prepare-used":
-        print(json.dumps(prepare_used_datasets(configs_root=args.configs_root, splits_root=args.splits_root, force=args.force), ensure_ascii=False, indent=2))
+        emit_json(prepare_used_datasets(configs_root=args.configs_root, splits_root=args.splits_root, force=args.force))
         return
 
     if args.command == "prepare-all-sources":
-        print(json.dumps(prepare_all_dataset_sources(configs_root=args.configs_root, splits_root=args.splits_root, force=args.force), ensure_ascii=False, indent=2))
+        emit_json(prepare_all_dataset_sources(configs_root=args.configs_root, splits_root=args.splits_root, force=args.force))
         return
 
     if args.command == "refresh-readme":
         benchmarks = load_used_benchmark_configs(args.configs_root)
         paths = write_dataset_inventory_files(benchmarks, docs_root="datasets", splits_root=args.splits_root)
-        print(json.dumps({key: value.as_posix() for key, value in paths.items()}, ensure_ascii=False, indent=2))
+        emit_json({key: value.as_posix() for key, value in paths.items()})
         return
 
     parser.error(f"Unsupported command: {args.command}")
@@ -143,3 +146,7 @@ def _serialize_result(result) -> dict[str, object]:
         "status": result.status,
         "size_bytes": result.size_bytes,
     }
+
+
+if __name__ == "__main__":
+    main()

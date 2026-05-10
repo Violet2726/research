@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 from experiment_core.foundation.cache import (
@@ -14,6 +13,7 @@ from experiment_core.foundation.cache import (
     resolve_cache_shard_path,
     summarize_cache_root,
 )
+from experiment_core.foundation.cli_output import configure_utf8_stdio, emit_json
 from experiment_core.foundation.workspace import default_cache_root
 
 
@@ -39,18 +39,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """命令行入口。"""
+    configure_utf8_stdio()
     args = build_parser().parse_args()
 
     if args.command == "summarize":
         summary = summarize_cache_root(args.cache_root)
         if args.json:
-            print(
-                json.dumps(
-                    _root_summary_to_dict(summary, top_shards=max(int(args.top_shards), 0)),
-                    ensure_ascii=False,
-                    indent=2,
-                )
-            )
+            emit_json(_root_summary_to_dict(summary, top_shards=max(int(args.top_shards), 0)))
             return
         _print_root_summary(summary, top_shards=max(int(args.top_shards), 0))
         return
@@ -64,7 +59,7 @@ def main() -> None:
         )
         shard = inspect_cache_shard(shard_path, args.cache_root)
         if args.json:
-            print(json.dumps(_shard_summary_to_dict(shard, Path(args.cache_root)), ensure_ascii=False, indent=2))
+            emit_json(_shard_summary_to_dict(shard, Path(args.cache_root)))
             return
         _print_shard_summary(shard, Path(args.cache_root))
         return
