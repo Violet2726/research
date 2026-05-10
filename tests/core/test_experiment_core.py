@@ -30,6 +30,7 @@ from experiment_core.foundation.providers import (
     execute_completion_request,
 )
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
+from experiment_core.foundation.runtime import finalize_run_outputs
 from experiment_core.controls.selective_signals import decide_trigger, summarize_confidence_rows, summarize_divergence_rows
 from experiment_core.foundation.structured_output import (
     OUTPUT_MODE_BUDGET_BELIEF_UPDATE,
@@ -48,10 +49,14 @@ from experiment_core.foundation.structured_output import (
     validate_structured_output,
 )
 from experiment_core.foundation.workspace import (
+    auto_publish_runs_enabled,
+    auto_push_cache_snapshot_enabled,
     default_cache_root,
+    default_cache_hf_repo,
     default_files_root,
     default_reports_root,
     default_runs_root,
+    default_runs_hf_repo,
     workspace_defaults,
 )
 
@@ -97,11 +102,19 @@ def test_workspace_defaults_follow_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("RESEARCH_REPORTS_ROOT", "published-reports")
     monkeypatch.setenv("RESEARCH_CACHE_ROOT", "tmp/cache")
     monkeypatch.setenv("RESEARCH_FILES_ROOT", "notes")
+    monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
+    monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
+    monkeypatch.setenv("RESEARCH_AUTO_PUBLISH_RUNS", "1")
+    monkeypatch.setenv("RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT", "true")
 
     assert default_runs_root("selective_comm") == "experiment-runs/selective_comm"
     assert default_reports_root("selective_comm") == "published-reports/selective_comm"
     assert default_cache_root() == "tmp/cache"
     assert default_files_root() == "notes"
+    assert default_runs_hf_repo() == "owner/research-runs"
+    assert default_cache_hf_repo() == "owner/research-cache"
+    assert auto_publish_runs_enabled() is True
+    assert auto_push_cache_snapshot_enabled() is True
 
     payload = workspace_defaults("selective_comm")
     assert payload["runs_root"] == "experiment-runs"
@@ -109,6 +122,33 @@ def test_workspace_defaults_follow_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert payload["experiment_runs_root"] == "experiment-runs/selective_comm"
     assert payload["experiment_reports_root"] == "published-reports/selective_comm"
     assert payload["experiment_cache_root"] == "tmp/cache"
+    assert payload["runs_hf_repo"] == "owner/research-runs"
+    assert payload["cache_hf_repo"] == "owner/research-cache"
+    assert payload["auto_publish_runs"] is True
+    assert payload["auto_push_cache_snapshot"] is True
+
+
+def test_workspace_defaults_use_local_roots_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in [
+        "RESEARCH_RUNS_ROOT",
+        "RESEARCH_REPORTS_ROOT",
+        "RESEARCH_CACHE_ROOT",
+        "RESEARCH_FILES_ROOT",
+        "RESEARCH_RUNS_HF_REPO",
+        "RESEARCH_CACHE_HF_REPO",
+        "RESEARCH_AUTO_PUBLISH_RUNS",
+        "RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT",
+    ]:
+        monkeypatch.delenv(name, raising=False)
+
+    assert default_runs_root("single_agent") == "local/runs/single_agent"
+    assert default_reports_root("single_agent") == "local/reports/single_agent"
+    assert default_cache_root() == "local/cache"
+    assert default_files_root() == "files"
+    assert default_runs_hf_repo() is None
+    assert default_cache_hf_repo() is None
+    assert auto_publish_runs_enabled() is False
+    assert auto_push_cache_snapshot_enabled() is False
 
 
 def test_build_payload_maps_thinking_control_by_provider() -> None:
@@ -1017,4 +1057,23 @@ def test_buffered_jsonl_writer_writes_rows(tmp_path: Path) -> None:
         writer.close()
     rows = [json.loads(line) for line in target.read_text(encoding="utf-8").splitlines()]
     assert rows == [{"id": 1}, {"id": 2}, {"id": 3}]
+
+
+def test_finalize_run_outputs_attaches_hf_publish_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "manifest.json").write_text(json.dumps({"run_id": "demo-run"}, ensure_ascii=False, indent=2), encoding="utf-8")
+    (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
+    (tmp_path / "metrics.json").write_text(json.dumps({"summary": []}, ensure_ascii=False, indent=2), encoding="utf-8")
+    monkeypatch.setattr(
+        "experiment_core.foundation.runtime.publish_run_if_configured",
+        lambda root, validation: {"published": True, "remote_repo": "owner/research-runs"},
+    )
+
+    payload = finalize_run_outputs(
+        tmp_path,
+        validator=lambda _: {"passed": True},
+    )
+
+    assert payload["hf_publish"]["published"] is True
+    validation_payload = json.loads((tmp_path / "run_validation.json").read_text(encoding="utf-8"))
+    assert validation_payload["hf_publish"]["remote_repo"] == "owner/research-runs"
 

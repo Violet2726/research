@@ -9,6 +9,7 @@ from pathlib import Path
 
 from experiment_core.foundation.cache import CachedResponse, RequestCacheRouter, json_dump
 from experiment_core.tools.archive_runs import main as archive_runs_main
+from experiment_core.tools.cache_archive import main as cache_archive_main
 from experiment_core.tools.cache_inspector import main as cache_inspector_main
 from experiment_core.matrix.faithful_matrix import main as faithful_matrix_main
 from multi_agent.cli import main as multi_agent_main
@@ -305,4 +306,59 @@ def test_archive_runs_pack_run_cli(tmp_path) -> None:
     )
     assert payload["archive_count"] == 2
     assert Path(payload["archive_manifest"]).exists()
+
+
+def test_archive_runs_publish_uses_repo_env(monkeypatch, tmp_path) -> None:
+    (tmp_path / "manifest.json").write_text(json.dumps({"run_id": "test-run"}, ensure_ascii=False, indent=2), encoding="utf-8")
+    monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
+    monkeypatch.setattr(
+        "experiment_core.tools.archive_runs.publish_run_to_hub",
+        lambda run_root, repo_id, token, create_repo: {
+            "run_root": str(run_root),
+            "remote_repo": repo_id,
+            "published": True,
+            "create_repo": create_repo,
+        },
+    )
+
+    payload = _run_cli(
+        archive_runs_main,
+        [
+            "archive_runs_cli",
+            "publish-run",
+            "--run-root",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    assert payload["remote_repo"] == "owner/research-runs"
+    assert payload["published"] is True
+
+
+def test_cache_archive_push_uses_repo_env(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
+    monkeypatch.setattr(
+        "experiment_core.tools.cache_archive.push_latest_cache_snapshot",
+        lambda cache_root, repo_id, token, create_repo, private: {
+            "cache_root": str(cache_root),
+            "remote_repo": repo_id,
+            "published": True,
+            "private_repo": private,
+        },
+    )
+
+    payload = _run_cli(
+        cache_archive_main,
+        [
+            "cache_archive_cli",
+            "push-latest",
+            "--cache-root",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    assert payload["remote_repo"] == "owner/research-cache"
+    assert payload["private_repo"] is True
 

@@ -31,7 +31,7 @@ def slugify_report_fragment(value: Any) -> str:
 
 
 def build_published_report_name(manifest: dict[str, Any], *, stem: str = "report") -> str:
-    """统一生成发布到 `reports/<family>/` 的 Markdown 文件名。"""
+    """统一生成写入 `local/reports/<family>/` 的 Markdown 文件名。"""
 
     created_at = str(manifest.get("created_at") or "")
     created_date = created_at.split("T", 1)[0] if "T" in created_at else "unknown-date"

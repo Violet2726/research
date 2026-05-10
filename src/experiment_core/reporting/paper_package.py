@@ -9,6 +9,7 @@ import os
 from statistics import mean
 from typing import Any
 
+from experiment_core.foundation.workspace import default_reports_root
 from experiment_core.matrix.matrix_specs import (
     EVIDENCE_DIAGNOSTIC,
     EVIDENCE_HEADLINE,
@@ -108,7 +109,7 @@ def render_paper_package(
     published = (
         Path(published_path)
         if published_path is not None
-        else Path("reports") / "summary" / f"{run_id}-paper_package.md"
+        else Path(default_reports_root("faithful_matrix")) / f"{run_id}-paper_package.md"
     )
 
     markdown_body = render_paper_package_markdown(package)

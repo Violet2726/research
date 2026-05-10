@@ -214,7 +214,7 @@ def test_matrix_state_entry_and_statistic_comparison_views() -> None:
             "family": "selective_comm",
             "config_path": "configs/selective_comm/experiments/trigger_early_exit_main.toml",
             "experiment_name": "trigger_early_exit_main",
-            "run_dir": "runs/selective_comm/demo",
+            "run_dir": "local/runs/selective_comm/demo",
             "status": "completed",
         }
     )

@@ -25,12 +25,13 @@ from cue.config import resolve_model as resolve_cue_model
 from cue.runner import run_experiment as run_cue_experiment
 from cue.validation import validate_run as validate_cue_run
 from experiment_core.foundation.config import load_benchmark_config, resolve_model_ref
+from experiment_core.foundation.run_archives import publish_run_if_configured
 from experiment_core.matrix.faithful_acceptance import render_acceptance_summary
 from experiment_core.matrix.faithful_analysis import render_faithful_analysis
 from experiment_core.matrix.matrix_specs import get_experiment_matrix_spec
 from experiment_core.reporting.paper_package import render_paper_package
 from experiment_core.reporting.paper_statistics import render_paper_statistics
-from experiment_core.foundation.workspace import default_runs_root, workspace_defaults
+from experiment_core.foundation.workspace import default_reports_root, default_runs_root, workspace_defaults
 from free_mad_lite.config import load_experiment_config as load_free_mad_experiment_config
 from free_mad_lite.config import resolve_model as resolve_free_mad_model
 from free_mad_lite.runner import run_experiment as run_free_mad_experiment
@@ -277,6 +278,39 @@ def review_run_health(run_dir: str | Path, family: str) -> ReviewResult:
     return ReviewResult(True, "validation_passed_and_metrics_nonempty")
 
 
+def collect_blocking_entries(state_path_or_root: str | Path) -> list[dict[str, str]]:
+    """收集 faithful-matrix 中仍阻塞阶段收口的条目。"""
+    matrix, _ = _load_existing_matrix_state(state_path_or_root)
+    blocking_entries: list[dict[str, str]] = []
+    for entry in matrix.semantic_entries:
+        if entry.status == "completed":
+            continue
+        blocking_entries.append(
+            {
+                "family": entry.family,
+                "config": Path(entry.config_path).name,
+                "status": entry.status,
+                "notes": entry.review_notes or entry.excluded_reason or "",
+            }
+        )
+    return blocking_entries
+
+
+def assert_matrix_succeeded(state_path_or_root: str | Path) -> None:
+    """断言 faithful-matrix 阶段已经完整成功。"""
+    blocking_entries = collect_blocking_entries(state_path_or_root)
+    if not blocking_entries:
+        return
+    preview = "; ".join(
+        f"{entry['family']}/{entry['config']}={entry['status']}:{entry['notes']}"
+        for entry in blocking_entries[:5]
+    )
+    remaining = len(blocking_entries) - min(len(blocking_entries), 5)
+    if remaining > 0:
+        preview = f"{preview}; ... and {remaining} more"
+    raise RuntimeError(f"faithful_matrix 阶段未完整成功：{preview}")
+
+
 def run_faithful_matrix(
     overrides: RuntimeOverrides,
     *,
@@ -325,6 +359,8 @@ def run_faithful_matrix(
     render_acceptance_summary(paths.root)
     render_paper_statistics(paths.root)
     render_paper_package(paths.root)
+    if not collect_blocking_entries(paths.root):
+        publish_run_if_configured(paths.root)
     return paths.root
 
 
@@ -382,6 +418,8 @@ def resume_faithful_matrix(
     render_acceptance_summary(paths.root)
     render_paper_statistics(paths.root)
     render_paper_package(paths.root)
+    if not collect_blocking_entries(paths.root):
+        publish_run_if_configured(paths.root)
     return paths.root
 
 
@@ -496,7 +534,7 @@ def _prepare_orchestrator_paths(state_root: str | Path | None, overrides: Runtim
         matrix=root / "matrix.json",
         state=root / "state.json",
         report=root / "matrix_status.md",
-        published_summary=Path("reports") / "summary" / f"{run_id}.md",
+        published_summary=Path(default_reports_root(MATRIX_EXPERIMENT_KIND)) / f"{run_id}.md",
     )
 
 
@@ -506,7 +544,7 @@ def _existing_orchestrator_paths(root: Path) -> OrchestratorPaths:
         matrix=root / "matrix.json",
         state=root / "state.json",
         report=root / "matrix_status.md",
-        published_summary=Path("reports") / "summary" / f"{root.name}.md",
+        published_summary=Path(default_reports_root(MATRIX_EXPERIMENT_KIND)) / f"{root.name}.md",
     )
 
 

@@ -8,6 +8,7 @@ import json
 from typing import Any
 
 from experiment_core.matrix.matrix_specs import get_experiment_matrix_spec
+from experiment_core.foundation.workspace import default_reports_root
 
 SAME_CONTEXT_NON_INFERIORITY_FLOOR = -0.02
 SAME_CONTEXT_FULL_COMM_TOKEN_RATIO_CEILING = 0.85
@@ -32,7 +33,7 @@ def render_acceptance_summary(
     published_output = (
         Path(published_path)
         if published_path is not None
-        else Path("reports") / "summary" / f"{analysis_path.parent.name}-acceptance.md"
+        else Path(default_reports_root("faithful_matrix")) / f"{analysis_path.parent.name}-acceptance.md"
     )
 
     json_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")

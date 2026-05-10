@@ -8,6 +8,7 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from experiment_core.foundation.workspace import default_reports_root
 from experiment_core.matrix.matrix_specs import get_experiment_matrix_spec
 from experiment_core.reporting.report_views import (
     MatrixAnalysisRowView,
@@ -53,7 +54,11 @@ def render_faithful_analysis(
     root.mkdir(parents=True, exist_ok=True)
     json_path = root / "faithful_analysis.json"
     markdown_path = root / "faithful_analysis.md"
-    published_output = Path(published_path) if published_path is not None else Path("reports") / "summary" / f"{state_path.parent.name}-faithful.md"
+    published_output = (
+        Path(published_path)
+        if published_path is not None
+        else Path(default_reports_root("faithful_matrix")) / f"{state_path.parent.name}-faithful.md"
+    )
 
     import json
 

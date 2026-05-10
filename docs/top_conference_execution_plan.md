@@ -76,13 +76,13 @@ uv run faithful_matrix_cli inspect-matrix --phase confirmatory300
 正式运行命令：
 
 ```powershell
-uv run faithful_matrix_cli run --phase confirmatory300 --state-root runs/faithful_matrix_iterative --reference-state-path runs/faithful_matrix_iterative/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5
+uv run faithful_matrix_cli run --phase confirmatory300 --state-root local/runs/faithful_matrix_iterative --reference-state-path local/runs/faithful_matrix_iterative/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5
 ```
 
 若运行中断，续跑命令：
 
 ```powershell
-uv run faithful_matrix_cli resume --state-path <matrix_run_dir> --reference-state-path runs/faithful_matrix_iterative/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5
+uv run faithful_matrix_cli resume --state-path <matrix_run_dir> --reference-state-path local/runs/faithful_matrix_iterative/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5
 ```
 
 ## 4. 离线分析链路
@@ -98,13 +98,13 @@ uv run faithful_matrix_cli resume --state-path <matrix_run_dir> --reference-stat
 - `dataset_breakdown.json`
 - `paper_package.json`
 - `paper_package.md`
-- `reports/summary/<run_id>-paper_package.md`
+- `local/reports/faithful_matrix/<run_id>-paper_package.md`
 - `<matrix_run_dir>/figures/`
 
 离线重渲染命令：
 
 ```powershell
-uv run faithful_matrix_cli analyze-faithful --state-path <matrix_run_dir> --reference-state-path runs/smoke20_matrix_iterative/20260505T084626Z-smoke20-mimo-v2.5
+uv run faithful_matrix_cli analyze-faithful --state-path <matrix_run_dir> --reference-state-path local/runs/smoke20_matrix_iterative/20260505T084626Z-smoke20-mimo-v2.5
 uv run faithful_matrix_cli evaluate-acceptance --analysis-path <matrix_run_dir>
 uv run faithful_matrix_cli render-statistics --state-path <matrix_run_dir>
 uv run faithful_matrix_cli render-paper-package --state-path <matrix_run_dir>
@@ -177,8 +177,8 @@ uv run faithful_matrix_cli render-paper-package --state-path <matrix_run_dir>
 
 已使用最新 `pilot100` 矩阵完成离线回放：
 
-- 矩阵：`runs/faithful_matrix_iterative/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5`
-- 论文包：`reports/summary/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5-paper_package.md`
-- 图表：`runs/faithful_matrix_iterative/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5/figures/`
+- 矩阵：`local/runs/faithful_matrix_iterative/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5`
+- 论文包：`local/reports/faithful_matrix/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5-paper_package.md`
+- 图表：`local/runs/faithful_matrix_iterative/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5/figures/`
 
 该回放用于验证统计和报告链路，不替代后续 `confirmatory300` 正式运行。

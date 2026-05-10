@@ -75,13 +75,13 @@
 
 所有实验产物统一落到：
 
-- `runs/<family>/<experiment>/<phase>/<run_id>/`
-- `reports/<family>/`
+- `local/runs/<family>/<experiment>/<phase>/<run_id>/`
+- `local/reports/<family>/`
 
 顶层跨实验矩阵分析统一落到：
 
-- `runs/faithful_matrix_iterative/...`
-- `reports/summary/...`
+- `local/runs/faithful_matrix_iterative/...`
+- `local/reports/faithful_matrix/...`
 
 ## 3. 共享基础设施
 
@@ -106,7 +106,7 @@
 - `runtime.py`
   生成 `run_id`、写 `progress.json`。
 - `workspace.py`
-  统一 `runs/`、`reports/`、`cache/` 默认根目录。
+  统一 `local/runs/`、`local/reports/`、`local/cache/` 默认根目录。
 
 ## 3.2 结构化输出约束
 

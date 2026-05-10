@@ -146,7 +146,7 @@ def _fake_run_status(passed: bool):
 
     return RunStatus(
         package_name="multi_agent",
-        run_dir=Path("runs/multi_agent/fake"),
+        run_dir=Path("local/runs/multi_agent/fake"),
         run_id="fake",
         exists=True,
         passed=passed,
