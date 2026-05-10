@@ -3,7 +3,7 @@
 name = "MATH500"
 slug = "math500"
 loader = "math500_jsonl"
-source_path = "datasets/math500/test.jsonl"
+source_path = "math500/test.jsonl"
 source_split = "test"
 sample_id_prefix = "math500"
 question_field = "problem"

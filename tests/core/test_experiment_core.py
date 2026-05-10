@@ -53,6 +53,7 @@ from experiment_core.foundation.workspace import (
     auto_push_cache_snapshot_enabled,
     default_cache_root,
     default_cache_hf_repo,
+    default_datasets_root,
     default_files_root,
     default_reports_root,
     default_runs_root,
@@ -101,6 +102,7 @@ def test_workspace_defaults_follow_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("RESEARCH_RUNS_ROOT", "experiment-runs")
     monkeypatch.setenv("RESEARCH_REPORTS_ROOT", "published-reports")
     monkeypatch.setenv("RESEARCH_CACHE_ROOT", "tmp/cache")
+    monkeypatch.setenv("RESEARCH_DATASETS_ROOT", "tmp/datasets")
     monkeypatch.setenv("RESEARCH_FILES_ROOT", "notes")
     monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
     monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
@@ -110,6 +112,7 @@ def test_workspace_defaults_follow_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert default_runs_root("selective_comm") == "experiment-runs/selective_comm"
     assert default_reports_root("selective_comm") == "published-reports/selective_comm"
     assert default_cache_root() == "tmp/cache"
+    assert default_datasets_root() == "tmp/datasets"
     assert default_files_root() == "notes"
     assert default_runs_hf_repo() == "owner/research-runs"
     assert default_cache_hf_repo() == "owner/research-cache"
@@ -122,6 +125,7 @@ def test_workspace_defaults_follow_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert payload["experiment_runs_root"] == "experiment-runs/selective_comm"
     assert payload["experiment_reports_root"] == "published-reports/selective_comm"
     assert payload["experiment_cache_root"] == "tmp/cache"
+    assert payload["datasets_root"] == "tmp/datasets"
     assert payload["runs_hf_repo"] == "owner/research-runs"
     assert payload["cache_hf_repo"] == "owner/research-cache"
     assert payload["auto_publish_runs"] is True
@@ -133,6 +137,7 @@ def test_workspace_defaults_use_local_roots_by_default(monkeypatch: pytest.Monke
         "RESEARCH_RUNS_ROOT",
         "RESEARCH_REPORTS_ROOT",
         "RESEARCH_CACHE_ROOT",
+        "RESEARCH_DATASETS_ROOT",
         "RESEARCH_FILES_ROOT",
         "RESEARCH_RUNS_HF_REPO",
         "RESEARCH_CACHE_HF_REPO",
@@ -144,6 +149,7 @@ def test_workspace_defaults_use_local_roots_by_default(monkeypatch: pytest.Monke
     assert default_runs_root("single_agent") == "local/runs/single_agent"
     assert default_reports_root("single_agent") == "local/reports/single_agent"
     assert default_cache_root() == "local/cache"
+    assert default_datasets_root() == "local/datasets"
     assert default_files_root() == "files"
     assert default_runs_hf_repo() is None
     assert default_cache_hf_repo() is None

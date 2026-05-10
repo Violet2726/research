@@ -11,6 +11,7 @@ import os
 RUNS_ROOT_ENV = "RESEARCH_RUNS_ROOT"
 REPORTS_ROOT_ENV = "RESEARCH_REPORTS_ROOT"
 CACHE_ROOT_ENV = "RESEARCH_CACHE_ROOT"
+DATASETS_ROOT_ENV = "RESEARCH_DATASETS_ROOT"
 FILES_ROOT_ENV = "RESEARCH_FILES_ROOT"
 RUNS_HF_REPO_ENV = "RESEARCH_RUNS_HF_REPO"
 CACHE_HF_REPO_ENV = "RESEARCH_CACHE_HF_REPO"
@@ -25,6 +26,7 @@ class WorkspaceLayout:
     runs_root: Path
     reports_root: Path
     cache_root: Path
+    datasets_root: Path
     files_root: Path
 
 
@@ -34,6 +36,7 @@ def workspace_layout() -> WorkspaceLayout:
         runs_root=Path(os.getenv(RUNS_ROOT_ENV, "local/runs")),
         reports_root=Path(os.getenv(REPORTS_ROOT_ENV, "local/reports")),
         cache_root=Path(os.getenv(CACHE_ROOT_ENV, "local/cache")),
+        datasets_root=Path(os.getenv(DATASETS_ROOT_ENV, "local/datasets")),
         files_root=Path(os.getenv(FILES_ROOT_ENV, "files")),
     )
 
@@ -51,6 +54,11 @@ def default_reports_root(experiment_kind: str) -> str:
 def default_cache_root() -> str:
     """返回共享缓存根目录。"""
     return _to_posix(workspace_layout().cache_root)
+
+
+def default_datasets_root() -> str:
+    """返回本地数据集资产根目录。"""
+    return _to_posix(workspace_layout().datasets_root)
 
 
 def default_files_root() -> str:
@@ -87,6 +95,7 @@ def workspace_defaults(experiment_kind: str | None = None) -> dict[str, Any]:
         "runs_root": _to_posix(layout.runs_root),
         "reports_root": _to_posix(layout.reports_root),
         "cache_root": _to_posix(layout.cache_root),
+        "datasets_root": _to_posix(layout.datasets_root),
         "files_root": _to_posix(layout.files_root),
         "runs_hf_repo": default_runs_hf_repo(),
         "cache_hf_repo": default_cache_hf_repo(),
@@ -96,6 +105,7 @@ def workspace_defaults(experiment_kind: str | None = None) -> dict[str, Any]:
             "runs_root": RUNS_ROOT_ENV,
             "reports_root": REPORTS_ROOT_ENV,
             "cache_root": CACHE_ROOT_ENV,
+            "datasets_root": DATASETS_ROOT_ENV,
             "files_root": FILES_ROOT_ENV,
             "runs_hf_repo": RUNS_HF_REPO_ENV,
             "cache_hf_repo": CACHE_HF_REPO_ENV,

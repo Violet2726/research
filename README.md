@@ -25,10 +25,10 @@ configs/
   shared/            benchmark / provider / model catalog
   <family>/          各实验线 experiments / protocols / policies
 
-datasets/            本地基准数据
+datasets/            数据集恢复说明与合规说明
 docs/                仓库级设计说明
 files/               研究资料
-local/               默认本地工作区（runs / reports / cache）
+local/               默认本地工作区（runs / reports / cache / datasets）
 runs/                仅保留说明文件与历史占位
 reports/             仅保留说明文件与历史占位
 cache/               仅保留说明文件与历史占位
@@ -46,6 +46,7 @@ tests/               自动化测试
   - `local/runs/<family>/<experiment>/<phase>/<run_id>/`
   - `local/reports/<family>/`
   - `local/cache/providers/<provider>/<request_model>/<dataset>/requests.sqlite`
+  - `local/datasets/<dataset>/...`
 - 每个 run 的正式图资产统一固化在 `local/runs/.../figures/`，并通过 `figure_manifest.json` 编目
 - 正式远程归档统一使用 Hugging Face dataset repo，不再把 `runs/` 与 `cache/` 作为 Git 产物提交
 - 项目文本文件统一使用 UTF-8
@@ -91,6 +92,7 @@ uv run faithful_matrix_cli run --model xiaomimimo/mimo-v2.5 --phase smoke20
 - `RESEARCH_RUNS_ROOT`
 - `RESEARCH_REPORTS_ROOT`
 - `RESEARCH_CACHE_ROOT`
+- `RESEARCH_DATASETS_ROOT`
 - `RESEARCH_FILES_ROOT`
 
 默认值分别是：
@@ -98,6 +100,7 @@ uv run faithful_matrix_cli run --model xiaomimimo/mimo-v2.5 --phase smoke20
 - `local/runs`
 - `local/reports`
 - `local/cache`
+- `local/datasets`
 - `files`
 
 如果要覆盖：
@@ -106,6 +109,18 @@ uv run faithful_matrix_cli run --model xiaomimimo/mimo-v2.5 --phase smoke20
 $env:RESEARCH_RUNS_ROOT = "D:/artifacts/runs"
 $env:RESEARCH_REPORTS_ROOT = "D:/artifacts/reports"
 $env:RESEARCH_CACHE_ROOT = "D:/artifacts/cache"
+$env:RESEARCH_DATASETS_ROOT = "D:/artifacts/datasets"
+```
+
+## 数据集资产
+
+顶层 `datasets/` 现在只保留说明文档，不再承载原始 benchmark 大文件。
+
+正式数据集资产统一放在 `local/datasets/`，并通过下面的命令一键恢复：
+
+```powershell
+uv run dataset_assets_cli prepare-used
+uv run dataset_assets_cli prepare-all-sources
 ```
 
 ## Hugging Face 归档

@@ -2,7 +2,7 @@
 name = "StrategyQA"
 slug = "strategyqa"
 loader = "strategyqa_json"
-source_path = "datasets/strategyqa/dev.json"
+source_path = "strategyqa/dev.json"
 source_split = "dev"
 sample_id_prefix = "strategyqa"
 question_field = "question"

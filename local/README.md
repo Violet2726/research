@@ -7,9 +7,11 @@
 - `local/runs/`
 - `local/reports/`
 - `local/cache/`
+- `local/datasets/`
 
 如果需要把工作区迁到别处，请通过 `.env.local` 或环境变量覆盖：
 
 - `RESEARCH_RUNS_ROOT`
 - `RESEARCH_REPORTS_ROOT`
 - `RESEARCH_CACHE_ROOT`
+- `RESEARCH_DATASETS_ROOT`

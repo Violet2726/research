@@ -2,7 +2,7 @@
 name = "HotpotQA"
 slug = "hotpotqa"
 loader = "hotpotqa_parquet"
-source_path = "datasets/hotpotqa/validation_distractor.parquet"
+source_path = "hotpotqa/validation_distractor.parquet"
 source_split = "validation_distractor"
 sample_id_prefix = "hotpotqa"
 question_field = "question"

@@ -11,7 +11,7 @@
 3. `configs/`
    配置层。共享配置放在 `configs/shared/`，实验专属配置放在各自子目录。
 4. `datasets/`、`files/`、`local/`
-   数据与工作区层，分别承载原始数据、研究资料与本地运行产物。
+   数据与工作区层。`datasets/` 只保留恢复说明，真实原始数据放在 `local/datasets/`。
 
 ## 2. 关键目录职责
 
@@ -42,6 +42,7 @@
 - `local/runs/<family>/<experiment>/<phase>/<run_id>/`
 - `local/reports/<family>/`
 - `local/cache/providers/<provider>/<request_model>/<dataset>/requests.sqlite`
+- `local/datasets/<dataset>/...`
 - `files/`
 
 ### 环境变量覆盖
@@ -49,6 +50,7 @@
 - `RESEARCH_RUNS_ROOT`
 - `RESEARCH_REPORTS_ROOT`
 - `RESEARCH_CACHE_ROOT`
+- `RESEARCH_DATASETS_ROOT`
 - `RESEARCH_FILES_ROOT`
 
 示例：
@@ -57,6 +59,7 @@
 $env:RESEARCH_RUNS_ROOT = "D:/artifacts/runs"
 $env:RESEARCH_REPORTS_ROOT = "D:/artifacts/reports"
 $env:RESEARCH_CACHE_ROOT = "D:/artifacts/cache"
+$env:RESEARCH_DATASETS_ROOT = "D:/artifacts/datasets"
 $env:RESEARCH_FILES_ROOT = "D:/artifacts/files"
 ```
 

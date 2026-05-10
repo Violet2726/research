@@ -3,7 +3,7 @@
 name = "GPQA Diamond"
 slug = "gpqa_diamond"
 loader = "gpqa_zip_csv"
-source_path = "datasets/gpqa/dataset.zip"
+source_path = "gpqa/dataset.zip"
 source_split = "diamond"
 sample_id_prefix = "gpqa_diamond"
 question_field = "Question"

@@ -16,3 +16,5 @@ dist/
 /local/*
 !/local/README.md
 
+/datasets/*
+!/datasets/README.md

@@ -22,6 +22,7 @@ import zipfile
 import pyarrow.parquet as pq
 
 from experiment_core.foundation.config import BenchmarkConfig
+from experiment_core.foundation.workspace import workspace_layout
 
 
 @dataclass(frozen=True)
@@ -219,9 +220,17 @@ def select_samples(
     return [sample_map[sample_id] for sample_id in split_ids if sample_id in sample_map]
 
 
+def resolve_dataset_source_path(source_path: str | Path) -> Path:
+    """把 benchmark 的 source_path 解析为当前生效的数据集资产路径。"""
+    path = Path(source_path)
+    if path.is_absolute():
+        return path
+    return workspace_layout().datasets_root / path
+
+
 def _load_gsm8k(config: BenchmarkConfig) -> list[DatasetSample]:
     """加载 GSM8K JSONL，并抽取 `####` 后的标准数字答案。"""
-    path = Path(config.source_path)
+    path = resolve_dataset_source_path(config.source_path)
     samples: list[DatasetSample] = []
     with path.open("r", encoding="utf-8") as handle:
         for index, line in enumerate(handle):
@@ -240,7 +249,7 @@ def _load_gsm8k(config: BenchmarkConfig) -> list[DatasetSample]:
 
 
 def _load_math500(config: BenchmarkConfig) -> list[DatasetSample]:
-    path = Path(config.source_path)
+    path = resolve_dataset_source_path(config.source_path)
     samples: list[DatasetSample] = []
     with path.open("r", encoding="utf-8") as handle:
         for index, line in enumerate(handle):
@@ -267,7 +276,7 @@ def _load_math500(config: BenchmarkConfig) -> list[DatasetSample]:
 
 def _load_strategyqa(config: BenchmarkConfig) -> list[DatasetSample]:
     """加载 StrategyQA JSON，并把答案规范化为 `yes / no`。"""
-    path = Path(config.source_path)
+    path = resolve_dataset_source_path(config.source_path)
     payload = json.loads(path.read_text(encoding="utf-8"))
     samples: list[DatasetSample] = []
     for index, record in enumerate(payload):
@@ -294,7 +303,7 @@ def _load_strategyqa(config: BenchmarkConfig) -> list[DatasetSample]:
 
 def _load_hotpotqa(config: BenchmarkConfig) -> list[DatasetSample]:
     """加载 HotpotQA Parquet，并把上下文段落渲染成 prompt 可直接使用的文本。"""
-    table = pq.read_table(config.source_path)
+    table = pq.read_table(resolve_dataset_source_path(config.source_path))
     payload = table.to_pylist()
     samples: list[DatasetSample] = []
     for index, record in enumerate(payload):
@@ -319,7 +328,7 @@ def _load_hotpotqa(config: BenchmarkConfig) -> list[DatasetSample]:
 
 
 def _load_mmlu_pro(config: BenchmarkConfig) -> list[DatasetSample]:
-    table = pq.read_table(config.source_path)
+    table = pq.read_table(resolve_dataset_source_path(config.source_path))
     payload = table.to_pylist()
     samples: list[DatasetSample] = []
     for index, record in enumerate(payload):
@@ -360,7 +369,7 @@ def _load_gpqa_zip_csv(config: BenchmarkConfig) -> list[DatasetSample]:
     archive_member = config.archive_member or "dataset/gpqa_diamond.csv"
     archive_password = (config.archive_password or "").encode("utf-8") if config.archive_password else None
     samples: list[DatasetSample] = []
-    with zipfile.ZipFile(config.source_path) as archive:
+    with zipfile.ZipFile(resolve_dataset_source_path(config.source_path)) as archive:
         with archive.open(archive_member, pwd=archive_password) as handle:
             reader = csv.DictReader((line.decode("utf-8") for line in handle))
             for index, record in enumerate(reader):
@@ -404,7 +413,7 @@ def _load_gpqa_zip_csv(config: BenchmarkConfig) -> list[DatasetSample]:
 
 
 def _load_gsm_symbolic(config: BenchmarkConfig) -> list[DatasetSample]:
-    path = Path(config.source_path)
+    path = resolve_dataset_source_path(config.source_path)
     samples: list[DatasetSample] = []
     with path.open("r", encoding="utf-8") as handle:
         for index, line in enumerate(handle):

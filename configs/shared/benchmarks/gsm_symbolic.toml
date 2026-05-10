@@ -3,7 +3,7 @@
 name = "GSM-Symbolic"
 slug = "gsm_symbolic"
 loader = "gsm_symbolic_jsonl"
-source_path = "datasets/gsm-symbolic/GSM_symbolic.jsonl"
+source_path = "gsm-symbolic/GSM_symbolic.jsonl"
 source_split = "test"
 sample_id_prefix = "gsm_symbolic"
 question_field = "question"

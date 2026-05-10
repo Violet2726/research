@@ -3,7 +3,7 @@
 name = "MMLU-Pro"
 slug = "mmlu_pro"
 loader = "mmlu_pro_parquet"
-source_path = "datasets/mmlu-pro/test.parquet"
+source_path = "mmlu-pro/test.parquet"
 source_split = "test"
 sample_id_prefix = "mmlu_pro"
 question_field = "question"
