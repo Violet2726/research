@@ -1,1 +1,2 @@
-cache/**/*.sqlite filter=lfs diff=lfs merge=lfs -text
+# 旧的 Git LFS 规则已移除。
+# `runs/` 与 `cache/` 现统一通过仓库内的 Hugging Face 归档工作流管理。

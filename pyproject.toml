@@ -9,9 +9,11 @@ description = "Shared-core research experiments for single-agent, multi-agent, a
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "huggingface_hub>=0.32.0,<1.0.0",
   "httpx>=0.27.0,<1.0.0",
   "pyarrow>=18.0.0,<22.0.0",
   "python-dotenv>=1.0.0,<2.0.0",
+  "zstandard>=0.23.0,<1.0.0",
 ]
 
 [dependency-groups]
@@ -32,6 +34,8 @@ cue_cli = "cue.cli:main"
 cleanup_artifacts_cli = "experiment_core.tools.artifact_cleanup:main"
 faithful_matrix_cli = "experiment_core.matrix.faithful_matrix:main"
 cache_inspector_cli = "experiment_core.tools.cache_inspector:main"
+archive_runs_cli = "experiment_core.tools.archive_runs:main"
+cache_archive_cli = "experiment_core.tools.cache_archive:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

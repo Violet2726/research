@@ -10,6 +10,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 import json
 import time
+from typing import Any, Callable
+
+from experiment_core.foundation.run_archives import pack_run_artifacts
 
 
 class RunProgressTracker:
@@ -103,3 +106,21 @@ def build_run_id(*parts: str) -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     safe_parts = [part.replace("/", "-") for part in parts if part]
     return "-".join([timestamp, *safe_parts])
+
+
+RunValidator = Callable[[str | Path], dict[str, Any]]
+
+
+def finalize_run_outputs(
+    run_dir: str | Path,
+    *,
+    validator: RunValidator,
+    validation_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """统一完成 run 级归档与校验落盘。"""
+    root = Path(run_dir)
+    pack_run_artifacts(root)
+    validation = validator(root)
+    output_path = Path(validation_path) if validation_path is not None else root / "run_validation.json"
+    output_path.write_text(json.dumps(validation, ensure_ascii=False, indent=2), encoding="utf-8")
+    return validation

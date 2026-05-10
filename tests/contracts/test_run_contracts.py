@@ -795,4 +795,30 @@ def _touch_figure_contract(root: Path, report_name: str = "report.md") -> None:
         "# report\n\n![Frontier](figures/frontier_overall.svg)\n",
         encoding="utf-8",
     )
+    (root / "archive_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "generated_at": "2026-01-01T00:00:00+00:00",
+                "run_id": "test-run",
+                "remote_repo": None,
+                "remote_prefix": "family/experiment/phase/test-run",
+                "artifacts_packaged": False,
+                "visible_files": [
+                    report_name,
+                    "figure_manifest.json",
+                    "figures/frontier_overall.svg",
+                    "figures/frontier_overall.csv",
+                    "figures/efficiency_rank_overall.svg",
+                    "figures/efficiency_rank_overall.csv",
+                    "figures/score_by_dataset.svg",
+                    "figures/score_by_dataset.csv",
+                ],
+                "archives": [],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 

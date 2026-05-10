@@ -39,7 +39,7 @@ from experiment_core.foundation.providers import (
     execute_completion_request,
 )
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
-from experiment_core.foundation.runtime import RunProgressTracker, build_run_id
+from experiment_core.foundation.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from experiment_core.foundation.structured_output import (
     ARTIFACT_VERSION,
     OUTPUT_MODE_CORE,
@@ -129,7 +129,7 @@ def run_experiment(
     method_catalog = load_method_catalog(experiment.method_catalog)
     methods = _phase_methods(experiment, phase_name, method_catalog)
     primary_model = models[0] if models else None
-    run_id = build_run_id(experiment.name, phase_name, primary_model.name if primary_model is not None else "")
+    run_id = build_run_id(primary_model.name if primary_model is not None else "")
     run_paths = _prepare_run_paths(run_root, experiment.name, phase_name, run_id)
     cache_router = RequestCacheRouter(cache_root)
     rate_limiter = SlidingWindowRateLimiter(
@@ -234,9 +234,10 @@ def run_experiment(
     )
     render_report(run_paths.root)
     export_paper_tables(run_paths.root, run_paths.paper_tables)
-    run_paths.run_validation.write_text(
-        json.dumps(validate_run(run_paths.root), ensure_ascii=False, indent=2),
-        encoding="utf-8",
+    finalize_run_outputs(
+        run_paths.root,
+        validator=validate_run,
+        validation_path=run_paths.run_validation,
     )
     progress.mark_completed()
     cache_router.close()

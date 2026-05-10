@@ -13,6 +13,7 @@ import json
 from typing import Any
 
 from comm_necessary.logic import METHOD_ORDER
+from experiment_core.foundation.run_archives import validate_archive_contract
 from experiment_core.reporting.run_figures import validate_figure_contract
 
 
@@ -29,6 +30,7 @@ REQUIRED_FILES = [
     "report.md",
     "paper_summary.csv",
     "figure_manifest.json",
+    "archive_manifest.json",
 ]
 
 
@@ -53,6 +55,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     hotpot_prediction_check = _hotpot_prediction_files_check(root, prediction_rows)
     rate_limit_check = _rate_limit_check(turn_rows, manifest)
     figure_contract = validate_figure_contract(root)
+    archive_contract = validate_archive_contract(root)
 
     passed = all(
         [
@@ -66,6 +69,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             hotpot_prediction_check["passed"],
             rate_limit_check["passed"],
             figure_contract["passed"],
+            archive_contract["passed"],
             bool(prediction_rows),
         ]
     )
@@ -83,6 +87,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             "hotpot_prediction_files_check": hotpot_prediction_check,
             "rate_limit_check": rate_limit_check,
             "figure_contract": figure_contract,
+            "archive_contract": archive_contract,
         },
         "methods": dict(Counter(row.get("method_name") for row in prediction_rows)),
     }

@@ -47,7 +47,7 @@ from experiment_core.foundation.datasets import DatasetSample, load_split_ids, s
 from experiment_core.foundation.evaluation import normalize_prediction
 from experiment_core.foundation.providers import OpenAICompatibleProvider, build_payload, execute_completion_request, estimate_request_tokens
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
-from experiment_core.foundation.runtime import RunProgressTracker, build_run_id
+from experiment_core.foundation.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from experiment_core.foundation.structured_output import (
     OUTPUT_MODE_COMM_NECESSARY_BELIEF,
     OUTPUT_MODE_COMM_NECESSARY_SOLVER,
@@ -110,7 +110,7 @@ def run_experiment(
         tokens_per_minute=experiment.tokens_per_minute_limit,
     )
 
-    run_id = build_run_id(experiment.name, phase_name, backbone.name)
+    run_id = build_run_id(backbone.name)
     paths = _prepare_run_paths(run_root, experiment.name, phase_name, run_id)
     total_calls, total_predictions = _estimate_work(experiment, phase_name, benchmarks, protocol)
     progress = RunProgressTracker(paths.progress, total_calls, total_predictions)
@@ -205,7 +205,11 @@ def run_experiment(
         _write_hotpot_predictions(paths.hotpot_predictions, all_predictions)
         _write_paper_summary(paths.paper_summary, metrics)
         render_report(paths.root)
-        paths.run_validation.write_text(json.dumps(validate_run(paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
+        finalize_run_outputs(
+            paths.root,
+            validator=validate_run,
+            validation_path=paths.run_validation,
+        )
         progress.mark_completed()
         return paths.root
     finally:

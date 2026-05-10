@@ -12,6 +12,7 @@ from pathlib import Path
 import json
 from typing import Any
 
+from experiment_core.foundation.run_archives import validate_archive_contract
 from experiment_core.reporting.run_figures import validate_figure_contract
 
 
@@ -30,6 +31,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "progress.json",
         "report.md",
         "figure_manifest.json",
+        "archive_manifest.json",
     ]
     missing = [name for name in required if not (root / name).exists()]
 
@@ -51,6 +53,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     trigger_rate_check = _validate_always_trigger_rate(trigger_rows)
     invalid_confidence_check = _confidence_invalid_ratio(trigger_rows)
     figure_contract = validate_figure_contract(root)
+    archive_contract = validate_archive_contract(root)
 
     passed = all(
         [
@@ -62,6 +65,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             early_exit_check["passed"],
             trigger_rate_check["passed"],
             figure_contract["passed"],
+            archive_contract["passed"],
         ]
     )
 
@@ -79,6 +83,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             "early_exit_zero_comm_check": early_exit_check,
             "invalid_confidence_ratio": invalid_confidence_check,
             "figure_contract": figure_contract,
+            "archive_contract": archive_contract,
         },
         "policy_methods": dict(Counter(row.get("method_name") for row in prediction_rows)),
         "diagnostic_recommendation": diagnostics.get("recommended_next_default_policy"),

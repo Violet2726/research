@@ -12,6 +12,7 @@ from pathlib import Path
 import json
 from typing import Any
 
+from experiment_core.foundation.run_archives import validate_archive_contract
 from experiment_core.reporting.run_figures import validate_figure_contract
 
 
@@ -28,6 +29,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "debate_diagnostics.json",
         "report.md",
         "figure_manifest.json",
+        "archive_manifest.json",
     ]
     missing = [name for name in required if not (root / name).exists()]
     agent_rows = _load_jsonl(root / "agent_turns.jsonl") if (root / "agent_turns.jsonl").exists() else []
@@ -36,9 +38,10 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     schema_failures = sum(1 for row in agent_rows if row.get("output_status") == "schema_fail")
     methods = Counter(row.get("method_name") for row in prediction_rows)
     figure_contract = validate_figure_contract(root)
+    archive_contract = validate_archive_contract(root)
     return {
         "run_dir": str(root),
-        "passed": not missing and request_failures == 0 and schema_failures == 0 and bool(prediction_rows) and figure_contract["passed"],
+        "passed": not missing and request_failures == 0 and schema_failures == 0 and bool(prediction_rows) and figure_contract["passed"] and archive_contract["passed"],
         "missing_files": missing,
         "request_failures": request_failures,
         "schema_failures": schema_failures,
@@ -47,6 +50,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "paired_analysis_present": (root / "paired_debate_vs_vote.json").exists(),
         "paired_report_present": (root / "report.md").exists(),
         "figure_contract": figure_contract,
+        "archive_contract": archive_contract,
     }
 
 

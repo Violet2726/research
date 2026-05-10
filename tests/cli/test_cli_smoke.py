@@ -5,8 +5,10 @@ from __future__ import annotations
 import io
 import json
 from contextlib import redirect_stdout
+from pathlib import Path
 
 from experiment_core.foundation.cache import CachedResponse, RequestCacheRouter, json_dump
+from experiment_core.tools.archive_runs import main as archive_runs_main
 from experiment_core.tools.cache_inspector import main as cache_inspector_main
 from experiment_core.matrix.faithful_matrix import main as faithful_matrix_main
 from multi_agent.cli import main as multi_agent_main
@@ -256,4 +258,51 @@ def test_cache_inspector_summarize_cli(tmp_path) -> None:
     assert payload["providers"][0]["provider"] == "deepseek"
     assert payload["providers"][0]["model_count"] == 1
     assert payload["providers"][0]["dataset_count"] == 1
+
+
+def test_archive_runs_pack_run_cli(tmp_path) -> None:
+    (tmp_path / "manifest.json").write_text(json.dumps({"run_id": "test-run"}, ensure_ascii=False, indent=2), encoding="utf-8")
+    (tmp_path / "metrics.json").write_text(json.dumps({"summary": []}, ensure_ascii=False, indent=2), encoding="utf-8")
+    (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
+    (tmp_path / "raw_responses.jsonl").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "predictions.jsonl").write_text("{}\n", encoding="utf-8")
+    figures_dir = tmp_path / "figures"
+    figures_dir.mkdir()
+    (figures_dir / "frontier_overall.svg").write_text("<svg/>\n", encoding="utf-8")
+    (figures_dir / "frontier_overall.csv").write_text("label,value\nx,1\n", encoding="utf-8")
+    (tmp_path / "figure_manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-01-01T00:00:00+00:00",
+                "figure_count": 1,
+                "figures": [
+                    {
+                        "figure_id": "frontier_overall",
+                        "title": "Frontier",
+                        "caption": "test figure",
+                        "svg_path": "figures/frontier_overall.svg",
+                        "csv_path": "figures/frontier_overall.csv",
+                        "source_kind": "test",
+                        "dataset_scope": "overall",
+                        "primary_metric": "Accuracy",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    payload = _run_cli(
+        archive_runs_main,
+        [
+            "archive_runs_cli",
+            "pack-run",
+            "--run-root",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+    assert payload["archive_count"] == 2
+    assert Path(payload["archive_manifest"]).exists()
 

@@ -11,6 +11,7 @@ from pathlib import Path
 import json
 from typing import Any
 
+from experiment_core.foundation.run_archives import validate_archive_contract
 from experiment_core.reporting.run_figures import validate_figure_contract
 
 
@@ -25,6 +26,7 @@ REQUIRED_FILES = [
     "progress.json",
     "report.md",
     "figure_manifest.json",
+    "archive_manifest.json",
 ]
 
 
@@ -56,6 +58,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     }
     judge_schema_check = _judge_schema_check(score_rows)
     figure_contract = validate_figure_contract(root)
+    archive_contract = validate_archive_contract(root)
     passed = (
         not missing
         and request_failures == 0
@@ -66,6 +69,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         and prompt_hash_check["passed"]
         and judge_schema_check["passed"]
         and figure_contract["passed"]
+        and archive_contract["passed"]
     )
     return {
         "run_dir": str(root),
@@ -80,6 +84,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             "anti_conformity_prompt_hash_check": prompt_hash_check,
             "trajectory_judge_schema_check": judge_schema_check,
             "figure_contract": figure_contract,
+            "archive_contract": archive_contract,
         },
         "methods": dict(Counter(row.get("method_name") for row in prediction_rows)),
     }

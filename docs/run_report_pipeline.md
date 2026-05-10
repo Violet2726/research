@@ -43,3 +43,8 @@ faithful_matrix / paper_package / reports/summary
 - 新增实验家族时，优先复用 `experiment_core.reporting.report_pipeline`，不要再手写 local report / published report / figure manifest 的重复逻辑。
 - 新增图表时，优先扩展 `run_figures.py` 的 figure spec，而不是在各家族 `reporting.py` 中重复写 SVG。
 - 临时实验应优先通过 `RESEARCH_*_ROOT` 输出到隔离目录，避免把未确认产物混入正式 `runs/`。
+
+## 远程归档补充
+
+- 正式 run 还会生成 `archive_manifest.json`，把可浏览的报告与图资产和重型 trace / prediction 归档包明确分开。
+- 远程发布默认采用 Hugging Face dataset repo，不再依赖 Git LFS 承载 `runs/` 与 `cache/`。

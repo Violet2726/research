@@ -11,6 +11,7 @@ from pathlib import Path
 import json
 from typing import Any
 
+from experiment_core.foundation.run_archives import validate_archive_contract
 from experiment_core.reporting.run_figures import validate_figure_contract
 
 
@@ -27,6 +28,7 @@ def validate_run(
         "predictions.jsonl",
         "report.md",
         "figure_manifest.json",
+        "archive_manifest.json",
     ]
     missing_files = [name for name in required if not (root / name).exists()]
     raw_rows = _load_jsonl(root / "raw_responses.jsonl")
@@ -52,6 +54,7 @@ def validate_run(
 
     split_count_check = _validate_prediction_counts(prediction_rows)
     figure_contract = validate_figure_contract(root)
+    archive_contract = validate_archive_contract(root)
 
     passed = all(
         [
@@ -60,6 +63,7 @@ def validate_run(
             output_success_rate >= output_success_threshold,
             split_count_check["passed"],
             figure_contract["passed"],
+            archive_contract["passed"],
         ]
     )
 
@@ -73,6 +77,7 @@ def validate_run(
             "output_success_threshold": output_success_threshold,
             "prediction_count_check": split_count_check,
             "figure_contract": figure_contract,
+            "archive_contract": archive_contract,
         },
         "output_by_group": output_by_group,
         "metric_rows": metrics.get("summary", []),

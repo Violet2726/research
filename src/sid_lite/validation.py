@@ -11,6 +11,7 @@ from pathlib import Path
 import json
 from typing import Any
 
+from experiment_core.foundation.run_archives import validate_archive_contract
 from experiment_core.reporting.run_figures import validate_figure_contract
 
 
@@ -25,6 +26,7 @@ REQUIRED_FILES = [
     "progress.json",
     "report.md",
     "figure_manifest.json",
+    "archive_manifest.json",
 ]
 
 
@@ -46,6 +48,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     packet_cap_check = _packet_cap_check(packet_rows)
     fail_open_check = _invalid_confidence_fail_open_check(prediction_rows)
     figure_contract = validate_figure_contract(root)
+    archive_contract = validate_archive_contract(root)
     passed = (
         not missing
         and request_failures == 0
@@ -56,6 +59,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         and packet_cap_check["passed"]
         and fail_open_check["passed"]
         and figure_contract["passed"]
+        and archive_contract["passed"]
     )
     return {
         "run_dir": str(root),
@@ -70,6 +74,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             "packet_cap_check": packet_cap_check,
             "invalid_confidence_fail_open_check": fail_open_check,
             "figure_contract": figure_contract,
+            "archive_contract": archive_contract,
         },
         "methods": dict(Counter(row.get("method_name") for row in prediction_rows)),
     }

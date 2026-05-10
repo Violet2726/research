@@ -155,3 +155,25 @@ uv run selective_comm_cli inspect-experiment --experiment configs/selective_comm
 - [docs/code_annotation_guidelines.md](/d:/user/research/docs/code_annotation_guidelines.md)
 - [runs/README.md](/d:/user/research/runs/README.md)
 - [CONTRIBUTING.md](/d:/user/research/CONTRIBUTING.md)
+
+## Hugging Face 归档
+
+后续 `runs/` 默认采用“可浏览外壳 + 压缩内核”的 Hugging Face dataset repo 归档方式：
+
+- 在线保留：`report.md`、`metrics.json`、`figure_manifest.json`、`figures/*.svg`、`figures/*.csv`
+- 重型 `*.jsonl` trace、预测目录与细碎中间产物压入 `traces.tar.zst` / `predictions.tar.zst` / `artifacts.tar.zst`
+- `cache/` 不再依赖 Git LFS，改为 latest-only 快照语义，优先使用独立私有 repo 或本地阶段性备份
+
+常用命令：
+
+```powershell
+uv run archive_runs_cli pack-run --run-root runs/<family>/<experiment>/<phase>/<run_id>
+```
+
+```powershell
+uv run archive_runs_cli publish-run --run-root runs/<family>/<experiment>/<phase>/<run_id> --repo <owner>/research-runs
+```
+
+```powershell
+uv run cache_archive_cli push-latest --cache-root cache --repo <owner>/research-cache
+```

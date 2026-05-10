@@ -13,3 +13,7 @@
 - 跨实验、跨目录的长期规则写在这里。
 - 单次实验报告不要放在这里，统一放到 `reports/`。
 - 临时分析笔记放到 `files/` 或用户自己的本地目录，不要回流到 `docs/`。
+
+## 归档文档
+
+- `runs` / `cache` 的远程归档约定见 [huggingface_archive_workflow.md](/d:/user/research/docs/huggingface_archive_workflow.md)

@@ -7,6 +7,7 @@ from pathlib import Path
 import json
 from typing import Any
 
+from experiment_core.foundation.run_archives import validate_archive_contract
 from experiment_core.reporting.run_figures import validate_figure_contract
 
 
@@ -25,6 +26,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "progress.json",
         "report.md",
         "figure_manifest.json",
+        "archive_manifest.json",
     ]
     missing = [name for name in required if not (root / name).exists()]
     stage_a_rows = _load_jsonl(root / "stage_a_turns.jsonl")
@@ -38,7 +40,8 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     output_success_rate = output_success_count / len(all_turn_rows) if all_turn_rows else 0.0
     stage_a_hash_check = _validate_stage_a_hashes(prediction_rows)
     figure_contract = validate_figure_contract(root)
-    passed = not missing and request_failures == 0 and output_success_rate >= 0.90 and stage_a_hash_check["passed"] and figure_contract["passed"]
+    archive_contract = validate_archive_contract(root)
+    passed = not missing and request_failures == 0 and output_success_rate >= 0.90 and stage_a_hash_check["passed"] and figure_contract["passed"] and archive_contract["passed"]
     return {
         "run_dir": str(root),
         "passed": passed,
@@ -48,6 +51,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             "output_success_rate": round(output_success_rate, 6),
             "stage_a_hash_check": stage_a_hash_check,
             "figure_contract": figure_contract,
+            "archive_contract": archive_contract,
         },
         "policy_methods": dict(Counter(row.get("method_name") for row in prediction_rows)),
     }

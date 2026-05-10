@@ -25,7 +25,7 @@ from experiment_core.foundation.evaluation import aggregate_majority, normalize_
 from experiment_core.controls.no_comm_controls import run_no_comm_control_batch
 from experiment_core.foundation.providers import OpenAICompatibleProvider, build_payload, execute_completion_request
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
-from experiment_core.foundation.runtime import RunProgressTracker, build_run_id
+from experiment_core.foundation.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from experiment_core.foundation.structured_output import (
     ARTIFACT_VERSION,
     OUTPUT_MODE_CORE,
@@ -178,7 +178,7 @@ def run_experiment(
         requests_per_minute=experiment.requests_per_minute_limit,
         tokens_per_minute=experiment.tokens_per_minute_limit,
     )
-    run_id = build_run_id(experiment.name, phase_name, backbone.name)
+    run_id = build_run_id(backbone.name)
     run_paths = _prepare_run_paths(run_root, experiment.name, phase_name, run_id)
     total_calls, total_predictions = _estimate_work(experiment, phase_name, benchmarks, setups, matched_control_names, controls)
     progress = RunProgressTracker(run_paths.progress, total_calls, total_predictions)
@@ -307,7 +307,11 @@ def run_experiment(
     run_paths.cost_breakdown.write_text(json.dumps(cost_breakdown, ensure_ascii=False, indent=2), encoding="utf-8")
     run_paths.run_summary.write_text(json.dumps(summarize_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
     render_report(run_paths.root)
-    run_paths.run_validation.write_text(json.dumps(validate_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
+    finalize_run_outputs(
+        run_paths.root,
+        validator=validate_run,
+        validation_path=run_paths.run_validation,
+    )
     progress.mark_completed()
     provider.close()
     cache_router.close()

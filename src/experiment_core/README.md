@@ -42,3 +42,8 @@
 - 高层矩阵编排、论文产物和运维工具不再和基础设施模块并列混放。
 - 文本 I/O 统一显式使用 `encoding="utf-8"`。
 - 新增 docstring 与注释默认使用中文，写法见 [docs/code_annotation_guidelines.md](/d:/user/research/docs/code_annotation_guidelines.md)。
+
+## 归档补充
+
+- `tools/archive_runs.py`：run 级归档打包、发布与回取工具
+- `tools/cache_archive.py`：cache latest-only 快照同步工具

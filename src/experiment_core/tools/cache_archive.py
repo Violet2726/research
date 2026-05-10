@@ -1,0 +1,59 @@
+"""cache 最新快照同步命令。"""
+
+from __future__ import annotations
+
+import argparse
+import json
+
+from dotenv import load_dotenv
+
+from experiment_core.foundation.cache_snapshots import pull_latest_cache_snapshot, push_latest_cache_snapshot
+from experiment_core.foundation.workspace import default_cache_root
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """构造 cache 快照命令行参数。"""
+    parser = argparse.ArgumentParser(description="同步 cache 的 latest-only Hugging Face 快照。")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    push_latest = subparsers.add_parser("push-latest", help="压缩并推送当前 cache 最新快照。")
+    push_latest.add_argument("--cache-root", default=default_cache_root())
+    push_latest.add_argument("--repo", required=True)
+    push_latest.add_argument("--token")
+    push_latest.add_argument("--public", action="store_true", help="默认按私有 dataset repo 创建；显式指定后改为公开。")
+    push_latest.add_argument("--no-create-repo", action="store_true")
+    push_latest.add_argument("--json", action="store_true")
+
+    pull_latest = subparsers.add_parser("pull-latest", help="从远程 latest-only 快照恢复 cache。")
+    pull_latest.add_argument("--target", required=True)
+    pull_latest.add_argument("--repo", required=True)
+    pull_latest.add_argument("--token")
+    pull_latest.add_argument("--json", action="store_true")
+    return parser
+
+
+def main() -> None:
+    """命令行入口。"""
+    load_dotenv(".env.local", override=False)
+    args = build_parser().parse_args()
+    if args.command == "push-latest":
+        payload = push_latest_cache_snapshot(
+            args.cache_root,
+            repo_id=args.repo,
+            token=args.token,
+            create_repo=not args.no_create_repo,
+            private=not args.public,
+        )
+    elif args.command == "pull-latest":
+        payload = pull_latest_cache_snapshot(
+            args.target,
+            repo_id=args.repo,
+            token=args.token,
+        )
+    else:  # pragma: no cover - argparse 已保证不会走到这里
+        raise RuntimeError(f"Unsupported command: {args.command}")
+
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
