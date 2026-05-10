@@ -524,6 +524,7 @@ def _load_existing_matrix_state(state_path_or_root: str | Path) -> tuple[MatrixB
         semantic_entries=semantic_entries,
         counts=dict(payload.get("counts", {})),
     )
+    _synchronize_entries_with_semantic_entries(matrix)
     return matrix, _existing_orchestrator_paths(state_path.parent)
 
 
@@ -535,6 +536,7 @@ def _normalize_entry_payload(entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def _write_matrix_state(paths: OrchestratorPaths, matrix: MatrixBuild) -> None:
+    _synchronize_entries_with_semantic_entries(matrix)
     counts = Counter(entry.status for entry in matrix.semantic_entries)
     counts.update(
         {
@@ -586,6 +588,19 @@ def _render_matrix_report(matrix: MatrixBuild, counts: dict[str, int]) -> str:
         )
     lines.append("")
     return "\n".join(lines)
+
+
+def _synchronize_entries_with_semantic_entries(matrix: MatrixBuild) -> None:
+    semantic_by_config = {entry.config_path: entry for entry in matrix.semantic_entries}
+    for entry in matrix.entries:
+        semantic_entry = semantic_by_config.get(entry.config_path)
+        if semantic_entry is None:
+            continue
+        entry.status = semantic_entry.status
+        entry.run_dir = semantic_entry.run_dir
+        entry.validation_passed = semantic_entry.validation_passed
+        entry.review_passed = semantic_entry.review_passed
+        entry.review_notes = semantic_entry.review_notes
 
 
 def _load_toml(path: str | Path) -> dict[str, Any]:

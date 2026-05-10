@@ -196,4 +196,6 @@ def test_resume_faithful_matrix_continues_rerun_needed_and_pending_entries(
     resumed = json.loads(state_path.read_text(encoding="utf-8"))
     statuses = {item["experiment_name"]: item["status"] for item in resumed["semantic_entries"]}
     assert statuses["hotpotqa_split_context_communication_necessity"] == "completed"
+    entry_statuses = {item["experiment_name"]: item["status"] for item in resumed["entries"]}
+    assert entry_statuses["hotpotqa_split_context_communication_necessity"] == "completed"
 

@@ -17,7 +17,7 @@ from experiment_core.reporting.analysis_reports import (
 )
 from experiment_core.reporting.report_pipeline import SupplementalReport, render_report_bundle
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
-from experiment_core.reporting.report_views import SummaryTableView, load_json_payload, load_jsonl_rows
+from experiment_core.reporting.report_views import SummaryRowView, SummaryTableView, load_json_payload, load_jsonl_rows
 from experiment_core.reporting.run_figures import (
     build_efficiency_rank_figure_spec,
     build_frontier_figure_spec,
@@ -211,21 +211,21 @@ def _render_content_report(
     ordered_rows = _ordered_rows(overall_rows, method_order)
     disagreement_rows = _subset_summary(predictions, lambda row: bool(row.get("initial_disagreement")))
     oracle_rows = _subset_summary(predictions, lambda row: bool(row.get("oracle_positive")))
-    recommendation = diagnostics.get("recommended_next_default")
-    comparison_row = recommendation if recommendation else next((row for row in ordered_rows if row["method_name"] != "full_cot"), None)
-    ci_text = _bootstrap_ci_text(predictions, comparison_row["method_name"], "full_cot") if comparison_row else "未计算。"
+    recommendation = _summary_row_from_payload(diagnostics.get("recommended_next_default"))
+    comparison_row = recommendation if recommendation else next((row for row in ordered_rows if row.method_name != "full_cot"), None)
+    ci_text = _bootstrap_ci_text(predictions, comparison_row.method_name, "full_cot") if comparison_row else "未计算。"
     best_row = max(ordered_rows, key=lambda row: float(row.accuracy_mean or 0.0), default=None)
     abstract: list[str] = []
     if best_row is not None:
         abstract.append(
             f"总体准确率最高的方法是 `{best_row.display_name}`，准确率为 {format_float(best_row.accuracy_mean)}。"
         )
-    if comparison_row is not None and comparison_row.get("compression_ratio_vs_full_cot") is not None:
+    if comparison_row is not None and comparison_row.compression_ratio_vs_full_cot is not None:
         abstract.append(
-            f"相对 `full_cot`，`{comparison_row.get('display_name') or comparison_row.get('method_name')}` 的压缩率为 {format_float(comparison_row.get('compression_ratio_vs_full_cot'))}。"
+            f"相对 `full_cot`，`{comparison_row.display_name or comparison_row.method_name}` 的压缩率为 {format_float(comparison_row.compression_ratio_vs_full_cot)}。"
         )
     if recommendation:
-        abstract.append(f"当前推荐的下一轮默认消息模式为 `{recommendation['method_name']}`。")
+        abstract.append(f"当前推荐的下一轮默认消息模式为 `{recommendation.method_name}`。")
 
     sections = [
         {
@@ -291,9 +291,9 @@ def _render_content_report(
         {
             "title": "下一轮建议",
             "bullets": [
-                f"推荐默认消息模式：`{recommendation['method_name']}`。" if recommendation else "当前未生成推荐消息模式。",
+                f"推荐默认消息模式：`{recommendation.method_name}`。" if recommendation else "当前未生成推荐消息模式。",
                 (
-                    f"推荐依据：总体准确率 `{format_float(recommendation.get('accuracy_mean'))}`，平均总 token / 题 `{format_float(recommendation.get('total_tokens_mean'), 2)}`。"
+                    f"推荐依据：总体准确率 `{format_float(recommendation.accuracy_mean)}`，平均总 token / 题 `{format_float(recommendation.total_tokens_mean, 2)}`。"
                     if recommendation
                     else "建议结合 frontier 图与压缩收益图继续筛选候选消息格式。"
                 ),
@@ -318,7 +318,7 @@ def _render_content_report(
     ]
     failure_cases = _failure_case_section(
         predictions,
-        primary_method=comparison_row["method_name"] if comparison_row else "full_cot",
+        primary_method=comparison_row.method_name if comparison_row else "full_cot",
         reference_method="full_cot",
     )
     if failure_cases:
@@ -347,7 +347,7 @@ def _render_auditing_report(
         _rows_for_dataset(metrics, "overall"),
         ["majority_vote", "weighted_vote_fallback", "single_judge", "final_round_vote", "local_auditing"],
     )
-    recommendation = diagnostics.get("recommended_next_default")
+    recommendation = _summary_row_from_payload(diagnostics.get("recommended_next_default"))
     ci_text = _bootstrap_ci_text(predictions, "local_auditing", "final_round_vote")
     best_row = max(overall_rows, key=lambda row: float(row.accuracy_mean or 0.0), default=None)
     abstract: list[str] = []
@@ -357,7 +357,7 @@ def _render_auditing_report(
         )
     abstract.append(f"`local_auditing` 相对 `final_round_vote` 的 95% bootstrap 区间为 {ci_text}。")
     if recommendation:
-        abstract.append(f"当前推荐的下一轮默认聚合方式为 `{recommendation['method_name']}`。")
+        abstract.append(f"当前推荐的下一轮默认聚合方式为 `{recommendation.method_name}`。")
 
     sections = [
         {
@@ -397,9 +397,9 @@ def _render_auditing_report(
         {
             "title": "下一轮建议",
             "bullets": [
-                f"推荐默认聚合方式：`{recommendation['method_name']}`。" if recommendation else "当前未生成推荐聚合方式。",
+                f"推荐默认聚合方式：`{recommendation.method_name}`。" if recommendation else "当前未生成推荐聚合方式。",
                 (
-                    f"推荐依据：总体准确率 `{format_float(recommendation.get('accuracy_mean'))}`，平均总 token / 题 `{format_float(recommendation.get('total_tokens_mean'), 2)}`。"
+                    f"推荐依据：总体准确率 `{format_float(recommendation.accuracy_mean)}`，平均总 token / 题 `{format_float(recommendation.total_tokens_mean, 2)}`。"
                     if recommendation
                     else "建议结合 audit_gain_vs_cost 图和错误覆写率再做最终取舍。"
                 ),
@@ -450,7 +450,7 @@ def _render_sparc_report(
         ["mv_3", "always_communicate", "hybrid_trigger_baseline", "final_round_vote_baseline", "sparc_v1"],
     )
     trigger_selection = diagnostics.get("trigger_selection", {})
-    recommendation = diagnostics.get("recommended_next_default")
+    recommendation = _summary_row_from_payload(diagnostics.get("recommended_next_default"))
     ci_text = _bootstrap_ci_text(predictions, "sparc_v1", "final_round_vote_baseline")
     best_row = max(overall_rows, key=lambda row: float(row.accuracy_mean or 0.0), default=None)
     abstract: list[str] = []
@@ -513,7 +513,7 @@ def _render_sparc_report(
         {
             "title": "下一轮建议",
             "bullets": [
-                f"当前最佳 overall 方法：`{recommendation['method_name']}`" if recommendation else "当前未生成下一轮建议。",
+                f"当前最佳 overall 方法：`{recommendation.method_name}`" if recommendation else "当前未生成下一轮建议。",
                 (
                     f"trigger 选择记录：drop_questions=`{trigger_selection.get('drop_questions')}`，threshold=`{trigger_selection.get('threshold_questions')}`。"
                     if trigger_selection
@@ -593,12 +593,12 @@ def _failure_case_section(
 def _subset_summary(
     predictions: list[dict[str, Any]],
     predicate,
-) -> list[dict[str, Any]]:
+) -> list[SummaryRowView]:
     rows = [row for row in predictions if predicate(row)]
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for row in rows:
         grouped.setdefault((row["model_name"], row["method_name"]), []).append(row)
-    summary = []
+    summary: list[dict[str, Any]] = []
     for (model_name, method_name), items in grouped.items():
         total_tokens_mean = _mean(float(item["total_tokens_per_question"]) for item in items)
         summary.append(
@@ -612,7 +612,13 @@ def _subset_summary(
                 "total_tokens_mean": total_tokens_mean,
             }
         )
-    return summary
+    return list(SummaryTableView.from_rows(summary).rows)
+
+
+def _summary_row_from_payload(payload: Any) -> SummaryRowView | None:
+    if not isinstance(payload, dict):
+        return None
+    return SummaryRowView.from_row(payload)
 
 
 def _bootstrap_ci_text(predictions: list[dict[str, Any]], primary_method: str, reference_method: str) -> str:

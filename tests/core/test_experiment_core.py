@@ -979,10 +979,12 @@ def test_execute_completion_request_reconciles_usage() -> None:
 
 def test_provider_reuses_shared_http_client(monkeypatch: pytest.MonkeyPatch) -> None:
     created_clients: list[object] = []
+    created_http2_flags: list[bool] = []
 
     class DummyClient:
-        def __init__(self, **_: object) -> None:
+        def __init__(self, **kwargs: object) -> None:
             created_clients.append(self)
+            created_http2_flags.append(bool(kwargs.get("http2")))
 
         def close(self) -> None:
             return None
@@ -997,6 +999,7 @@ def test_provider_reuses_shared_http_client(monkeypatch: pytest.MonkeyPatch) -> 
         provider_a = OpenAICompatibleProvider(model)
         provider_b = OpenAICompatibleProvider(model)
         assert len(created_clients) == 1
+        assert created_http2_flags == [True]
     finally:
         if provider_a is not None:
             provider_a.close()

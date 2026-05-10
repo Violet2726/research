@@ -259,7 +259,87 @@ def test_sparc_render_report_outputs_scientific_markdown(tmp_path: Path) -> None
             },
         },
     )
-    (tmp_path / "final_predictions.jsonl").write_text("", encoding="utf-8")
+    (tmp_path / "final_predictions.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "dataset": "gsm8k",
+                        "sample_id": "gsm8k-1",
+                        "model_name": "xiaomimimo/mimo-v2.5",
+                        "method_name": "full_cot",
+                        "display_name": "full_cot",
+                        "score": 1.0,
+                        "communication_tokens_per_question": 3400.0,
+                        "total_tokens_per_question": 6000.0,
+                        "question_preview": "question 1",
+                        "gold": "42",
+                        "prediction": "42",
+                        "initial_disagreement": True,
+                        "oracle_positive": True,
+                    },
+                    ensure_ascii=False,
+                ),
+                json.dumps(
+                    {
+                        "dataset": "gsm8k",
+                        "sample_id": "gsm8k-1",
+                        "model_name": "xiaomimimo/mimo-v2.5",
+                        "method_name": "answer_only",
+                        "display_name": "answer_only",
+                        "score": 0.0,
+                        "communication_tokens_per_question": 2600.0,
+                        "total_tokens_per_question": 5200.0,
+                        "question_preview": "question 1",
+                        "gold": "42",
+                        "prediction": "41",
+                        "initial_disagreement": True,
+                        "oracle_positive": True,
+                        "note": "compression hurts this case",
+                    },
+                    ensure_ascii=False,
+                ),
+                json.dumps(
+                    {
+                        "dataset": "gsm8k",
+                        "sample_id": "gsm8k-2",
+                        "model_name": "xiaomimimo/mimo-v2.5",
+                        "method_name": "full_cot",
+                        "display_name": "full_cot",
+                        "score": 1.0,
+                        "communication_tokens_per_question": 3400.0,
+                        "total_tokens_per_question": 6000.0,
+                        "question_preview": "question 2",
+                        "gold": "84",
+                        "prediction": "84",
+                        "initial_disagreement": False,
+                        "oracle_positive": False,
+                    },
+                    ensure_ascii=False,
+                ),
+                json.dumps(
+                    {
+                        "dataset": "gsm8k",
+                        "sample_id": "gsm8k-2",
+                        "model_name": "xiaomimimo/mimo-v2.5",
+                        "method_name": "answer_only",
+                        "display_name": "answer_only",
+                        "score": 1.0,
+                        "communication_tokens_per_question": 2600.0,
+                        "total_tokens_per_question": 5200.0,
+                        "question_preview": "question 2",
+                        "gold": "84",
+                        "prediction": "84",
+                        "initial_disagreement": False,
+                        "oracle_positive": False,
+                    },
+                    ensure_ascii=False,
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     payload = render_sparc_report(tmp_path, publish_dir=tmp_path / "published")
     local_report = Path(payload["local_report"]).read_text(encoding="utf-8")
