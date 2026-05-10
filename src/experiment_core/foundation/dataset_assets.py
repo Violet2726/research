@@ -13,7 +13,11 @@ import pyarrow.parquet as pq
 from huggingface_hub import hf_hub_download
 
 from experiment_core.foundation.config import BenchmarkConfig, load_benchmark_config
-from experiment_core.foundation.datasets import generate_split_manifests, load_samples, resolve_dataset_source_path
+from experiment_core.foundation.datasets import (
+    generate_split_manifests,
+    load_samples,
+    resolve_dataset_source_path,
+)
 from experiment_core.foundation.workspace import default_datasets_root
 DATASETS_DOCS_ROOT = Path("datasets")
 SPLITS_ROOT = Path("configs/shared/benchmarks/splits")
@@ -294,13 +298,18 @@ def regenerate_used_dataset_splits(
     return generate_split_manifests(benchmarks, output_dir)
 
 
-def collect_dataset_inventory(benchmarks: list[BenchmarkConfig]) -> dict[str, object]:
+def collect_dataset_inventory(
+    benchmarks: list[BenchmarkConfig],
+    *,
+    splits_root: str | Path = SPLITS_ROOT,
+) -> dict[str, object]:
     """收集主评测源与补充源的盘点信息。"""
     primary_specs = build_primary_dataset_specs(benchmarks)
     supplementary_specs = build_supplementary_dataset_specs(benchmarks)
     primary_spec_by_slug = {spec.slug: spec for spec in primary_specs}
 
     primary_assets: list[dict[str, object]] = []
+    splits_root_path = Path(splits_root)
     for benchmark in sorted(benchmarks, key=lambda item: item.slug):
         spec = primary_spec_by_slug[benchmark.slug]
         source_path = resolve_dataset_source_path(benchmark.source_path)
@@ -316,7 +325,10 @@ def collect_dataset_inventory(benchmarks: list[BenchmarkConfig]) -> dict[str, ob
                 "source_url": spec.source_url,
                 "sample_count": len(samples),
                 "size_bytes": source_path.stat().st_size if source_path.exists() else 0,
-                "split_files": sorted(path.name for path in Path(SPLITS_ROOT).glob(f"{benchmark.slug}-*.json")),
+                "split_files": sorted(
+                    path.relative_to(splits_root_path).as_posix()
+                    for path in splits_root_path.rglob(f"{benchmark.slug}-*.json")
+                ),
                 "notes": spec.notes,
             }
         )
@@ -345,7 +357,7 @@ def write_dataset_inventory_files(
     docs_root_path = Path(docs_root)
     datasets_root_path.mkdir(parents=True, exist_ok=True)
     docs_root_path.mkdir(parents=True, exist_ok=True)
-    inventory = collect_dataset_inventory(benchmarks)
+    inventory = collect_dataset_inventory(benchmarks, splits_root=splits_root)
 
     manifest_path = datasets_root_path / "manifest.json"
     manifest_path.write_text(json.dumps(inventory, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -467,7 +479,7 @@ def prepare_used_datasets(
     downloads = download_primary_dataset_sources(benchmarks, force=force)
     created_splits = regenerate_used_dataset_splits(benchmarks, output_dir=splits_root)
     inventory_paths = write_dataset_inventory_files(benchmarks, datasets_root=_current_datasets_root(), docs_root=DATASETS_DOCS_ROOT, splits_root=splits_root)
-    inventory = collect_dataset_inventory(benchmarks)
+    inventory = collect_dataset_inventory(benchmarks, splits_root=splits_root)
     return {
         "benchmark_count": len(benchmarks),
         "downloads": [_serialize_download_result(item) for item in downloads],
@@ -490,7 +502,7 @@ def prepare_all_dataset_sources(
     supplementary_downloads = download_supplementary_dataset_sources(benchmarks, force=force)
     created_splits = regenerate_used_dataset_splits(benchmarks, output_dir=splits_root)
     inventory_paths = write_dataset_inventory_files(benchmarks, datasets_root=_current_datasets_root(), docs_root=DATASETS_DOCS_ROOT, splits_root=splits_root)
-    inventory = collect_dataset_inventory(benchmarks)
+    inventory = collect_dataset_inventory(benchmarks, splits_root=splits_root)
     return {
         "benchmark_count": len(benchmarks),
         "primary_downloads": [_serialize_download_result(item) for item in primary_downloads],

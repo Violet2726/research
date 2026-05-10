@@ -72,10 +72,17 @@ def generate_split_manifests(
         samples = load_samples(config)
         split_specs = _resolve_split_specs(config, samples)
 
-        for filename, sample_ids in split_specs:
-            path = output / filename
+        for split_name, sample_ids in split_specs:
+            path = resolve_split_manifest_path(
+                config.slug,
+                split_name,
+                splits_root=output,
+                random_seed=config.random_seed,
+            )
+            path.parent.mkdir(parents=True, exist_ok=True)
             payload = {
                 "dataset": config.slug,
+                "split_name": split_name,
                 "source_split": config.source_split,
                 "sample_count": len(sample_ids),
                 "sample_ids": sample_ids,
@@ -93,7 +100,7 @@ def _resolve_split_specs(
 ) -> list[tuple[str, list[str]]]:
     if config.split_presets:
         return [
-            (f"{config.slug}-{preset['name']}.json", _build_split_ids(config, samples, preset))
+            (str(preset["name"]), _build_split_ids(config, samples, preset))
             for preset in config.split_presets
         ]
 
@@ -101,13 +108,14 @@ def _resolve_split_specs(
     shuffled = indexed_ids[:]
     random.Random(config.random_seed).shuffle(shuffled)
     split_specs = [
-        (f"{config.slug}-smoke20_seed42.json", shuffled[: config.smoke_size]),
-        (f"{config.slug}-pilot100_seed42.json", shuffled[: min(config.pilot_size, len(shuffled))]),
+        ("count20_seed42", shuffled[: min(config.smoke_size, len(shuffled))]),
+        ("count100_seed42", shuffled[: min(config.pilot_size, len(shuffled))]),
     ]
-    if config.slug == "strategyqa":
-        split_specs.append((f"{config.slug}-dev_full_229_seed42.json", indexed_ids[:]))
-    else:
-        split_specs.append((f"{config.slug}-dev300_seed42.json", shuffled[: min(config.main_size, len(shuffled))]))
+    if len(indexed_ids) > 100 and len(indexed_ids) > 300:
+        split_specs.append(("count300_seed42", shuffled[: min(config.main_size, len(shuffled))]))
+    if len(indexed_ids) > 500:
+        split_specs.append(("count500_seed42", shuffled[:500]))
+    split_specs.append((f"full{len(indexed_ids)}_seed42", indexed_ids[:]))
     return split_specs
 
 
@@ -203,9 +211,17 @@ def load_split_ids(
     dataset_slug: str,
     split_name: str,
     splits_root: str | Path = "configs/shared/benchmarks/splits",
+    random_seed: int = 42,
 ) -> list[str]:
     """读取某个冻结 split 中的样本 ID 列表。"""
-    payload = json.loads((Path(splits_root) / f"{dataset_slug}-{split_name}.json").read_text(encoding="utf-8"))
+    payload = json.loads(
+        resolve_split_manifest_path(
+            dataset_slug,
+            split_name,
+            splits_root=splits_root,
+            random_seed=random_seed,
+        ).read_text(encoding="utf-8")
+    )
     return payload["sample_ids"]
 
 
@@ -215,9 +231,41 @@ def select_samples(
     splits_root: str | Path = "configs/shared/benchmarks/splits",
 ) -> list[DatasetSample]:
     """按冻结 split 从全量 benchmark 中选出本轮样本。"""
-    split_ids = load_split_ids(benchmark.slug, split_name, splits_root=splits_root)
+    split_ids = load_split_ids(
+        benchmark.slug,
+        split_name,
+        splits_root=splits_root,
+        random_seed=benchmark.random_seed,
+    )
     sample_map = {sample.sample_id: sample for sample in load_samples(benchmark)}
     return [sample_map[sample_id] for sample_id in split_ids if sample_id in sample_map]
+
+
+def resolve_split_manifest_path(
+    dataset_slug: str,
+    split_name: str,
+    *,
+    splits_root: str | Path = "configs/shared/benchmarks/splits",
+    random_seed: int = 42,
+) -> Path:
+    """把 split 名解析成统一目录化后的 manifest 路径。"""
+
+    split_dir_name, seed = _split_directory_and_seed(split_name, random_seed)
+    return Path(splits_root) / split_dir_name / f"{dataset_slug}-seed{seed}.json"
+
+
+def _split_directory_and_seed(split_name: str, fallback_seed: int) -> tuple[str, int]:
+    match = re.fullmatch(r"(?P<name>.+?)_seed(?P<seed>\d+)", split_name)
+    if match:
+        split_dir_name = _normalize_split_directory_name(match.group("name"))
+        return split_dir_name, int(match.group("seed"))
+    return split_name, int(fallback_seed)
+
+
+def _normalize_split_directory_name(split_name_without_seed: str) -> str:
+    if re.fullmatch(r"full\d+", split_name_without_seed):
+        return "full"
+    return split_name_without_seed
 
 
 def resolve_dataset_source_path(source_path: str | Path) -> Path:

@@ -22,13 +22,13 @@ tokens_per_minute_limit = 1000000
 primary_model_ref = "deepseek/deepseek-v4-flash"
 
 [phases.smoke20]
-split_suffix = "smoke20_seed42"
+split_suffix = "count20_seed42"
 
 [phases.pilot100]
-split_suffix = "pilot100_seed42"
+split_suffix = "count100_seed42"
 
 [phases.confirmatory300]
-split_overrides = { strategyqa = "dev_full_229_seed42", hotpotqa = "dev300_seed42" }
+split_overrides = { strategyqa = "full229_seed42", hotpotqa = "count300_seed42" }
 
 [phases.confirmatory500]
-split_overrides = { strategyqa = "dev_full_229_seed42", hotpotqa = "confirmatory500_seed42" }
+split_overrides = { strategyqa = "full229_seed42", hotpotqa = "count500_seed42" }

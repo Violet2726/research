@@ -12,4 +12,19 @@ pilot_size = 100
 # 本地官方 dev 只有 229 条，因此 main 直接使用整份 dev。
 main_size = 229
 random_seed = 42
-notes = "Official local dev split has 229 examples, so main split is dev_full_229."
+notes = "Official local dev split has 229 examples, so larger count-based requests fall back to full."
+
+[[split_presets]]
+name = "count20_seed42"
+strategy = "shuffle"
+size = 20
+
+[[split_presets]]
+name = "count100_seed42"
+strategy = "shuffle"
+size = 100
+
+[[split_presets]]
+name = "full229_seed42"
+strategy = "full"
+size = 229

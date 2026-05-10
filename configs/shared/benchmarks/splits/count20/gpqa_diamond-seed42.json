@@ -1,0 +1,29 @@
+{
+  "dataset": "gpqa_diamond",
+  "split_name": "count20_seed42",
+  "source_split": "diamond",
+  "sample_count": 20,
+  "sample_ids": [
+    "rechKl68Uc6H7vU0N",
+    "recINSFEYLCyyd08m",
+    "rec0wZvZgiz320KRs",
+    "recypVp2NmPlBKVTp",
+    "recnawZPumSCLMVgp",
+    "rec4r4KWNLrT7g2kR",
+    "recVvpD8miVjmmyfe",
+    "rec527dNeEtWJrYNl",
+    "recnTTKdBzfuoZ7w7",
+    "recQiWOxhkXRz9NVE",
+    "rec0yTRmO1o1xCA6H",
+    "recb80OwMgNnceA9t",
+    "recDj2Y2BbtV02Wv5",
+    "rec6sE2CRtD4drtHg",
+    "recE2ihVfqEK4R9d0",
+    "rec5rjeLsEq5Fg7Oj",
+    "reczjcMtrB1YGS2fO",
+    "recGFNRVl1qBZGwyU",
+    "recpki12iG9RUGrz9",
+    "recIj8lR4tuDgrHou"
+  ],
+  "random_seed": 42
+}

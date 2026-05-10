@@ -15,24 +15,19 @@ random_seed = 42
 notes = "Use the provided final math answer string as gold."
 
 [[split_presets]]
-name = "smoke20_seed42"
+name = "count20_seed42"
 strategy = "shuffle"
 size = 20
 
 [[split_presets]]
-name = "pilot100_seed42"
+name = "count100_seed42"
 strategy = "shuffle"
 size = 100
 
 [[split_presets]]
-name = "confirmatory300_seed42"
+name = "count300_seed42"
 strategy = "shuffle"
 size = 300
-
-[[split_presets]]
-name = "confirmatory500_seed42"
-strategy = "full"
-size = 500
 
 [[split_presets]]
 name = "full500_seed42"

@@ -1,0 +1,29 @@
+{
+  "dataset": "strategyqa",
+  "split_name": "count20_seed42",
+  "source_split": "dev",
+  "sample_count": 20,
+  "sample_ids": [
+    "34198157c2dd7028f0a4",
+    "563a36aa0389c6f96cc7",
+    "2a90188d5b82d12c036d",
+    "71e6d5a927e7241c8f59",
+    "a5f8af1dd0e9c46c47be",
+    "1eb877fa5b2962f5e5a9",
+    "66b3cfaa499773bdf513",
+    "2b98270f27a5263b991f",
+    "c649c9f1814bd72b8ccd",
+    "53f2558c6a9d6c3b0a81",
+    "9c13ff296c299f0cd02d",
+    "badd24672a2f951706fe",
+    "81f2c649b9f61e019fcf",
+    "ab2527bb6fd97508b566",
+    "5d85be9c8f41a21ca293",
+    "62e8d2b87e80f78b152c",
+    "b848db708048f54dfb6c",
+    "4111c4147ebc06bd1163",
+    "486b0e16b6c36314378c",
+    "ba83e0960e20b69be901"
+  ],
+  "random_seed": 42
+}

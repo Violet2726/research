@@ -345,7 +345,7 @@ def test_sparc_auditing_ablation_paired_design_contract(tmp_path: Path) -> None:
         tmp_path / "manifest.json",
         {
             "experiment_kind": "auditing_ablation",
-            "phase_metadata": {"split_suffix": "smoke20_seed42"},
+            "phase_metadata": {"split_suffix": "count20_seed42"},
             "aggregation_methods": ["majority_vote", "single_judge", "final_round_vote", "local_auditing"],
             "benchmarks": [
                 {"slug": "gsm8k", "smoke_size": 1},

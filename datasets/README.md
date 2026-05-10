@@ -45,7 +45,7 @@ uv run dataset_assets_cli prepare-all-sources --force
 - 上游 split：`diamond`
 - 样本数：`198`
 - 文件大小：`2.24 MiB`
-- 冻结 split：`gpqa_diamond-full_seed42.json`, `gpqa_diamond-pilot100_seed42.json`, `gpqa_diamond-smoke20_seed42.json`
+- 冻结 split：`count100/gpqa_diamond-seed42.json`, `count20/gpqa_diamond-seed42.json`, `full/gpqa_diamond-seed42.json`
 - 说明：官方 zip 同时内嵌 gpqa_main、gpqa_experts 与 gpqa_extended；请遵循上游许可与使用说明。
 
 ### GSM8K (`gsm8k`)
@@ -56,7 +56,7 @@ uv run dataset_assets_cli prepare-all-sources --force
 - 上游 split：`test`
 - 样本数：`1319`
 - 文件大小：`732.17 KiB`
-- 冻结 split：`gsm8k-confirmatory500_seed42.json`, `gsm8k-dev300_seed42.json`, `gsm8k-pilot100_seed42.json`, `gsm8k-smoke20_seed42.json`
+- 冻结 split：`count100/gsm8k-seed42.json`, `count20/gsm8k-seed42.json`, `count300/gsm8k-seed42.json`, `count500/gsm8k-seed42.json`, `full/gsm8k-seed42.json`
 
 ### GSM-Symbolic (`gsm_symbolic`)
 
@@ -66,7 +66,7 @@ uv run dataset_assets_cli prepare-all-sources --force
 - 上游 split：`test`
 - 样本数：`5000`
 - 文件大小：`5.94 MiB`
-- 冻结 split：`gsm_symbolic-pilot100_seed42.json`, `gsm_symbolic-robustness200_seed42.json`, `gsm_symbolic-robustness500_seed42.json`, `gsm_symbolic-smoke20_seed42.json`
+- 冻结 split：`count100/gsm_symbolic-seed42.json`, `count20/gsm_symbolic-seed42.json`, `count300/gsm_symbolic-seed42.json`, `count500/gsm_symbolic-seed42.json`, `full/gsm_symbolic-seed42.json`
 - 说明：公开版本只提供生成后的 test 集。
 
 ### HotpotQA (`hotpotqa`)
@@ -77,7 +77,7 @@ uv run dataset_assets_cli prepare-all-sources --force
 - 上游 split：`validation_distractor`
 - 样本数：`7405`
 - 文件大小：`26.18 MiB`
-- 冻结 split：`hotpotqa-confirmatory500_seed42.json`, `hotpotqa-dev1000_seed42.json`, `hotpotqa-dev300_seed42.json`, `hotpotqa-pilot100_seed42.json`, `hotpotqa-smoke20_seed42.json`, `hotpotqa-split500_seed42.json`
+- 冻结 split：`count100/hotpotqa-seed42.json`, `count20/hotpotqa-seed42.json`, `count300/hotpotqa-seed42.json`, `count500/hotpotqa-seed42.json`, `full/hotpotqa-seed42.json`
 
 ### MATH500 (`math500`)
 
@@ -87,7 +87,7 @@ uv run dataset_assets_cli prepare-all-sources --force
 - 上游 split：`test`
 - 样本数：`500`
 - 文件大小：`436.10 KiB`
-- 冻结 split：`math500-confirmatory300_seed42.json`, `math500-confirmatory500_seed42.json`, `math500-full500_seed42.json`, `math500-pilot100_seed42.json`, `math500-smoke20_seed42.json`
+- 冻结 split：`count100/math500-seed42.json`, `count20/math500-seed42.json`, `count300/math500-seed42.json`, `full/math500-seed42.json`
 - 说明：官方公开数据仅提供 test 集。
 
 ### MMLU-Pro (`mmlu_pro`)
@@ -98,7 +98,7 @@ uv run dataset_assets_cli prepare-all-sources --force
 - 上游 split：`test`
 - 样本数：`12032`
 - 文件大小：`3.95 MiB`
-- 冻结 split：`mmlu_pro-pilot100_seed42.json`, `mmlu_pro-smoke20_seed42.json`, `mmlu_pro-strat1200_seed42.json`, `mmlu_pro-strat300_seed42.json`, `mmlu_pro-strat500_seed42.json`, `mmlu_pro-test_full_12032_seed42.json`
+- 冻结 split：`count100/mmlu_pro-seed42.json`, `count20/mmlu_pro-seed42.json`, `count300/mmlu_pro-seed42.json`, `count500/mmlu_pro-seed42.json`, `full/mmlu_pro-seed42.json`
 
 ### StrategyQA (`strategyqa`)
 
@@ -108,7 +108,7 @@ uv run dataset_assets_cli prepare-all-sources --force
 - 上游 split：`dev`
 - 样本数：`229`
 - 文件大小：`414.25 KiB`
-- 冻结 split：`strategyqa-dev_full_229_seed42.json`, `strategyqa-pilot100_seed42.json`, `strategyqa-smoke20_seed42.json`
+- 冻结 split：`count100/strategyqa-seed42.json`, `count20/strategyqa-seed42.json`, `full/strategyqa-seed42.json`
 
 ## 训练集与补充上游 split
 

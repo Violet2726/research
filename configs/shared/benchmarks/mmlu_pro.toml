@@ -14,37 +14,31 @@ smoke_size = 20
 pilot_size = 100
 main_size = 1200
 random_seed = 42
-notes = "Use a stratified 1200-question main split and the full 12032-question test split for confirmatory runs."
+notes = "Use stratified count-based subsets for sampled runs and the full 12032-question test split for full runs."
 
 [[split_presets]]
-name = "smoke20_seed42"
+name = "count20_seed42"
 strategy = "shuffle"
 size = 20
 
 [[split_presets]]
-name = "pilot100_seed42"
+name = "count100_seed42"
 strategy = "shuffle"
 size = 100
 
 [[split_presets]]
-name = "strat300_seed42"
+name = "count300_seed42"
 strategy = "stratified"
 field = "category"
 size = 300
 
 [[split_presets]]
-name = "strat500_seed42"
+name = "count500_seed42"
 strategy = "stratified"
 field = "category"
 size = 500
 
 [[split_presets]]
-name = "strat1200_seed42"
-strategy = "stratified"
-field = "category"
-size = 1200
-
-[[split_presets]]
-name = "test_full_12032_seed42"
+name = "full12032_seed42"
 strategy = "full"
 size = 12032

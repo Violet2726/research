@@ -60,12 +60,12 @@ Reference：
 
 数据规模规则：
 
-- GSM8K：`dev300_seed42`
-- HotpotQA：`dev300_seed42`
-- StrategyQA：`dev_full_229_seed42`
-- MATH500：`confirmatory300_seed42`
-- MMLU-Pro：`strat300_seed42`
-- GPQA Diamond：`full_seed42`
+- GSM8K：`count300_seed42`
+- HotpotQA：`count300_seed42`
+- StrategyQA：`full229_seed42`
+- MATH500：`count300_seed42`
+- MMLU-Pro：`count300_seed42`
+- GPQA Diamond：`full198_seed42`
 
 预检命令：
 

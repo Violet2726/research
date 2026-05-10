@@ -18,21 +18,26 @@ random_seed = 42
 notes = "Use final answer after #### as gold label."
 
 [[split_presets]]
-name = "smoke20_seed42"
+name = "count20_seed42"
 strategy = "shuffle"
 size = 20
 
 [[split_presets]]
-name = "pilot100_seed42"
+name = "count100_seed42"
 strategy = "shuffle"
 size = 100
 
 [[split_presets]]
-name = "dev300_seed42"
+name = "count300_seed42"
 strategy = "shuffle"
 size = 300
 
 [[split_presets]]
-name = "confirmatory500_seed42"
+name = "count500_seed42"
 strategy = "shuffle"
 size = 500
+
+[[split_presets]]
+name = "full1319_seed42"
+strategy = "full"
+size = 1319

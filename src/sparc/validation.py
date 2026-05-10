@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from pathlib import Path
 import json
+import re
 from typing import Any
 
 from experiment_core.foundation.run_archives import validate_archive_contract
@@ -238,12 +239,16 @@ def _stage_b_trace_mismatches(
 def _expected_prediction_count(manifest: dict[str, Any]) -> int | None:
     phase_metadata = manifest.get("phase_metadata") or {}
     split_suffix = str(phase_metadata.get("split_suffix") or "")
-    if split_suffix == "smoke20_seed42":
+    if split_suffix == "count20_seed42":
         return _sum_benchmark_size(manifest, "smoke_size")
-    if split_suffix == "pilot100_seed42":
+    if split_suffix == "count100_seed42":
         return _sum_benchmark_size(manifest, "pilot_size")
-    if split_suffix in {"dev300_seed42", "dev_full_229_seed42"}:
+    if split_suffix == "count300_seed42":
         return _sum_benchmark_size(manifest, "main_size")
+    if split_suffix == "count500_seed42":
+        return _sum_effective_split_size(manifest, 500)
+    if re.fullmatch(r"full\d+_seed42", split_suffix):
+        return _sum_effective_split_size(manifest, None)
     return None
 
 
@@ -258,6 +263,29 @@ def _sum_benchmark_size(manifest: dict[str, Any], key: str) -> int | None:
             return None
         sizes.append(int(value))
     return sum(sizes)
+
+
+def _sum_effective_split_size(manifest: dict[str, Any], target_size: int | None) -> int | None:
+    benchmarks = manifest.get("benchmarks") or []
+    if not benchmarks:
+        return None
+    sizes = []
+    for benchmark in benchmarks:
+        available = _benchmark_available_size(benchmark)
+        if available is None:
+            return None
+        sizes.append(available if target_size is None else min(target_size, available))
+    return sum(sizes)
+
+
+def _benchmark_available_size(benchmark: dict[str, Any]) -> int | None:
+    source_size = benchmark.get("source_size")
+    if source_size is not None:
+        return int(source_size)
+    main_size = benchmark.get("main_size")
+    if main_size is not None:
+        return int(main_size)
+    return None
 
 
 def _validate_compare_run(

@@ -15,21 +15,26 @@ random_seed = 42
 notes = "Use the #### final numeric answer and freeze a 200-example robustness split."
 
 [[split_presets]]
-name = "smoke20_seed42"
+name = "count20_seed42"
 strategy = "shuffle"
 size = 20
 
 [[split_presets]]
-name = "pilot100_seed42"
+name = "count100_seed42"
 strategy = "shuffle"
 size = 100
 
 [[split_presets]]
-name = "robustness200_seed42"
+name = "count300_seed42"
 strategy = "shuffle"
-size = 200
+size = 300
 
 [[split_presets]]
-name = "robustness500_seed42"
+name = "count500_seed42"
 strategy = "shuffle"
 size = 500
+
+[[split_presets]]
+name = "full5000_seed42"
+strategy = "full"
+size = 5000

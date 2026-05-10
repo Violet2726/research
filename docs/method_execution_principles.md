@@ -525,7 +525,7 @@
 - 通过不同 phase 运行不同规模的数据切片：
   - `smoke20`
   - `pilot100`
-  - `main` (`split500_seed42`)
+  - `main` (`count500_seed42`)
 
 ## 9.2 方法集合
 

@@ -17,16 +17,16 @@ random_seed = 42
 notes = "Deterministically shuffle the four answer choices per question using the record id."
 
 [[split_presets]]
-name = "smoke20_seed42"
+name = "count20_seed42"
 strategy = "shuffle"
 size = 20
 
 [[split_presets]]
-name = "pilot100_seed42"
+name = "count100_seed42"
 strategy = "shuffle"
 size = 100
 
 [[split_presets]]
-name = "full_seed42"
+name = "full198_seed42"
 strategy = "full"
 size = 198

@@ -796,8 +796,8 @@ def test_generate_and_load_split_manifests(tmp_path: Path) -> None:
     benchmark = load_benchmark_config(benchmark_path)
     created = generate_split_manifests([benchmark], tmp_path / "splits")
     assert created
-    smoke_ids = load_split_ids("toy_gsm8k", "smoke20_seed42", tmp_path / "splits")
-    samples = select_samples(benchmark, "smoke20_seed42", tmp_path / "splits")
+    smoke_ids = load_split_ids("toy_gsm8k", "count20_seed42", tmp_path / "splits")
+    samples = select_samples(benchmark, "count20_seed42", tmp_path / "splits")
     assert len(smoke_ids) == 1
     assert [sample.sample_id for sample in samples] == smoke_ids
 

@@ -26,17 +26,17 @@ roster = "configs/multi_agent/rosters/homogeneous_3agent.toml"
 matched_controls = ["mv_6"]
 
 [phases.smoke20]
-split_suffix = "smoke20_seed42"
+split_suffix = "count20_seed42"
 setups = ["mad_3a_r1"]
 
 [phases.pilot100]
-split_suffix = "pilot100_seed42"
+split_suffix = "count100_seed42"
 setups = ["mad_3a_r1"]
 
 [phases.confirmatory300]
-split_overrides = { gsm8k = "dev300_seed42", strategyqa = "dev_full_229_seed42", hotpotqa = "dev300_seed42" }
+split_overrides = { gsm8k = "count300_seed42", strategyqa = "full229_seed42", hotpotqa = "count300_seed42" }
 setups = ["mad_3a_r1"]
 
 [phases.confirmatory500]
-split_overrides = { gsm8k = "confirmatory500_seed42", strategyqa = "dev_full_229_seed42", hotpotqa = "confirmatory500_seed42" }
+split_overrides = { gsm8k = "count500_seed42", strategyqa = "full229_seed42", hotpotqa = "count500_seed42" }
 setups = ["mad_3a_r1"]

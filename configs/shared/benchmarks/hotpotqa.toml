@@ -15,31 +15,26 @@ random_seed = 42
 notes = "Answer EM only for v1 main table."
 
 [[split_presets]]
-name = "smoke20_seed42"
+name = "count20_seed42"
 strategy = "shuffle"
 size = 20
 
 [[split_presets]]
-name = "pilot100_seed42"
+name = "count100_seed42"
 strategy = "shuffle"
 size = 100
 
 [[split_presets]]
-name = "dev300_seed42"
+name = "count300_seed42"
 strategy = "shuffle"
 size = 300
 
 [[split_presets]]
-name = "confirmatory500_seed42"
+name = "count500_seed42"
 strategy = "shuffle"
 size = 500
 
 [[split_presets]]
-name = "dev1000_seed42"
-strategy = "shuffle"
-size = 1000
-
-[[split_presets]]
-name = "split500_seed42"
-strategy = "shuffle"
-size = 500
+name = "full7405_seed42"
+strategy = "full"
+size = 7405

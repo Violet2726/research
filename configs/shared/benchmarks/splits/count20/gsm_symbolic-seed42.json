@@ -1,0 +1,29 @@
+{
+  "dataset": "gsm_symbolic",
+  "split_name": "count20_seed42",
+  "source_split": "test",
+  "sample_count": 20,
+  "sample_ids": [
+    "gsm_symbolic-00027",
+    "gsm_symbolic-00037",
+    "gsm_symbolic-00098",
+    "gsm_symbolic-00030",
+    "gsm_symbolic-00093",
+    "gsm_symbolic-00019",
+    "gsm_symbolic-00008",
+    "gsm_symbolic-00007",
+    "gsm_symbolic-00005",
+    "gsm_symbolic-00014",
+    "gsm_symbolic-00079",
+    "gsm_symbolic-00026",
+    "gsm_symbolic-00023",
+    "gsm_symbolic-00037",
+    "gsm_symbolic-00083",
+    "gsm_symbolic-00083",
+    "gsm_symbolic-00025",
+    "gsm_symbolic-00063",
+    "gsm_symbolic-00035",
+    "gsm_symbolic-00097"
+  ],
+  "random_seed": 42
+}

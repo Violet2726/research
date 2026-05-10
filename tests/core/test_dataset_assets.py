@@ -105,8 +105,11 @@ def test_write_dataset_inventory_files_writes_local_manifest_and_repo_readme(tmp
     dataset_file.parent.mkdir(parents=True)
     dataset_file.write_text('{"problem":"1+1","answer":"2"}\n', encoding="utf-8")
     splits_root = tmp_path / "splits"
-    splits_root.mkdir()
-    (splits_root / "math500-smoke20_seed42.json").write_text(json.dumps({"sample_ids": ["math500-00000"]}), encoding="utf-8")
+    (splits_root / "smoke20").mkdir(parents=True)
+    (splits_root / "smoke20" / "math500-seed42.json").write_text(
+        json.dumps({"sample_ids": ["math500-00000"]}),
+        encoding="utf-8",
+    )
 
     monkeypatch.setattr(
         "experiment_core.foundation.dataset_assets.load_samples",
