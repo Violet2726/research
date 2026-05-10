@@ -33,6 +33,9 @@ jobs:
       - name: Sync dev environment
         run: uv sync --group dev --frozen
 
+      - name: Prepare benchmark datasets
+        run: uv run dataset_assets_cli prepare-used
+
       - name: Compile sources
         run: uv run python -m compileall src tests
 
