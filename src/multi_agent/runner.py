@@ -391,10 +391,11 @@ def _write_sample_outputs(
 
 
 def _run_mad_sample(
+    sample: DatasetSample,
+    *,
     run_id: str,
     benchmark_slug: str,
     split_name: str,
-    sample: DatasetSample,
     setup: ExperimentSetup,
     protocol: ProtocolConfig,
     roster: RosterConfig,

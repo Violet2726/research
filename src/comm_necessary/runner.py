@@ -261,11 +261,11 @@ def _run_sample_batch(
 
 
 def _run_sample(
+    sample: DatasetSample,
     *,
     run_id: str,
     dataset: str,
     split_name: str,
-    sample: DatasetSample,
     protocol: CommNecessaryProtocolConfig,
     backbone: ResolvedModelConfig,
     provider: OpenAICompatibleProvider,

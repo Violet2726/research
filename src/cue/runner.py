@@ -317,11 +317,11 @@ def run_experiment(
 
 
 def _run_sample(
+    sample: DatasetSample,
     *,
     run_id: str,
     benchmark_slug: str,
     split_name: str,
-    sample: DatasetSample,
     protocol: CueProtocolConfig,
     policies: list[CuePolicyConfig],
     controls: dict[str, MethodConfig],

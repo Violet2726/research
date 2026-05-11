@@ -428,11 +428,11 @@ def _write_sample_results(
 
 
 def _run_sample(
+    sample: DatasetSample,
     *,
     run_id: str,
     benchmark_slug: str,
     split_name: str,
-    sample: DatasetSample,
     protocol: BudgetProtocolConfig,
     auction_policy: AuctionPolicyConfig,
     context_view_config: ContextViewConfig,
