@@ -9,7 +9,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-import tomllib
+
+from experiment_core.foundation.config import BenchmarkConfig, ResolvedModelConfig
+from experiment_core.foundation.config_helpers import (
+    load_benchmarks as load_benchmarks_from_experiment,
+    load_toml,
+    optional_int,
+    phase_metadata as phase_metadata_from_raw,
+    resolve_model as resolve_shared_model,
+)
 
 
 SINGLE_AGENT_CONFIG_ROOT = Path("configs/single_agent")
@@ -37,8 +45,7 @@ class ExperimentConfig:
 
 def load_experiment_config(path: str | Path) -> ExperimentConfig:
     """加载单智能体实验配置文件。"""
-    with Path(path).open("rb") as handle:
-        payload = tomllib.load(handle)
+    payload = load_toml(path)
     return ExperimentConfig(
         name=str(payload["name"]),
         description=str(payload["description"]),
@@ -53,8 +60,8 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         reruns_per_method=int(payload["reruns_per_method"]),
         prompt_version=str(payload["prompt_version"]),
         max_concurrent_requests=int(payload["max_concurrent_requests"]),
-        requests_per_minute_limit=_optional_int(payload, "requests_per_minute_limit"),
-        tokens_per_minute_limit=_optional_int(payload, "tokens_per_minute_limit"),
+        requests_per_minute_limit=optional_int(payload, "requests_per_minute_limit"),
+        tokens_per_minute_limit=optional_int(payload, "tokens_per_minute_limit"),
         primary_model_ref=str(payload["primary_model_ref"]),
         raw=payload,
     )
@@ -62,7 +69,19 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
 
 def phase_metadata(experiment: ExperimentConfig, phase_name: str) -> dict[str, Any]:
     """返回某个 phase 的原始配置副本。"""
-    return dict(experiment.raw["phases"][phase_name])
+    return phase_metadata_from_raw(experiment, phase_name)
+
+
+def load_benchmarks(experiment: ExperimentConfig) -> list[BenchmarkConfig]:
+    """加载实验声明使用的全部 benchmark 配置。"""
+
+    return load_benchmarks_from_experiment(experiment)
+
+
+def resolve_model(model_ref: str) -> ResolvedModelConfig:
+    """解析单智能体实验使用的模型引用。"""
+
+    return resolve_shared_model(model_ref)
 
 
 def required_model_tags(experiment: ExperimentConfig, phase_name: str) -> list[str]:
@@ -95,11 +114,3 @@ def _dedupe_preserving_order(items: list[str]) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
-
-
-def _optional_int(payload: dict[str, Any], key: str) -> int | None:
-    """读取可选整数字段。"""
-    value = payload.get(key)
-    if value is None:
-        return None
-    return int(value)

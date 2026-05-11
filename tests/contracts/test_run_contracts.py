@@ -9,6 +9,8 @@ from budget_comm.reporting import summarize_run as summarize_budget
 from budget_comm.validation import validate_run as validate_budget
 from comm_necessary.reporting import summarize_run as summarize_comm_necessary
 from comm_necessary.validation import validate_run as validate_comm_necessary
+from cue.reporting import summarize_run as summarize_cue
+from cue.validation import validate_run as validate_cue
 from free_mad_lite.reporting import summarize_run as summarize_free_mad
 from free_mad_lite.validation import validate_run as validate_free_mad
 from multi_agent.reporting import summarize_run as summarize_multi_agent
@@ -167,6 +169,38 @@ def test_selective_comm_validation_contract(tmp_path: Path) -> None:
 
     assert summarize_selective(tmp_path)["row_count"] == 1
     assert validate_selective(tmp_path)["passed"] is True
+
+
+def test_cue_validation_contract(tmp_path: Path) -> None:
+    _touch_json(tmp_path / "manifest.json", {})
+    _write_jsonl(tmp_path / "stage_a_turns.jsonl", [{"output_status": "ok"}])
+    _write_jsonl(tmp_path / "communication_turns.jsonl", [])
+    _write_jsonl(tmp_path / "audit_turns.jsonl", [])
+    _write_jsonl(
+        tmp_path / "policy_predictions.jsonl",
+        [
+            {
+                "dataset": "gsm8k",
+                "sample_id": "gsm8k-00001",
+                "method_name": "always_communicate",
+                "stage_a_trace_hash": "stage-a",
+            },
+            {
+                "dataset": "gsm8k",
+                "sample_id": "gsm8k-00001",
+                "method_name": "cue_v1",
+                "stage_a_trace_hash": "stage-a",
+            },
+        ],
+    )
+    _touch_json(tmp_path / "policy_metrics.json", {"summary": [{"dataset": "gsm8k"}]})
+    _touch_json(tmp_path / "policy_diagnostics.json", {"policy_rows": []})
+    _touch_json(tmp_path / "oracle_trigger_eval.json", {"summary_rows": []})
+    (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
+    _touch_figure_contract(tmp_path)
+
+    assert summarize_cue(tmp_path)["row_count"] == 1
+    assert validate_cue(tmp_path)["passed"] is True
 
 
 def test_selective_comm_resume_seed_state_keeps_only_complete_samples(tmp_path: Path) -> None:

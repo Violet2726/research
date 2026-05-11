@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from functools import partial
@@ -41,12 +40,17 @@ from comm_necessary.logic import (
 )
 from comm_necessary.prompting import build_belief_update_messages, build_solver_messages
 from experiment_core.foundation.artifacts import BufferedJsonlWriter
-from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
+from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, json_dump
 from experiment_core.foundation.config import ResolvedModelConfig
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import normalize_prediction
-from experiment_core.foundation.providers import OpenAICompatibleProvider, build_payload, execute_completion_request, estimate_request_tokens
+from experiment_core.foundation.providers import OpenAICompatibleProvider, estimate_request_tokens
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
+from experiment_core.foundation.runner_common import (
+    execute_cached_turn,
+    prepare_run_root,
+    run_indexed_batch,
+)
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from experiment_core.foundation.structured_output import (
     OUTPUT_MODE_COMM_NECESSARY_BELIEF,
@@ -246,14 +250,14 @@ def _run_sample_batch(
         global_seed=global_seed,
         prompt_version=prompt_version,
     )
-    max_workers = max(1, min(max_concurrent_requests, len(samples) or 1))
-    completed: list[tuple[int, SampleResult]] = []
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_index = {executor.submit(worker, sample=sample): index for index, sample in enumerate(samples)}
-        for future in as_completed(future_to_index):
-            completed.append((future_to_index[future], future.result()))
-    completed.sort(key=lambda item: item[0])
-    return [result for _, result in completed]
+    return [
+        result
+        for _, result in run_indexed_batch(
+            samples,
+            worker=worker,
+            max_concurrent_requests=max_concurrent_requests,
+        )
+    ]
 
 
 def _run_sample(
@@ -725,55 +729,32 @@ def _execute_turn(
     seed: int,
     extra_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    payload = build_payload(backbone, messages, temperature, top_p, max_output_tokens, seed)
-    prompt_hash = _prompt_hash(messages)
-    estimated_tokens = estimate_request_tokens(payload)
-    cache_key = build_request_cache_key(
-        provider=backbone.provider,
-        request_model=backbone.model_id,
-        payload=payload,
-    )
-    cached = cache.get(cache_key)
-    if cached is None:
-        request_started_at = datetime.now(timezone.utc).isoformat()
-        response_payload = execute_completion_request(
-            provider,
-            payload,
-            limiter=limiter,
-        )
+    request_started_at = datetime.now(timezone.utc).isoformat()
+
+    def _response_hook(payload: dict[str, Any], response_payload: dict[str, Any]) -> None:
         response_payload["request_started_at"] = request_started_at
-        response_payload["estimated_request_tokens"] = estimated_tokens
-        cache_hit = False
-    else:
-        response_payload = json.loads(cached.response_json)
-        cache_hit = True
+        response_payload["estimated_request_tokens"] = estimate_request_tokens(payload)
 
-    request_error = response_payload.get("request_error")
-    if request_error:
-        validated_output: dict[str, Any] = {}
-        output_status = "request_fail"
-    else:
-        try:
-            validated_output = _validate_output(
-                str(response_payload.get("assistant_text") or ""),
-                output_mode,
-                provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
-            )
-            output_status = "ok"
-            if not cache_hit:
-                cache_successful_response(
-                    cache,
-                    cache_key=cache_key,
-                    payload=payload,
-                    response_payload=response_payload,
-                )
-        except Exception:
-            validated_output = {}
-            output_status = "schema_fail"
+    result = execute_cached_turn(
+        backbone=backbone,
+        provider=provider,
+        cache=cache,
+        limiter=limiter,
+        messages=messages,
+        temperature=temperature,
+        top_p=top_p,
+        max_output_tokens=max_output_tokens,
+        seed=seed,
+        validator=lambda raw_text, provider_reasoning_text: _validate_output(
+            raw_text,
+            output_mode,
+            provider_reasoning_text=provider_reasoning_text,
+        ),
+        response_hook=_response_hook,
+    )
 
-    final_answer = str(validated_output.get("final_answer") or "")
-    supporting_facts = normalize_supporting_facts(validated_output.get("supporting_facts"))
-    usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
+    final_answer = str(result.validated_output.get("final_answer") or "")
+    supporting_facts = normalize_supporting_facts(result.validated_output.get("supporting_facts"))
     row = {
         "run_id": run_id,
         "dataset": dataset,
@@ -786,27 +767,27 @@ def _execute_turn(
         "role": role,
         "view_kind": view.view_kind,
         "includes_full_context": view.includes_full_context,
-        "prompt_hash": prompt_hash,
-        "output_status": output_status,
+        "prompt_hash": result.prompt_hash,
+        "output_status": result.output_status,
         "prediction": normalize_prediction(dataset, final_answer) if final_answer else "",
         "normalized_answer": normalize_prediction(dataset, final_answer) if final_answer else "",
         "final_answer_raw": final_answer,
-        "reasoning_trace": str(validated_output.get("reasoning_trace") or ""),
-        "evidence_summary": str(validated_output.get("evidence_summary") or ""),
+        "reasoning_trace": str(result.validated_output.get("reasoning_trace") or ""),
+        "evidence_summary": str(result.validated_output.get("evidence_summary") or ""),
         "supporting_facts": support_facts_to_jsonable(supporting_facts),
-        "changed_answer": bool(validated_output.get("changed_answer")) if "changed_answer" in validated_output else False,
-        "confidence_raw": validated_output.get("confidence_raw"),
-        "prompt_tokens": float(usage.get("prompt_tokens") or 0.0),
-        "completion_tokens": float(usage.get("completion_tokens") or 0.0),
-        "total_tokens": float(usage.get("total_tokens") or 0.0),
-        "latency_ms": float(response_payload.get("latency_ms") or 0.0),
-        "cache_hit": cache_hit,
-        "request_started_at": response_payload.get("request_started_at"),
-        "estimated_request_tokens": int(response_payload.get("estimated_request_tokens") or estimated_tokens),
-        "request_error": request_error,
-        "assistant_text": response_payload.get("assistant_text", ""),
-        "provider_reasoning_text": response_payload.get("provider_reasoning_text", ""),
-        "validated_output": validated_output,
+        "changed_answer": bool(result.validated_output.get("changed_answer")) if "changed_answer" in result.validated_output else False,
+        "confidence_raw": result.validated_output.get("confidence_raw"),
+        "prompt_tokens": float(result.usage.get("prompt_tokens") or 0.0),
+        "completion_tokens": float(result.usage.get("completion_tokens") or 0.0),
+        "total_tokens": float(result.usage.get("total_tokens") or 0.0),
+        "latency_ms": float(result.response_payload.get("latency_ms") or 0.0),
+        "cache_hit": result.cache_hit,
+        "request_started_at": result.response_payload.get("request_started_at"),
+        "estimated_request_tokens": int(result.response_payload.get("estimated_request_tokens") or estimate_request_tokens(result.payload)),
+        "request_error": result.request_error,
+        "assistant_text": result.response_payload.get("assistant_text", ""),
+        "provider_reasoning_text": result.response_payload.get("provider_reasoning_text", ""),
+        "validated_output": result.validated_output,
     }
     if extra_fields:
         row.update(extra_fields)
@@ -981,8 +962,7 @@ def _write_paper_summary(path: Path, metrics: dict[str, Any]) -> None:
 
 
 def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> RunPaths:
-    root = Path(run_root) / experiment_name / phase_name / run_id
-    root.mkdir(parents=True, exist_ok=True)
+    root = prepare_run_root(run_root, experiment_name, phase_name, run_id)
     return RunPaths(
         root=root,
         manifest=root / "manifest.json",
@@ -1038,10 +1018,6 @@ def _broadcast_packet_tokens(packets: list[dict[str, Any]], agent_count: int) ->
 def _trace_hash(rows: list[dict[str, Any]], keys: list[str]) -> str:
     payload = [{key: row.get(key) for key in keys} for row in rows]
     return sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
-
-
-def _prompt_hash(messages: list[dict[str, str]]) -> str:
-    return sha256(json.dumps(messages, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def _stable_sample_seed(sample_id: str) -> int:

@@ -6,6 +6,7 @@ from pathlib import Path
 import json
 
 from experiment_core.tools.artifact_cleanup import (
+    build_parser,
     cleanup_invalid_artifacts,
     collect_report_statuses,
     collect_run_statuses,
@@ -127,6 +128,49 @@ def test_collect_run_statuses_prefers_existing_run_validation(tmp_path: Path) ->
 
     assert status.run_id == "20260429T000003Z-legacy"
     assert status.passed is True
+    assert status.reason is None
+
+
+def test_artifact_cleanup_parser_defaults_follow_local_workspace() -> None:
+    args = build_parser().parse_args([])
+    assert args.runs_root == "local/runs"
+    assert args.reports_root == "local/reports"
+
+
+def test_collect_run_statuses_recognizes_cue_family(tmp_path: Path) -> None:
+    workspace_root = tmp_path
+    runs_root = workspace_root / "local" / "runs"
+    cue_run = runs_root / "cue" / "valid_run"
+    cue_run.mkdir(parents=True)
+    _touch_json(cue_run / "manifest.json", {"run_id": "20260429T000004Z-cue"})
+    _write_jsonl(cue_run / "stage_a_turns.jsonl", [{"output_status": "ok"}])
+    _write_jsonl(cue_run / "communication_turns.jsonl", [])
+    _write_jsonl(cue_run / "audit_turns.jsonl", [])
+    _write_jsonl(
+        cue_run / "policy_predictions.jsonl",
+        [
+            {
+                "dataset": "gsm8k",
+                "sample_id": "gsm8k-00001",
+                "method_name": "always_communicate",
+                "stage_a_trace_hash": "stage-a",
+            },
+            {
+                "dataset": "gsm8k",
+                "sample_id": "gsm8k-00001",
+                "method_name": "cue_v1",
+                "stage_a_trace_hash": "stage-a",
+            },
+        ],
+    )
+    _touch_json(cue_run / "policy_metrics.json", {"summary": [{"dataset": "gsm8k"}]})
+    _touch_json(cue_run / "policy_diagnostics.json", {"policy_rows": []})
+    _touch_json(cue_run / "oracle_trigger_eval.json", {"summary_rows": []})
+    (cue_run / "progress.json").write_text("{}", encoding="utf-8")
+    _touch_figure_contract(cue_run)
+
+    statuses = collect_run_statuses(workspace_root=workspace_root, runs_root=runs_root, revalidate_runs=True)
+    status = next(item for item in statuses if item.run_id == "20260429T000004Z-cue")
     assert status.reason is None
 
 

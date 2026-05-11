@@ -6,20 +6,12 @@ import ast
 from pathlib import Path
 import tomllib
 
+from experiment_core.orchestration.registry import registered_family_names
+
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
-EXPERIMENT_PACKAGES = {
-    "single_agent",
-    "multi_agent",
-    "selective_comm",
-    "sparc",
-    "budget_comm",
-    "sid_lite",
-    "free_mad_lite",
-    "comm_necessary",
-    "cue",
-}
+EXPERIMENT_PACKAGES = set(registered_family_names())
 
 
 def test_no_cross_experiment_imports() -> None:

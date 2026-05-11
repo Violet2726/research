@@ -14,6 +14,7 @@ from experiment_core.tools.cache_inspector import main as cache_inspector_main
 from experiment_core.tools.hf_sync import main as hf_sync_main
 from experiment_core.matrix.faithful_matrix import main as faithful_matrix_main
 from multi_agent.cli import main as multi_agent_main
+from cue.cli import main as cue_main
 from budget_comm.cli import main as budget_main
 from comm_necessary.cli import main as comm_necessary_main
 from free_mad_lite.cli import main as free_mad_main
@@ -222,6 +223,20 @@ def test_comm_necessary_inspect_cli() -> None:
     assert payload["max_concurrent_requests"] == 5
     assert payload["requests_per_minute_limit"] == 50
     assert payload["tokens_per_minute_limit"] == 1000000
+
+
+def test_cue_inspect_cli() -> None:
+    payload = _run_cli(
+        cue_main,
+        [
+            "cue_cli",
+            "inspect-experiment",
+            "--experiment",
+            "configs/cue/experiments/cue_black_box_utility_main.toml",
+        ],
+    )
+    assert payload["name"] == "cue_black_box_utility_main"
+    assert payload["workspace_defaults"]["experiment_runs_root"].endswith("cue")
 
 
 def test_cache_inspector_summarize_cli(tmp_path) -> None:

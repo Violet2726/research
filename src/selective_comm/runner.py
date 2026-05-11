@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from functools import partial
@@ -20,11 +19,17 @@ from typing import Callable
 from dotenv import load_dotenv
 
 from experiment_core.foundation.artifacts import BufferedJsonlWriter
-from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
+from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, json_dump
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from experiment_core.foundation.providers import OpenAICompatibleProvider, build_payload, execute_completion_request
+from experiment_core.foundation.providers import OpenAICompatibleProvider
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
+from experiment_core.foundation.runner_common import (
+    execute_cached_turn,
+    prepare_run_root,
+    prompt_hash as build_prompt_hash,
+    run_indexed_batch,
+)
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from experiment_core.controls.selective_signals import (
     confidence_display,
@@ -37,7 +42,6 @@ from experiment_core.foundation.methods import MethodConfig
 from experiment_core.foundation.structured_output import (
     ARTIFACT_VERSION,
     OUTPUT_MODE_SELECTIVE_COMM,
-    validate_or_recover_structured_output,
 )
 from experiment_core.foundation.workspace import default_cache_root, default_runs_root
 from selective_comm.config import (
@@ -435,16 +439,13 @@ def _run_sample_batch(
         cache=cache,
         limiter=limiter,
     )
-    max_workers = max(1, min(experiment.max_concurrent_requests, len(samples) or 1))
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_index = {
-            executor.submit(worker, sample=sample): sample_index
-            for sample_index, sample in enumerate(samples)
-        }
-        for future in as_completed(future_to_index):
-            result = future.result()
-            if on_complete is not None:
-                on_complete(result)
+    for _, result in run_indexed_batch(
+        samples,
+        worker=worker,
+        max_concurrent_requests=experiment.max_concurrent_requests,
+    ):
+        if on_complete is not None:
+            on_complete(result)
 
 
 def _write_sample_result(
@@ -944,68 +945,29 @@ def _execute_turn(
     question_preview: str,
 ) -> dict[str, Any]:
     """执行单次 turn，并解析结构化字段。"""
-    payload = build_payload(
-        config=backbone,
+    result = execute_cached_turn(
+        backbone=backbone,
+        provider=provider,
+        cache=cache,
+        limiter=limiter,
         messages=messages,
         temperature=temperature,
         top_p=top_p,
         max_output_tokens=max_output_tokens,
         seed=seed,
+        output_mode=OUTPUT_MODE_SELECTIVE_COMM,
+        dataset=dataset,
         use_response_format=False,
     )
-    prompt_hash = _prompt_hash(messages)
-    cache_key = build_request_cache_key(
-        provider=backbone.provider,
-        request_model=backbone.model_id,
-        payload=payload,
-    )
-    cached = cache.get(cache_key)
-    if cached is None:
-        response_payload = execute_completion_request(
-            provider,
-            payload,
-            limiter=limiter,
-        )
-        cache_hit = False
-    else:
-        response_payload = json.loads(cached.response_json)
-        cache_hit = True
-
-    request_error = response_payload.get("request_error")
-    if request_error:
-        validated_output = {}
-        output_status = "request_fail"
-        final_answer = ""
-    else:
-        try:
-            validated_output = validate_or_recover_structured_output(
-                str(response_payload.get("assistant_text") or ""),
-                OUTPUT_MODE_SELECTIVE_COMM,
-                dataset=dataset,
-                provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
-            )
-            output_status = "ok"
-            final_answer = str(validated_output.get("final_answer") or "")
-            if not cache_hit:
-                cache_successful_response(
-                    cache,
-                    cache_key=cache_key,
-                    payload=payload,
-                    response_payload=response_payload,
-                )
-        except Exception:
-            validated_output = {}
-            output_status = "schema_fail"
-            final_answer = ""
-
-    usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
-    reasoning = str(validated_output.get("reasoning", "")).strip() if validated_output else ""
-    confidence_raw = validated_output.get("confidence_raw") if validated_output else None
+    final_answer = str(result.validated_output.get("final_answer") or "")
+    prediction = normalize_prediction(dataset, final_answer) if final_answer else ""
+    reasoning = str(result.validated_output.get("reasoning", "")).strip() if result.validated_output else ""
+    confidence_raw = result.validated_output.get("confidence_raw") if result.validated_output else None
     confidence_value, confidence_valid, confidence_source = normalize_confidence(confidence_raw)
-    claim_span = validated_output.get("claim_span") if validated_output else None
-    uncertainty_type = validated_output.get("uncertainty_type") if validated_output else None
-    key_evidence = validated_output.get("key_evidence") if validated_output else None
-    uncertainty = validated_output.get("uncertain_point") if validated_output else None
+    claim_span = result.validated_output.get("claim_span") if result.validated_output else None
+    uncertainty_type = result.validated_output.get("uncertainty_type") if result.validated_output else None
+    key_evidence = result.validated_output.get("key_evidence") if result.validated_output else None
+    uncertainty = result.validated_output.get("uncertain_point") if result.validated_output else None
     return {
         "run_id": run_id,
         "dataset": dataset,
@@ -1018,20 +980,20 @@ def _execute_turn(
         "round_index": round_index,
         "agent_id": agent_id,
         "visible_peer_count": visible_peer_count,
-        "prompt_hash": prompt_hash,
-        "prediction": normalize_prediction(dataset, final_answer),
-        "normalized_answer": normalize_prediction(dataset, final_answer),
-        "output_status": output_status,
-        "prompt_tokens": float(usage.get("prompt_tokens") or 0.0),
-        "completion_tokens": float(usage.get("completion_tokens") or 0.0),
-        "total_tokens": float(usage.get("total_tokens") or 0.0),
-        "latency_ms": float(response_payload.get("latency_ms") or 0.0),
-        "cache_hit": cache_hit,
-        "request_error": request_error,
-        "payload": payload,
-        "assistant_text": response_payload.get("assistant_text", ""),
-        "provider_reasoning_text": response_payload.get("provider_reasoning_text", ""),
-        "validated_output": validated_output,
+        "prompt_hash": result.prompt_hash,
+        "prediction": prediction,
+        "normalized_answer": prediction,
+        "output_status": result.output_status,
+        "prompt_tokens": float(result.usage.get("prompt_tokens") or 0.0),
+        "completion_tokens": float(result.usage.get("completion_tokens") or 0.0),
+        "total_tokens": float(result.usage.get("total_tokens") or 0.0),
+        "latency_ms": float(result.response_payload.get("latency_ms") or 0.0),
+        "cache_hit": result.cache_hit,
+        "request_error": result.request_error,
+        "payload": result.payload,
+        "assistant_text": result.response_payload.get("assistant_text", ""),
+        "provider_reasoning_text": result.response_payload.get("provider_reasoning_text", ""),
+        "validated_output": result.validated_output,
         "reasoning": reasoning,
         "confidence_raw": confidence_raw,
         "confidence_raw_display": confidence_display(confidence_raw),
@@ -1366,8 +1328,7 @@ def _estimate_work(
 
 def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> RunPaths:
     """创建运行目录和固定产物路径。"""
-    root = Path(run_root) / experiment_name / phase_name / run_id
-    root.mkdir(parents=True, exist_ok=True)
+    root = prepare_run_root(run_root, experiment_name, phase_name, run_id)
     return RunPaths(
         root=root,
         manifest=root / "manifest.json",
@@ -1402,11 +1363,6 @@ def _trace_hash(rows: list[dict[str, Any]]) -> str:
         for row in rows
     ]
     return sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
-
-
-def _prompt_hash(messages: list[dict[str, str]]) -> str:
-    """对 prompt 内容做稳定哈希。"""
-    return sha256(json.dumps(messages, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def _question_preview(question: str, max_chars: int = 120) -> str:

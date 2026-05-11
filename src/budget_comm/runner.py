@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -50,11 +49,16 @@ from budget_comm.logic import (
 )
 from budget_comm.prompting import build_belief_update_messages, build_solver_messages
 from experiment_core.foundation.artifacts import BufferedJsonlWriter
-from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
+from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, json_dump
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from experiment_core.foundation.providers import OpenAICompatibleProvider, build_payload, execute_completion_request
+from experiment_core.foundation.providers import OpenAICompatibleProvider
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
+from experiment_core.foundation.runner_common import (
+    execute_cached_turn,
+    prepare_run_root,
+    run_indexed_batch,
+)
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from experiment_core.controls.selective_signals import confidence_display, normalize_confidence
 from experiment_core.foundation.structured_output import (
@@ -370,17 +374,14 @@ def _run_sample_batch(
         cache=cache,
         limiter=limiter,
     )
-    max_workers = max(1, min(experiment.max_concurrent_requests, len(samples) or 1))
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_index = {
-            executor.submit(worker, sample=sample): index
-            for index, sample in enumerate(samples)
-        }
-        completed: list[tuple[int, SampleResult]] = []
-        for future in as_completed(future_to_index):
-            completed.append((future_to_index[future], future.result()))
-    completed.sort(key=lambda item: item[0])
-    return [result for _, result in completed]
+    return [
+        result
+        for _, result in run_indexed_batch(
+            samples,
+            worker=worker,
+            max_concurrent_requests=experiment.max_concurrent_requests,
+        )
+    ]
 
 
 def _write_sample_results(
@@ -964,8 +965,7 @@ def _export_paper_summary(path: Path, summary_rows: list[dict[str, Any]]) -> Non
 
 def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> RunPaths:
     """创建运行目录，并返回其中所有固定产物路径。"""
-    root = Path(run_root) / experiment_name / phase_name / run_id
-    root.mkdir(parents=True, exist_ok=True)
+    root = prepare_run_root(run_root, experiment_name, phase_name, run_id)
     return RunPaths(
         root=root,
         manifest=root / "manifest.json",
@@ -1040,65 +1040,22 @@ def _execute_turn(
     这里会统一处理缓存、限流、provider 请求、结构化校验、轻量修复与字段展开，
     让上层阶段逻辑只关心“这一轮产生了什么记录”。
     """
-    payload = build_payload(
-        config=backbone,
+    result = execute_cached_turn(
+        backbone=backbone,
+        provider=provider,
+        cache=cache,
+        limiter=limiter,
         messages=messages,
         temperature=temperature,
         top_p=top_p,
         max_output_tokens=max_output_tokens,
         seed=seed,
+        output_mode=output_mode,
     )
-    prompt_hash = _prompt_hash(messages)
-    cache_key = build_request_cache_key(
-        provider=backbone.provider,
-        request_model=backbone.model_id,
-        payload=payload,
-    )
-    cached = cache.get(cache_key)
-    if cached is None:
-        # 只有真正发网路请求时才占用限流配额；缓存命中不计入。
-        response_payload = execute_completion_request(
-            provider,
-            payload,
-            limiter=limiter,
-        )
-        cache_hit = False
+    if output_mode == OUTPUT_MODE_BUDGET_BELIEF_UPDATE:
+        answer_for_normalization = str(result.validated_output.get("new_answer") or "")
     else:
-        response_payload = json.loads(cached.response_json)
-        cache_hit = True
-
-    request_error = response_payload.get("request_error")
-    if request_error:
-        validated_output = {}
-        output_status = "request_fail"
-        answer_for_normalization = ""
-    else:
-        try:
-            validated_output = validate_or_recover_structured_output(
-                str(response_payload.get("assistant_text") or ""),
-                output_mode,  # type: ignore[arg-type]
-                provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
-            )
-            output_status = "ok"
-            if output_mode == OUTPUT_MODE_BUDGET_BELIEF_UPDATE:
-                answer_for_normalization = str(validated_output.get("new_answer") or "")
-            else:
-                answer_for_normalization = str(validated_output.get("final_answer") or "")
-            if not cache_hit:
-                cache_successful_response(
-                    cache,
-                    cache_key=cache_key,
-                    payload=payload,
-                    response_payload=response_payload,
-                )
-        except Exception:
-            # `budget_comm` 对截断 JSON 做一次保守修复，
-            # 尽量把“轻微格式问题”与“真正逻辑错误”区分开来。
-            validated_output = {}
-            output_status = "schema_fail"
-            answer_for_normalization = ""
-
-    usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
+        answer_for_normalization = str(result.validated_output.get("final_answer") or "")
     row = {
         "run_id": run_id,
         "dataset": dataset,
@@ -1113,48 +1070,48 @@ def _execute_turn(
         "round_index": round_index,
         "agent_id": agent_id,
         "visible_peer_count": visible_peer_count,
-        "prompt_hash": prompt_hash,
+        "prompt_hash": result.prompt_hash,
         "prediction": normalize_prediction(dataset, answer_for_normalization) if answer_for_normalization else "",
         "normalized_answer": normalize_prediction(dataset, answer_for_normalization) if answer_for_normalization else "",
-        "output_status": output_status,
-        "prompt_tokens": float(usage.get("prompt_tokens") or 0.0),
-        "completion_tokens": float(usage.get("completion_tokens") or 0.0),
-        "total_tokens": float(usage.get("total_tokens") or 0.0),
-        "latency_ms": float(response_payload.get("latency_ms") or 0.0),
-        "cache_hit": cache_hit,
-        "request_error": request_error,
-        "payload": payload,
-        "assistant_text": response_payload.get("assistant_text", ""),
-        "provider_reasoning_text": response_payload.get("provider_reasoning_text", ""),
-        "validated_output": validated_output,
+        "output_status": result.output_status,
+        "prompt_tokens": float(result.usage.get("prompt_tokens") or 0.0),
+        "completion_tokens": float(result.usage.get("completion_tokens") or 0.0),
+        "total_tokens": float(result.usage.get("total_tokens") or 0.0),
+        "latency_ms": float(result.response_payload.get("latency_ms") or 0.0),
+        "cache_hit": result.cache_hit,
+        "request_error": result.request_error,
+        "payload": result.payload,
+        "assistant_text": result.response_payload.get("assistant_text", ""),
+        "provider_reasoning_text": result.response_payload.get("provider_reasoning_text", ""),
+        "validated_output": result.validated_output,
     }
     if output_mode == OUTPUT_MODE_BUDGET_SOLVER:
         # Stage A 需要额外展开证据、关键词与置信度归一化字段，
         # 供后续 density 计算与消息压缩复用。
-        confidence_raw = validated_output.get("confidence_raw") if validated_output else None
+        confidence_raw = result.validated_output.get("confidence_raw") if result.validated_output else None
         confidence_value, confidence_valid, confidence_source = normalize_confidence(confidence_raw)
         row.update(
             {
-                "reasoning_trace": validated_output.get("reasoning_trace") if validated_output else None,
-                "claim_span": validated_output.get("claim_span") if validated_output else None,
-                "key_evidence": validated_output.get("key_evidence") if validated_output else None,
-                "keyword_clues": validated_output.get("keyword_clues") if validated_output else [],
+                "reasoning_trace": result.validated_output.get("reasoning_trace") if result.validated_output else None,
+                "claim_span": result.validated_output.get("claim_span") if result.validated_output else None,
+                "key_evidence": result.validated_output.get("key_evidence") if result.validated_output else None,
+                "keyword_clues": result.validated_output.get("keyword_clues") if result.validated_output else [],
                 "confidence_raw": confidence_raw,
                 "confidence_raw_display": confidence_display(confidence_raw),
                 "confidence_value": confidence_value,
                 "confidence_valid": confidence_valid,
                 "confidence_source": confidence_source,
-                "uncertain_point": validated_output.get("uncertain_point") if validated_output else None,
+                "uncertain_point": result.validated_output.get("uncertain_point") if result.validated_output else None,
             }
         )
     else:
         row.update(
             {
-                "changed_answer": validated_output.get("changed_answer") if validated_output else None,
-                "new_answer": validated_output.get("new_answer") if validated_output else None,
-                "confidence_delta": validated_output.get("confidence_delta") if validated_output else None,
-                "reason_for_change": validated_output.get("reason_for_change") if validated_output else None,
-                "remaining_disagreement": validated_output.get("remaining_disagreement") if validated_output else None,
+                "changed_answer": result.validated_output.get("changed_answer") if result.validated_output else None,
+                "new_answer": result.validated_output.get("new_answer") if result.validated_output else None,
+                "confidence_delta": result.validated_output.get("confidence_delta") if result.validated_output else None,
+                "reason_for_change": result.validated_output.get("reason_for_change") if result.validated_output else None,
+                "remaining_disagreement": result.validated_output.get("remaining_disagreement") if result.validated_output else None,
             }
         )
     return row
@@ -1175,11 +1132,6 @@ def _trace_hash(rows: list[dict[str, Any]]) -> str:
         for row in rows
     ]
     return sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
-
-
-def _prompt_hash(messages: list[dict[str, str]]) -> str:
-    """为提示词内容生成稳定哈希。"""
-    return sha256(json.dumps(messages, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def _question_preview(question: str, max_chars: int = 120) -> str:

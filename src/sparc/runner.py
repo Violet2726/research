@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from functools import partial
@@ -21,11 +20,16 @@ from typing import Callable
 from dotenv import load_dotenv
 
 from experiment_core.foundation.artifacts import BufferedJsonlWriter
-from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
+from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, json_dump
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import aggregate_majority, normalize_prediction, score_prediction
 from experiment_core.foundation.providers import OpenAICompatibleProvider, build_payload, execute_completion_request
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
+from experiment_core.foundation.runner_common import (
+    execute_cached_turn,
+    prepare_run_root,
+    run_indexed_batch,
+)
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from experiment_core.controls.selective_signals import decide_trigger, normalize_confidence, summarize_confidence_rows
 from experiment_core.foundation.structured_output import (
@@ -269,16 +273,13 @@ def _run_sample_batch(
         limiter=limiter,
         trigger_selection=trigger_selection,
     )
-    max_workers = max(1, min(experiment.max_concurrent_requests, len(samples) or 1))
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_index = {
-            executor.submit(worker, sample=sample): sample_index
-            for sample_index, sample in enumerate(samples)
-        }
-        for future in as_completed(future_to_index):
-            result = future.result()
-            if on_complete is not None:
-                on_complete(result)
+    for _, result in run_indexed_batch(
+        samples,
+        worker=worker,
+        max_concurrent_requests=experiment.max_concurrent_requests,
+    ):
+        if on_complete is not None:
+            on_complete(result)
 
 
 def _write_sample_result(
@@ -1467,8 +1468,7 @@ def _estimate_work(
 
 
 def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> RunPaths:
-    root = Path(run_root) / experiment_name / phase_name / run_id
-    root.mkdir(parents=True, exist_ok=True)
+    root = prepare_run_root(run_root, experiment_name, phase_name, run_id)
     return RunPaths(
         root=root,
         manifest=root / "manifest.json",
@@ -1489,10 +1489,6 @@ def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: s
 def _trace_hash(rows: list[dict[str, Any]], keys: list[str]) -> str:
     payload = [{key: row.get(key) for key in keys} for row in rows]
     return sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
-
-
-def _prompt_hash(messages: list[dict[str, str]]) -> str:
-    return sha256(json.dumps(messages, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def _question_preview(question: str, max_chars: int = 120) -> str:
@@ -1526,31 +1522,20 @@ def _execute_turn(
     question_preview: str,
     output_mode: str,
 ) -> dict[str, Any]:
-    payload = build_payload(
-        config=backbone,
-        messages=messages,
-        temperature=temperature,
-        top_p=top_p,
-        max_output_tokens=max_output_tokens,
-        seed=seed,
-    )
-    prompt_hash = _prompt_hash(messages)
-    cache_key = build_request_cache_key(
-        provider=backbone.provider,
-        request_model=backbone.model_id,
-        payload=payload,
-    )
-    cached = cache.get(cache_key)
-    if cached is None:
+    def _request_executor(
+        payload: dict[str, Any],
+        active_provider: OpenAICompatibleProvider,
+        active_limiter: SlidingWindowRateLimiter | None,
+    ) -> dict[str, Any]:
         response_payload = execute_completion_request(
-            provider,
+            active_provider,
             payload,
-            limiter=limiter,
+            limiter=active_limiter,
         )
         response_payload["sanitized_fallback_used"] = False
         if response_payload.get("request_error"):
-            response_payload = _maybe_retry_with_sanitized_messages(
-                provider=provider,
+            return _maybe_retry_with_sanitized_messages(
+                provider=active_provider,
                 limiter=limiter,
                 backbone=backbone,
                 original_messages=messages,
@@ -1562,38 +1547,22 @@ def _execute_turn(
                 error_http_status=response_payload.get("http_status"),
                 error_provider_request_id=response_payload.get("provider_request_id"),
             )
-        cache_hit = False
-    else:
-        response_payload = json.loads(cached.response_json)
-        cache_hit = True
+        return response_payload
 
-    request_error = response_payload.get("request_error")
-    if request_error:
-        validated_output = {}
-        output_status = "request_fail"
-        answer_for_normalization = ""
-    else:
-        try:
-            validated_output = validate_or_recover_structured_output(
-                str(response_payload.get("assistant_text") or ""),
-                output_mode,  # type: ignore[arg-type]
-                provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
-            )
-            output_status = "ok"
-            answer_for_normalization = _answer_for_output_mode(validated_output, output_mode)
-            if not cache_hit:
-                cache_successful_response(
-                    cache,
-                    cache_key=cache_key,
-                    payload=payload,
-                    response_payload=response_payload,
-                )
-        except Exception:
-            validated_output = {}
-            output_status = "schema_fail"
-            answer_for_normalization = ""
-
-    usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
+    result = execute_cached_turn(
+        backbone=backbone,
+        provider=provider,
+        cache=cache,
+        limiter=limiter,
+        messages=messages,
+        temperature=temperature,
+        top_p=top_p,
+        max_output_tokens=max_output_tokens,
+        seed=seed,
+        output_mode=output_mode,
+        request_executor=_request_executor,
+    )
+    answer_for_normalization = _answer_for_output_mode(result.validated_output, output_mode) if result.validated_output else ""
     row = {
         "run_id": run_id,
         "dataset": dataset,
@@ -1606,59 +1575,59 @@ def _execute_turn(
         "round_index": round_index,
         "agent_id": agent_id,
         "visible_peer_count": visible_peer_count,
-        "prompt_hash": prompt_hash,
+        "prompt_hash": result.prompt_hash,
         "prediction": normalize_prediction(dataset, answer_for_normalization) if answer_for_normalization else "",
         "normalized_answer": normalize_prediction(dataset, answer_for_normalization) if answer_for_normalization else "",
-        "output_status": output_status,
-        "prompt_tokens": float(usage.get("prompt_tokens") or 0.0),
-        "completion_tokens": float(usage.get("completion_tokens") or 0.0),
-        "total_tokens": float(usage.get("total_tokens") or 0.0),
-        "latency_ms": float(response_payload.get("latency_ms") or 0.0),
-        "cache_hit": cache_hit,
-        "request_error": request_error,
-        "payload": payload,
-        "assistant_text": response_payload.get("assistant_text", ""),
-        "provider_reasoning_text": response_payload.get("provider_reasoning_text", ""),
-        "validated_output": validated_output,
-        "sanitized_fallback_used": bool(response_payload.get("sanitized_fallback_used")),
+        "output_status": result.output_status,
+        "prompt_tokens": float(result.usage.get("prompt_tokens") or 0.0),
+        "completion_tokens": float(result.usage.get("completion_tokens") or 0.0),
+        "total_tokens": float(result.usage.get("total_tokens") or 0.0),
+        "latency_ms": float(result.response_payload.get("latency_ms") or 0.0),
+        "cache_hit": result.cache_hit,
+        "request_error": result.request_error,
+        "payload": result.payload,
+        "assistant_text": result.response_payload.get("assistant_text", ""),
+        "provider_reasoning_text": result.response_payload.get("provider_reasoning_text", ""),
+        "validated_output": result.validated_output,
+        "sanitized_fallback_used": bool(result.response_payload.get("sanitized_fallback_used")),
     }
     if output_mode == OUTPUT_MODE_SPARC_SOLVER:
-        confidence_raw = validated_output.get("confidence_raw") if validated_output else None
+        confidence_raw = result.validated_output.get("confidence_raw") if result.validated_output else None
         confidence_value, confidence_valid, confidence_source = normalize_confidence(confidence_raw)
         row.update(
             {
-                "reasoning_trace": validated_output.get("reasoning_trace") if validated_output else None,
-                "reasoning_sketch": validated_output.get("reasoning_trace") if validated_output else None,
-                "claim_span": validated_output.get("claim_span") if validated_output else None,
+                "reasoning_trace": result.validated_output.get("reasoning_trace") if result.validated_output else None,
+                "reasoning_sketch": result.validated_output.get("reasoning_trace") if result.validated_output else None,
+                "claim_span": result.validated_output.get("claim_span") if result.validated_output else None,
                 "confidence_raw": confidence_raw,
                 "confidence_raw_display": confidence_raw if confidence_raw is not None else "",
                 "confidence_value": confidence_value,
                 "confidence_valid": confidence_valid,
                 "confidence_source": confidence_source,
-                "key_evidence": validated_output.get("key_evidence") if validated_output else None,
-                "uncertain_point": validated_output.get("uncertain_point") if validated_output else None,
+                "key_evidence": result.validated_output.get("key_evidence") if result.validated_output else None,
+                "uncertain_point": result.validated_output.get("uncertain_point") if result.validated_output else None,
             }
         )
     elif output_mode == OUTPUT_MODE_SPARC_BELIEF_UPDATE:
         row.update(
             {
-                "changed_answer": validated_output.get("changed_answer") if validated_output else None,
-                "new_answer": validated_output.get("new_answer") if validated_output else None,
-                "confidence_delta": validated_output.get("confidence_delta") if validated_output else None,
-                "reason_for_change": validated_output.get("reason_for_change") if validated_output else None,
-                "remaining_disagreement": validated_output.get("remaining_disagreement") if validated_output else None,
+                "changed_answer": result.validated_output.get("changed_answer") if result.validated_output else None,
+                "new_answer": result.validated_output.get("new_answer") if result.validated_output else None,
+                "confidence_delta": result.validated_output.get("confidence_delta") if result.validated_output else None,
+                "reason_for_change": result.validated_output.get("reason_for_change") if result.validated_output else None,
+                "remaining_disagreement": result.validated_output.get("remaining_disagreement") if result.validated_output else None,
             }
         )
     elif output_mode == OUTPUT_MODE_SPARC_AUDIT:
         row.update(
             {
-                "decision": validated_output.get("decision") if validated_output else None,
-                "verified_answer": validated_output.get("verified_answer") if validated_output else None,
-                "rationale": validated_output.get("rationale") if validated_output else None,
+                "decision": result.validated_output.get("decision") if result.validated_output else None,
+                "verified_answer": result.validated_output.get("verified_answer") if result.validated_output else None,
+                "rationale": result.validated_output.get("rationale") if result.validated_output else None,
             }
         )
     elif output_mode == OUTPUT_MODE_CORE:
-        row["reasoning"] = validated_output.get("reasoning") if validated_output else None
+        row["reasoning"] = result.validated_output.get("reasoning") if result.validated_output else None
     return row
 
 

@@ -9,9 +9,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-import tomllib
 
-from experiment_core.foundation.config import BenchmarkConfig, ResolvedModelConfig, load_benchmark_config, resolve_model_ref
+from experiment_core.foundation.config import BenchmarkConfig, ResolvedModelConfig
+from experiment_core.foundation.config_helpers import (
+    load_benchmarks as load_benchmarks_from_experiment,
+    load_toml,
+    optional_int,
+    optional_str,
+    phase_metadata as phase_metadata_from_raw,
+    resolve_model as resolve_shared_model,
+)
 
 
 EXPERIMENT_KIND_VALUES = {"content_ablation", "auditing_ablation", "sparc_v1"}
@@ -54,13 +61,8 @@ class SparcExperimentConfig:
     raw: dict[str, Any]
 
 
-def _load_toml(path: str | Path) -> dict[str, Any]:
-    with Path(path).open("rb") as handle:
-        return tomllib.load(handle)
-
-
 def load_protocol_config(path: str | Path) -> SparcProtocolConfig:
-    payload = _load_toml(path)
+    payload = load_toml(path)
     return SparcProtocolConfig(
         agent_count=int(payload["agent_count"]),
         debate_rounds=int(payload["debate_rounds"]),
@@ -72,7 +74,7 @@ def load_protocol_config(path: str | Path) -> SparcProtocolConfig:
 
 
 def load_experiment_config(path: str | Path) -> SparcExperimentConfig:
-    payload = _load_toml(path)
+    payload = load_toml(path)
     experiment_kind = str(payload["experiment_kind"])
     if experiment_kind not in EXPERIMENT_KIND_VALUES:
         raise RuntimeError(
@@ -98,50 +100,35 @@ def load_experiment_config(path: str | Path) -> SparcExperimentConfig:
         global_seed=int(payload["global_seed"]),
         prompt_version=str(payload["prompt_version"]),
         max_concurrent_requests=int(payload["max_concurrent_requests"]),
-        requests_per_minute_limit=_optional_int(payload, "requests_per_minute_limit"),
-        tokens_per_minute_limit=_optional_int(payload, "tokens_per_minute_limit"),
+        requests_per_minute_limit=optional_int(payload, "requests_per_minute_limit"),
+        tokens_per_minute_limit=optional_int(payload, "tokens_per_minute_limit"),
         primary_model_ref=str(payload["primary_model_ref"]),
-        fixed_trigger_policy=_first_str(content_config, "trigger_policy", auditing_config),
+        fixed_trigger_policy=_first_str(content_config, auditing_config, "trigger_policy"),
         message_modes=[str(item) for item in content_config.get("message_modes", [])],
         fixed_message_modes=fixed_message_modes,
         aggregation_methods=[str(item) for item in auditing_config.get("aggregation_methods", [])],
-        default_trigger_policy=_optional_str(sparc_config, "default_trigger_policy"),
-        fallback_trigger_policy=_optional_str(sparc_config, "fallback_trigger_policy"),
+        default_trigger_policy=optional_str(sparc_config, "default_trigger_policy"),
+        fallback_trigger_policy=optional_str(sparc_config, "fallback_trigger_policy"),
         trigger_drop_questions=float(sparc_config.get("trigger_drop_questions", 1.0)),
         raw=payload,
     )
 
 
 def phase_metadata(experiment: SparcExperimentConfig, phase_name: str) -> dict[str, Any]:
-    return dict(experiment.raw["phases"][phase_name])
+    return phase_metadata_from_raw(experiment, phase_name)
 
 
 def load_benchmarks(experiment: SparcExperimentConfig) -> list[BenchmarkConfig]:
-    return [load_benchmark_config(path) for path in experiment.benchmark_configs]
+    return load_benchmarks_from_experiment(experiment)
 
 
 def resolve_model(model_ref: str) -> ResolvedModelConfig:
-    return resolve_model_ref(model_ref)
+    return resolve_shared_model(model_ref)
 
 
-def _optional_int(payload: dict[str, Any], key: str) -> int | None:
-    value = payload.get(key)
-    if value is None:
-        return None
-    return int(value)
-
-
-def _optional_str(payload: dict[str, Any], key: str) -> str | None:
-    value = payload.get(key)
-    if value is None:
-        return None
-    normalized = str(value).strip()
-    return normalized or None
-
-
-def _first_str(primary: dict[str, Any], key: str, secondary: dict[str, Any]) -> str | None:
-    value = _optional_str(primary, key)
+def _first_str(primary: dict[str, Any], secondary: dict[str, Any], key: str) -> str | None:
+    value = optional_str(primary, key)
     if value is not None:
         return value
-    return _optional_str(secondary, key)
+    return optional_str(secondary, key)
 

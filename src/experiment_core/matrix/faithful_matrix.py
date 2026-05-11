@@ -12,20 +12,9 @@ from pathlib import Path
 import tomllib
 from typing import Any
 
-from budget_comm.config import load_experiment_config as load_budget_experiment_config
-from budget_comm.config import resolve_model as resolve_budget_model
-from budget_comm.runner import run_experiment as run_budget_experiment
-from budget_comm.validation import validate_run as validate_budget_run
-from comm_necessary.config import load_experiment_config as load_comm_necessary_experiment_config
-from comm_necessary.config import resolve_model as resolve_comm_necessary_model
-from comm_necessary.runner import run_experiment as run_comm_necessary_experiment
-from comm_necessary.validation import validate_run as validate_comm_necessary_run
-from cue.config import load_experiment_config as load_cue_experiment_config
-from cue.config import resolve_model as resolve_cue_model
-from cue.runner import run_experiment as run_cue_experiment
-from cue.validation import validate_run as validate_cue_run
 from experiment_core.foundation.config import load_benchmark_config, resolve_model_ref
 from experiment_core.foundation.cli_output import configure_utf8_stdio, emit_json
+from experiment_core.orchestration.registry import get_family_spec, validator_map
 from experiment_core.foundation.run_archives import publish_run_if_configured
 from experiment_core.matrix.faithful_acceptance import render_acceptance_summary
 from experiment_core.matrix.faithful_analysis import render_faithful_analysis
@@ -33,30 +22,6 @@ from experiment_core.matrix.matrix_specs import get_experiment_matrix_spec
 from experiment_core.reporting.paper_package import render_paper_package
 from experiment_core.reporting.paper_statistics import render_paper_statistics
 from experiment_core.foundation.workspace import default_reports_root, default_runs_root, workspace_defaults
-from free_mad_lite.config import load_experiment_config as load_free_mad_experiment_config
-from free_mad_lite.config import resolve_model as resolve_free_mad_model
-from free_mad_lite.runner import run_experiment as run_free_mad_experiment
-from free_mad_lite.validation import validate_run as validate_free_mad_run
-from multi_agent.config import load_experiment_config as load_multi_agent_experiment_config
-from multi_agent.config import resolve_model as resolve_multi_agent_model
-from multi_agent.runner import run_experiment as run_multi_agent_experiment
-from multi_agent.validation import validate_run as validate_multi_agent_run
-from selective_comm.config import load_experiment_config as load_selective_experiment_config
-from selective_comm.config import resolve_model as resolve_selective_model
-from selective_comm.runner import run_experiment as run_selective_experiment
-from selective_comm.validation import validate_run as validate_selective_run
-from sid_lite.config import load_experiment_config as load_sid_experiment_config
-from sid_lite.config import resolve_model as resolve_sid_model
-from sid_lite.runner import run_experiment as run_sid_experiment
-from sid_lite.validation import validate_run as validate_sid_run
-from single_agent.config import ExperimentConfig as SingleAgentExperimentConfig
-from single_agent.config import load_experiment_config as load_single_agent_experiment_config
-from single_agent.runner import run_experiment as run_single_agent_experiment
-from single_agent.validation import validate_run as validate_single_agent_run
-from sparc.config import load_experiment_config as load_sparc_experiment_config
-from sparc.config import resolve_model as resolve_sparc_model
-from sparc.runner import run_experiment as run_sparc_experiment
-from sparc.validation import validate_run as validate_sparc_run
 
 
 DEFAULT_PHASE = "smoke20"
@@ -427,52 +392,23 @@ def resume_faithful_matrix(
 def _execute_entry(entry: MatrixEntry, overrides: RuntimeOverrides) -> Path:
     family = entry.family
     config_path = entry.config_path
+    spec = get_family_spec(family)
     if family == "single_agent":
-        experiment = load_single_agent_experiment_config(config_path)
+        experiment = spec.config_loader(config_path)
         overridden = apply_runtime_overrides(family, experiment, overrides)
-        model = resolve_model_ref(overrides.model_ref)
+        model = spec.model_resolver(overrides.model_ref)
         benchmarks = [load_benchmark_config(path) for path in overridden.benchmark_configs]
-        return run_single_agent_experiment(
+        return spec.runner(
             experiment=overridden,
             phase_name=overrides.phase_name,
             models=[model],
             benchmarks=benchmarks,
         )
 
-    loader_map = {
-        "budget_comm": load_budget_experiment_config,
-        "comm_necessary": load_comm_necessary_experiment_config,
-        "cue": load_cue_experiment_config,
-        "free_mad_lite": load_free_mad_experiment_config,
-        "multi_agent": load_multi_agent_experiment_config,
-        "selective_comm": load_selective_experiment_config,
-        "sid_lite": load_sid_experiment_config,
-        "sparc": load_sparc_experiment_config,
-    }
-    resolver_map = {
-        "budget_comm": resolve_budget_model,
-        "comm_necessary": resolve_comm_necessary_model,
-        "cue": resolve_cue_model,
-        "free_mad_lite": resolve_free_mad_model,
-        "multi_agent": resolve_multi_agent_model,
-        "selective_comm": resolve_selective_model,
-        "sid_lite": resolve_sid_model,
-        "sparc": resolve_sparc_model,
-    }
-    runner_map = {
-        "budget_comm": run_budget_experiment,
-        "comm_necessary": run_comm_necessary_experiment,
-        "cue": run_cue_experiment,
-        "free_mad_lite": run_free_mad_experiment,
-        "multi_agent": run_multi_agent_experiment,
-        "selective_comm": run_selective_experiment,
-        "sid_lite": run_sid_experiment,
-        "sparc": run_sparc_experiment,
-    }
-    experiment = loader_map[family](config_path)
+    experiment = spec.config_loader(config_path)
     overridden = apply_runtime_overrides(family, experiment, overrides)
-    backbone = resolver_map[family](overrides.model_ref)
-    return runner_map[family](
+    backbone = spec.model_resolver(overrides.model_ref)
+    return spec.runner(
         experiment=overridden,
         phase_name=overrides.phase_name,
         backbone=backbone,
@@ -508,18 +444,7 @@ def apply_runtime_overrides(family: str, experiment: Any, overrides: RuntimeOver
 
 
 def _validate_entry(family: str, run_dir: Path) -> dict[str, Any]:
-    validators = {
-        "budget_comm": validate_budget_run,
-        "comm_necessary": validate_comm_necessary_run,
-        "cue": validate_cue_run,
-        "free_mad_lite": validate_free_mad_run,
-        "multi_agent": validate_multi_agent_run,
-        "selective_comm": validate_selective_run,
-        "sid_lite": validate_sid_run,
-        "single_agent": validate_single_agent_run,
-        "sparc": validate_sparc_run,
-    }
-    payload = validators[family](run_dir)
+    payload = validator_map()[family](run_dir)
     (Path(run_dir) / "run_validation.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
 

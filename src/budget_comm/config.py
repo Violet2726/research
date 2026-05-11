@@ -10,9 +10,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-import tomllib
 
-from experiment_core.foundation.config import BenchmarkConfig, ResolvedModelConfig, load_benchmark_config, resolve_model_ref
+from experiment_core.foundation.config import BenchmarkConfig, ResolvedModelConfig
+from experiment_core.foundation.config_helpers import (
+    load_benchmarks as load_benchmarks_from_experiment,
+    load_toml,
+    optional_int,
+    phase_metadata as phase_metadata_from_raw,
+    resolve_model as resolve_shared_model,
+)
 
 
 @dataclass(frozen=True)
@@ -72,15 +78,9 @@ class BudgetCommExperimentConfig:
     raw: dict[str, Any]
 
 
-def _load_toml(path: str | Path) -> dict[str, Any]:
-    """读取 TOML 文件。"""
-    with Path(path).open("rb") as handle:
-        return tomllib.load(handle)
-
-
 def load_protocol_config(path: str | Path) -> BudgetProtocolConfig:
     """加载共享协议配置。"""
-    payload = _load_toml(path)
+    payload = load_toml(path)
     return BudgetProtocolConfig(
         agent_count=int(payload["agent_count"]),
         debate_rounds=int(payload["debate_rounds"]),
@@ -93,7 +93,7 @@ def load_protocol_config(path: str | Path) -> BudgetProtocolConfig:
 
 def load_auction_policy_config(path: str | Path) -> AuctionPolicyConfig:
     """加载 value density 与预算规则配置。"""
-    payload = _load_toml(path)
+    payload = load_toml(path)
     return AuctionPolicyConfig(
         calibration_fraction=float(payload["calibration_fraction"]),
         disagreement_weight=float(payload["disagreement_weight"]),
@@ -109,7 +109,7 @@ def load_auction_policy_config(path: str | Path) -> AuctionPolicyConfig:
 
 def load_context_view_config(path: str | Path) -> ContextViewConfig:
     """加载上下文视图轨道配置。"""
-    payload = _load_toml(path)
+    payload = load_toml(path)
     return ContextViewConfig(
         track_name=str(payload["track_name"]),
         strategyqa_mode=str(payload["strategyqa_mode"]),
@@ -120,7 +120,7 @@ def load_context_view_config(path: str | Path) -> ContextViewConfig:
 
 def load_experiment_config(path: str | Path) -> BudgetCommExperimentConfig:
     """加载 `budget_comm` 顶层实验配置。"""
-    payload = _load_toml(path)
+    payload = load_toml(path)
     return BudgetCommExperimentConfig(
         name=str(payload["name"]),
         description=str(payload["description"]),
@@ -132,8 +132,8 @@ def load_experiment_config(path: str | Path) -> BudgetCommExperimentConfig:
         prompt_version=str(payload["prompt_version"]),
         calibration_sample_size=int(payload["calibration_sample_size"]),
         max_concurrent_requests=int(payload["max_concurrent_requests"]),
-        requests_per_minute_limit=_optional_int(payload, "requests_per_minute_limit"),
-        tokens_per_minute_limit=_optional_int(payload, "tokens_per_minute_limit"),
+        requests_per_minute_limit=optional_int(payload, "requests_per_minute_limit"),
+        tokens_per_minute_limit=optional_int(payload, "tokens_per_minute_limit"),
         primary_model_ref=str(payload["primary_model_ref"]),
         raw=payload,
     )
@@ -141,22 +141,15 @@ def load_experiment_config(path: str | Path) -> BudgetCommExperimentConfig:
 
 def phase_metadata(experiment: BudgetCommExperimentConfig, phase_name: str) -> dict[str, Any]:
     """返回指定 phase 的原始配置副本。"""
-    return dict(experiment.raw["phases"][phase_name])
+    return phase_metadata_from_raw(experiment, phase_name)
 
 
 def load_benchmarks(experiment: BudgetCommExperimentConfig) -> list[BenchmarkConfig]:
     """加载实验声明使用的 benchmark 配置。"""
-    return [load_benchmark_config(path) for path in experiment.benchmark_configs]
+    return load_benchmarks_from_experiment(experiment)
 
 
 def resolve_model(model_ref: str) -> ResolvedModelConfig:
     """解析 `budget_comm` 使用的 backbone 模型。"""
-    return resolve_model_ref(model_ref)
-
-
-def _optional_int(payload: dict[str, Any], key: str) -> int | None:
-    value = payload.get(key)
-    if value is None:
-        return None
-    return int(value)
+    return resolve_shared_model(model_ref)
 

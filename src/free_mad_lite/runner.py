@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from functools import partial
@@ -20,12 +19,17 @@ from typing import Any
 from dotenv import load_dotenv
 
 from experiment_core.foundation.artifacts import BufferedJsonlWriter
-from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
+from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, json_dump
 from experiment_core.foundation.config import ResolvedModelConfig
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import normalize_prediction, score_prediction
-from experiment_core.foundation.providers import OpenAICompatibleProvider, build_payload, execute_completion_request
+from experiment_core.foundation.providers import OpenAICompatibleProvider
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
+from experiment_core.foundation.runner_common import (
+    execute_cached_turn,
+    prepare_run_root,
+    run_indexed_batch,
+)
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from experiment_core.controls.selective_signals import normalize_confidence
 from experiment_core.foundation.structured_output import ARTIFACT_VERSION, OUTPUT_MODE_CORE, validate_or_recover_structured_output
@@ -223,14 +227,14 @@ def _run_sample_batch(
         global_seed=global_seed,
         prompt_version=prompt_version,
     )
-    max_workers = max(1, min(max_concurrent_requests, len(samples) or 1))
-    completed = []
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_index = {executor.submit(worker, sample=sample): index for index, sample in enumerate(samples)}
-        for future in as_completed(future_to_index):
-            completed.append((future_to_index[future], *future.result()))
-    completed.sort(key=lambda item: item[0])
-    return completed
+    return [
+        (sample_index, *result)
+        for sample_index, result in run_indexed_batch(
+            samples,
+            worker=worker,
+            max_concurrent_requests=max_concurrent_requests,
+        )
+    ]
 
 
 def _run_sample(
@@ -653,52 +657,25 @@ def _execute_turn(
     seed: int,
     extra_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    payload = build_payload(backbone, messages, temperature, top_p, max_output_tokens, seed)
-    prompt_hash = _prompt_hash(messages)
-    cache_key = build_request_cache_key(
-        provider=backbone.provider,
-        request_model=backbone.model_id,
-        payload=payload,
+    result = execute_cached_turn(
+        backbone=backbone,
+        provider=provider,
+        cache=cache,
+        limiter=limiter,
+        messages=messages,
+        temperature=temperature,
+        top_p=top_p,
+        max_output_tokens=max_output_tokens,
+        seed=seed,
+        validator=lambda raw_text, provider_reasoning_text: _validate_output(
+            raw_text,
+            output_mode,
+            provider_reasoning_text=provider_reasoning_text,
+        ),
     )
-    cached = cache.get(cache_key)
-    if cached is None:
-        response_payload = execute_completion_request(
-            provider,
-            payload,
-            limiter=limiter,
-        )
-        cache_hit = False
-    else:
-        response_payload = json.loads(cached.response_json)
-        cache_hit = True
-
-    request_error = response_payload.get("request_error")
-    if request_error:
-        validated_output: dict[str, Any] = {}
-        output_status = "request_fail"
-    else:
-        try:
-            validated_output = _validate_output(
-                str(response_payload.get("assistant_text") or ""),
-                output_mode,
-                provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
-            )
-            output_status = "ok"
-            if not cache_hit:
-                cache_successful_response(
-                    cache,
-                    cache_key=cache_key,
-                    payload=payload,
-                    response_payload=response_payload,
-                )
-        except Exception:
-            validated_output = {}
-            output_status = "schema_fail"
-
-    final_answer = str(validated_output.get("final_answer") or "")
-    confidence_raw = validated_output.get("confidence_raw")
+    final_answer = str(result.validated_output.get("final_answer") or "")
+    confidence_raw = result.validated_output.get("confidence_raw")
     confidence_value, confidence_valid, confidence_source = normalize_confidence(confidence_raw)
-    usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
     row = {
         "run_id": run_id,
         "dataset": dataset,
@@ -708,26 +685,26 @@ def _execute_turn(
         "round_index": round_index,
         "agent_id": agent_id,
         "role": role,
-        "prompt_hash": prompt_hash,
-        "output_status": output_status,
+        "prompt_hash": result.prompt_hash,
+        "output_status": result.output_status,
         "prediction": normalize_prediction(dataset, final_answer) if final_answer else "",
         "normalized_answer": normalize_prediction(dataset, final_answer) if final_answer else "",
         "score": score_prediction(dataset, final_answer, sample.reference_answer) if final_answer else 0.0,
-        "reasoning": str(validated_output.get("reasoning") or ""),
-        "changed_answer": bool(validated_output.get("changed_answer")) if "changed_answer" in validated_output else False,
+        "reasoning": str(result.validated_output.get("reasoning") or ""),
+        "changed_answer": bool(result.validated_output.get("changed_answer")) if "changed_answer" in result.validated_output else False,
         "confidence_raw": confidence_raw,
         "confidence_value": confidence_value,
         "confidence_valid": confidence_valid,
         "confidence_source": confidence_source,
-        "prompt_tokens": float(usage.get("prompt_tokens") or 0.0),
-        "completion_tokens": float(usage.get("completion_tokens") or 0.0),
-        "total_tokens": float(usage.get("total_tokens") or 0.0),
-        "latency_ms": float(response_payload.get("latency_ms") or 0.0),
-        "cache_hit": cache_hit,
-        "request_error": request_error,
-        "assistant_text": response_payload.get("assistant_text", ""),
-        "provider_reasoning_text": response_payload.get("provider_reasoning_text", ""),
-        "validated_output": validated_output,
+        "prompt_tokens": float(result.usage.get("prompt_tokens") or 0.0),
+        "completion_tokens": float(result.usage.get("completion_tokens") or 0.0),
+        "total_tokens": float(result.usage.get("total_tokens") or 0.0),
+        "latency_ms": float(result.response_payload.get("latency_ms") or 0.0),
+        "cache_hit": result.cache_hit,
+        "request_error": result.request_error,
+        "assistant_text": result.response_payload.get("assistant_text", ""),
+        "provider_reasoning_text": result.response_payload.get("provider_reasoning_text", ""),
+        "validated_output": result.validated_output,
     }
     if extra_fields:
         row.update(extra_fields)
@@ -892,8 +869,7 @@ def _resolve_split_name(experiment: FreeMadLiteExperimentConfig, phase_name: str
 
 
 def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> RunPaths:
-    root = Path(run_root) / experiment_name / phase_name / run_id
-    root.mkdir(parents=True, exist_ok=True)
+    root = prepare_run_root(run_root, experiment_name, phase_name, run_id)
     return RunPaths(
         root=root,
         manifest=root / "manifest.json",
@@ -945,10 +921,6 @@ def _cost(rows: list[dict[str, Any]]) -> dict[str, float]:
 def _trace_hash(rows: list[dict[str, Any]], keys: list[str]) -> str:
     payload = [{key: row.get(key) for key in keys} for row in rows]
     return sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
-
-
-def _prompt_hash(messages: list[dict[str, str]]) -> str:
-    return sha256(json.dumps(messages, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def _mean(values) -> float:

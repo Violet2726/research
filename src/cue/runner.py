@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from functools import partial
@@ -39,12 +38,17 @@ from cue.prompting import build_audit_messages, build_communication_messages, bu
 from cue.reporting import render_report
 from cue.validation import validate_run
 from experiment_core.foundation.artifacts import BufferedJsonlWriter
-from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
+from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, json_dump
 from experiment_core.foundation.datasets import DatasetSample, select_samples
 from experiment_core.foundation.evaluation import aggregate_majority as eval_aggregate_majority
 from experiment_core.foundation.evaluation import normalize_prediction, score_prediction
-from experiment_core.foundation.providers import OpenAICompatibleProvider, build_payload, execute_completion_request
+from experiment_core.foundation.providers import OpenAICompatibleProvider
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
+from experiment_core.foundation.runner_common import (
+    execute_cached_turn,
+    prepare_run_root,
+    run_indexed_batch,
+)
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from experiment_core.controls.selective_signals import confidence_display, normalize_confidence
 from experiment_core.foundation.structured_output import (
@@ -146,14 +150,13 @@ def _run_sample_batch(
         cache=cache,
         limiter=limiter,
     )
-    max_workers = max(1, min(experiment.max_concurrent_requests, len(samples) or 1))
-    print(f"[cue] using max_workers={max_workers} for dataset={benchmark_slug}", flush=True)
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(worker, sample=sample) for sample in samples]
-        for future in as_completed(futures):
-            result = future.result()
-            if on_complete is not None:
-                on_complete(result)
+    for _, result in run_indexed_batch(
+        samples,
+        worker=worker,
+        max_concurrent_requests=experiment.max_concurrent_requests,
+    ):
+        if on_complete is not None:
+            on_complete(result)
 
 
 def _write_sample_result(
@@ -874,72 +877,34 @@ def _execute_turn(
     question_preview: str,
     output_mode: str,
 ) -> dict[str, Any]:
-    payload = build_payload(
-        config=backbone,
+    result = execute_cached_turn(
+        backbone=backbone,
+        provider=provider,
+        cache=cache,
+        limiter=limiter,
         messages=messages,
         temperature=temperature,
         top_p=top_p,
         max_output_tokens=max_output_tokens,
         seed=seed,
-        use_response_format=True,
+        output_mode=output_mode,
     )
-    prompt_hash = _prompt_hash(messages)
-    cache_key = build_request_cache_key(
-        provider=backbone.provider,
-        request_model=backbone.model_id,
-        payload=payload,
-    )
-    cached = cache.get(cache_key)
-    if cached is None:
-        response_payload = execute_completion_request(
-            provider,
-            payload,
-            limiter=limiter,
-        )
-        cache_hit = False
+    if output_mode == OUTPUT_MODE_CUE_SOLVER:
+        final_answer = str(result.validated_output.get("final_answer") or "")
+    elif output_mode == OUTPUT_MODE_CUE_BELIEF_UPDATE:
+        final_answer = str(result.validated_output.get("new_answer") or "")
+    elif output_mode == OUTPUT_MODE_CUE_AUDIT:
+        final_answer = str(result.validated_output.get("verified_answer") or "")
     else:
-        response_payload = json.loads(cached.response_json)
-        cache_hit = True
-
-    request_error = response_payload.get("request_error")
-    if request_error:
-        validated_output = {}
-        output_status = "request_fail"
         final_answer = ""
-    else:
-        try:
-            validated_output = validate_or_recover_structured_output(
-                str(response_payload.get("assistant_text") or ""),
-                output_mode,
-                provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
-            )
-            output_status = "ok"
-            if output_mode == OUTPUT_MODE_CUE_SOLVER:
-                final_answer = str(validated_output.get("final_answer") or "")
-            elif output_mode == OUTPUT_MODE_CUE_BELIEF_UPDATE:
-                final_answer = str(validated_output.get("new_answer") or "")
-            elif output_mode == OUTPUT_MODE_CUE_AUDIT:
-                final_answer = str(validated_output.get("verified_answer") or "")
-            if not cache_hit:
-                cache_successful_response(
-                    cache,
-                    cache_key=cache_key,
-                    payload=payload,
-                    response_payload=response_payload,
-                )
-        except Exception:
-            validated_output = {}
-            output_status = "schema_fail"
-            final_answer = ""
 
-    usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
-    confidence_raw = validated_output.get("confidence") if output_mode == OUTPUT_MODE_CUE_SOLVER and validated_output else None
+    confidence_raw = result.validated_output.get("confidence") if output_mode == OUTPUT_MODE_CUE_SOLVER and result.validated_output else None
     confidence_value, confidence_valid, confidence_source = normalize_confidence(confidence_raw)
-    top_claims = validated_output.get("top_claims", []) if output_mode == OUTPUT_MODE_CUE_SOLVER and validated_output else []
-    evidence_items = validated_output.get("evidence_items", []) if output_mode == OUTPUT_MODE_CUE_SOLVER and validated_output else []
-    reasoning_sketch = validated_output.get("reasoning_sketch") if output_mode == OUTPUT_MODE_CUE_SOLVER and validated_output else None
-    uncertain_point = validated_output.get("uncertain_point") if output_mode == OUTPUT_MODE_CUE_SOLVER and validated_output else None
-    counter_answer = validated_output.get("counter_answer") if output_mode == OUTPUT_MODE_CUE_SOLVER and validated_output else None
+    top_claims = result.validated_output.get("top_claims", []) if output_mode == OUTPUT_MODE_CUE_SOLVER and result.validated_output else []
+    evidence_items = result.validated_output.get("evidence_items", []) if output_mode == OUTPUT_MODE_CUE_SOLVER and result.validated_output else []
+    reasoning_sketch = result.validated_output.get("reasoning_sketch") if output_mode == OUTPUT_MODE_CUE_SOLVER and result.validated_output else None
+    uncertain_point = result.validated_output.get("uncertain_point") if output_mode == OUTPUT_MODE_CUE_SOLVER and result.validated_output else None
+    counter_answer = result.validated_output.get("counter_answer") if output_mode == OUTPUT_MODE_CUE_SOLVER and result.validated_output else None
     return {
         "run_id": run_id,
         "dataset": dataset,
@@ -952,21 +917,21 @@ def _execute_turn(
         "round_index": round_index,
         "agent_id": agent_id,
         "visible_peer_count": visible_peer_count,
-        "prompt_hash": prompt_hash,
+        "prompt_hash": result.prompt_hash,
         "prediction": normalize_prediction(dataset, final_answer) if final_answer else "",
         "normalized_answer": normalize_prediction(dataset, final_answer) if final_answer else "",
         "final_answer": final_answer,
-        "output_status": output_status,
-        "prompt_tokens": float(usage.get("prompt_tokens") or 0.0),
-        "completion_tokens": float(usage.get("completion_tokens") or 0.0),
-        "total_tokens": float(usage.get("total_tokens") or 0.0),
-        "latency_ms": float(response_payload.get("latency_ms") or 0.0),
-        "cache_hit": cache_hit,
-        "request_error": request_error,
-        "payload": payload,
-        "assistant_text": response_payload.get("assistant_text", ""),
-        "provider_reasoning_text": response_payload.get("provider_reasoning_text", ""),
-        "validated_output": validated_output,
+        "output_status": result.output_status,
+        "prompt_tokens": float(result.usage.get("prompt_tokens") or 0.0),
+        "completion_tokens": float(result.usage.get("completion_tokens") or 0.0),
+        "total_tokens": float(result.usage.get("total_tokens") or 0.0),
+        "latency_ms": float(result.response_payload.get("latency_ms") or 0.0),
+        "cache_hit": result.cache_hit,
+        "request_error": result.request_error,
+        "payload": result.payload,
+        "assistant_text": result.response_payload.get("assistant_text", ""),
+        "provider_reasoning_text": result.response_payload.get("provider_reasoning_text", ""),
+        "validated_output": result.validated_output,
         "confidence_raw": confidence_raw,
         "confidence_raw_display": confidence_display(confidence_raw),
         "confidence_value": confidence_value,
@@ -1159,8 +1124,7 @@ def _estimate_work(
 
 
 def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> RunPaths:
-    root = Path(run_root) / experiment_name / phase_name / run_id
-    root.mkdir(parents=True, exist_ok=True)
+    root = prepare_run_root(run_root, experiment_name, phase_name, run_id)
     return RunPaths(
         root=root,
         manifest=root / "manifest.json",
@@ -1216,10 +1180,6 @@ def _trace_hash(rows: list[dict[str, Any]]) -> str:
         for row in rows
     ]
     return sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
-
-
-def _prompt_hash(messages: list[dict[str, str]]) -> str:
-    return sha256(json.dumps(messages, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def _question_preview(question: str, max_chars: int = 120) -> str:

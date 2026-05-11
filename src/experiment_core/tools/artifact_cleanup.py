@@ -10,31 +10,16 @@ import json
 import re
 import shutil
 
-from budget_comm.validation import validate_run as validate_budget_comm
-from comm_necessary.validation import validate_run as validate_comm_necessary
-from free_mad_lite.validation import validate_run as validate_free_mad_lite
-from multi_agent.validation import validate_run as validate_multi_agent
-from selective_comm.validation import validate_run as validate_selective_comm
-from sid_lite.validation import validate_run as validate_sid_lite
-from single_agent.validation import validate_run as validate_single_agent
-from sparc.validation import validate_run as validate_sparc
 from experiment_core.foundation.cli_output import configure_utf8_stdio, emit_json
+from experiment_core.foundation.workspace import workspace_layout
+from experiment_core.orchestration.registry import validator_map
 
 
 RUN_ID_PATTERN = re.compile(r"20\d{6}T\d{6}Z-[A-Za-z0-9._:-]+")
 
 RunValidator = Callable[[str | Path], dict[str, object]]
 
-RUN_VALIDATORS: dict[str, RunValidator] = {
-    "budget_comm": validate_budget_comm,
-    "comm_necessary": validate_comm_necessary,
-    "free_mad_lite": validate_free_mad_lite,
-    "multi_agent": validate_multi_agent,
-    "selective_comm": validate_selective_comm,
-    "sid_lite": validate_sid_lite,
-    "single_agent": validate_single_agent,
-    "sparc": validate_sparc,
-}
+RUN_VALIDATORS: dict[str, RunValidator] = validator_map()
 
 
 @dataclass(frozen=True)
@@ -76,10 +61,11 @@ class CleanupSummary:
 
 def build_parser() -> argparse.ArgumentParser:
     """构造命令行参数。"""
+    layout = workspace_layout()
     parser = argparse.ArgumentParser(description="Delete invalid run records and invalid reports.")
     parser.add_argument("--workspace-root", default=".", help="Workspace root. Defaults to the current directory.")
-    parser.add_argument("--runs-root", default="runs", help="Runs root relative to workspace root.")
-    parser.add_argument("--reports-root", default="reports", help="Reports root relative to workspace root.")
+    parser.add_argument("--runs-root", default=layout.runs_root.as_posix(), help="Runs root relative to workspace root.")
+    parser.add_argument("--reports-root", default=layout.reports_root.as_posix(), help="Reports root relative to workspace root.")
     parser.add_argument(
         "--revalidate-runs",
         action="store_true",

@@ -7,11 +7,9 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from functools import partial
-from hashlib import sha256
 from pathlib import Path
 import json
 from typing import Any
@@ -19,17 +17,21 @@ from typing import Any
 from dotenv import load_dotenv
 
 from experiment_core.foundation.artifacts import BufferedJsonlWriter
-from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response, json_dump
+from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, json_dump
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import aggregate_majority, normalize_prediction, score_prediction
 from experiment_core.controls.no_comm_controls import run_no_comm_control_batch
-from experiment_core.foundation.providers import OpenAICompatibleProvider, build_payload, execute_completion_request
+from experiment_core.foundation.providers import OpenAICompatibleProvider
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
+from experiment_core.foundation.runner_common import (
+    execute_cached_turn,
+    prepare_run_root,
+    run_indexed_batch,
+)
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from experiment_core.foundation.structured_output import (
     ARTIFACT_VERSION,
     OUTPUT_MODE_CORE,
-    validate_or_recover_structured_output,
 )
 from experiment_core.foundation.workspace import default_cache_root, default_runs_root
 from multi_agent.config import (
@@ -353,19 +355,14 @@ def _run_mad_setup_batch(
         global_seed=global_seed,
         prompt_version=prompt_version,
     )
-    max_workers = max(1, min(max_concurrent_requests, len(samples) or 1))
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_index = {
-            executor.submit(worker, sample=sample): sample_index
-            for sample_index, sample in enumerate(samples)
-        }
-        completed: list[tuple[int, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]] = []
-        for future in as_completed(future_to_index):
-            sample_index = future_to_index[future]
-            mad_turn_rows, debate_rows, prediction_row = future.result()
-            completed.append((sample_index, mad_turn_rows, debate_rows, prediction_row))
-    completed.sort(key=lambda item: item[0])
-    return completed
+    return [
+        (sample_index, *result)
+        for sample_index, result in run_indexed_batch(
+            samples,
+            worker=worker,
+            max_concurrent_requests=max_concurrent_requests,
+        )
+    ]
 
 
 def _write_sample_outputs(
@@ -669,59 +666,20 @@ def _execute_turn(
     seed: int,
 ) -> dict[str, Any]:
     """执行单次 agent turn，并统一返回日志行结构。"""
-    payload = build_payload(
-        config=backbone,
+    result = execute_cached_turn(
+        backbone=backbone,
+        provider=provider,
+        cache=cache,
+        limiter=limiter,
         messages=messages,
         temperature=temperature,
         top_p=top_p,
         max_output_tokens=max_output_tokens,
         seed=seed,
+        output_mode=OUTPUT_MODE_CORE,
     )
-    prompt_hash = _prompt_hash(messages)
-    cache_key = build_request_cache_key(
-        provider=backbone.provider,
-        request_model=backbone.model_id,
-        payload=payload,
-    )
-    cached = cache.get(cache_key)
-    if cached is None:
-        response_payload = execute_completion_request(
-            provider,
-            payload,
-            limiter=limiter,
-        )
-        cache_hit = False
-    else:
-        response_payload = json.loads(cached.response_json)
-        cache_hit = True
-
-    request_error = response_payload.get("request_error")
-    if request_error:
-        validated_output = {}
-        output_status = "request_fail"
-        final_answer = ""
-    else:
-        try:
-            validated_output = validate_or_recover_structured_output(
-                str(response_payload.get("assistant_text") or ""),
-                OUTPUT_MODE_CORE,
-                provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
-            )
-            output_status = "ok"
-            final_answer = validated_output["final_answer"]
-            if not cache_hit:
-                cache_successful_response(
-                    cache,
-                    cache_key=cache_key,
-                    payload=payload,
-                    response_payload=response_payload,
-                )
-        except Exception:
-            validated_output = {}
-            output_status = "schema_fail"
-            final_answer = ""
-
-    usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
+    final_answer = str(result.validated_output.get("final_answer") or "")
+    normalized = normalize_prediction(dataset, final_answer) if final_answer else ""
     return asdict(
         AgentTurnRecord(
             run_id=run_id,
@@ -733,23 +691,23 @@ def _execute_turn(
             round_index=round_index,
             agent_id=agent_id,
             role=role,
-            prompt_hash=prompt_hash,
-            prediction=normalize_prediction(dataset, final_answer),
+            prompt_hash=result.prompt_hash,
+            prediction=normalized,
             score=None,
-            output_status=output_status,
-            prompt_tokens=float(usage.get("prompt_tokens") or 0.0),
-            completion_tokens=float(usage.get("completion_tokens") or 0.0),
-            total_tokens=float(usage.get("total_tokens") or 0.0),
-            latency_ms=float(response_payload.get("latency_ms") or 0.0),
-            cache_hit=cache_hit,
-            request_error=request_error,
+            output_status=result.output_status,
+            prompt_tokens=float(result.usage.get("prompt_tokens") or 0.0),
+            completion_tokens=float(result.usage.get("completion_tokens") or 0.0),
+            total_tokens=float(result.usage.get("total_tokens") or 0.0),
+            latency_ms=float(result.response_payload.get("latency_ms") or 0.0),
+            cache_hit=result.cache_hit,
+            request_error=result.request_error,
             visible_peer_count=visible_peer_count,
-            payload=payload,
-            assistant_text=response_payload.get("assistant_text", ""),
-            provider_reasoning_text=response_payload.get("provider_reasoning_text", ""),
-            validated_output=validated_output,
+            payload=result.payload,
+            assistant_text=result.response_payload.get("assistant_text", ""),
+            provider_reasoning_text=result.response_payload.get("provider_reasoning_text", ""),
+            validated_output=result.validated_output,
         )
-    ) | {"normalized_answer": normalize_prediction(dataset, final_answer)}
+    ) | {"normalized_answer": normalized}
 
 
 def _build_metrics(
@@ -921,8 +879,7 @@ def _load_selected_samples(benchmark, split_name: str) -> list[DatasetSample]:
 
 def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> RunPaths:
     """创建多智能体运行目录和固定产物路径。"""
-    root = Path(run_root) / experiment_name / phase_name / run_id
-    root.mkdir(parents=True, exist_ok=True)
+    root = prepare_run_root(run_root, experiment_name, phase_name, run_id)
     return RunPaths(
         root=root,
         manifest=root / "manifest.json",
@@ -936,11 +893,6 @@ def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: s
         run_validation=root / "run_validation.json",
         progress=root / "progress.json",
     )
-
-
-def _prompt_hash(messages: list[dict[str, str]]) -> str:
-    """对 prompt 内容做稳定哈希。"""
-    return sha256(json.dumps(messages, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def _ratio(numerator: int, denominator: int) -> float:

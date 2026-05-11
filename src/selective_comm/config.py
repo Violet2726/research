@@ -5,9 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-import tomllib
 
-from experiment_core.foundation.config import BenchmarkConfig, ResolvedModelConfig, load_benchmark_config, resolve_model_ref
+from experiment_core.foundation.config import BenchmarkConfig, ResolvedModelConfig
+from experiment_core.foundation.config_helpers import (
+    load_benchmarks as load_benchmarks_from_experiment,
+    load_toml,
+    optional_float,
+    optional_int,
+    phase_metadata as phase_metadata_from_raw,
+    resolve_model as resolve_shared_model,
+)
 from experiment_core.foundation.methods import MethodConfig, load_method_catalog
 
 GENERAL_QA_BENCHMARKS = {"strategyqa", "hotpotqa"}
@@ -57,14 +64,9 @@ class SelectiveCommExperimentConfig:
     raw: dict[str, Any]
 
 
-def _load_toml(path: str | Path) -> dict[str, Any]:
-    with Path(path).open("rb") as handle:
-        return tomllib.load(handle)
-
-
 def load_protocol_config(path: str | Path) -> SharedDebateProtocolConfig:
     """加载共享辩论协议。"""
-    payload = _load_toml(path)
+    payload = load_toml(path)
     return SharedDebateProtocolConfig(
         agent_count=int(payload["agent_count"]),
         debate_rounds=int(payload["debate_rounds"]),
@@ -77,14 +79,14 @@ def load_protocol_config(path: str | Path) -> SharedDebateProtocolConfig:
 
 def load_policy_config(path: str | Path) -> TriggerPolicyConfig:
     """加载单个 trigger 策略配置。"""
-    payload = _load_toml(path)
+    payload = load_toml(path)
     return TriggerPolicyConfig(
         policy_name=str(payload["policy_name"]),
         trigger_type=str(payload["trigger_type"]),
-        mean_conf_threshold=_optional_float(payload, "mean_conf_threshold"),
-        conf_spread_threshold=_optional_float(payload, "conf_spread_threshold"),
-        claim_divergence_threshold=_optional_float(payload, "claim_divergence_threshold"),
-        uncertainty_type_diversity_threshold=_optional_float(payload, "uncertainty_type_diversity_threshold"),
+        mean_conf_threshold=optional_float(payload, "mean_conf_threshold"),
+        conf_spread_threshold=optional_float(payload, "conf_spread_threshold"),
+        claim_divergence_threshold=optional_float(payload, "claim_divergence_threshold"),
+        uncertainty_type_diversity_threshold=optional_float(payload, "uncertainty_type_diversity_threshold"),
         fail_open_to_always=bool(payload.get("fail_open_to_always", True)),
     )
 
@@ -101,7 +103,7 @@ def load_control_catalog(path: str | Path) -> dict[str, MethodConfig]:
 
 def load_experiment_config(path: str | Path) -> SelectiveCommExperimentConfig:
     """加载选择性通信实验入口配置。"""
-    payload = _load_toml(path)
+    payload = load_toml(path)
     return SelectiveCommExperimentConfig(
         name=str(payload["name"]),
         description=str(payload["description"]),
@@ -112,8 +114,8 @@ def load_experiment_config(path: str | Path) -> SelectiveCommExperimentConfig:
         global_seed=int(payload["global_seed"]),
         prompt_version=str(payload["prompt_version"]),
         max_concurrent_requests=int(payload["max_concurrent_requests"]),
-        requests_per_minute_limit=_optional_int(payload, "requests_per_minute_limit"),
-        tokens_per_minute_limit=_optional_int(payload, "tokens_per_minute_limit"),
+        requests_per_minute_limit=optional_int(payload, "requests_per_minute_limit"),
+        tokens_per_minute_limit=optional_int(payload, "tokens_per_minute_limit"),
         primary_model_ref=str(payload["primary_model_ref"]),
         raw=payload,
     )
@@ -121,12 +123,12 @@ def load_experiment_config(path: str | Path) -> SelectiveCommExperimentConfig:
 
 def phase_metadata(experiment: SelectiveCommExperimentConfig, phase_name: str) -> dict[str, Any]:
     """读取指定 phase 的原始元数据。"""
-    return dict(experiment.raw["phases"][phase_name])
+    return phase_metadata_from_raw(experiment, phase_name)
 
 
 def load_benchmarks(experiment: SelectiveCommExperimentConfig) -> list[BenchmarkConfig]:
     """解析实验引用的 benchmark 配置。"""
-    return [load_benchmark_config(path) for path in experiment.benchmark_configs]
+    return load_benchmarks_from_experiment(experiment)
 
 
 def describe_backbone_fit(
@@ -164,19 +166,5 @@ def ensure_backbone_fit(
 
 def resolve_model(model_ref: str) -> ResolvedModelConfig:
     """解析实验默认或命令行传入的模型引用。"""
-    return resolve_model_ref(model_ref)
-
-
-def _optional_int(payload: dict[str, Any], key: str) -> int | None:
-    value = payload.get(key)
-    if value is None:
-        return None
-    return int(value)
-
-
-def _optional_float(payload: dict[str, Any], key: str) -> float | None:
-    value = payload.get(key)
-    if value is None:
-        return None
-    return float(value)
+    return resolve_shared_model(model_ref)
 
