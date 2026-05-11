@@ -231,13 +231,18 @@ def looks_like_soft_rejection_text(text: str) -> bool:
 
 
 def _recover_answer_core_payload(raw_text: str) -> dict[str, Any] | None:
-    final_answer = _extract_json_answer_field(raw_text, "final_answer") or _extract_answer_guess_from_text(raw_text)
+    final_answer = _extract_json_answer_field(raw_text, "final_answer")
+    reasoning = _extract_json_string_field(raw_text, "reasoning")
+    if not final_answer:
+        final_answer = _extract_answer_phrase(raw_text)
+    if not final_answer:
+        final_answer = _extract_answer_guess_from_text(raw_text)
     if not final_answer:
         return None
-    return {
-        "final_answer": final_answer,
-        "reasoning": _extract_json_string_field(raw_text, "reasoning"),
-    }
+    payload: dict[str, Any] = {"final_answer": final_answer}
+    if reasoning:
+        payload["reasoning"] = reasoning
+    return payload
 
 
 def _recover_budget_proxy_signal_payload(raw_text: str) -> dict[str, Any] | None:
