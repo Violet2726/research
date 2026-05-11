@@ -6,6 +6,7 @@ from pathlib import Path
 import json
 import time
 
+import httpx
 import pytest
 
 from experiment_core.foundation.artifacts import BufferedJsonlWriter
@@ -1051,6 +1052,80 @@ def test_provider_reuses_shared_http_client(monkeypatch: pytest.MonkeyPatch) -> 
             provider_a.close()
         if provider_b is not None:
             provider_b.close()
+
+
+def test_provider_rotates_shared_http_client_after_protocol_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    created_clients: list[object] = []
+
+    class DummyClient:
+        def __init__(self, **kwargs: object) -> None:
+            self.closed = False
+            self.should_fail = len(created_clients) == 0
+            created_clients.append(self)
+
+        def post(self, url: str, *, headers: dict[str, str], json: dict[str, object], timeout: object) -> httpx.Response:
+            if self.should_fail:
+                raise httpx.RemoteProtocolError(
+                    "Invalid input ConnectionInputs.RECV_WINDOW_UPDATE in state ConnectionState.CLOSED"
+                )
+            return httpx.Response(
+                200,
+                request=httpx.Request("POST", url, headers=headers, json=json),
+                json={
+                    "id": "resp_test",
+                    "choices": [
+                        {
+                            "message": {"content": '{"final_answer": "42"}'},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                },
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    model = resolve_model_ref("xiaomimimo/mimo-v2.5")
+    monkeypatch.setenv(model.api_key_env, "test-key")
+    monkeypatch.setattr("experiment_core.foundation.providers.httpx.Client", DummyClient)
+    OpenAICompatibleProvider._shared_clients.clear()
+    provider = None
+    try:
+        provider = OpenAICompatibleProvider(model)
+        response = provider.chat_completion(
+            {
+                "model": model.model_id,
+                "messages": [{"role": "user", "content": "hello"}],
+                "temperature": 0.0,
+                "top_p": 1.0,
+                "max_tokens": 64,
+            }
+        )
+        assert response.http_status == 200
+        assert response.finish_reason == "stop"
+        assert len(created_clients) == 2
+        assert getattr(created_clients[0], "closed") is True
+    finally:
+        if provider is not None:
+            provider.close()
+
+
+def test_provider_close_swallows_transport_close_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    class DummyClient:
+        def __init__(self, **kwargs: object) -> None:
+            return None
+
+        def close(self) -> None:
+            raise RuntimeError("Invalid input ConnectionInputs.RECV_WINDOW_UPDATE in state ConnectionState.CLOSED")
+
+    model = resolve_model_ref("xiaomimimo/mimo-v2.5")
+    monkeypatch.setenv(model.api_key_env, "test-key")
+    monkeypatch.setattr("experiment_core.foundation.providers.httpx.Client", DummyClient)
+    OpenAICompatibleProvider._shared_clients.clear()
+    provider = OpenAICompatibleProvider(model)
+    provider.close()
+    assert provider._closed is True
 
 
 def test_buffered_jsonl_writer_writes_rows(tmp_path: Path) -> None:

@@ -16,6 +16,7 @@ from threading import Lock
 import time
 from typing import Any
 
+from h2.exceptions import ProtocolError as H2ProtocolError
 import httpx
 
 from experiment_core.foundation.config import ResolvedModelConfig
@@ -77,7 +78,7 @@ class OpenAICompatibleProvider:
         self.api_key = api_key
         self._client_key = f"{config.provider}|{config.base_url.rstrip('/')}"
         self._closed = False
-        self._client = self._acquire_shared_client()
+        self._client_handle = self._acquire_shared_client_handle()
 
     def close(self) -> None:
         """释放当前 provider 持有的共享传输层引用。"""
@@ -88,8 +89,13 @@ class OpenAICompatibleProvider:
             if handle is not None:
                 handle.refcount -= 1
                 if handle.refcount <= 0:
-                    handle.client.close()
-                    self._shared_clients.pop(self._client_key, None)
+                    try:
+                        handle.client.close()
+                    except Exception:
+                        # HTTP/2 连接在远端已关闭时，close 阶段不应反过来污染实验结果。
+                        pass
+                    finally:
+                        self._shared_clients.pop(self._client_key, None)
         self._closed = True
 
     def chat_completion(self, payload: dict[str, Any]) -> ProviderResponse:
@@ -108,8 +114,9 @@ class OpenAICompatibleProvider:
 
         for attempt in range(self.config.max_retries + 1):
             started = time.perf_counter()
+            client = self._client_handle.client
             try:
-                response = self._client.post(url, headers=headers, json=active_payload, timeout=timeout)
+                response = client.post(url, headers=headers, json=active_payload, timeout=timeout)
                 latency_ms = (time.perf_counter() - started) * 1000
                 response.raise_for_status()
                 body = response.json()
@@ -154,8 +161,17 @@ class OpenAICompatibleProvider:
                         provider_request_id=provider_request_id,
                     ) from exc
                 time.sleep(_retry_delay_seconds(exc.response, attempt))
-            except (httpx.ConnectError, httpx.ReadTimeout, httpx.RemoteProtocolError) as exc:
+            except (
+                httpx.ConnectError,
+                httpx.ReadError,
+                httpx.ReadTimeout,
+                httpx.WriteError,
+                httpx.CloseError,
+                httpx.RemoteProtocolError,
+                H2ProtocolError,
+            ) as exc:
                 last_error = exc
+                self._reset_shared_client(client)
                 if attempt == self.config.max_retries:
                     raise ProviderRequestError(
                         message=f"Provider connection error after retries: {exc}",
@@ -172,23 +188,38 @@ class OpenAICompatibleProvider:
             provider_request_id=None,
         )
 
-    def _acquire_shared_client(self) -> httpx.Client:
+    def _acquire_shared_client_handle(self) -> _SharedClientHandle:
         with self._shared_clients_lock:
             handle = self._shared_clients.get(self._client_key)
             if handle is None:
-                handle = _SharedClientHandle(
-                    client=httpx.Client(
-                        http2=True,
-                        limits=httpx.Limits(
-                            max_connections=128,
-                            max_keepalive_connections=32,
-                            keepalive_expiry=30.0,
-                        ),
-                    )
-                )
+                handle = _SharedClientHandle(client=_build_http_client())
                 self._shared_clients[self._client_key] = handle
             handle.refcount += 1
-            return handle.client
+            return handle
+
+    def _reset_shared_client(self, failed_client: httpx.Client) -> None:
+        """在协议级断连后轮换共享 client，避免后续请求继续复用坏连接池。"""
+        with self._shared_clients_lock:
+            handle = self._shared_clients.get(self._client_key)
+            if handle is None or handle is not self._client_handle or handle.client is not failed_client:
+                return
+            try:
+                failed_client.close()
+            except Exception:
+                pass
+            handle.client = _build_http_client()
+
+
+def _build_http_client() -> httpx.Client:
+    """构造统一的长生命周期 HTTP/2 client。"""
+    return httpx.Client(
+        http2=True,
+        limits=httpx.Limits(
+            max_connections=128,
+            max_keepalive_connections=32,
+            keepalive_expiry=30.0,
+        ),
+    )
 
 
 def build_payload(
