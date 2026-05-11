@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from experiment_core.reporting.paper_statistics import build_paper_statistics, render_paper_statistics
+from research_experiments.reporting.paper_statistics import build_paper_statistics, render_paper_statistics
 
 
 def test_build_paper_statistics_pairs_binary_predictions(tmp_path: Path) -> None:

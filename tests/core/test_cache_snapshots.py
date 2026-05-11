@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 import sqlite3
 
-from experiment_core.foundation.cache import CachedResponse, RequestCacheRouter, json_dump
-from experiment_core.foundation.cache_snapshots import _build_cache_snapshot_commit_message, build_cache_snapshot, restore_cache_snapshot
+from research_experiments.core.foundation.cache import CachedResponse, RequestCacheRouter, json_dump
+from research_experiments.core.foundation.cache_snapshots import _build_cache_snapshot_commit_message, build_cache_snapshot, restore_cache_snapshot
 
 
 def test_build_and_restore_cache_snapshot(tmp_path: Path) -> None:

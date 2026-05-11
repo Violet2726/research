@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sparc.logic import (
+from research_experiments.families.sparc.algorithms import (
     aggregate_with_confidence_tiebreak,
     aggregate_weighted_vote,
     project_message_packet,

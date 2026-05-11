@@ -16,7 +16,7 @@
 
 ```powershell
 uv run pytest
-uv run pytest tests/core/test_experiment_core.py tests/cli/test_cli_smoke.py
+uv run pytest tests/core/test_research_experiments.py tests/cli/test_cli_smoke.py
 uv run pytest tests/methods
 ```
 

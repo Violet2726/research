@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from budget_comm.config import ContextViewConfig
-from budget_comm.dataset_views import build_context_views
-from budget_comm.logic import assign_density_tiers, solve_knapsack
-from experiment_core.foundation.datasets import DatasetSample
+from research_experiments.families.budget_comm.config import ContextViewConfig
+from research_experiments.families.budget_comm.dataset_views import build_context_views
+from research_experiments.families.budget_comm.algorithms import assign_density_tiers, solve_knapsack
+from research_experiments.core.foundation.datasets import DatasetSample
 
 
 def test_assign_density_tiers_three_way_split() -> None:

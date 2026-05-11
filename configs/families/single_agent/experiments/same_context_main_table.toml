@@ -1,0 +1,53 @@
+# 同上下文主表基准上的单智能体对照实验。
+name = "same_context_main_table"
+description = "同上下文主表基准上的单智能体对照实验，作为主表通信方法的无通信参考。"
+experiment_note = """
+实验定位：面向论文主表的单智能体对照入口，覆盖 Math500、HotpotQA、MMLU-Pro、GPQA Diamond。
+核心问题：在更高难度的同上下文基准上，单智能体 CoT 与 SC_5 能达到怎样的性能上限与成本曲线。
+结果用途：为 SPARC 与其他通信方法提供同一批主表 benchmark 的无通信参考点。
+"""
+method_catalog = "configs/families/single_agent/methods/common.toml"
+benchmark_configs = [
+  "configs/core/shared/benchmarks/math500.toml",
+  "configs/core/shared/benchmarks/hotpotqa.toml",
+  "configs/core/shared/benchmarks/mmlu_pro.toml",
+  "configs/core/shared/benchmarks/gpqa_diamond.toml",
+]
+global_seed = 42
+reruns_per_method = 3
+prompt_version = "single_agent_reasoning_json_v1"
+max_concurrent_requests = 5
+requests_per_minute_limit = 50
+tokens_per_minute_limit = 1000000
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+
+[phases.smoke20]
+split_overrides = { math500 = "count20_seed42", hotpotqa = "count20_seed42", mmlu_pro = "count20_seed42", gpqa_diamond = "count20_seed42" }
+methods = ["cot_1", "sc_5"]
+reruns_override = 1
+
+[phases.pilot100]
+split_overrides = { math500 = "count100_seed42", hotpotqa = "count100_seed42", mmlu_pro = "count100_seed42", gpqa_diamond = "count100_seed42" }
+methods = ["cot_1", "sc_5"]
+reruns_override = 1
+
+[phases.confirmatory300]
+split_overrides = { math500 = "count300_seed42", hotpotqa = "count300_seed42", mmlu_pro = "count300_seed42", gpqa_diamond = "full198_seed42" }
+methods = ["cot_1", "sc_5"]
+reruns_override = 1
+
+[phases.confirmatory500]
+split_overrides = { math500 = "full500_seed42", hotpotqa = "count500_seed42", mmlu_pro = "count500_seed42", gpqa_diamond = "full198_seed42" }
+methods = ["cot_1", "sc_5"]
+reruns_override = 1
+
+[phases.main]
+split_overrides = { math500 = "full500_seed42", hotpotqa = "count500_seed42", mmlu_pro = "count500_seed42", gpqa_diamond = "full198_seed42" }
+methods = ["cot_1", "sc_5"]
+reruns_override = 3
+
+[phases.mmlu_confirm_full]
+benchmark_filter = ["mmlu_pro"]
+split_overrides = { mmlu_pro = "full12032_seed42" }
+methods = ["sc_5"]
+reruns_override = 1

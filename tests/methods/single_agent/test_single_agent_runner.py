@@ -6,10 +6,10 @@ from typing import Any
 
 import pytest
 
-from experiment_core.foundation.cache import RequestCache, build_request_cache_key
-from experiment_core.foundation.providers import ProviderRequestError, ProviderResponse
-from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
-from single_agent.runner import CallSpec, _execute_call
+from research_experiments.core.foundation.cache import RequestCache, build_request_cache_key
+from research_experiments.core.foundation.providers import ProviderRequestError, ProviderResponse
+from research_experiments.core.foundation.rate_limits import SlidingWindowRateLimiter
+from research_experiments.families.single_agent.run.execute import CallSpec, _execute_call
 
 
 class _ProviderStub:
@@ -134,7 +134,10 @@ def test_execute_call_does_not_cache_schema_failures(tmp_path, monkeypatch: pyte
     def _always_fail(*args, **kwargs):
         raise ValueError("schema exploded")
 
-    monkeypatch.setattr("single_agent.runner.validate_or_recover_structured_output", _always_fail)
+    monkeypatch.setattr(
+        "research_experiments.families.single_agent.run.execute.validate_or_recover_structured_output",
+        _always_fail,
+    )
 
     row = _execute_call(
         spec,

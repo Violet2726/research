@@ -1,0 +1,40 @@
+# HotpotQA 分上下文通信必要性实验入口。
+name = "hotpotqa_split_context_communication_necessity"
+description = "HotpotQA 分上下文通信必要性实验，用于检验不同通信粒度是否决定多跳问答可解性。"
+experiment_note = """
+实验定位：通信必要性路线的核心入口，只关注 split-context HotpotQA。
+核心问题：从 answer-only 到 evidence/full-packet，不同信息交换粒度对多跳推理成功率有多大影响。
+结果用途：证明“通信是否必要、传什么最关键”这一问题，而不是单纯比较模型强弱。
+"""
+benchmark_configs = [
+  "configs/core/shared/benchmarks/hotpotqa.toml",
+]
+protocol = "configs/families/comm_necessary/protocols/split_3a_r1.toml"
+methods = [
+  "full_context_single",
+  "split_no_comm_mv3",
+  "answer_only_exchange",
+  "evidence_exchange",
+  "full_packet_exchange",
+]
+global_seed = 42
+prompt_version = "comm_necessary_hotpotqa_v1"
+max_concurrent_requests = 5
+requests_per_minute_limit = 50
+tokens_per_minute_limit = 1000000
+primary_model_ref = "deepseek/deepseek-v4-flash"
+
+[phases.smoke20]
+split_suffix = "count20_seed42"
+
+[phases.pilot100]
+split_suffix = "count100_seed42"
+
+[phases.confirmatory300]
+split_suffix = "count300_seed42"
+
+[phases.confirmatory500]
+split_suffix = "count500_seed42"
+
+[phases.main]
+split_suffix = "count500_seed42"

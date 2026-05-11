@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from experiment_core.reporting.paper_package import build_paper_package_payload, render_paper_package
+from research_experiments.reporting.paper_package import build_paper_package_payload, render_paper_package
 
 
 def test_build_paper_package_payload_splits_evidence_tiers() -> None:
@@ -69,7 +69,7 @@ def test_render_paper_package_writes_markdown_and_figures(tmp_path: Path) -> Non
         "semantic_entries": [
             {
                 "family": "selective_comm",
-                "config_path": "configs/selective_comm/experiments/trigger_early_exit_main.toml",
+                "config_path": "configs/families/selective_comm/experiments/trigger_early_exit_main.toml",
                 "experiment_name": "trigger_early_exit_main",
                 "status": "completed",
                 "run_dir": run_dir.as_posix(),

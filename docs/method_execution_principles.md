@@ -23,7 +23,7 @@
 - `sparc`
 - `cue`
 
-同时补充说明共享基础设施 `experiment_core` 和顶层矩阵编排 `faithful_matrix` 的职责。
+同时补充说明共享基础设施 `research_experiments.core` 和顶层矩阵编排 `research_cli matrix` 的职责。
 
 ## 1.1 当前 authoritative 项目状态
 
@@ -32,13 +32,13 @@
 - `single_agent`
   只保留 `cot_1` 与 `sc_k`；`mv_*` 已从这个 family 中删除。
 - `multi_agent`
-  只保留一个正式实验入口：`configs/multi_agent/experiments/same_context_controlled_debate.toml`。
+  只保留一个正式实验入口：`configs/families/multi_agent/experiments/same_context_controlled_debate.toml`。
 - `selective_comm`
   只保留两个正式实验入口：
   - `trigger_early_exit_main`
   - `voc_trigger_main`
 - `comm_necessary`
-  只保留一个正式实验入口：`configs/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml`。
+  只保留一个正式实验入口：`configs/families/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml`。
   `smoke20 / pilot100 / main(split500)` 统一通过 phase 表达，不再拆成多个 experiment。
 - `faithful_matrix`
   当前 authoritative 主矩阵是 `15` 个语义唯一目标，不再保留任何本地开发专用实验入口。
@@ -69,7 +69,7 @@
 - run 目录组织
 - validation 与汇总报告基础设施
 
-这些能力都下沉到 `src/experiment_core/`，各实验包不彼此直接依赖。
+这些能力都下沉到 `src/research_experiments/core/`，各实验包不彼此直接依赖。
 
 ### 2.3 运行产物路径统一
 
@@ -85,9 +85,9 @@
 
 ## 3. 共享基础设施
 
-## 3.1 `experiment_core`
+## 3.1 `research_experiments.core`
 
-`experiment_core` 是唯一共享核心层，负责：
+`research_experiments.core` 是唯一共享核心层，负责：
 
 - `config.py`
   解析 benchmark、provider 和 model 配置。
@@ -146,7 +146,7 @@
 
 ## 4. `faithful_matrix` 的角色
 
-`src/experiment_core/matrix/faithful_matrix.py` 不是方法本体，而是**顶层实验编排器**。
+`src/research_experiments/core/matrix/faithful_matrix.py` 不是方法本体，而是**顶层实验编排器**。
 
 它负责：
 
@@ -191,7 +191,7 @@
 
 ## 5.2 方法集合
 
-当前主目录 `configs/single_agent/methods/common.toml` 定义了：
+当前主目录 `configs/families/single_agent/methods/common.toml` 定义了：
 
   - `cot_1`
   - `sc_3 / sc_5 / sc_7`
@@ -314,7 +314,7 @@
 当前 `multi_agent` 的正式配置已经收口为单一入口 `same_context_controlled_debate`，并且：
 
 - `matched_controls` 只保留 `mv_k` 语义，不再在 `multi_agent` 内部混入 `sc_k`；
-- 无通信 matched control 的执行逻辑已经迁到共享层 `experiment_core/no_comm_controls.py`；
+- 无通信 matched control 的执行逻辑已经迁到共享层 `research_experiments/core/controls/no_comm_controls.py`；
 - 因此 `multi_agent` 现在更干净地表达为：
   - 方法本体负责 debate / vote；
   - 共享层负责无通信对照执行；

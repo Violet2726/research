@@ -6,7 +6,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
+SRC = ROOT / "src" / "research_experiments"
+FAMILIES_SRC = SRC / "families"
 
 
 def test_family_runners_do_not_directly_scan_selective_comm_runs() -> None:
@@ -14,12 +15,12 @@ def test_family_runners_do_not_directly_scan_selective_comm_runs() -> None:
         'default_runs_root("selective_comm")',
         "trigger_early_exit_main",
     )
-    allowed_path = SRC / "experiment_core" / "orchestration" / "reference_runs.py"
+    allowed_path = FAMILIES_SRC / "reference_runs.py"
     violations: list[str] = []
-    for path in SRC.rglob("runner.py"):
+    for path in FAMILIES_SRC.rglob("execute.py"):
         if path == allowed_path:
             continue
-        if path.parent.name == "selective_comm":
+        if "selective_comm" in path.parts:
             continue
         text = path.read_text(encoding="utf-8")
         if any(marker in text for marker in forbidden_markers):
@@ -28,7 +29,7 @@ def test_family_runners_do_not_directly_scan_selective_comm_runs() -> None:
 
 
 def test_sid_lite_runner_uses_neutral_schema_ids() -> None:
-    text = (SRC / "sid_lite" / "runner.py").read_text(encoding="utf-8")
+    text = (FAMILIES_SRC / "sid_lite" / "run" / "execute.py").read_text(encoding="utf-8")
     assert "SPARC" not in text
     assert "SCHEMA_ANSWER_WITH_PROXY_SIGNALS_DELIBERATION" in text
     assert "SCHEMA_BELIEF_UPDATE_DELTA" in text

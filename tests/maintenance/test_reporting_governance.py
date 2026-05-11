@@ -6,15 +6,16 @@ import argparse
 import re
 from pathlib import Path
 
-from budget_comm.cli import build_parser as build_budget_parser
-from comm_necessary.cli import build_parser as build_comm_necessary_parser
-from cue.cli import build_parser as build_cue_parser
-from free_mad_lite.cli import build_parser as build_free_mad_parser
-from multi_agent.cli import build_parser as build_multi_agent_parser
-from selective_comm.cli import build_parser as build_selective_parser
-from sid_lite.cli import build_parser as build_sid_parser
-from single_agent.cli import build_parser as build_single_agent_parser
-from sparc.cli import build_parser as build_sparc_parser
+from research_experiments.cli import build_parser as build_root_parser
+from research_experiments.families.budget_comm.spec import build_parser as build_budget_parser
+from research_experiments.families.comm_necessary.spec import build_parser as build_comm_necessary_parser
+from research_experiments.families.cue.spec import build_parser as build_cue_parser
+from research_experiments.families.free_mad_lite.spec import build_parser as build_free_mad_parser
+from research_experiments.families.multi_agent.spec import build_parser as build_multi_agent_parser
+from research_experiments.families.selective_comm.spec import build_parser as build_selective_parser
+from research_experiments.families.sid_lite.spec import build_parser as build_sid_parser
+from research_experiments.families.single_agent.spec import build_parser as build_single_agent_parser
+from research_experiments.families.sparc.spec import build_parser as build_sparc_parser
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -28,19 +29,22 @@ MARKDOWN_DOCS = [
     ROOT / "README.md",
     ROOT / "docs" / "huggingface_archive_workflow.md",
     ROOT / "docs" / "run_report_pipeline.md",
-    ROOT / "src" / "budget_comm" / "README.md",
-    ROOT / "src" / "comm_necessary" / "README.md",
-    ROOT / "src" / "cue" / "README.md",
-    ROOT / "src" / "free_mad_lite" / "README.md",
-    ROOT / "src" / "multi_agent" / "README.md",
-    ROOT / "src" / "selective_comm" / "README.md",
-    ROOT / "src" / "sid_lite" / "README.md",
-    ROOT / "src" / "single_agent" / "README.md",
-    ROOT / "src" / "sparc" / "README.md",
+    ROOT / "src" / "research_experiments" / "families" / "budget_comm" / "README.md",
+    ROOT / "src" / "research_experiments" / "families" / "comm_necessary" / "README.md",
+    ROOT / "src" / "research_experiments" / "families" / "cue" / "README.md",
+    ROOT / "src" / "research_experiments" / "families" / "free_mad_lite" / "README.md",
+    ROOT / "src" / "research_experiments" / "families" / "multi_agent" / "README.md",
+    ROOT / "src" / "research_experiments" / "families" / "selective_comm" / "README.md",
+    ROOT / "src" / "research_experiments" / "families" / "sid_lite" / "README.md",
+    ROOT / "src" / "research_experiments" / "families" / "single_agent" / "README.md",
+    ROOT / "src" / "research_experiments" / "families" / "sparc" / "README.md",
 ]
 
 
 def test_all_family_clis_expose_render_report() -> None:
+    root_parser = build_root_parser()
+    assert _subcommands(root_parser) == {"family", "matrix", "tools"}
+
     parsers = [
         build_single_agent_parser(),
         build_multi_agent_parser(),

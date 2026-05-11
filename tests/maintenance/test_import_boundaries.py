@@ -6,18 +6,20 @@ import ast
 from pathlib import Path
 import tomllib
 
-from experiment_core.orchestration.registry import registered_family_names
+from research_experiments.families.registry import registered_family_names
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
+SRC = ROOT / "src" / "research_experiments"
+FAMILIES_SRC = SRC / "families"
+CORE_SRC = SRC / "core"
 EXPERIMENT_PACKAGES = set(registered_family_names())
 
 
 def test_no_cross_experiment_imports() -> None:
     violations: list[str] = []
     for package in EXPERIMENT_PACKAGES:
-        for path in (SRC / package).rglob("*.py"):
+        for path in (FAMILIES_SRC / package).rglob("*.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
@@ -27,9 +29,31 @@ def test_no_cross_experiment_imports() -> None:
                 else:
                     continue
                 for name in names:
-                    root = name.split(".", 1)[0]
-                    if root in EXPERIMENT_PACKAGES and root != package:
+                    expected_prefix = f"research_experiments.families.{package}"
+                    if name.startswith("research_experiments.families."):
+                        segments = name.split(".")
+                        imported_package = segments[2] if len(segments) > 2 else ""
+                        if imported_package in EXPERIMENT_PACKAGES and imported_package != package:
+                            violations.append(f"{path}: {name}")
+                    elif name.split(".", 1)[0] in EXPERIMENT_PACKAGES:
                         violations.append(f"{path}: {name}")
+    assert not violations, "\n".join(violations)
+
+
+def test_core_does_not_import_family_modules() -> None:
+    violations: list[str] = []
+    for path in CORE_SRC.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module]
+            else:
+                continue
+            for name in names:
+                if name.startswith("research_experiments.families."):
+                    violations.append(f"{path}: {name}")
     assert not violations, "\n".join(violations)
 
 
@@ -56,5 +80,5 @@ def test_no_legacy_matrix_cli_entrypoint() -> None:
     payload = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
     scripts = payload["project"]["scripts"]
 
-    assert "faithful_matrix_cli" in scripts
+    assert "research_cli" in scripts
     assert "smoke20_matrix_cli" not in scripts

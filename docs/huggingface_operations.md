@@ -32,7 +32,7 @@
 ### 1. 推送单个 run 目录
 
 ```powershell
-uv run archive_runs_cli publish-run --run-root local/runs/<family>/<experiment>/<phase>/<run_id>
+uv run research_cli tools archive-runs publish-run --run-root local/runs/<family>/<experiment>/<phase>/<run_id>
 ```
 
 特点：
@@ -55,13 +55,13 @@ uv run archive_runs_cli publish-run --run-root local/runs/<family>/<experiment>/
 按 `run_id`：
 
 ```powershell
-uv run archive_runs_cli fetch-run --run-id <run_id>
+uv run research_cli tools archive-runs fetch-run --run-id <run_id>
 ```
 
 按远端目录前缀：
 
 ```powershell
-uv run archive_runs_cli fetch-run --run-prefix <family>/<experiment>/<phase>/<run_id>
+uv run research_cli tools archive-runs fetch-run --run-prefix <family>/<experiment>/<phase>/<run_id>
 ```
 
 说明：
@@ -75,13 +75,13 @@ uv run archive_runs_cli fetch-run --run-prefix <family>/<experiment>/<phase>/<ru
 ### 1. 推送整个 cache 最新快照
 
 ```powershell
-uv run cache_archive_cli push-latest --cache-root local/cache
+uv run research_cli tools cache-archive push-latest --cache-root local/cache
 ```
 
 ### 2. 拉取整个 cache 最新快照
 
 ```powershell
-uv run cache_archive_cli pull-latest --target local/cache
+uv run research_cli tools cache-archive pull-latest --target local/cache
 ```
 
 ### 3. 推送一个或多个指定 cache 分库目录
@@ -89,13 +89,13 @@ uv run cache_archive_cli pull-latest --target local/cache
 单个：
 
 ```powershell
-uv run cache_archive_cli push-latest --cache-root local/cache --cache-shard providers/xiaomimimo/mimo-v2-5/strategyqa
+uv run research_cli tools cache-archive push-latest --cache-root local/cache --cache-shard providers/xiaomimimo/mimo-v2-5/strategyqa
 ```
 
 多个：
 
 ```powershell
-uv run cache_archive_cli push-latest --cache-root local/cache `
+uv run research_cli tools cache-archive push-latest --cache-root local/cache `
   --cache-shard providers/xiaomimimo/mimo-v2-5/strategyqa `
   --cache-shard providers/xiaomimimo/mimo-v2-5/hotpotqa
 ```
@@ -105,13 +105,13 @@ uv run cache_archive_cli push-latest --cache-root local/cache `
 单个：
 
 ```powershell
-uv run cache_archive_cli pull-latest --target local/cache --cache-shard providers/xiaomimimo/mimo-v2-5/strategyqa
+uv run research_cli tools cache-archive pull-latest --target local/cache --cache-shard providers/xiaomimimo/mimo-v2-5/strategyqa
 ```
 
 多个：
 
 ```powershell
-uv run cache_archive_cli pull-latest --target local/cache `
+uv run research_cli tools cache-archive pull-latest --target local/cache `
   --cache-shard providers/xiaomimimo/mimo-v2-5/strategyqa `
   --cache-shard providers/xiaomimimo/mimo-v2-5/hotpotqa
 ```
@@ -127,13 +127,13 @@ uv run cache_archive_cli pull-latest --target local/cache `
 ### 1. 查看本地与远端同步状态
 
 ```powershell
-uv run hf_sync_cli status
+uv run research_cli tools hf-sync status
 ```
 
 ### 2. 推送整个工作区
 
 ```powershell
-uv run hf_sync_cli push-workspace
+uv run research_cli tools hf-sync push-workspace
 ```
 
 说明：
@@ -148,13 +148,13 @@ uv run hf_sync_cli push-workspace
 单个：
 
 ```powershell
-uv run hf_sync_cli push-workspace --skip-cache --run-dir local/runs/single_agent/same_context_main_table/smoke20/<run_id>
+uv run research_cli tools hf-sync push-workspace --skip-cache --run-dir local/runs/single_agent/same_context_main_table/smoke20/<run_id>
 ```
 
 多个：
 
 ```powershell
-uv run hf_sync_cli push-workspace --skip-cache `
+uv run research_cli tools hf-sync push-workspace --skip-cache `
   --run-dir local/runs/single_agent/same_context_main_table/smoke20/<run_id> `
   --run-dir local/runs/selective_comm/trigger_early_exit_main/smoke20/<run_id>
 ```
@@ -164,13 +164,13 @@ uv run hf_sync_cli push-workspace --skip-cache `
 按 `run_id`：
 
 ```powershell
-uv run hf_sync_cli pull-workspace --skip-cache --run-id <run_id_a> --run-id <run_id_b>
+uv run research_cli tools hf-sync pull-workspace --skip-cache --run-id <run_id_a> --run-id <run_id_b>
 ```
 
 按远端目录前缀：
 
 ```powershell
-uv run hf_sync_cli pull-workspace --skip-cache `
+uv run research_cli tools hf-sync pull-workspace --skip-cache `
   --run-prefix single_agent/same_context_main_table/smoke20/<run_id> `
   --run-prefix selective_comm/trigger_early_exit_main/smoke20/<run_id>
 ```
@@ -178,7 +178,7 @@ uv run hf_sync_cli pull-workspace --skip-cache `
 混合指定也支持：
 
 ```powershell
-uv run hf_sync_cli pull-workspace --skip-cache `
+uv run research_cli tools hf-sync pull-workspace --skip-cache `
   --run-id <run_id_a> `
   --run-prefix selective_comm/trigger_early_exit_main/smoke20/<run_id>
 ```
@@ -186,13 +186,13 @@ uv run hf_sync_cli pull-workspace --skip-cache `
 ### 5. 同时限制 runs 与 cache 的同步范围
 
 ```powershell
-uv run hf_sync_cli push-workspace `
+uv run research_cli tools hf-sync push-workspace `
   --run-dir local/runs/comm_necessary/hotpotqa_split_context_communication_necessity/confirmatory300/<run_id> `
   --cache-shard providers/xiaomimimo/mimo-v2-5/hotpotqa
 ```
 
 ```powershell
-uv run hf_sync_cli pull-workspace `
+uv run research_cli tools hf-sync pull-workspace `
   --run-prefix comm_necessary/hotpotqa_split_context_communication_necessity/confirmatory300/<run_id> `
   --cache-shard providers/xiaomimimo/mimo-v2-5/hotpotqa
 ```
@@ -243,7 +243,7 @@ HF_TOKEN=hf_xxx
 
 ## 六、建议的实际使用方式
 
-- 单个 run：优先用 `archive_runs_cli`
-- 单个或多个 cache 分库：优先用 `cache_archive_cli`
-- 某些指定 run 目录与 cache 分库一起同步：用 `hf_sync_cli`
-- 全量迁移或全量回拉：用 `hf_sync_cli push-workspace / pull-workspace`
+- 单个 run：优先用 `research_cli tools archive-runs`
+- 单个或多个 cache 分库：优先用 `research_cli tools cache-archive`
+- 某些指定 run 目录与 cache 分库一起同步：用 `research_cli tools hf-sync`
+- 全量迁移或全量回拉：用 `research_cli tools hf-sync push-workspace / pull-workspace`

@@ -1,6 +1,6 @@
 """覆盖 CUE 信号汇总、效用与聚合逻辑的测试。"""
 
-from cue.logic import build_conflict_object, compute_utility, summarize_cue_signals
+from research_experiments.families.cue.algorithms import build_conflict_object, compute_utility, summarize_cue_signals
 
 
 def _row(agent_id: int, answer: str, confidence: float, claims: list[str], evidence: list[str]) -> dict:

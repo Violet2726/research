@@ -1,0 +1,38 @@
+# SPARC 本地审计消融实验入口。
+name = "local_auditing_ablation"
+description = "SPARC 本地审计消融实验，用于比较不同聚合与审计策略的终局表现。"
+experiment_note = """
+实验定位：SPARC 聚合阶段的支持性实验，关注最终答案如何从多智能体轨迹中产生。
+核心问题：majority vote、single judge、final round vote 与 local auditing 的差异有多大。
+结果用途：为主系统为何采用 local auditing 提供方法学依据。
+"""
+variant_name = "auditing_ablation"
+benchmark_configs = [
+  "configs/core/shared/benchmarks/gsm8k.toml",
+  "configs/core/shared/benchmarks/strategyqa.toml",
+  "configs/core/shared/benchmarks/hotpotqa.toml",
+]
+protocol = "configs/families/sparc/protocols/shared_3a_r1.toml"
+global_seed = 42
+prompt_version = "sparc_v1_json"
+max_concurrent_requests = 5
+requests_per_minute_limit = 50
+tokens_per_minute_limit = 1000000
+primary_model_ref = "deepseek/deepseek-v4-flash"
+
+[auditing_ablation]
+trigger_policy = "always_communicate"
+fixed_message_modes = { gsm8k = "disagreement_step_only", strategyqa = "disagreement_step_only", hotpotqa = "critical_evidence_only" }
+aggregation_methods = ["majority_vote", "weighted_vote_fallback", "single_judge", "final_round_vote", "local_auditing"]
+
+[phases.smoke20]
+split_suffix = "count20_seed42"
+
+[phases.pilot100]
+split_suffix = "count100_seed42"
+
+[phases.confirmatory300]
+split_overrides = { gsm8k = "count300_seed42", strategyqa = "full229_seed42", hotpotqa = "count300_seed42" }
+
+[phases.confirmatory500]
+split_overrides = { gsm8k = "count500_seed42", strategyqa = "full229_seed42", hotpotqa = "count500_seed42" }

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sid_lite.logic import decide_early_exit, project_message_packet
+from research_experiments.families.sid_lite.algorithms import decide_early_exit, project_message_packet
 
 
 def test_sid_lite_high_confidence_consensus_early_exits() -> None:

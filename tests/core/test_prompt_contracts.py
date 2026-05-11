@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from experiment_core.foundation.prompt_contracts import dataset_instruction
+from research_experiments.core.foundation.prompt_contracts import dataset_instruction
 
 
 def test_dataset_instruction_uses_shortest_span_copy_for_controlled_hotpot() -> None:

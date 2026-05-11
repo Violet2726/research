@@ -37,8 +37,8 @@
 常用命令：
 
 ```powershell
-uv run archive_runs_cli publish-run --run-root local/runs/<family>/<experiment>/<phase>/<run_id>
-uv run archive_runs_cli fetch-run --run-id <run_id>
+uv run research_cli tools archive-runs publish-run --run-root local/runs/<family>/<experiment>/<phase>/<run_id>
+uv run research_cli tools archive-runs fetch-run --run-id <run_id>
 ```
 
 说明：
@@ -59,8 +59,8 @@ uv run archive_runs_cli fetch-run --run-id <run_id>
 常用命令：
 
 ```powershell
-uv run cache_archive_cli push-latest --cache-root local/cache
-uv run cache_archive_cli pull-latest --target local/cache
+uv run research_cli tools cache-archive push-latest --cache-root local/cache
+uv run research_cli tools cache-archive pull-latest --target local/cache
 ```
 
 ## 3. 一键工作区同步
@@ -68,9 +68,9 @@ uv run cache_archive_cli pull-latest --target local/cache
 当你希望把 `local/runs` 与 `local/cache` 作为一个整体处理时，可直接使用统一总控命令：
 
 ```powershell
-uv run hf_sync_cli status
-uv run hf_sync_cli push-workspace
-uv run hf_sync_cli pull-workspace
+uv run research_cli tools hf-sync status
+uv run research_cli tools hf-sync push-workspace
+uv run research_cli tools hf-sync pull-workspace
 ```
 
 说明：

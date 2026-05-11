@@ -1,0 +1,49 @@
+# 跨供应商与模型的单智能体鲁棒性实验。
+name = "cross_provider_robustness"
+description = "跨供应商与模型的单智能体鲁棒性实验，用于检验主基线结论的稳健性。"
+experiment_note = """
+实验定位：主表之外的诊断性实验入口，关注不同 provider 与模型簇上的结论是否稳定。
+核心问题：同一套无通信基线在跨模型、跨供应商迁移时，性能与方差会如何变化。
+结果用途：为主实验结果提供外部有效性与可迁移性证据，而不是直接进入 headline 排名。
+"""
+method_catalog = "configs/families/single_agent/methods/common.toml"
+benchmark_configs = [
+  "configs/core/shared/benchmarks/gsm8k.toml",
+  "configs/core/shared/benchmarks/strategyqa.toml",
+  "configs/core/shared/benchmarks/hotpotqa.toml",
+]
+global_seed = 42
+reruns_per_method = 3
+prompt_version = "single_agent_reasoning_json_v1"
+max_concurrent_requests = 5
+requests_per_minute_limit = 50
+tokens_per_minute_limit = 1000000
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+
+[phases.smoke20]
+split_suffix = "count20_seed42"
+methods = ["cot_1"]
+benchmark_filter = ["gsm8k", "strategyqa", "hotpotqa"]
+required_model_tags = ["provider_zhipu"]
+reruns_override = 1
+
+[phases.pilot100]
+methods = ["cot_1", "sc_5"]
+split_overrides = { gsm8k = "count100_seed42", strategyqa = "count100_seed42", hotpotqa = "count100_seed42" }
+required_model_tags = ["robustness_pilot"]
+benchmark_required_tags = { strategyqa = ["general_qa"], hotpotqa = ["general_qa"] }
+reruns_override = 1
+
+[phases.confirmatory300]
+methods = ["cot_1", "sc_5"]
+split_overrides = { gsm8k = "count300_seed42", strategyqa = "full229_seed42", hotpotqa = "count300_seed42" }
+required_model_tags = ["robustness_pilot"]
+benchmark_required_tags = { strategyqa = ["general_qa"], hotpotqa = ["general_qa"] }
+reruns_override = 1
+
+[phases.confirmatory500]
+methods = ["cot_1", "sc_5"]
+split_overrides = { gsm8k = "count500_seed42", strategyqa = "full229_seed42", hotpotqa = "count500_seed42" }
+required_model_tags = ["robustness_pilot"]
+benchmark_required_tags = { strategyqa = ["general_qa"], hotpotqa = ["general_qa"] }
+reruns_override = 1

@@ -14,21 +14,21 @@ runner 执行实验
 raw_responses.jsonl / predictions.jsonl / metrics.json / diagnostics.json
             |
             v
-experiment_core.reporting.run_figures
+research_experiments.reporting.run_figures
             |
             +--> local/runs/<family>/<experiment>/<phase>/<run_id>/figures/*.svg
             +--> local/runs/<family>/<experiment>/<phase>/<run_id>/figures/*.csv
             +--> local/runs/<family>/<experiment>/<phase>/<run_id>/figure_manifest.json
             |
             v
-experiment_core.reporting.report_pipeline
+research_experiments.reporting.report_pipeline
             |
             +--> local/runs/.../report.md
             +--> local/runs/.../frontier_report.md 等附录报告
             +--> local/reports/<family>/<date>-<experiment>-<phase>-<backbone>-report.md
             |
             v
-experiment_core.foundation.run_archives
+research_experiments.core.foundation.run_archives
             |
             +--> local/runs/.../archive_manifest.json
             +--> local/runs/.../traces.tar.zst

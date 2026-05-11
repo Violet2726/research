@@ -1,0 +1,44 @@
+# SPARC 端到端主实验入口。
+name = "end_to_end_main"
+description = "SPARC 端到端主实验，用于评估触发、内容压缩与本地审计联动后的整体收益。"
+experiment_note = """
+实验定位：SPARC 路线的主入口，代表完整系统在同上下文核心 benchmark 上的端到端表现。
+核心问题：当触发策略、消息内容与本地审计联动时，整体系统能否稳定优于简单全通信基线。
+结果用途：产出 SPARC 的 headline 结果，并作为各类 SPARC 消融实验的参照点。
+"""
+variant_name = "sparc_v1"
+benchmark_configs = [
+  "configs/core/shared/benchmarks/gsm8k.toml",
+  "configs/core/shared/benchmarks/strategyqa.toml",
+  "configs/core/shared/benchmarks/hotpotqa.toml",
+]
+protocol = "configs/families/sparc/protocols/shared_3a_r1.toml"
+global_seed = 42
+prompt_version = "sparc_v1_json"
+max_concurrent_requests = 5
+requests_per_minute_limit = 50
+tokens_per_minute_limit = 1000000
+primary_model_ref = "deepseek/deepseek-v4-flash"
+
+[sparc_v1]
+fixed_message_modes = { gsm8k = "disagreement_step_only", strategyqa = "disagreement_step_only", hotpotqa = "critical_evidence_only" }
+
+[sparc_v1.trigger_reference]
+source_family = "selective_comm"
+source_experiment = "trigger_early_exit_main"
+source_phase = "smoke20"
+default_policy = "hybrid_trigger"
+fallback_policy = "disagreement_triggered"
+drop_questions_threshold = 1.0
+
+[phases.smoke20]
+split_suffix = "count20_seed42"
+
+[phases.pilot100]
+split_suffix = "count100_seed42"
+
+[phases.confirmatory300]
+split_overrides = { gsm8k = "count300_seed42", strategyqa = "full229_seed42", hotpotqa = "count300_seed42" }
+
+[phases.confirmatory500]
+split_overrides = { gsm8k = "count500_seed42", strategyqa = "full229_seed42", hotpotqa = "count500_seed42" }

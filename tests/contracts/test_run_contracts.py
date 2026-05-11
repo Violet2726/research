@@ -5,27 +5,27 @@ from __future__ import annotations
 from pathlib import Path
 import json
 
-from budget_comm.reporting import summarize_run as summarize_budget
-from budget_comm.validation import validate_run as validate_budget
-from comm_necessary.reporting import summarize_run as summarize_comm_necessary
-from comm_necessary.validation import validate_run as validate_comm_necessary
-from cue.reporting import summarize_run as summarize_cue
-from cue.validation import validate_run as validate_cue
-from free_mad_lite.reporting import summarize_run as summarize_free_mad
-from free_mad_lite.validation import validate_run as validate_free_mad
-from multi_agent.reporting import summarize_run as summarize_multi_agent
-from multi_agent.validation import validate_run as validate_multi_agent
-from sparc.reporting import summarize_run as summarize_sparc
-from sparc.validation import validate_run as validate_sparc
-from selective_comm.config import load_control_catalog, load_policies, load_protocol_config
-from selective_comm.reporting import summarize_run as summarize_selective
-from selective_comm.runner import _load_resume_seed_state
-from selective_comm.validation import validate_run as validate_selective
-from sid_lite.reporting import summarize_run as summarize_sid
-from sid_lite.validation import validate_run as validate_sid
-from single_agent.reporting import summarize_run as summarize_single_agent
-from single_agent.validation import validate_run as validate_single_agent
-from experiment_core.structured_outputs import (
+from research_experiments.families.budget_comm.run.report import summarize_run as summarize_budget
+from research_experiments.families.budget_comm.run.validate import validate_run as validate_budget
+from research_experiments.families.comm_necessary.run.report import summarize_run as summarize_comm_necessary
+from research_experiments.families.comm_necessary.run.validate import validate_run as validate_comm_necessary
+from research_experiments.families.cue.run.report import summarize_run as summarize_cue
+from research_experiments.families.cue.run.validate import validate_run as validate_cue
+from research_experiments.families.free_mad_lite.run.report import summarize_run as summarize_free_mad
+from research_experiments.families.free_mad_lite.run.validate import validate_run as validate_free_mad
+from research_experiments.families.multi_agent.run.report import summarize_run as summarize_multi_agent
+from research_experiments.families.multi_agent.run.validate import validate_run as validate_multi_agent
+from research_experiments.families.sparc.run.report import summarize_run as summarize_sparc
+from research_experiments.families.sparc.run.validate import validate_run as validate_sparc
+from research_experiments.families.selective_comm.config import load_control_catalog, load_policies, load_protocol_config
+from research_experiments.families.selective_comm.run.report import summarize_run as summarize_selective
+from research_experiments.families.selective_comm.run.execute import _load_resume_seed_state
+from research_experiments.families.selective_comm.run.validate import validate_run as validate_selective
+from research_experiments.families.sid_lite.run.report import summarize_run as summarize_sid
+from research_experiments.families.sid_lite.run.validate import validate_run as validate_sid
+from research_experiments.families.single_agent.run.report import summarize_run as summarize_single_agent
+from research_experiments.families.single_agent.run.validate import validate_run as validate_single_agent
+from research_experiments.core.structured_outputs import (
     SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE,
     validate_or_recover_structured_output,
 )
@@ -208,16 +208,16 @@ def test_cue_validation_contract(tmp_path: Path) -> None:
 
 
 def test_selective_comm_resume_seed_state_keeps_only_complete_samples(tmp_path: Path) -> None:
-    protocol = load_protocol_config("configs/selective_comm/protocols/shared_3a_r1.toml")
+    protocol = load_protocol_config("configs/families/selective_comm/protocols/shared_3a_r1.toml")
     policies = load_policies(
         [
-            "configs/selective_comm/policies/always_communicate.toml",
-            "configs/selective_comm/policies/disagreement_triggered.toml",
-            "configs/selective_comm/policies/confidence_triggered.toml",
-            "configs/selective_comm/policies/hybrid_trigger.toml",
+            "configs/families/selective_comm/policies/always_communicate.toml",
+            "configs/families/selective_comm/policies/disagreement_triggered.toml",
+            "configs/families/selective_comm/policies/confidence_triggered.toml",
+            "configs/families/selective_comm/policies/hybrid_trigger.toml",
         ]
     )
-    controls = load_control_catalog("configs/selective_comm/controls/trigger_equal_budget.toml")
+    controls = load_control_catalog("configs/families/selective_comm/controls/trigger_equal_budget.toml")
     _touch_json(tmp_path / "manifest.json", {"run_id": "seed-run"})
 
     stage_a_rows = [
@@ -354,7 +354,7 @@ def test_sparc_validation_contract(tmp_path: Path) -> None:
     _touch_json(
         tmp_path / "manifest.json",
         {
-            "experiment_kind": "content_ablation",
+            "variant_name": "content_ablation",
         },
     )
     _write_jsonl(tmp_path / "stage_a_turns.jsonl", [{"output_status": "ok", "cache_hit": False, "dataset": "gsm8k", "method_name": "shared_stage_a", "sample_id": "gsm8k-00001"}])
@@ -388,7 +388,7 @@ def test_sparc_auditing_ablation_paired_design_contract(tmp_path: Path) -> None:
     _touch_json(
         tmp_path / "manifest.json",
         {
-            "experiment_kind": "auditing_ablation",
+            "variant_name": "auditing_ablation",
             "phase_metadata": {"split_suffix": "count20_seed42"},
             "aggregation_methods": ["majority_vote", "single_judge", "final_round_vote", "local_auditing"],
             "benchmarks": [
@@ -865,4 +865,5 @@ def _touch_figure_contract(root: Path, report_name: str = "report.md") -> None:
         ),
         encoding="utf-8",
     )
+
 

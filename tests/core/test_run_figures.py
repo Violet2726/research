@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from experiment_core.reporting.report_views import (
+from research_experiments.reporting.report_views import (
     DiagnosticTableView,
     MatrixAnalysisTableView,
     MatrixStateEntryView,
@@ -13,7 +13,7 @@ from experiment_core.reporting.report_views import (
     load_json_payload,
     load_jsonl_rows,
 )
-from experiment_core.reporting.run_figures import (
+from research_experiments.reporting.run_figures import (
     append_figure_gallery_markdown,
     build_scatter_figure_spec,
     validate_figure_contract,
@@ -214,7 +214,7 @@ def test_matrix_state_entry_and_statistic_comparison_views() -> None:
     entry = MatrixStateEntryView.from_row(
         {
             "family": "selective_comm",
-            "config_path": "configs/selective_comm/experiments/trigger_early_exit_main.toml",
+            "config_path": "configs/families/selective_comm/experiments/trigger_early_exit_main.toml",
             "experiment_name": "trigger_early_exit_main",
             "run_dir": "local/runs/selective_comm/demo",
             "status": "completed",

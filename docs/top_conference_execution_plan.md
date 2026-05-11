@@ -70,19 +70,19 @@ Reference：
 预检命令：
 
 ```powershell
-uv run faithful_matrix_cli inspect-matrix --phase confirmatory300
+uv run research_cli matrix inspect-matrix --phase confirmatory300
 ```
 
 正式运行命令：
 
 ```powershell
-uv run faithful_matrix_cli run --phase confirmatory300 --state-root local/runs/faithful_matrix_iterative --reference-state-path local/runs/faithful_matrix_iterative/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5
+uv run research_cli matrix run --phase confirmatory300 --state-root local/runs/faithful_matrix_iterative --reference-state-path local/runs/faithful_matrix_iterative/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5
 ```
 
 若运行中断，续跑命令：
 
 ```powershell
-uv run faithful_matrix_cli resume --state-path <matrix_run_dir> --reference-state-path local/runs/faithful_matrix_iterative/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5
+uv run research_cli matrix resume --state-path <matrix_run_dir> --reference-state-path local/runs/faithful_matrix_iterative/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5
 ```
 
 ## 4. 离线分析链路
@@ -104,10 +104,10 @@ uv run faithful_matrix_cli resume --state-path <matrix_run_dir> --reference-stat
 离线重渲染命令：
 
 ```powershell
-uv run faithful_matrix_cli analyze-faithful --state-path <matrix_run_dir> --reference-state-path local/runs/smoke20_matrix_iterative/20260505T084626Z-smoke20-mimo-v2.5
-uv run faithful_matrix_cli evaluate-acceptance --analysis-path <matrix_run_dir>
-uv run faithful_matrix_cli render-statistics --state-path <matrix_run_dir>
-uv run faithful_matrix_cli render-paper-package --state-path <matrix_run_dir>
+uv run research_cli matrix analyze-faithful --state-path <matrix_run_dir> --reference-state-path local/runs/smoke20_matrix_iterative/20260505T084626Z-smoke20-mimo-v2.5
+uv run research_cli matrix evaluate-acceptance --analysis-path <matrix_run_dir>
+uv run research_cli matrix render-statistics --state-path <matrix_run_dir>
+uv run research_cli matrix render-paper-package --state-path <matrix_run_dir>
 ```
 
 ## 5. 固定统计比较

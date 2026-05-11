@@ -1,4 +1,4 @@
-"""覆盖 dataset_assets_cli 的基础命令路径。"""
+"""覆盖 `research_cli tools dataset-assets` 的基础命令路径。"""
 
 from __future__ import annotations
 
@@ -6,25 +6,18 @@ import io
 import json
 from contextlib import redirect_stdout
 
-from experiment_core.tools.dataset_assets import main as dataset_assets_main
+from research_experiments.cli import main as research_main
 
 
 def _run_cli(argv: list[str]) -> dict[str, object]:
-    import sys
-
-    previous = sys.argv
     buffer = io.StringIO()
-    try:
-        sys.argv = argv
-        with redirect_stdout(buffer):
-            dataset_assets_main()
-    finally:
-        sys.argv = previous
+    with redirect_stdout(buffer):
+        research_main(argv[1:])
     return json.loads(buffer.getvalue())
 
 
 def test_dataset_assets_list_used_cli() -> None:
-    payload = _run_cli(["dataset_assets_cli", "list-used"])
+    payload = _run_cli(["research_cli", "tools", "dataset-assets", "list-used"])
     assert payload["benchmark_count"] == 7
     assert {item["slug"] for item in payload["benchmarks"]} == {
         "gpqa_diamond",

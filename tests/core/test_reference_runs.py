@@ -7,8 +7,8 @@ import json
 
 import pytest
 
-from experiment_core.foundation.config import ResolvedModelConfig
-from experiment_core.orchestration.reference_runs import (
+from research_experiments.core.foundation.config import ResolvedModelConfig
+from research_experiments.families.reference_runs import (
     TriggerReferenceConfig,
     resolve_trigger_reference_selection,
     write_policy_reference_summary,

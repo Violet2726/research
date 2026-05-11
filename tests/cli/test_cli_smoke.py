@@ -5,58 +5,38 @@ from __future__ import annotations
 import io
 import json
 from contextlib import redirect_stdout
-from pathlib import Path
 
-from experiment_core.foundation.cache import CachedResponse, RequestCacheRouter, json_dump
-from experiment_core.tools.archive_runs import main as archive_runs_main
-from experiment_core.tools.cache_archive import main as cache_archive_main
-from experiment_core.tools.cache_inspector import main as cache_inspector_main
-from experiment_core.tools.hf_sync import main as hf_sync_main
-from experiment_core.matrix.faithful_matrix import main as faithful_matrix_main
-from multi_agent.cli import main as multi_agent_main
-from cue.cli import main as cue_main
-from budget_comm.cli import main as budget_main
-from comm_necessary.cli import main as comm_necessary_main
-from free_mad_lite.cli import main as free_mad_main
-from sparc.cli import main as sparc_main
-from selective_comm.cli import main as selective_main
-from sid_lite.cli import main as sid_lite_main
-from single_agent.cli import main as single_agent_main
+from research_experiments.core.foundation.cache import CachedResponse, RequestCacheRouter, json_dump
+from research_experiments.cli import main as research_main
 
 
-def _run_cli(main_func, argv: list[str]) -> dict[str, object]:
-    import sys
-
-    previous = sys.argv
+def _run_cli(argv: list[str]) -> dict[str, object]:
     buffer = io.StringIO()
-    try:
-        sys.argv = argv
-        with redirect_stdout(buffer):
-            main_func()
-    finally:
-        sys.argv = previous
+    with redirect_stdout(buffer):
+        research_main(argv[1:])
     return json.loads(buffer.getvalue())
 
 
 def test_single_agent_inspect_cli() -> None:
     payload = _run_cli(
-        single_agent_main,
         [
-            "single_agent_cli",
+            "research_cli",
+            "family",
+            "single_agent",
             "inspect-experiment",
             "--experiment",
-            "configs/single_agent/experiments/same_context_core_benchmarks.toml",
+            "configs/families/single_agent/experiments/same_context_core_benchmarks.toml",
         ],
     )
     assert payload["name"] == "same_context_core_benchmarks"
-    assert payload["workspace_defaults"]["experiment_cache_root"].endswith("cache")
+    assert payload["workspace_defaults"]["family_cache_root"].endswith("cache")
 
 
 def test_faithful_matrix_inspect_cli() -> None:
     payload = _run_cli(
-        faithful_matrix_main,
         [
-            "faithful_matrix_cli",
+            "research_cli",
+            "matrix",
             "inspect-matrix",
             "--phase",
             "smoke20",
@@ -68,12 +48,13 @@ def test_faithful_matrix_inspect_cli() -> None:
 
 def test_multi_agent_inspect_cli() -> None:
     payload = _run_cli(
-        multi_agent_main,
         [
-            "multi_agent_cli",
+            "research_cli",
+            "family",
+            "multi_agent",
             "inspect-experiment",
             "--experiment",
-            "configs/multi_agent/experiments/same_context_controlled_debate.toml",
+            "configs/families/multi_agent/experiments/same_context_controlled_debate.toml",
         ],
     )
     assert payload["name"] == "same_context_controlled_debate"
@@ -81,26 +62,28 @@ def test_multi_agent_inspect_cli() -> None:
 
 def test_selective_comm_inspect_cli() -> None:
     payload = _run_cli(
-        selective_main,
         [
-            "selective_comm_cli",
+            "research_cli",
+            "family",
+            "selective_comm",
             "inspect-experiment",
             "--experiment",
-            "configs/selective_comm/experiments/trigger_early_exit_main.toml",
+            "configs/families/selective_comm/experiments/trigger_early_exit_main.toml",
         ],
     )
     assert payload["name"] == "trigger_early_exit_main"
-    assert payload["workspace_defaults"]["experiment_runs_root"].endswith("selective_comm")
+    assert payload["workspace_defaults"]["family_runs_root"].endswith("selective_comm")
 
 
 def test_selective_comm_voc_v2_inspect_cli() -> None:
     payload = _run_cli(
-        selective_main,
         [
-            "selective_comm_cli",
+            "research_cli",
+            "family",
+            "selective_comm",
             "inspect-experiment",
             "--experiment",
-            "configs/selective_comm/experiments/voc_trigger_main.toml",
+            "configs/families/selective_comm/experiments/voc_trigger_main.toml",
         ],
     )
     assert payload["name"] == "voc_trigger_main"
@@ -114,12 +97,13 @@ def test_selective_comm_voc_v2_inspect_cli() -> None:
 
 def test_sparc_inspect_cli() -> None:
     payload = _run_cli(
-        sparc_main,
         [
-            "sparc_cli",
+            "research_cli",
+            "family",
+            "sparc",
             "inspect-experiment",
             "--experiment",
-            "configs/sparc/experiments/content_ablation.toml",
+            "configs/families/sparc/experiments/content_ablation.toml",
         ],
     )
     assert payload["name"] == "content_ablation"
@@ -127,12 +111,13 @@ def test_sparc_inspect_cli() -> None:
 
 def test_sparc_local_auditing_inspect_cli() -> None:
     payload = _run_cli(
-        sparc_main,
         [
-            "sparc_cli",
+            "research_cli",
+            "family",
+            "sparc",
             "inspect-experiment",
             "--experiment",
-            "configs/sparc/experiments/local_auditing_ablation.toml",
+            "configs/families/sparc/experiments/local_auditing_ablation.toml",
         ],
     )
     assert payload["name"] == "local_auditing_ablation"
@@ -151,12 +136,13 @@ def test_sparc_local_auditing_inspect_cli() -> None:
 
 def test_budget_comm_inspect_cli() -> None:
     payload = _run_cli(
-        budget_main,
         [
-            "budget_comm_cli",
+            "research_cli",
+            "family",
+            "budget_comm",
             "inspect-experiment",
             "--experiment",
-            "configs/budget_comm/experiments/dala_lite_same_context_main.toml",
+            "configs/families/budget_comm/experiments/dala_lite_same_context_main.toml",
         ],
     )
     assert payload["name"] == "dala_lite_same_context_main"
@@ -166,12 +152,13 @@ def test_budget_comm_inspect_cli() -> None:
 
 def test_sid_lite_inspect_cli() -> None:
     payload = _run_cli(
-        sid_lite_main,
         [
-            "sid_lite_cli",
+            "research_cli",
+            "family",
+            "sid_lite",
             "inspect-experiment",
             "--experiment",
-            "configs/sid_lite/experiments/sid_lite_mechanism_validation.toml",
+            "configs/families/sid_lite/experiments/sid_lite_mechanism_validation.toml",
         ],
     )
     assert payload["name"] == "sid_lite_mechanism_validation"
@@ -183,12 +170,13 @@ def test_sid_lite_inspect_cli() -> None:
 
 def test_free_mad_lite_inspect_cli() -> None:
     payload = _run_cli(
-        free_mad_main,
         [
-            "free_mad_lite_cli",
+            "research_cli",
+            "family",
+            "free_mad_lite",
             "inspect-experiment",
             "--experiment",
-            "configs/free_mad_lite/experiments/free_mad_lite_mechanism_validation.toml",
+            "configs/families/free_mad_lite/experiments/free_mad_lite_mechanism_validation.toml",
         ],
     )
     assert payload["name"] == "free_mad_lite_mechanism_validation"
@@ -204,12 +192,13 @@ def test_free_mad_lite_inspect_cli() -> None:
 
 def test_comm_necessary_inspect_cli() -> None:
     payload = _run_cli(
-        comm_necessary_main,
         [
-            "comm_necessary_cli",
+            "research_cli",
+            "family",
+            "comm_necessary",
             "inspect-experiment",
             "--experiment",
-            "configs/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml",
+            "configs/families/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml",
         ],
     )
     assert payload["name"] == "hotpotqa_split_context_communication_necessity"
@@ -227,16 +216,17 @@ def test_comm_necessary_inspect_cli() -> None:
 
 def test_cue_inspect_cli() -> None:
     payload = _run_cli(
-        cue_main,
         [
-            "cue_cli",
+            "research_cli",
+            "family",
+            "cue",
             "inspect-experiment",
             "--experiment",
-            "configs/cue/experiments/cue_black_box_utility_main.toml",
+            "configs/families/cue/experiments/cue_black_box_utility_main.toml",
         ],
     )
     assert payload["name"] == "cue_black_box_utility_main"
-    assert payload["workspace_defaults"]["experiment_runs_root"].endswith("cue")
+    assert payload["workspace_defaults"]["family_runs_root"].endswith("cue")
 
 
 def test_cache_inspector_summarize_cli(tmp_path) -> None:
@@ -259,9 +249,10 @@ def test_cache_inspector_summarize_cli(tmp_path) -> None:
     router.close()
 
     payload = _run_cli(
-        cache_inspector_main,
         [
-            "cache_inspector_cli",
+            "research_cli",
+            "tools",
+            "cache-inspector",
             "summarize",
             "--cache-root",
             str(tmp_path),
@@ -281,7 +272,7 @@ def test_archive_runs_publish_uses_repo_env(monkeypatch, tmp_path) -> None:
     (tmp_path / "manifest.json").write_text(json.dumps({"run_id": "test-run"}, ensure_ascii=False, indent=2), encoding="utf-8")
     monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
     monkeypatch.setattr(
-        "experiment_core.tools.archive_runs.publish_run_to_hub",
+        "research_experiments.tools.archive_runs.publish_run_to_hub",
         lambda run_root, repo_id, token, create_repo: {
             "run_root": str(run_root),
             "remote_repo": repo_id,
@@ -291,9 +282,10 @@ def test_archive_runs_publish_uses_repo_env(monkeypatch, tmp_path) -> None:
     )
 
     payload = _run_cli(
-        archive_runs_main,
         [
-            "archive_runs_cli",
+            "research_cli",
+            "tools",
+            "archive-runs",
             "publish-run",
             "--run-root",
             str(tmp_path),
@@ -308,7 +300,7 @@ def test_archive_runs_publish_uses_repo_env(monkeypatch, tmp_path) -> None:
 def test_archive_runs_fetch_accepts_run_prefix(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
     monkeypatch.setattr(
-        "experiment_core.tools.archive_runs.fetch_run_from_hub",
+        "research_experiments.tools.archive_runs.fetch_run_from_hub",
         lambda run_id, repo_id, remote_prefix, token, target_root: {
             "run_id": run_id,
             "remote_repo": repo_id,
@@ -318,9 +310,10 @@ def test_archive_runs_fetch_accepts_run_prefix(monkeypatch, tmp_path) -> None:
     )
 
     payload = _run_cli(
-        archive_runs_main,
         [
-            "archive_runs_cli",
+            "research_cli",
+            "tools",
+            "archive-runs",
             "fetch-run",
             "--run-prefix",
             "single_agent/demo/smoke20/20260510T000000Z-model",
@@ -338,7 +331,7 @@ def test_archive_runs_fetch_accepts_run_prefix(monkeypatch, tmp_path) -> None:
 def test_cache_archive_push_uses_repo_env(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
     monkeypatch.setattr(
-        "experiment_core.tools.cache_archive.push_latest_cache_snapshot",
+        "research_experiments.tools.cache_archive.push_latest_cache_snapshot",
         lambda cache_root, repo_id, token, create_repo, private, shard_filters=None: {
             "cache_root": str(cache_root),
             "remote_repo": repo_id,
@@ -349,9 +342,10 @@ def test_cache_archive_push_uses_repo_env(monkeypatch, tmp_path) -> None:
     )
 
     payload = _run_cli(
-        cache_archive_main,
         [
-            "cache_archive_cli",
+            "research_cli",
+            "tools",
+            "cache-archive",
             "push-latest",
             "--cache-root",
             str(tmp_path),
@@ -366,7 +360,7 @@ def test_cache_archive_push_uses_repo_env(monkeypatch, tmp_path) -> None:
 def test_cache_archive_pull_accepts_cache_shard(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
     monkeypatch.setattr(
-        "experiment_core.tools.cache_archive.pull_latest_cache_snapshot",
+        "research_experiments.tools.cache_archive.pull_latest_cache_snapshot",
         lambda target, repo_id, token, shard_filters=None: {
             "target_root": str(target),
             "remote_repo": repo_id,
@@ -375,9 +369,10 @@ def test_cache_archive_pull_accepts_cache_shard(monkeypatch, tmp_path) -> None:
     )
 
     payload = _run_cli(
-        cache_archive_main,
         [
-            "cache_archive_cli",
+            "research_cli",
+            "tools",
+            "cache-archive",
             "pull-latest",
             "--target",
             str(tmp_path),
@@ -395,7 +390,7 @@ def test_hf_sync_push_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
     monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
     monkeypatch.setattr(
-        "experiment_core.tools.hf_sync.push_workspace_to_hub",
+        "research_experiments.tools.hf_sync.push_workspace_to_hub",
         lambda **kwargs: {
             "runs_repo": kwargs["runs_repo_id"],
             "cache_repo": kwargs["cache_repo_id"],
@@ -407,9 +402,10 @@ def test_hf_sync_push_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
     )
 
     payload = _run_cli(
-        hf_sync_main,
         [
-            "hf_sync_cli",
+            "research_cli",
+            "tools",
+            "hf-sync",
             "push-workspace",
             "--runs-root",
             str(tmp_path / "runs"),
@@ -435,7 +431,7 @@ def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
     monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
     monkeypatch.setattr(
-        "experiment_core.tools.hf_sync.pull_workspace_from_hub",
+        "research_experiments.tools.hf_sync.pull_workspace_from_hub",
         lambda **kwargs: {
             "runs_repo": kwargs["runs_repo_id"],
             "cache_repo": kwargs["cache_repo_id"],
@@ -448,9 +444,10 @@ def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
     )
 
     payload = _run_cli(
-        hf_sync_main,
         [
-            "hf_sync_cli",
+            "research_cli",
+            "tools",
+            "hf-sync",
             "pull-workspace",
             "--runs-root",
             str(tmp_path / "runs"),
@@ -473,4 +470,3 @@ def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
     assert payload["selected_run_ids"] == ["20260510T000000Z-model"]
     assert payload["selected_run_prefixes"] == ["single_agent/demo/smoke20/20260510T000000Z-model"]
     assert payload["cache_shard_filters"] == ["providers/xiaomimimo/mimo-v2-5/strategyqa"]
-

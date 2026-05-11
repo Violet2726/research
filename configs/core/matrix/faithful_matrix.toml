@@ -1,0 +1,123 @@
+[[entries]]
+config_path = "configs/families/single_agent/experiments/same_context_core_benchmarks.toml"
+evaluation_track = "same_context"
+evidence_tier = "reference"
+primary_method_name = "sc_5"
+best_no_comm_candidates = ["cot_1", "sc_5"]
+
+[[entries]]
+config_path = "configs/families/multi_agent/experiments/same_context_controlled_debate.toml"
+evaluation_track = "same_context"
+evidence_tier = "supporting"
+primary_method_name = "mad_3a_r1"
+best_no_comm_candidates = ["mv_6"]
+
+[[entries]]
+config_path = "configs/families/free_mad_lite/experiments/free_mad_lite_mechanism_validation.toml"
+evaluation_track = "same_context"
+evidence_tier = "supporting"
+primary_method_name = "free_mad_lite_llm_trajectory"
+best_no_comm_candidates = ["mv_3_initial"]
+full_comm_reference = "vanilla_mad_r1_final_vote"
+
+[[entries]]
+config_path = "configs/families/budget_comm/experiments/dala_lite_same_context_main.toml"
+evaluation_track = "same_context"
+evidence_tier = "headline"
+primary_method_name = "dala_lite"
+best_no_comm_candidates = ["mv_3"]
+full_comm_reference = "all_to_all_full"
+token_gate_basis = "communication"
+
+[[entries]]
+config_path = "configs/families/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml"
+evaluation_track = "split_context"
+evidence_tier = "headline"
+primary_method_name = "full_packet_exchange"
+best_no_comm_candidates = ["split_no_comm_mv3"]
+full_context_reference = "full_context_single"
+
+[[entries]]
+config_path = "configs/families/sid_lite/experiments/sid_lite_mechanism_validation.toml"
+evaluation_track = "same_context"
+evidence_tier = "diagnostic"
+primary_method_name = "sid_lite"
+best_no_comm_candidates = ["mv_3"]
+full_comm_reference = "always_full"
+token_gate_basis = "communication"
+
+[[entries]]
+config_path = "configs/families/selective_comm/experiments/trigger_early_exit_main.toml"
+evaluation_track = "same_context"
+evidence_tier = "headline"
+primary_method_name = "hybrid_trigger"
+best_no_comm_candidates = ["mv_3", "mv_6", "sc_6"]
+full_comm_reference = "always_communicate"
+token_gate_basis = "communication"
+
+[[entries]]
+config_path = "configs/families/sparc/experiments/end_to_end_main.toml"
+evaluation_track = "same_context"
+evidence_tier = "headline"
+primary_method_name = "sparc_v1"
+best_no_comm_candidates = ["mv_3"]
+full_comm_reference = "always_communicate"
+token_gate_basis = "communication"
+
+[[entries]]
+config_path = "configs/families/single_agent/experiments/same_context_main_table.toml"
+evaluation_track = "same_context"
+evidence_tier = "reference"
+primary_method_name = "sc_5"
+best_no_comm_candidates = ["cot_1", "sc_5"]
+
+[[entries]]
+config_path = "configs/families/single_agent/experiments/cross_provider_robustness.toml"
+evaluation_track = "same_context"
+evidence_tier = "diagnostic"
+primary_method_name = "cot_1"
+best_no_comm_candidates = ["cot_1"]
+
+[[entries]]
+config_path = "configs/families/budget_comm/experiments/dala_lite_split_context_main.toml"
+evaluation_track = "split_context"
+evidence_tier = "headline"
+primary_method_name = "dala_lite"
+best_no_comm_candidates = ["mv_3"]
+full_comm_reference = "all_to_all_full"
+token_gate_basis = "communication"
+
+[[entries]]
+config_path = "configs/families/sparc/experiments/content_ablation.toml"
+evaluation_track = "same_context"
+evidence_tier = "diagnostic"
+primary_method_name = "task_adaptive"
+best_no_comm_candidates = ["mv_3"]
+full_comm_reference = "full_cot"
+token_gate_basis = "communication"
+
+[[entries]]
+config_path = "configs/families/sparc/experiments/local_auditing_ablation.toml"
+evaluation_track = "same_context"
+evidence_tier = "supporting"
+primary_method_name = "local_auditing"
+best_no_comm_candidates = ["majority_vote"]
+full_comm_reference = "final_round_vote"
+
+[[entries]]
+config_path = "configs/families/cue/experiments/cue_black_box_utility_main.toml"
+evaluation_track = "same_context"
+evidence_tier = "diagnostic"
+primary_method_name = "cue_v1"
+best_no_comm_candidates = ["mv_3"]
+full_comm_reference = "always_communicate"
+token_gate_basis = "communication"
+
+[[entries]]
+config_path = "configs/families/selective_comm/experiments/voc_trigger_main.toml"
+evaluation_track = "same_context"
+evidence_tier = "headline"
+primary_method_name = "voc_trigger_v2"
+best_no_comm_candidates = ["mv_3", "mv_6", "sc_6"]
+full_comm_reference = "always_communicate"
+token_gate_basis = "communication"

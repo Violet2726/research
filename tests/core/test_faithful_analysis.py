@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from experiment_core.matrix.faithful_analysis import build_faithful_analysis, render_faithful_analysis
+from research_experiments.matrix.faithful_analysis import build_faithful_analysis, render_faithful_analysis
 
 
 def test_build_faithful_analysis_computes_reference_deltas_and_stage_ceiling(tmp_path: Path) -> None:
@@ -85,7 +85,7 @@ def test_build_faithful_analysis_computes_reference_deltas_and_stage_ceiling(tmp
         "semantic_entries": [
             {
                 "family": "budget_comm",
-                "config_path": "configs/budget_comm/experiments/dala_lite_same_context_main.toml",
+                "config_path": "configs/families/budget_comm/experiments/dala_lite_same_context_main.toml",
                 "experiment_name": "dala_lite_same_context_main",
                 "run_dir": run_dir.as_posix(),
                 "status": "completed",
@@ -165,7 +165,7 @@ def test_render_faithful_analysis_writes_artifacts(tmp_path: Path) -> None:
                 "semantic_entries": [
                     {
                         "family": "cue",
-                        "config_path": "configs/cue/experiments/cue_black_box_utility_main.toml",
+                        "config_path": "configs/families/cue/experiments/cue_black_box_utility_main.toml",
                         "experiment_name": "cue_black_box_utility_main",
                         "run_dir": run_dir.as_posix(),
                         "status": "completed",
@@ -243,7 +243,7 @@ def test_build_faithful_analysis_synthesizes_overall_when_metrics_lack_it(tmp_pa
         "semantic_entries": [
             {
                 "family": "multi_agent",
-                "config_path": "configs/multi_agent/experiments/same_context_controlled_debate.toml",
+                "config_path": "configs/families/multi_agent/experiments/same_context_controlled_debate.toml",
                 "experiment_name": "same_context_controlled_debate",
                 "run_dir": run_dir.as_posix(),
                 "status": "completed",

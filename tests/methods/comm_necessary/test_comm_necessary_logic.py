@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from comm_necessary.config import CommNecessaryProtocolConfig
-from comm_necessary.dataset_views import build_hotpot_views
-from comm_necessary.logic import (
+from research_experiments.families.comm_necessary.config import CommNecessaryProtocolConfig
+from research_experiments.families.comm_necessary.dataset_views import build_hotpot_views
+from research_experiments.families.comm_necessary.algorithms import (
     aggregate_supporting_facts,
     build_packet,
     majority_vote_with_counts,
     score_hotpot_prediction,
 )
-from experiment_core.foundation.datasets import DatasetSample
+from research_experiments.core.foundation.datasets import DatasetSample
 
 
 def _sample() -> DatasetSample:

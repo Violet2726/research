@@ -64,8 +64,7 @@
 
 - README 讲“项目是什么、怎么用、去哪里看”
 - `docs/` 讲长期结构、流程和规范
-- `src/*/README.md` 讲目录职责
-- `runs/README.md` 讲归档策略，不讲实现细节
+- `src/research_experiments/families/*/README.md` 讲 family 目录职责
 - `CONTRIBUTING.md` 讲提交流程、同步要求和写作约定
 
 ## 提交前检查

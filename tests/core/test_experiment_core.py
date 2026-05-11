@@ -1,4 +1,4 @@
-"""覆盖 `experiment_core` 共享基础能力的测试。"""
+"""覆盖 `research_experiments.core` 共享基础能力的测试。"""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ import time
 import httpx
 import pytest
 
-from experiment_core.foundation.artifacts import BufferedJsonlWriter
-from experiment_core.foundation.cache import (
+from research_experiments.core.foundation.artifacts import BufferedJsonlWriter
+from research_experiments.core.foundation.cache import (
     CachedResponse,
     RequestCache,
     RequestCacheRouter,
@@ -21,19 +21,19 @@ from experiment_core.foundation.cache import (
     resolve_cache_shard_path,
     summarize_cache_root,
 )
-from experiment_core.foundation.config import load_benchmark_config, load_model_catalog, parse_model_ref, resolve_model_ref
-from experiment_core.foundation.datasets import generate_split_manifests, load_split_ids, select_samples
-from experiment_core.foundation.providers import (
+from research_experiments.core.foundation.config import load_benchmark_config, load_model_catalog, parse_model_ref, resolve_model_ref
+from research_experiments.core.foundation.datasets import generate_split_manifests, load_split_ids, select_samples
+from research_experiments.core.foundation.providers import (
     OpenAICompatibleProvider,
     ProviderResponse,
     _extract_message_channels,
     build_payload,
     execute_completion_request,
 )
-from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
-from experiment_core.foundation.runtime import finalize_run_outputs
-from experiment_core.controls.selective_signals import decide_trigger, summarize_confidence_rows, summarize_divergence_rows
-from experiment_core.structured_outputs import (
+from research_experiments.core.foundation.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.foundation.runtime import finalize_run_outputs
+from research_experiments.core.controls.selective_signals import decide_trigger, summarize_confidence_rows, summarize_divergence_rows
+from research_experiments.core.structured_outputs import (
     SCHEMA_ANSWER_CORE,
     SCHEMA_ANSWER_WITH_PROXY_SIGNALS_BUDGET,
     SCHEMA_ANSWER_WITH_PROXY_SIGNALS_DELIBERATION,
@@ -48,7 +48,7 @@ from experiment_core.structured_outputs import (
     validate_or_recover_structured_output,
     validate_structured_output,
 )
-from experiment_core.foundation.workspace import (
+from research_experiments.core.foundation.workspace import (
     auto_publish_runs_enabled,
     auto_push_cache_snapshot_enabled,
     default_cache_root,
@@ -122,9 +122,9 @@ def test_workspace_defaults_follow_env(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = workspace_defaults("selective_comm")
     assert payload["runs_root"] == "experiment-runs"
     assert payload["reports_root"] == "published-reports"
-    assert payload["experiment_runs_root"] == "experiment-runs/selective_comm"
-    assert payload["experiment_reports_root"] == "published-reports/selective_comm"
-    assert payload["experiment_cache_root"] == "tmp/cache"
+    assert payload["family_runs_root"] == "experiment-runs/selective_comm"
+    assert payload["family_reports_root"] == "published-reports/selective_comm"
+    assert payload["family_cache_root"] == "tmp/cache"
     assert payload["datasets_root"] == "tmp/datasets"
     assert payload["runs_hf_repo"] == "owner/research-runs"
     assert payload["cache_hf_repo"] == "owner/research-cache"
@@ -1037,7 +1037,7 @@ def test_provider_reuses_shared_http_client(monkeypatch: pytest.MonkeyPatch) -> 
 
     model = resolve_model_ref("xiaomimimo/mimo-v2.5")
     monkeypatch.setenv(model.api_key_env, "test-key")
-    monkeypatch.setattr("experiment_core.foundation.providers.httpx.Client", DummyClient)
+    monkeypatch.setattr("research_experiments.core.foundation.providers.httpx.Client", DummyClient)
     OpenAICompatibleProvider._shared_clients.clear()
     provider_a = None
     provider_b = None
@@ -1087,7 +1087,7 @@ def test_provider_rotates_shared_http_client_after_protocol_error(monkeypatch: p
 
     model = resolve_model_ref("xiaomimimo/mimo-v2.5")
     monkeypatch.setenv(model.api_key_env, "test-key")
-    monkeypatch.setattr("experiment_core.foundation.providers.httpx.Client", DummyClient)
+    monkeypatch.setattr("research_experiments.core.foundation.providers.httpx.Client", DummyClient)
     OpenAICompatibleProvider._shared_clients.clear()
     provider = None
     try:
@@ -1120,7 +1120,7 @@ def test_provider_close_swallows_transport_close_errors(monkeypatch: pytest.Monk
 
     model = resolve_model_ref("xiaomimimo/mimo-v2.5")
     monkeypatch.setenv(model.api_key_env, "test-key")
-    monkeypatch.setattr("experiment_core.foundation.providers.httpx.Client", DummyClient)
+    monkeypatch.setattr("research_experiments.core.foundation.providers.httpx.Client", DummyClient)
     OpenAICompatibleProvider._shared_clients.clear()
     provider = OpenAICompatibleProvider(model)
     provider.close()
@@ -1144,7 +1144,7 @@ def test_finalize_run_outputs_attaches_hf_publish_result(tmp_path: Path, monkeyp
     (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
     (tmp_path / "metrics.json").write_text(json.dumps({"summary": []}, ensure_ascii=False, indent=2), encoding="utf-8")
     monkeypatch.setattr(
-        "experiment_core.foundation.runtime.publish_run_if_configured",
+        "research_experiments.core.foundation.runtime.publish_run_if_configured",
         lambda root, validation: {"published": True, "remote_repo": "owner/research-runs"},
     )
 
@@ -1156,4 +1156,3 @@ def test_finalize_run_outputs_attaches_hf_publish_result(tmp_path: Path, monkeyp
     assert payload["hf_publish"]["published"] is True
     validation_payload = json.loads((tmp_path / "run_validation.json").read_text(encoding="utf-8"))
     assert validation_payload["hf_publish"]["remote_repo"] == "owner/research-runs"
-

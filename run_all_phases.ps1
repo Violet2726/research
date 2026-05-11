@@ -47,7 +47,7 @@ function Invoke-MatrixPhase {
     $pythonScript = @'
 import os
 
-from experiment_core.matrix.faithful_matrix import RuntimeOverrides, assert_matrix_succeeded, run_faithful_matrix
+from research_experiments.matrix.faithful_matrix import RuntimeOverrides, assert_matrix_succeeded, run_faithful_matrix
 
 kwargs = {}
 reference_state = os.environ.get("FAITHFUL_REFERENCE_STATE")

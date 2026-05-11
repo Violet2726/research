@@ -32,7 +32,7 @@ uv run python -m compileall src tests
 
 - CLI 入口：同步检查 `pyproject.toml`、`README.md` 和相关 `docs/`
 - 实验配置名：同步检查根 README、`src/*/README.md` 和 `configs/*`
-- 共享结构：同步检查 `src/experiment_core/README.md` 与 `docs/project_structure.md`
+- 共享结构：同步检查 `src/research_experiments/core/README.md` 与 `docs/project_structure.md`
 - 中文注解或仓库说明：遵循 [docs/code_annotation_guidelines.md](/d:/user/research/docs/code_annotation_guidelines.md)
 
 ## Annotation Policy
@@ -48,4 +48,4 @@ uv run python -m compileall src tests
 - `local/runs/`、`local/reports/`、`local/cache/` 是默认本地工作区，不进入主线
 - 正式 `runs` 归档进入 `RESEARCH_RUNS_HF_REPO`
 - 正式 `cache` 快照进入 `RESEARCH_CACHE_HF_REPO`
-- 顶层 `runs/`、`reports/`、`cache/` 只保留说明文件与历史占位
+- 不再维护顶层 `runs/`、`reports/`、`cache/` 目录占位

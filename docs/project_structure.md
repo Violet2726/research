@@ -4,40 +4,42 @@
 
 仓库分为四层：
 
-1. `experiment_core`
+1. `src/research_experiments/core/`
    共享基础设施层，负责 provider、缓存、数据集加载、评测、结构化输出、归档与运行时工具。
-2. `src/<experiment_kind>/`
-   具体实验实现层。每个包只依赖 `experiment_core`，不互相依赖。
-3. `configs/`
-   配置层。共享配置放在 `configs/shared/`，实验专属配置放在各自子目录。
+2. `src/research_experiments/families/<family>/`
+   具体实验实现层。每个 family 只依赖共享核心，不互相依赖。
+3. `configs/core/` 与 `configs/families/`
+   配置层。共享配置放在 `configs/core/shared/`，faithful matrix 规格放在 `configs/core/matrix/`，实验专属配置放在各自 family 目录。
 4. `datasets/`、`files/`、`local/`
    数据与工作区层。`datasets/` 只保留恢复说明，真实原始数据放在 `local/datasets/`。
 
 ## 2. 关键目录职责
 
-### `src/experiment_core/`
+### `src/research_experiments/core/`
 
 - `foundation/`：配置、缓存、数据集、provider、限流、运行时、归档
 - `controls/`：跨实验复用的控制逻辑
-- `matrix/`：faithful matrix 编排、分析与验收
-- `reporting/`：科研报告、图资产、论文包与统计输出
-- `tools/`：缓存检查、归档、清理等 CLI 工具
+- `structured_outputs/`：共享结构化输出校验与恢复
 
-### `src/<experiment_kind>/`
+### `src/research_experiments/families/`
 
-每条实验线通常包含：
+- `<family>/config.py`：实验配置解析
+- `<family>/prompts.py`：提示词模板
+- `<family>/algorithms.py` / `dataset_views.py`：family 机制逻辑
+- `<family>/run/execute.py`：运行编排
+- `<family>/run/report.py`：汇总与报告
+- `<family>/run/validate.py`：运行校验
+- `<family>/spec.py`：family CLI 规格
 
-- `config.py`
-- `prompting.py`
-- `logic.py`
-- `runner.py`
-- `reporting.py`
-- `validation.py`
-- `cli.py`
+### 其他共享目录
+
+- `src/research_experiments/matrix/`：faithful matrix 编排、分析与验收
+- `src/research_experiments/reporting/`：科研报告、图资产、论文包与统计输出
+- `src/research_experiments/tools/`：缓存检查、归档、数据集与清理工具
 
 ## 3. 默认工作区
 
-默认路径由 [workspace.py](/d:/user/research/src/experiment_core/foundation/workspace.py) 统一管理：
+默认路径由 [workspace.py](/d:/user/research/src/research_experiments/core/foundation/workspace.py) 统一管理：
 
 - `local/runs/<family>/<experiment>/<phase>/<run_id>/`
 - `local/reports/<family>/`
@@ -65,7 +67,7 @@ $env:RESEARCH_FILES_ROOT = "D:/artifacts/files"
 
 ## 4. Hugging Face 远程归档
 
-本仓库不再把 `runs/` 与 `cache/` 当作 Git 主线产物，而是使用：
+本仓库不把运行产物当作 Git 主线产物，而是使用：
 
 - `RESEARCH_RUNS_HF_REPO`
 - `RESEARCH_CACHE_HF_REPO`
@@ -78,15 +80,7 @@ $env:RESEARCH_FILES_ROOT = "D:/artifacts/files"
 - `cache`：latest-only 私有或受控 dataset repo 快照
 - 自动开关：决定是否在 run 完成或批量脚本结束后自动同步
 
-## 5. 顶层 `runs/`、`reports/`、`cache/`
-
-顶层这三个目录现在只保留说明文件与历史占位，不再作为默认工作区：
-
-- 实际运行输出默认进入 `local/`
-- 正式远程归档进入 Hugging Face
-- Git 主仓不再承担这些目录下的正式产物版本管理
-
-## 6. UTF-8 与文本规范
+## 5. UTF-8 与文本规范
 
 - 文本文件统一采用 UTF-8
 - Python 文本 I/O 一律显式写 `encoding="utf-8"`

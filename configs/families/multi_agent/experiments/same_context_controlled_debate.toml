@@ -1,0 +1,42 @@
+# 同上下文受控辩论实验入口。
+name = "same_context_controlled_debate"
+description = "同上下文受控辩论实验，用于比较多智能体辩论与等预算投票对照。"
+experiment_note = """
+实验定位：多智能体同上下文主实验入口，覆盖 GSM8K、StrategyQA、HotpotQA。
+核心问题：在相同预算下，结构化辩论相比无通信投票是否带来稳定增益。
+结果用途：作为后续机制增强方法的基础通信参照组。
+"""
+benchmark_configs = [
+  "configs/core/shared/benchmarks/gsm8k.toml",
+  "configs/core/shared/benchmarks/strategyqa.toml",
+  "configs/core/shared/benchmarks/hotpotqa.toml",
+]
+control_catalog = "configs/core/shared/controls/no_comm_equal_budget.toml"
+global_seed = 42
+prompt_version = "multi_agent_controlled_json"
+max_concurrent_requests = 5
+requests_per_minute_limit = 50
+tokens_per_minute_limit = 1000000
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+
+[[setups]]
+name = "mad_3a_r1"
+protocol = "configs/families/multi_agent/protocols/vanilla_mad_r1.toml"
+roster = "configs/families/multi_agent/rosters/homogeneous_3agent.toml"
+matched_controls = ["mv_6"]
+
+[phases.smoke20]
+split_suffix = "count20_seed42"
+setups = ["mad_3a_r1"]
+
+[phases.pilot100]
+split_suffix = "count100_seed42"
+setups = ["mad_3a_r1"]
+
+[phases.confirmatory300]
+split_overrides = { gsm8k = "count300_seed42", strategyqa = "full229_seed42", hotpotqa = "count300_seed42" }
+setups = ["mad_3a_r1"]
+
+[phases.confirmatory500]
+split_overrides = { gsm8k = "count500_seed42", strategyqa = "full229_seed42", hotpotqa = "count500_seed42" }
+setups = ["mad_3a_r1"]

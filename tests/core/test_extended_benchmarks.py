@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from experiment_core.foundation.config import load_benchmark_config
-from experiment_core.foundation.datasets import load_samples
-from experiment_core.foundation.evaluation import normalize_prediction, score_prediction
+from research_experiments.core.foundation.config import load_benchmark_config
+from research_experiments.core.foundation.datasets import load_samples
+from research_experiments.core.foundation.evaluation import normalize_prediction, score_prediction
 
 
 def test_math500_loader_reads_problem_and_unique_id() -> None:
-    benchmark = load_benchmark_config("configs/shared/benchmarks/math500.toml")
+    benchmark = load_benchmark_config("configs/core/shared/benchmarks/math500.toml")
     samples = load_samples(benchmark)
     assert samples
     sample = samples[0]
@@ -19,7 +19,7 @@ def test_math500_loader_reads_problem_and_unique_id() -> None:
 
 
 def test_mmlu_pro_loader_renders_options_and_mcq_gold() -> None:
-    benchmark = load_benchmark_config("configs/shared/benchmarks/mmlu_pro.toml")
+    benchmark = load_benchmark_config("configs/core/shared/benchmarks/mmlu_pro.toml")
     samples = load_samples(benchmark)
     assert samples
     sample = samples[0]
@@ -30,7 +30,7 @@ def test_mmlu_pro_loader_renders_options_and_mcq_gold() -> None:
 
 
 def test_gpqa_loader_renders_options_and_mcq_gold() -> None:
-    benchmark = load_benchmark_config("configs/shared/benchmarks/gpqa_diamond.toml")
+    benchmark = load_benchmark_config("configs/core/shared/benchmarks/gpqa_diamond.toml")
     samples = load_samples(benchmark)
     assert samples
     sample = samples[0]

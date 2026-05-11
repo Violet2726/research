@@ -22,22 +22,7 @@ dev = [
 ]
 
 [project.scripts]
-single_agent_cli = "single_agent.cli:main"
-multi_agent_cli = "multi_agent.cli:main"
-selective_comm_cli = "selective_comm.cli:main"
-sparc_cli = "sparc.cli:main"
-budget_comm_cli = "budget_comm.cli:main"
-sid_lite_cli = "sid_lite.cli:main"
-free_mad_lite_cli = "free_mad_lite.cli:main"
-comm_necessary_cli = "comm_necessary.cli:main"
-cue_cli = "cue.cli:main"
-cleanup_artifacts_cli = "experiment_core.tools.artifact_cleanup:main"
-faithful_matrix_cli = "experiment_core.matrix.faithful_matrix:main"
-cache_inspector_cli = "experiment_core.tools.cache_inspector:main"
-archive_runs_cli = "experiment_core.tools.archive_runs:main"
-cache_archive_cli = "experiment_core.tools.cache_archive:main"
-hf_sync_cli = "experiment_core.tools.hf_sync:main"
-dataset_assets_cli = "experiment_core.tools.dataset_assets:main"
+research_cli = "research_experiments.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

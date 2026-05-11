@@ -6,7 +6,7 @@ from pathlib import Path
 import json
 import shutil
 
-from experiment_core.foundation.run_archives import (
+from research_experiments.core.foundation.run_archives import (
     _build_run_publish_commit_message,
     extract_run_archives,
     pack_run_artifacts,

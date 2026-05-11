@@ -75,31 +75,31 @@ uv run baseline-cli generate-splits
 查看实验规格：
 
 ```powershell
-uv run baseline-cli inspect-experiment --experiment configs/single_agent/experiments/same_context_core_benchmarks.toml
+uv run baseline-cli inspect-experiment --experiment configs/families/single_agent/experiments/same_context_core_benchmarks.toml
 ```
 
 查看某个模型在实验中的最终解析结果：
 
 ```powershell
-uv run baseline-cli inspect-experiment --experiment configs/single_agent/experiments/same_context_core_benchmarks.toml --model dashscope/qwen-turbo-1101
+uv run baseline-cli inspect-experiment --experiment configs/families/single_agent/experiments/same_context_core_benchmarks.toml --model dashscope/qwen-turbo-1101
 ```
 
 运行主基线 smoke：
 
 ```powershell
-uv run baseline-cli run --experiment configs/single_agent/experiments/same_context_core_benchmarks.toml --phase smoke20 --model dashscope/qwen-turbo-1101
+uv run baseline-cli run --experiment configs/families/single_agent/experiments/same_context_core_benchmarks.toml --phase smoke20 --model dashscope/qwen-turbo-1101
 ```
 
 运行数学专项 pilot：
 
 ```powershell
-uv run baseline-cli run --experiment configs/single_agent/experiments/same_context_main_table.toml --phase pilot100 --model dashscope/qwen-turbo-1101
+uv run baseline-cli run --experiment configs/families/single_agent/experiments/same_context_main_table.toml --phase pilot100 --model dashscope/qwen-turbo-1101
 ```
 
 运行稳健性实验：
 
 ```powershell
-uv run baseline-cli run --experiment configs/single_agent/experiments/cross_provider_robustness.toml --phase pilot100 --model dashscope/qwen-turbo-1101
+uv run baseline-cli run --experiment configs/families/single_agent/experiments/cross_provider_robustness.toml --phase pilot100 --model dashscope/qwen-turbo-1101
 ```
 
 ## 5. 如何新增模型
@@ -107,7 +107,7 @@ uv run baseline-cli run --experiment configs/single_agent/experiments/cross_prov
 如果新模型只需要继承 provider 默认参数，可以直接运行：
 
 ```powershell
-uv run baseline-cli run --experiment configs/single_agent/experiments/same_context_core_benchmarks.toml --phase smoke20 --model dashscope/qwen-turbo-1101
+uv run baseline-cli run --experiment configs/families/single_agent/experiments/same_context_core_benchmarks.toml --phase smoke20 --model dashscope/qwen-turbo-1101
 ```
 
 如果希望这个模型：

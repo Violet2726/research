@@ -18,37 +18,42 @@
 
 ```text
 src/
-  experiment_core/   唯一共享核心层
-  <family>/          各实验线实现
+  research_experiments/
+    core/             共享核心能力
+    families/         各实验家族
+    matrix/           faithful matrix 编排
+    reporting/        共享报告与论文包能力
+    tools/            归档、缓存、数据集等工具
 
 configs/
-  shared/            benchmark / provider / model catalog
-  <family>/          各实验线 experiments / protocols / policies
+  core/
+    shared/           benchmark / provider / model catalog
+    matrix/           faithful matrix 规格
+  families/
+    <family>/         各实验线 experiments / protocols / policies
 
-datasets/            数据集恢复说明与合规说明
-docs/                仓库级设计说明
-files/               研究资料
-local/               默认本地工作区（runs / reports / cache / datasets）
-runs/                仅保留说明文件与历史占位
-reports/             仅保留说明文件与历史占位
-cache/               仅保留说明文件与历史占位
-tests/               自动化测试
+datasets/             数据集恢复说明与合规说明
+docs/                 仓库级设计说明
+files/                研究资料
+local/                默认本地工作区（runs / reports / cache / datasets）
+tests/                自动化测试
 ```
 
 更详细的目录说明见 [docs/project_structure.md](/d:/user/research/docs/project_structure.md)。
 
 ## 仓库约定
 
-- 共享能力只放在 `src/experiment_core/`
-- 不同实验包之间不直接互相导入
+- 共享能力只放在 `src/research_experiments/core/`
+- family 之间不直接互相导入
 - 公开配置字段统一使用 `primary_model_ref`
+- faithful matrix 规格统一放在 `configs/core/matrix/faithful_matrix.toml`
 - 默认工作区统一放在 `local/`
   - `local/runs/<family>/<experiment>/<phase>/<run_id>/`
   - `local/reports/<family>/`
   - `local/cache/providers/<provider>/<request_model>/<dataset>/requests.sqlite`
   - `local/datasets/<dataset>/...`
 - 每个 run 的正式图资产统一固化在 `local/runs/.../figures/`，并通过 `figure_manifest.json` 编目
-- 正式远程归档统一使用 Hugging Face dataset repo，不再把 `runs/` 与 `cache/` 作为 Git 产物提交
+- 正式远程归档统一使用 Hugging Face dataset repo
 - 项目文本文件统一使用 UTF-8
 
 ## 安装
@@ -71,14 +76,19 @@ $env:PYTHONUTF8 = "1"
 ## 常用命令
 
 ```powershell
-uv run single_agent_cli inspect-experiment --experiment configs/single_agent/experiments/same_context_core_benchmarks.toml
-uv run single_agent_cli run --experiment configs/single_agent/experiments/same_context_core_benchmarks.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
-uv run single_agent_cli render-report --run-dir local/runs/single_agent/same_context_core_benchmarks/smoke20/<run_id>
+uv run research_cli family single_agent inspect-experiment --experiment configs/families/single_agent/experiments/same_context_core_benchmarks.toml
+uv run research_cli family single_agent run --experiment configs/families/single_agent/experiments/same_context_core_benchmarks.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
+uv run research_cli family single_agent render-report --run-dir local/runs/single_agent/same_context_core_benchmarks/smoke20/<run_id>
 ```
 
 ```powershell
-uv run faithful_matrix_cli inspect-matrix
-uv run faithful_matrix_cli run --model xiaomimimo/mimo-v2.5 --phase smoke20
+uv run research_cli matrix inspect-matrix
+uv run research_cli matrix run --model xiaomimimo/mimo-v2.5 --phase smoke20
+```
+
+```powershell
+uv run research_cli tools dataset-assets prepare-used
+uv run research_cli tools archive-runs publish-run --run-root local/runs/<family>/<experiment>/<phase>/<run_id>
 ```
 
 ```powershell
@@ -87,7 +97,7 @@ uv run faithful_matrix_cli run --model xiaomimimo/mimo-v2.5 --phase smoke20
 
 ## 工作区与环境变量
 
-默认工作区根目录由 [workspace.py](/d:/user/research/src/experiment_core/foundation/workspace.py) 统一管理：
+默认工作区根目录由 [workspace.py](/d:/user/research/src/research_experiments/core/foundation/workspace.py) 统一管理：
 
 - `RESEARCH_RUNS_ROOT`
 - `RESEARCH_REPORTS_ROOT`
@@ -114,18 +124,18 @@ $env:RESEARCH_DATASETS_ROOT = "D:/artifacts/datasets"
 
 ## 数据集资产
 
-顶层 `datasets/` 现在只保留说明文档，不再承载原始 benchmark 大文件。
+顶层 `datasets/` 只保留恢复说明文档，不再承载原始 benchmark 大文件。
 
 正式数据集资产统一放在 `local/datasets/`，并通过下面的命令一键恢复：
 
 ```powershell
-uv run dataset_assets_cli prepare-used
-uv run dataset_assets_cli prepare-all-sources
+uv run research_cli tools dataset-assets prepare-used
+uv run research_cli tools dataset-assets prepare-all-sources
 ```
 
 ## Hugging Face 归档
 
-项目现在采用单一正式归档语义：
+项目采用单一正式归档语义：
 
 - `runs`：公开 Hugging Face dataset repo，保存可浏览报告与压缩归档包
 - `cache`：独立 latest-only Hugging Face dataset repo，保存最新快照
@@ -143,31 +153,31 @@ HF_TOKEN=hf_xxx
 常用归档命令：
 
 ```powershell
-uv run archive_runs_cli publish-run --run-root local/runs/<family>/<experiment>/<phase>/<run_id>
-uv run archive_runs_cli fetch-run --run-id <run_id>
+uv run research_cli tools archive-runs publish-run --run-root local/runs/<family>/<experiment>/<phase>/<run_id>
+uv run research_cli tools archive-runs fetch-run --run-id <run_id>
 ```
 
 ```powershell
-uv run cache_archive_cli push-latest --cache-root local/cache
-uv run cache_archive_cli pull-latest --target local/cache
+uv run research_cli tools cache-archive push-latest --cache-root local/cache
+uv run research_cli tools cache-archive pull-latest --target local/cache
 ```
 
 ```powershell
-uv run hf_sync_cli status
-uv run hf_sync_cli push-workspace
-uv run hf_sync_cli pull-workspace
+uv run research_cli tools hf-sync status
+uv run research_cli tools hf-sync push-workspace
+uv run research_cli tools hf-sync pull-workspace
 ```
 
 说明：
 
 - family 级 run 在 `finalize_run_outputs()` 后会按环境开关自动发布到 `RESEARCH_RUNS_HF_REPO`
 - `run_all_phases.ps1` / `run_all_phases.sh` 在启用 `RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT=1` 时，会在四阶段结束后自动推送 cache 最新快照
-- 本仓库不再以 Git 形式承载 `runs/`、`reports/`、`cache/` 的正式产物
+- Git 主仓不承载 `local/runs/`、`local/reports/`、`local/cache/` 下的正式产物
 
 ## 文档入口
 
 - [src/README.md](/d:/user/research/src/README.md)
-- [src/experiment_core/README.md](/d:/user/research/src/experiment_core/README.md)
+- [src/research_experiments/core/README.md](/d:/user/research/src/research_experiments/core/README.md)
 - [docs/README.md](/d:/user/research/docs/README.md)
 - [docs/project_structure.md](/d:/user/research/docs/project_structure.md)
 - [docs/run_report_pipeline.md](/d:/user/research/docs/run_report_pipeline.md)

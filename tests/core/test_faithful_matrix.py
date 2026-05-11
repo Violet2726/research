@@ -6,8 +6,8 @@ from collections import Counter
 import json
 from pathlib import Path
 
-from budget_comm.config import load_experiment_config as load_budget_experiment_config
-from experiment_core.matrix.faithful_matrix import (
+from research_experiments.families.budget_comm.config import load_experiment_config as load_budget_experiment_config
+from research_experiments.matrix.faithful_matrix import (
     MATRIX_EXPERIMENT_KIND,
     RuntimeOverrides,
     _prepare_orchestrator_paths,
@@ -15,8 +15,8 @@ from experiment_core.matrix.faithful_matrix import (
     build_run_matrix,
     resume_faithful_matrix,
 )
-from single_agent.config import load_experiment_config as load_single_agent_experiment_config
-from single_agent.config import required_model_tags
+from research_experiments.families.single_agent.config import load_experiment_config as load_single_agent_experiment_config
+from research_experiments.families.single_agent.config import required_model_tags
 
 
 def test_build_run_matrix_counts_expected() -> None:
@@ -102,7 +102,7 @@ def test_build_run_matrix_counts_expected_for_confirmatory500() -> None:
 
 def test_apply_runtime_overrides_clears_single_agent_smoke20_tag_constraints() -> None:
     overrides = RuntimeOverrides()
-    experiment = load_single_agent_experiment_config("configs/single_agent/experiments/cross_provider_robustness.toml")
+    experiment = load_single_agent_experiment_config("configs/families/single_agent/experiments/cross_provider_robustness.toml")
 
     overridden = apply_runtime_overrides("single_agent", experiment, overrides)
 
@@ -115,7 +115,7 @@ def test_apply_runtime_overrides_clears_single_agent_smoke20_tag_constraints() -
 
 def test_apply_runtime_overrides_updates_backbone_without_mutating_source_config() -> None:
     overrides = RuntimeOverrides()
-    experiment = load_budget_experiment_config("configs/budget_comm/experiments/dala_lite_same_context_main.toml")
+    experiment = load_budget_experiment_config("configs/families/budget_comm/experiments/dala_lite_same_context_main.toml")
 
     overridden = apply_runtime_overrides("budget_comm", experiment, overrides)
 
@@ -159,7 +159,7 @@ def test_resume_faithful_matrix_continues_rerun_needed_and_pending_entries(
         "entries": [
             {
                 "family": "comm_necessary",
-                "config_path": "configs/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml",
+                "config_path": "configs/families/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml",
                 "experiment_name": "hotpotqa_split_context_communication_necessity",
                 "description": "",
                 "phase_name": "pilot100",
@@ -186,26 +186,26 @@ def test_resume_faithful_matrix_continues_rerun_needed_and_pending_entries(
         run_dir.mkdir(parents=True, exist_ok=True)
         return run_dir
 
-    monkeypatch.setattr("experiment_core.matrix.faithful_matrix._execute_entry", _fake_execute_entry)
-    monkeypatch.setattr("experiment_core.matrix.faithful_matrix._validate_entry", lambda family, run_dir: {"passed": True})
+    monkeypatch.setattr("research_experiments.matrix.faithful_matrix._execute_entry", _fake_execute_entry)
+    monkeypatch.setattr("research_experiments.matrix.faithful_matrix._validate_entry", lambda family, run_dir: {"passed": True})
     monkeypatch.setattr(
-        "experiment_core.matrix.faithful_matrix.review_run_health",
+        "research_experiments.matrix.faithful_matrix.review_run_health",
         lambda run_dir, family: type("Review", (), {"passed": True, "notes": "validation_passed_and_metrics_nonempty"})(),
     )
     monkeypatch.setattr(
-        "experiment_core.matrix.faithful_matrix.render_faithful_analysis",
+        "research_experiments.matrix.faithful_matrix.render_faithful_analysis",
         lambda *args, **kwargs: {},
     )
     monkeypatch.setattr(
-        "experiment_core.matrix.faithful_matrix.render_acceptance_summary",
+        "research_experiments.matrix.faithful_matrix.render_acceptance_summary",
         lambda *args, **kwargs: {},
     )
     monkeypatch.setattr(
-        "experiment_core.matrix.faithful_matrix.render_paper_statistics",
+        "research_experiments.matrix.faithful_matrix.render_paper_statistics",
         lambda *args, **kwargs: {},
     )
     monkeypatch.setattr(
-        "experiment_core.matrix.faithful_matrix.render_paper_package",
+        "research_experiments.matrix.faithful_matrix.render_paper_package",
         lambda *args, **kwargs: {},
     )
 

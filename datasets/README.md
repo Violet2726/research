@@ -2,7 +2,7 @@
 
 这个目录不再承载正式数据文件。
 
-项目的数据集资产现在统一放在本地工作区 `local/datasets/`，并通过 `dataset_assets_cli` 一键恢复。
+项目的数据集资产现在统一放在本地工作区 `local/datasets/`，并通过 `research_cli tools dataset-assets` 一键恢复。
 
 这样做的目标是：
 
@@ -20,19 +20,19 @@
 只恢复主评测源并重建 split：
 
 ```powershell
-uv run dataset_assets_cli prepare-used
+uv run research_cli tools dataset-assets prepare-used
 ```
 
 同时恢复训练集与可公开下载的验证补充源：
 
 ```powershell
-uv run dataset_assets_cli prepare-all-sources
+uv run research_cli tools dataset-assets prepare-all-sources
 ```
 
 强制覆盖已有本地文件：
 
 ```powershell
-uv run dataset_assets_cli prepare-all-sources --force
+uv run research_cli tools dataset-assets prepare-all-sources --force
 ```
 
 ## 主评测源文件

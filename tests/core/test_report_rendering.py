@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from selective_comm.reporting import render_report as render_selective_report
-from single_agent.reporting import render_report as render_single_agent_report
-from sparc.reporting import render_report as render_sparc_report
+from research_experiments.families.selective_comm.run.report import render_report as render_selective_report
+from research_experiments.families.single_agent.run.report import render_report as render_single_agent_report
+from research_experiments.families.sparc.run.report import render_report as render_sparc_report
 
 
 def test_single_agent_render_report_outputs_scientific_markdown(tmp_path: Path) -> None:
@@ -199,7 +199,7 @@ def test_sparc_render_report_outputs_scientific_markdown(tmp_path: Path) -> None
         {
             "created_at": "2026-05-09T12:00:00+00:00",
             "experiment": "content_ablation",
-            "experiment_kind": "content_ablation",
+            "variant_name": "content_ablation",
             "phase": "smoke20",
             "resolved_model": {"name": "xiaomimimo/mimo-v2.5"},
         },
@@ -250,7 +250,7 @@ def test_sparc_render_report_outputs_scientific_markdown(tmp_path: Path) -> None
     _write_json(
         tmp_path / "diagnostics.json",
         {
-            "experiment_kind": "content_ablation",
+            "variant_name": "content_ablation",
             "recommended_next_default": {
                 "method_name": "answer_only",
                 "accuracy_mean": 0.61,

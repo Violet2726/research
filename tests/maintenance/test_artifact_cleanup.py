@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 
-from experiment_core.tools.artifact_cleanup import (
+from research_experiments.tools.artifact_cleanup import (
     build_parser,
     cleanup_invalid_artifacts,
     collect_report_statuses,
@@ -186,10 +186,10 @@ def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
 
 
 def _fake_run_status(passed: bool):
-    from experiment_core.tools.artifact_cleanup import RunStatus
+    from research_experiments.tools.artifact_cleanup import RunStatus
 
     return RunStatus(
-        package_name="multi_agent",
+        family_name="multi_agent",
         run_dir=Path("local/runs/multi_agent/fake"),
         run_id="fake",
         exists=True,

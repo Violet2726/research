@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import inspect
 
-from budget_comm.runner import _run_sample as budget_run_sample
-from comm_necessary.runner import _run_sample as comm_necessary_run_sample
-from cue.runner import _run_sample as cue_run_sample
-from free_mad_lite.runner import _run_sample as free_mad_run_sample
-from multi_agent.runner import _run_mad_sample as multi_agent_run_sample
-from selective_comm.runner import _run_sample as selective_run_sample
-from sid_lite.runner import _run_sample as sid_run_sample
-from sparc.runner import _run_sample as sparc_run_sample
+from research_experiments.families.budget_comm.run.execute import _run_sample as budget_run_sample
+from research_experiments.families.comm_necessary.run.execute import _run_sample as comm_necessary_run_sample
+from research_experiments.families.cue.run.execute import _run_sample as cue_run_sample
+from research_experiments.families.free_mad_lite.run.execute import _run_sample as free_mad_run_sample
+from research_experiments.families.multi_agent.run.execute import _run_mad_sample as multi_agent_run_sample
+from research_experiments.families.selective_comm.run.execute import _run_sample as selective_run_sample
+from research_experiments.families.sid_lite.run.execute import _run_sample as sid_run_sample
+from research_experiments.families.sparc.run.execute import _run_sample as sparc_run_sample
 
 
 def test_sample_batch_workers_accept_sample_as_first_positional_argument() -> None:
