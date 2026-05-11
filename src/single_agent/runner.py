@@ -30,6 +30,7 @@ from experiment_core.foundation.datasets import (
     select_samples,
 )
 from experiment_core.foundation.evaluation import aggregate_majority, normalize_prediction, score_prediction
+from experiment_core.foundation.family_helpers import resolve_phase_split_name
 from experiment_core.foundation.methods import MethodConfig, load_method_catalog
 from experiment_core.foundation.providers import OpenAICompatibleProvider, build_payload, execute_completion_request
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
@@ -40,9 +41,9 @@ from experiment_core.foundation.runner_common import (
     run_indexed_batch,
 )
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
-from experiment_core.foundation.structured_output import (
+from experiment_core.structured_outputs import (
     ARTIFACT_VERSION,
-    OUTPUT_MODE_CORE,
+    SCHEMA_ANSWER_CORE,
     validate_or_recover_structured_output,
 )
 from experiment_core.foundation.workspace import (
@@ -403,7 +404,7 @@ def _execute_call(
             top_p=spec.top_p,
             max_output_tokens=spec.max_output_tokens,
             seed=spec.seed,
-            output_mode=OUTPUT_MODE_CORE,
+            schema_id=SCHEMA_ANSWER_CORE,
         )
     else:
         cached = cache.get(spec.cache_key)
@@ -426,7 +427,7 @@ def _execute_call(
             try:
                 validated_output = validate_or_recover_structured_output(
                     str(response_payload.get("assistant_text") or ""),
-                    OUTPUT_MODE_CORE,
+                    SCHEMA_ANSWER_CORE,
                     provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
                 )
                 output_status = "ok"
@@ -589,10 +590,7 @@ def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: s
 
 def _resolve_split_name(experiment: ExperimentConfig, phase_name: str, benchmark_slug: str) -> str:
     """解析某个 benchmark 在当前 phase 下实际使用的 split 名称。"""
-    phase = phase_metadata(experiment, phase_name)
-    if "split_overrides" in phase:
-        return phase["split_overrides"][benchmark_slug]
-    return phase["split_suffix"]
+    return resolve_phase_split_name(experiment, phase_name, benchmark_slug)
 
 
 def _model_is_allowed(experiment: ExperimentConfig, phase_name: str, model: ResolvedModelConfig) -> bool:

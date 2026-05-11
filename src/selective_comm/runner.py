@@ -22,6 +22,7 @@ from experiment_core.foundation.artifacts import BufferedJsonlWriter
 from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, json_dump
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import aggregate_majority, normalize_prediction, score_prediction
+from experiment_core.foundation.family_helpers import build_question_preview, resolve_phase_split_name, safe_mean, safe_ratio, stable_trace_hash
 from experiment_core.foundation.providers import OpenAICompatibleProvider
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
 from experiment_core.foundation.runner_common import (
@@ -39,9 +40,10 @@ from experiment_core.controls.selective_signals import (
     summarize_confidence_rows,
 )
 from experiment_core.foundation.methods import MethodConfig
-from experiment_core.foundation.structured_output import (
+from experiment_core.orchestration.reference_runs import write_policy_reference_summary
+from experiment_core.structured_outputs import (
     ARTIFACT_VERSION,
-    OUTPUT_MODE_SELECTIVE_COMM,
+    SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE,
 )
 from experiment_core.foundation.workspace import default_cache_root, default_runs_root
 from selective_comm.config import (
@@ -260,6 +262,7 @@ def run_experiment(
     run_paths.policy_metrics.write_text(json.dumps(metrics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     run_paths.oracle_trigger_eval.write_text(json.dumps(oracle_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     run_paths.policy_diagnostics.write_text(json.dumps(diagnostics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_policy_reference_summary(run_paths.root, manifest=manifest, metrics_payload=metrics_payload)
     render_report(run_paths.root)
     finalize_run_outputs(
         run_paths.root,
@@ -956,7 +959,7 @@ def _execute_turn(
         top_p=top_p,
         max_output_tokens=max_output_tokens,
         seed=seed,
-        output_mode=OUTPUT_MODE_SELECTIVE_COMM,
+        schema_id=SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE,
         dataset=dataset,
         use_response_format=False,
     )
@@ -1301,10 +1304,7 @@ def _group_stage_tokens(turn_rows: list[dict[str, Any]]) -> dict[str, float]:
 
 def _resolve_split_name(experiment: SelectiveCommExperimentConfig, phase_name: str, benchmark_slug: str) -> str:
     """解析当前 benchmark 对应的冻结 split 名称。"""
-    phase = phase_metadata(experiment, phase_name)
-    if "split_overrides" in phase:
-        return phase["split_overrides"][benchmark_slug]
-    return phase["split_suffix"]
+    return resolve_phase_split_name(experiment, phase_name, benchmark_slug)
 
 
 def _estimate_work(
@@ -1349,44 +1349,35 @@ def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: s
 
 def _trace_hash(rows: list[dict[str, Any]]) -> str:
     """对共享阶段 turn 结果做稳定哈希。"""
-    payload = [
-        {
-            "stage_name": row["stage_name"],
-            "method_name": row["method_name"],
-            "round_index": row["round_index"],
-            "agent_id": row["agent_id"],
-            "prompt_hash": row["prompt_hash"],
-            "normalized_answer": row["normalized_answer"],
-            "confidence_value": row["confidence_value"],
-            "output_status": row["output_status"],
-            "request_error": row["request_error"],
-        }
-        for row in rows
-    ]
-    return sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+    return stable_trace_hash(
+        rows,
+        [
+            "stage_name",
+            "method_name",
+            "round_index",
+            "agent_id",
+            "prompt_hash",
+            "normalized_answer",
+            "confidence_value",
+            "output_status",
+            "request_error",
+        ],
+    )
 
 
 def _question_preview(question: str, max_chars: int = 120) -> str:
     """生成稳定的问题预览。"""
-    cleaned = " ".join(question.split())
-    if len(cleaned) <= max_chars:
-        return cleaned
-    return cleaned[: max_chars - 3] + "..."
+    return build_question_preview(question, max_chars=max_chars)
 
 
 def _mean(values) -> float:
     """安全计算均值。"""
-    materialized = list(values)
-    if not materialized:
-        return 0.0
-    return round(sum(materialized) / len(materialized), 6)
+    return safe_mean(values)
 
 
 def _ratio(numerator: int, denominator: int) -> float:
     """安全计算比例。"""
-    if denominator == 0:
-        return 0.0
-    return round(numerator / denominator, 6)
+    return safe_ratio(numerator, denominator)
 
 
 def _count_rows_by_sample(rows: list[dict[str, Any]]) -> dict[tuple[str, str], int]:

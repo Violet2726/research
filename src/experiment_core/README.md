@@ -8,6 +8,8 @@
   基础设施层，包含配置、数据集、缓存、provider、限流、运行时、归档与工作区管理。
 - `controls/`
   跨实验复用的控制逻辑，如选择性通信信号与无通信对照。
+- `structured_outputs/`
+  按语义 schema 组织的结构化输出校验与恢复层，避免共享核心继续吸收 family 语义。
 - `matrix/`
   faithful matrix 编排、分析与验收。
 - `reporting/`

@@ -99,8 +99,8 @@
   以请求体为键做响应缓存。
 - `rate_limits.py`
   用滑动窗口做 RPM / TPM 限流。
-- `structured_output.py`
-  对不同 output mode 做统一 schema 校验与恢复。
+- `structured_outputs/`
+  按语义 schema 组织结构化输出校验与恢复，而不是按 family 名字堆叠模式分支。
 - `evaluation.py`
   做答案归一化、打分和投票聚合。
 - `runtime.py`
@@ -110,21 +110,18 @@
 
 ## 3.2 结构化输出约束
 
-当前共享的 output mode 包括：
+当前共享的 schema 按语义划分为：
 
-- `core`
-- `selective_comm`
-- `budget_solver`
-- `budget_belief_update`
-- `sparc_solver`
-- `sparc_message`
-- `sparc_belief_update`
-- `sparc_audit`
-- `cue_solver`
-- `cue_belief_update`
-- `cue_audit`
-- `comm_necessary_solver`
-- `comm_necessary_belief`
+- `answer_core`
+- `answer_with_proxy_signals.selective`
+- `answer_with_proxy_signals.deliberation`
+- `answer_with_proxy_signals.budget`
+- `deliberation_packet`
+- `belief_update_delta`
+- `audit_verdict`
+- `split_context_solver`
+- `split_context_belief`
+- `cue_blackbox_packet`
 
 统一原则是：
 
@@ -212,7 +209,7 @@
 
 - 先把 `模型 × benchmark × method × rerun` 展开成 call spec。
 - 每条调用彼此独立。
-- 所有回答走统一的 `core` output schema。
+- 所有回答走统一的 `answer_core` schema。
 - 样本级预测再按 method 做聚合和评分。
 
 ## 5.4 详细执行流程

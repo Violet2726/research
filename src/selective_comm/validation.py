@@ -28,6 +28,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "policy_metrics.json",
         "policy_diagnostics.json",
         "oracle_trigger_eval.json",
+        "policy_reference_summary.json",
         "progress.json",
         "report.md",
         "figure_manifest.json",

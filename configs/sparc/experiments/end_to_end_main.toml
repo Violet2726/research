@@ -21,10 +21,15 @@ tokens_per_minute_limit = 1000000
 primary_model_ref = "deepseek/deepseek-v4-flash"
 
 [sparc_v1]
-default_trigger_policy = "hybrid_trigger"
-fallback_trigger_policy = "disagreement_triggered"
-trigger_drop_questions = 1.0
 fixed_message_modes = { gsm8k = "disagreement_step_only", strategyqa = "disagreement_step_only", hotpotqa = "critical_evidence_only" }
+
+[sparc_v1.trigger_reference]
+source_family = "selective_comm"
+source_experiment = "trigger_early_exit_main"
+source_phase = "smoke20"
+default_policy = "hybrid_trigger"
+fallback_policy = "disagreement_triggered"
+drop_questions_threshold = 1.0
 
 [phases.smoke20]
 split_suffix = "count20_seed42"

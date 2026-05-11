@@ -12,11 +12,11 @@ from typing import Any
 
 from experiment_core.foundation.config import BenchmarkConfig, ResolvedModelConfig
 from experiment_core.foundation.config_helpers import (
-    load_benchmarks as load_benchmarks_from_experiment,
+    load_benchmarks,
     load_toml,
     optional_int,
-    phase_metadata as phase_metadata_from_raw,
-    resolve_model as resolve_shared_model,
+    phase_metadata,
+    resolve_model,
 )
 
 
@@ -89,18 +89,4 @@ def load_experiment_config(path: str | Path) -> SidLiteExperimentConfig:
         raw=payload,
     )
 
-
-def phase_metadata(experiment: SidLiteExperimentConfig, phase_name: str) -> dict[str, Any]:
-    """返回指定 phase 的原始配置。"""
-    return phase_metadata_from_raw(experiment, phase_name)
-
-
-def load_benchmarks(experiment: SidLiteExperimentConfig) -> list[BenchmarkConfig]:
-    """加载实验声明的 benchmark 配置。"""
-    return load_benchmarks_from_experiment(experiment)
-
-
-def resolve_model(model_ref: str) -> ResolvedModelConfig:
-    """解析 SID-lite backbone 模型。"""
-    return resolve_shared_model(model_ref)
 

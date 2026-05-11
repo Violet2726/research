@@ -20,6 +20,7 @@ from experiment_core.foundation.artifacts import BufferedJsonlWriter
 from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, json_dump
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import aggregate_majority, normalize_prediction, score_prediction
+from experiment_core.foundation.family_helpers import resolve_phase_split_name
 from experiment_core.controls.no_comm_controls import run_no_comm_control_batch
 from experiment_core.foundation.providers import OpenAICompatibleProvider
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
@@ -29,10 +30,7 @@ from experiment_core.foundation.runner_common import (
     run_indexed_batch,
 )
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
-from experiment_core.foundation.structured_output import (
-    ARTIFACT_VERSION,
-    OUTPUT_MODE_CORE,
-)
+from experiment_core.structured_outputs import ARTIFACT_VERSION, SCHEMA_ANSWER_CORE
 from experiment_core.foundation.workspace import default_cache_root, default_runs_root
 from multi_agent.config import (
     ExperimentSetup,
@@ -677,7 +675,7 @@ def _execute_turn(
         top_p=top_p,
         max_output_tokens=max_output_tokens,
         seed=seed,
-        output_mode=OUTPUT_MODE_CORE,
+        schema_id=SCHEMA_ANSWER_CORE,
     )
     final_answer = str(result.validated_output.get("final_answer") or "")
     normalized = normalize_prediction(dataset, final_answer) if final_answer else ""
@@ -867,10 +865,7 @@ def _active_setups(experiment: MultiAgentExperimentConfig, phase_name: str) -> l
 
 def _resolve_split_name(experiment: MultiAgentExperimentConfig, phase_name: str, benchmark_slug: str) -> str:
     """解析当前 benchmark 在该 phase 下对应的冻结 split 名称。"""
-    phase = phase_metadata(experiment, phase_name)
-    if "split_overrides" in phase:
-        return phase["split_overrides"][benchmark_slug]
-    return phase["split_suffix"]
+    return resolve_phase_split_name(experiment, phase_name, benchmark_slug)
 
 
 def _load_selected_samples(benchmark, split_name: str) -> list[DatasetSample]:

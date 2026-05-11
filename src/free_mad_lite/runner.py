@@ -12,7 +12,6 @@ from datetime import datetime, timezone
 from functools import partial
 from hashlib import sha256
 from pathlib import Path
-import csv
 import json
 from typing import Any
 
@@ -23,6 +22,7 @@ from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, j
 from experiment_core.foundation.config import ResolvedModelConfig
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import normalize_prediction, score_prediction
+from experiment_core.foundation.family_helpers import resolve_phase_split_name, safe_mean, stable_trace_hash, summarize_row_cost
 from experiment_core.foundation.providers import OpenAICompatibleProvider
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
 from experiment_core.foundation.runner_common import (
@@ -32,8 +32,13 @@ from experiment_core.foundation.runner_common import (
 )
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from experiment_core.controls.selective_signals import normalize_confidence
-from experiment_core.foundation.structured_output import ARTIFACT_VERSION, OUTPUT_MODE_CORE, validate_or_recover_structured_output
+from experiment_core.structured_outputs import ARTIFACT_VERSION, SCHEMA_ANSWER_CORE, validate_or_recover_structured_output
 from experiment_core.foundation.workspace import default_cache_root, default_runs_root
+from free_mad_lite.analytics import (
+    build_diagnostics_payload as build_free_mad_diagnostics_payload,
+    build_metrics_payload as build_free_mad_metrics_payload,
+    write_paper_summary as write_free_mad_paper_summary,
+)
 from free_mad_lite.config import (
     FreeMadLiteExperimentConfig,
     FreeMadLiteProtocolConfig,
@@ -42,7 +47,6 @@ from free_mad_lite.config import (
     phase_metadata,
 )
 from free_mad_lite.logic import (
-    METHOD_ORDER,
     build_trajectory_decision,
     deterministic_trajectory_fallback,
     majority_vote_with_counts,
@@ -179,11 +183,11 @@ def run_experiment(
                     all_scores.extend(score_rows)
                     all_predictions.extend(prediction_rows)
 
-        metrics = _build_metrics(all_predictions)
-        diagnostics = _build_diagnostics(all_predictions, all_scores)
+        metrics = build_free_mad_metrics_payload(all_predictions)
+        diagnostics = build_free_mad_diagnostics_payload(all_predictions, all_scores)
         run_paths.metrics.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
         run_paths.diagnostics.write_text(json.dumps(diagnostics, ensure_ascii=False, indent=2), encoding="utf-8")
-        _write_paper_summary(run_paths.paper_summary, metrics)
+        write_free_mad_paper_summary(run_paths.paper_summary, metrics)
         render_report(run_paths.root)
         run_paths.run_summary.write_text(json.dumps(summarize_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
         finalize_run_outputs(
@@ -726,7 +730,7 @@ def _validate_output(raw_text: str, output_mode: str, *, provider_reasoning_text
         except Exception:
             recovered = validate_or_recover_structured_output(
                 raw_text,
-                OUTPUT_MODE_CORE,
+                SCHEMA_ANSWER_CORE,
                 provider_reasoning_text=provider_reasoning_text,
             )
             return {
@@ -783,70 +787,6 @@ def _optional_int(value: object) -> int | None:
         return None
 
 
-def _build_metrics(prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    summary: list[dict[str, Any]] = []
-    datasets = sorted({row["dataset"] for row in prediction_rows})
-    for dataset in [*datasets, "overall"]:
-        rows_for_dataset = prediction_rows if dataset == "overall" else [row for row in prediction_rows if row["dataset"] == dataset]
-        for method in METHOD_ORDER:
-            rows = [row for row in rows_for_dataset if row["method_name"] == method]
-            if not rows:
-                continue
-            accuracy = _mean(float(row["score"]) for row in rows)
-            total_tokens = _mean(float(row["total_tokens_per_question"]) for row in rows)
-            summary.append(
-                {
-                    "dataset": dataset,
-                    "model_name": rows[0]["model_name"],
-                    "method_name": method,
-                    "method_kind": rows[0]["method_kind"],
-                    "question_count": len(rows),
-                    "accuracy_mean": round(accuracy, 6),
-                    "prompt_tokens_mean": round(_mean(float(row["prompt_tokens_per_question"]) for row in rows), 6),
-                    "completion_tokens_mean": round(_mean(float(row["completion_tokens_per_question"]) for row in rows), 6),
-                    "total_tokens_mean": round(total_tokens, 6),
-                    "communication_tokens_mean": round(_mean(float(row["communication_tokens_per_question"]) for row in rows), 6),
-                    "latency_ms_mean": round(_mean(float(row["latency_ms_per_question"]) for row in rows), 6),
-                    "calls_per_question_mean": round(_mean(float(row["calls_per_question"]) for row in rows), 6),
-                    "acc_per_1k_tokens": round((accuracy / total_tokens * 1000) if total_tokens else 0.0, 6),
-                    "judge_fallback_rate": round(_mean(1.0 if row.get("judge_fallback_used") else 0.0 for row in rows), 6),
-                    "changed_answer_rate": round(_mean(float(row.get("changed_answer_rate") or 0.0) for row in rows), 6),
-                    "corrected_count": sum(1 for row in rows if row.get("corrected_by_method")),
-                    "harmed_count": sum(1 for row in rows if row.get("harmed_by_method")),
-                    "minority_rescue_count": sum(1 for row in rows if row.get("minority_rescue")),
-                }
-            )
-    return {"summary": summary}
-
-
-def _build_diagnostics(prediction_rows: list[dict[str, Any]], score_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    trajectory_rows = [row for row in prediction_rows if row.get("method_name") == "free_mad_lite_llm_trajectory"]
-    return {
-        "judge_fallback_rate": round(_mean(1.0 if row.get("judge_fallback_used") else 0.0 for row in trajectory_rows), 6),
-        "judge_fallback_count": sum(1 for row in score_rows if row.get("judge_fallback_used")),
-        "trajectory_score_rows": len(score_rows),
-        "anti_conformity_prompt_hash": anti_conformity_prompt_hash(),
-    }
-
-
-def _write_paper_summary(path: Path, metrics: dict[str, Any]) -> None:
-    fieldnames = [
-        "dataset",
-        "model_name",
-        "method_name",
-        "accuracy_mean",
-        "communication_tokens_mean",
-        "total_tokens_mean",
-        "calls_per_question_mean",
-        "acc_per_1k_tokens",
-    ]
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in metrics.get("summary", []):
-            writer.writerow({key: row.get(key) for key in fieldnames})
-
-
 def _estimate_work(
     experiment: FreeMadLiteExperimentConfig,
     phase_name: str,
@@ -862,10 +802,7 @@ def _estimate_work(
 
 
 def _resolve_split_name(experiment: FreeMadLiteExperimentConfig, phase_name: str, benchmark_slug: str) -> str:
-    phase = phase_metadata(experiment, phase_name)
-    if "split_overrides" in phase:
-        return str(phase["split_overrides"][benchmark_slug])
-    return str(phase["split_suffix"])
+    return resolve_phase_split_name(experiment, phase_name, benchmark_slug)
 
 
 def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> RunPaths:
@@ -910,22 +847,13 @@ def _changed_answer_rate(rows: list[dict[str, Any]]) -> float:
 
 
 def _cost(rows: list[dict[str, Any]]) -> dict[str, float]:
-    return {
-        "prompt_tokens": round(sum(float(row.get("prompt_tokens") or 0.0) for row in rows), 6),
-        "completion_tokens": round(sum(float(row.get("completion_tokens") or 0.0) for row in rows), 6),
-        "total_tokens": round(sum(float(row.get("total_tokens") or 0.0) for row in rows), 6),
-        "latency_ms": round(sum(float(row.get("latency_ms") or 0.0) for row in rows), 6),
-    }
+    return summarize_row_cost(rows)
 
 
 def _trace_hash(rows: list[dict[str, Any]], keys: list[str]) -> str:
-    payload = [{key: row.get(key) for key in keys} for row in rows]
-    return sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+    return stable_trace_hash(rows, keys)
 
 
 def _mean(values) -> float:
-    materialized = list(values)
-    if not materialized:
-        return 0.0
-    return sum(materialized) / len(materialized)
+    return safe_mean(values)
 

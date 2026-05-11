@@ -21,7 +21,7 @@ from experiment_core.foundation.providers import (
     execute_completion_request,
 )
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
-from experiment_core.foundation.structured_output import validate_or_recover_structured_output
+from experiment_core.structured_outputs import SchemaId, validate_or_recover_structured_output
 
 
 T = TypeVar("T")
@@ -103,7 +103,7 @@ def execute_cached_turn(
     max_output_tokens: int,
     seed: int | None,
     validator: TurnValidator | None = None,
-    output_mode: str | None = None,
+    schema_id: SchemaId | None = None,
     dataset: str | None = None,
     use_response_format: bool = True,
     request_executor: TurnRequestExecutor | None = None,
@@ -152,11 +152,11 @@ def execute_cached_turn(
                     str(response_payload.get("provider_reasoning_text") or ""),
                 )
             else:
-                if output_mode is None:
-                    raise ValueError("output_mode is required when validator is not provided.")
+                if schema_id is None:
+                    raise ValueError("schema_id is required when validator is not provided.")
                 validated_output = validate_or_recover_structured_output(
                     str(response_payload.get("assistant_text") or ""),
-                    output_mode,
+                    schema_id,
                     dataset=dataset,
                     provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
                 )

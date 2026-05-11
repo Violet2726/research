@@ -44,6 +44,7 @@ from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, j
 from experiment_core.foundation.config import ResolvedModelConfig
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import normalize_prediction
+from experiment_core.foundation.family_helpers import resolve_phase_split_name
 from experiment_core.foundation.providers import OpenAICompatibleProvider, estimate_request_tokens
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
 from experiment_core.foundation.runner_common import (
@@ -52,9 +53,9 @@ from experiment_core.foundation.runner_common import (
     run_indexed_batch,
 )
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
-from experiment_core.foundation.structured_output import (
-    OUTPUT_MODE_COMM_NECESSARY_BELIEF,
-    OUTPUT_MODE_COMM_NECESSARY_SOLVER,
+from experiment_core.structured_outputs import (
+    SCHEMA_SPLIT_CONTEXT_BELIEF,
+    SCHEMA_SPLIT_CONTEXT_SOLVER,
     validate_or_recover_structured_output,
 )
 from experiment_core.foundation.workspace import default_cache_root, default_runs_root
@@ -798,7 +799,7 @@ def _validate_output(raw_text: str, output_mode: str, *, provider_reasoning_text
     """对模型 JSON 做宽容解析，降低小样本烟测中的格式噪声。"""
     if output_mode not in {"solver", "belief"}:
         raise ValueError(f"Unsupported output_mode: {output_mode}")
-    structured_mode = OUTPUT_MODE_COMM_NECESSARY_SOLVER if output_mode == "solver" else OUTPUT_MODE_COMM_NECESSARY_BELIEF
+    structured_mode = SCHEMA_SPLIT_CONTEXT_SOLVER if output_mode == "solver" else SCHEMA_SPLIT_CONTEXT_BELIEF
     payload = validate_or_recover_structured_output(
         raw_text,
         structured_mode,
@@ -996,10 +997,7 @@ def _estimate_work(
 
 
 def _resolve_split_name(experiment: CommNecessaryExperimentConfig, phase_name: str, benchmark_slug: str) -> str:
-    phase = phase_metadata(experiment, phase_name)
-    if "split_overrides" in phase:
-        return str(phase["split_overrides"][benchmark_slug])
-    return str(phase["split_suffix"])
+    return resolve_phase_split_name(experiment, phase_name, benchmark_slug)
 
 
 def _cost(rows: list[dict[str, Any]]) -> dict[str, float]:

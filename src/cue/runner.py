@@ -42,6 +42,7 @@ from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, j
 from experiment_core.foundation.datasets import DatasetSample, select_samples
 from experiment_core.foundation.evaluation import aggregate_majority as eval_aggregate_majority
 from experiment_core.foundation.evaluation import normalize_prediction, score_prediction
+from experiment_core.foundation.family_helpers import build_question_preview, resolve_phase_split_name, safe_mean, safe_ratio, stable_trace_hash
 from experiment_core.foundation.providers import OpenAICompatibleProvider
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
 from experiment_core.foundation.runner_common import (
@@ -51,12 +52,11 @@ from experiment_core.foundation.runner_common import (
 )
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from experiment_core.controls.selective_signals import confidence_display, normalize_confidence
-from experiment_core.foundation.structured_output import (
+from experiment_core.structured_outputs import (
     ARTIFACT_VERSION,
-    OUTPUT_MODE_CUE_AUDIT,
-    OUTPUT_MODE_CUE_BELIEF_UPDATE,
-    OUTPUT_MODE_CUE_SOLVER,
-    validate_or_recover_structured_output,
+    SCHEMA_AUDIT_VERDICT,
+    SCHEMA_BELIEF_UPDATE_DELTA,
+    SCHEMA_CUE_BLACKBOX_PACKET,
 )
 from experiment_core.foundation.workspace import default_cache_root, default_runs_root
 from experiment_core.foundation.methods import MethodConfig
@@ -354,7 +354,7 @@ def _run_sample(
             "max_output_tokens": protocol.max_output_tokens,
             "seed": experiment.global_seed + agent_id,
             "question_preview": question_preview,
-            "output_mode": OUTPUT_MODE_CUE_SOLVER,
+            "output_mode": SCHEMA_CUE_BLACKBOX_PACKET,
         }
         for agent_id in range(1, protocol.agent_count + 1)
     ]
@@ -658,7 +658,7 @@ def _run_shared_communication(
                 "max_output_tokens": protocol.max_output_tokens,
                 "seed": experiment.global_seed + 100 + int(stage_a_row["agent_id"]),
                 "question_preview": question_preview,
-                "output_mode": OUTPUT_MODE_CUE_BELIEF_UPDATE,
+                "output_mode": SCHEMA_BELIEF_UPDATE_DELTA,
             }
         )
     communication_turns = _execute_turn_batch(
@@ -709,7 +709,7 @@ def _run_shared_communication(
                 max_output_tokens=protocol.audit_token_cap,
                 seed=experiment.global_seed + 999,
                 question_preview=question_preview,
-                output_mode=OUTPUT_MODE_CUE_AUDIT,
+                output_mode=SCHEMA_AUDIT_VERDICT,
             )
             audit_turns.append(audit_row)
             if audit_row["output_status"] == "ok":
@@ -778,7 +778,7 @@ def _run_control_method(
             "max_output_tokens": control.max_output_tokens,
             "seed": experiment.global_seed + 1000 + replicate_id,
             "question_preview": question_preview,
-            "output_mode": OUTPUT_MODE_CUE_SOLVER,
+            "output_mode": SCHEMA_CUE_BLACKBOX_PACKET,
         }
         for replicate_id in range(control.budget_calls)
     ]
@@ -887,24 +887,24 @@ def _execute_turn(
         top_p=top_p,
         max_output_tokens=max_output_tokens,
         seed=seed,
-        output_mode=output_mode,
+        schema_id=output_mode,
     )
-    if output_mode == OUTPUT_MODE_CUE_SOLVER:
+    if output_mode == SCHEMA_CUE_BLACKBOX_PACKET:
         final_answer = str(result.validated_output.get("final_answer") or "")
-    elif output_mode == OUTPUT_MODE_CUE_BELIEF_UPDATE:
+    elif output_mode == SCHEMA_BELIEF_UPDATE_DELTA:
         final_answer = str(result.validated_output.get("new_answer") or "")
-    elif output_mode == OUTPUT_MODE_CUE_AUDIT:
+    elif output_mode == SCHEMA_AUDIT_VERDICT:
         final_answer = str(result.validated_output.get("verified_answer") or "")
     else:
         final_answer = ""
 
-    confidence_raw = result.validated_output.get("confidence") if output_mode == OUTPUT_MODE_CUE_SOLVER and result.validated_output else None
+    confidence_raw = result.validated_output.get("confidence") if output_mode == SCHEMA_CUE_BLACKBOX_PACKET and result.validated_output else None
     confidence_value, confidence_valid, confidence_source = normalize_confidence(confidence_raw)
-    top_claims = result.validated_output.get("top_claims", []) if output_mode == OUTPUT_MODE_CUE_SOLVER and result.validated_output else []
-    evidence_items = result.validated_output.get("evidence_items", []) if output_mode == OUTPUT_MODE_CUE_SOLVER and result.validated_output else []
-    reasoning_sketch = result.validated_output.get("reasoning_sketch") if output_mode == OUTPUT_MODE_CUE_SOLVER and result.validated_output else None
-    uncertain_point = result.validated_output.get("uncertain_point") if output_mode == OUTPUT_MODE_CUE_SOLVER and result.validated_output else None
-    counter_answer = result.validated_output.get("counter_answer") if output_mode == OUTPUT_MODE_CUE_SOLVER and result.validated_output else None
+    top_claims = result.validated_output.get("top_claims", []) if output_mode == SCHEMA_CUE_BLACKBOX_PACKET and result.validated_output else []
+    evidence_items = result.validated_output.get("evidence_items", []) if output_mode == SCHEMA_CUE_BLACKBOX_PACKET and result.validated_output else []
+    reasoning_sketch = result.validated_output.get("reasoning_sketch") if output_mode == SCHEMA_CUE_BLACKBOX_PACKET and result.validated_output else None
+    uncertain_point = result.validated_output.get("uncertain_point") if output_mode == SCHEMA_CUE_BLACKBOX_PACKET and result.validated_output else None
+    counter_answer = result.validated_output.get("counter_answer") if output_mode == SCHEMA_CUE_BLACKBOX_PACKET and result.validated_output else None
     return {
         "run_id": run_id,
         "dataset": dataset,
@@ -1098,10 +1098,7 @@ def _select_next_default_policy(metric_lookup: dict[tuple[str, str], dict[str, A
 
 
 def _resolve_split_name(experiment: CueExperimentConfig, phase_name: str, benchmark_slug: str) -> str:
-    phase = phase_metadata(experiment, phase_name)
-    if "split_overrides" in phase:
-        return phase["split_overrides"][benchmark_slug]
-    return phase["split_suffix"]
+    return resolve_phase_split_name(experiment, phase_name, benchmark_slug)
 
 
 def _estimate_work(
@@ -1162,42 +1159,30 @@ def _execute_turn_batch(turn_specs: list[dict[str, Any]], *, max_workers: int) -
     return [_execute_turn(**spec) for spec in turn_specs]
 
 
-    return [_execute_turn(**spec) for spec in turn_specs]
-
-
 def _trace_hash(rows: list[dict[str, Any]]) -> str:
-    payload = [
-        {
-            "stage_name": row["stage_name"],
-            "method_name": row["method_name"],
-            "round_index": row["round_index"],
-            "agent_id": row["agent_id"],
-            "prompt_hash": row["prompt_hash"],
-            "normalized_answer": row["normalized_answer"],
-            "output_status": row["output_status"],
-            "request_error": row["request_error"],
-        }
-        for row in rows
-    ]
-    return sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+    return stable_trace_hash(
+        rows,
+        [
+            "stage_name",
+            "method_name",
+            "round_index",
+            "agent_id",
+            "prompt_hash",
+            "normalized_answer",
+            "output_status",
+            "request_error",
+        ],
+    )
 
 
 def _question_preview(question: str, max_chars: int = 120) -> str:
-    cleaned = " ".join(question.split())
-    if len(cleaned) <= max_chars:
-        return cleaned
-    return cleaned[: max_chars - 3] + "..."
+    return build_question_preview(question, max_chars=max_chars)
 
 
 def _mean(values) -> float:
-    materialized = list(values)
-    if not materialized:
-        return 0.0
-    return round(sum(materialized) / len(materialized), 6)
+    return safe_mean(values)
 
 
 def _ratio(numerator: int, denominator: int) -> float:
-    if denominator == 0:
-        return 0.0
-    return round(numerator / denominator, 6)
+    return safe_ratio(numerator, denominator)
 

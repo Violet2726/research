@@ -52,6 +52,7 @@ from experiment_core.foundation.artifacts import BufferedJsonlWriter
 from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, json_dump
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import aggregate_majority, normalize_prediction, score_prediction
+from experiment_core.foundation.family_helpers import build_question_preview, resolve_phase_split_name, safe_mean, stable_trace_hash, sum_metric
 from experiment_core.foundation.providers import OpenAICompatibleProvider
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
 from experiment_core.foundation.runner_common import (
@@ -61,11 +62,10 @@ from experiment_core.foundation.runner_common import (
 )
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from experiment_core.controls.selective_signals import confidence_display, normalize_confidence
-from experiment_core.foundation.structured_output import (
+from experiment_core.structured_outputs import (
     ARTIFACT_VERSION,
-    OUTPUT_MODE_BUDGET_BELIEF_UPDATE,
-    OUTPUT_MODE_BUDGET_SOLVER,
-    validate_or_recover_structured_output,
+    SCHEMA_ANSWER_WITH_PROXY_SIGNALS_BUDGET,
+    SCHEMA_BELIEF_UPDATE_DELTA,
 )
 from experiment_core.foundation.workspace import default_cache_root, default_runs_root
 
@@ -605,7 +605,7 @@ def _prepare_shared_context(
             top_p=protocol.top_p,
             max_output_tokens=protocol.max_output_tokens,
             seed=experiment.global_seed + view.agent_id,
-            output_mode=OUTPUT_MODE_BUDGET_SOLVER,
+            output_mode=SCHEMA_ANSWER_WITH_PROXY_SIGNALS_BUDGET,
         )
         stage_a_turn["context_view_hash"] = view.view_context_hash
         stage_a_turn["includes_full_context"] = view.includes_full_context
@@ -705,7 +705,7 @@ def _run_stage_b_method(
             top_p=shared_context["protocol"].top_p,
             max_output_tokens=shared_context["protocol"].max_output_tokens,
             seed=shared_context["experiment"].global_seed + view.agent_id + 100,
-            output_mode=OUTPUT_MODE_BUDGET_BELIEF_UPDATE,
+            output_mode=SCHEMA_BELIEF_UPDATE_DELTA,
         )
         belief_row["selected_peer_agent_ids"] = sorted(int(row["agent_id"]) for row in selected_rows if int(row["agent_id"]) != int(view.agent_id))
         belief_row["selected_peer_packet_modes"] = {
@@ -1003,10 +1003,7 @@ def _estimate_work(
 
 def _resolve_split_name(experiment: BudgetCommExperimentConfig, phase_name: str, benchmark_slug: str) -> str:
     """解析某个 benchmark 在当前 phase 下使用的冻结 split 名称。"""
-    phase = phase_metadata(experiment, phase_name)
-    if "split_overrides" in phase:
-        return str(phase["split_overrides"][benchmark_slug])
-    return str(phase["split_suffix"])
+    return resolve_phase_split_name(experiment, phase_name, benchmark_slug)
 
 
 def _execute_turn(
@@ -1050,9 +1047,9 @@ def _execute_turn(
         top_p=top_p,
         max_output_tokens=max_output_tokens,
         seed=seed,
-        output_mode=output_mode,
+        schema_id=output_mode,
     )
-    if output_mode == OUTPUT_MODE_BUDGET_BELIEF_UPDATE:
+    if output_mode == SCHEMA_BELIEF_UPDATE_DELTA:
         answer_for_normalization = str(result.validated_output.get("new_answer") or "")
     else:
         answer_for_normalization = str(result.validated_output.get("final_answer") or "")
@@ -1085,7 +1082,7 @@ def _execute_turn(
         "provider_reasoning_text": result.response_payload.get("provider_reasoning_text", ""),
         "validated_output": result.validated_output,
     }
-    if output_mode == OUTPUT_MODE_BUDGET_SOLVER:
+    if output_mode == SCHEMA_ANSWER_WITH_PROXY_SIGNALS_BUDGET:
         # Stage A 需要额外展开证据、关键词与置信度归一化字段，
         # 供后续 density 计算与消息压缩复用。
         confidence_raw = result.validated_output.get("confidence_raw") if result.validated_output else None
@@ -1119,27 +1116,23 @@ def _execute_turn(
 
 def _trace_hash(rows: list[dict[str, Any]]) -> str:
     """为一组阶段日志生成稳定 trace 哈希。"""
-    payload = [
-        {
-            "stage_name": row["stage_name"],
-            "method_name": row["method_name"],
-            "round_index": row["round_index"],
-            "agent_id": row["agent_id"],
-            "prompt_hash": row["prompt_hash"],
-            "normalized_answer": row["normalized_answer"],
-            "output_status": row["output_status"],
-        }
-        for row in rows
-    ]
-    return sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+    return stable_trace_hash(
+        rows,
+        [
+            "stage_name",
+            "method_name",
+            "round_index",
+            "agent_id",
+            "prompt_hash",
+            "normalized_answer",
+            "output_status",
+        ],
+    )
 
 
 def _question_preview(question: str, max_chars: int = 120) -> str:
     """生成用于日志与报告展示的短问题预览。"""
-    cleaned = " ".join(question.split())
-    if len(cleaned) <= max_chars:
-        return cleaned
-    return cleaned[: max_chars - 3] + "..."
+    return build_question_preview(question, max_chars=max_chars)
 
 
 def _stable_sample_seed(sample_id: str) -> int:
@@ -1149,9 +1142,9 @@ def _stable_sample_seed(sample_id: str) -> int:
 
 def _repair_budget_output(raw_text: str, output_mode: str) -> dict[str, Any] | None:
     """对被截断的 budget JSON 做轻量修复。"""
-    if output_mode == OUTPUT_MODE_BUDGET_SOLVER:
+    if output_mode == SCHEMA_ANSWER_WITH_PROXY_SIGNALS_BUDGET:
         return _repair_budget_solver_output(raw_text)
-    if output_mode == OUTPUT_MODE_BUDGET_BELIEF_UPDATE:
+    if output_mode == SCHEMA_BELIEF_UPDATE_DELTA:
         return _repair_budget_belief_update_output(raw_text)
     return None
 
@@ -1235,15 +1228,12 @@ def _extract_json_bool_field(raw_text: str, field_name: str) -> bool | None:
 
 def _sum_metric(rows: list[dict[str, Any]], key: str) -> float:
     """对一组日志行中的某个数值字段求和。"""
-    return sum(float(row.get(key) or 0.0) for row in rows)
+    return sum_metric(rows, key)
 
 
 def _mean(values) -> float:
     """安全计算均值。"""
-    materialized = list(values)
-    if not materialized:
-        return 0.0
-    return round(sum(materialized) / len(materialized), 6)
+    return safe_mean(values)
 
 
 def _median_floor(values: list[int]) -> int:

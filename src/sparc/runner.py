@@ -23,6 +23,7 @@ from experiment_core.foundation.artifacts import BufferedJsonlWriter
 from experiment_core.foundation.cache import RequestCache, RequestCacheRouter, json_dump
 from experiment_core.foundation.datasets import DatasetSample, load_split_ids, select_samples
 from experiment_core.foundation.evaluation import aggregate_majority, normalize_prediction, score_prediction
+from experiment_core.foundation.family_helpers import build_question_preview, resolve_phase_split_name, safe_mean, stable_trace_hash, sum_metric
 from experiment_core.foundation.providers import OpenAICompatibleProvider, build_payload, execute_completion_request
 from experiment_core.foundation.rate_limits import SlidingWindowRateLimiter
 from experiment_core.foundation.runner_common import (
@@ -32,13 +33,13 @@ from experiment_core.foundation.runner_common import (
 )
 from experiment_core.foundation.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from experiment_core.controls.selective_signals import decide_trigger, normalize_confidence, summarize_confidence_rows
-from experiment_core.foundation.structured_output import (
+from experiment_core.orchestration.reference_runs import resolve_trigger_reference_selection
+from experiment_core.structured_outputs import (
     ARTIFACT_VERSION,
-    OUTPUT_MODE_CORE,
-    OUTPUT_MODE_SPARC_AUDIT,
-    OUTPUT_MODE_SPARC_BELIEF_UPDATE,
-    OUTPUT_MODE_SPARC_SOLVER,
-    validate_or_recover_structured_output,
+    SCHEMA_ANSWER_CORE,
+    SCHEMA_ANSWER_WITH_PROXY_SIGNALS_DELIBERATION,
+    SCHEMA_AUDIT_VERDICT,
+    SCHEMA_BELIEF_UPDATE_DELTA,
 )
 from experiment_core.foundation.workspace import default_cache_root, default_runs_root
 from sparc.config import (
@@ -158,16 +159,12 @@ def run_experiment(
         "max_concurrent_requests": experiment.max_concurrent_requests,
         "requests_per_minute_limit": experiment.requests_per_minute_limit,
         "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
-        "family_name": "sparc",
-        "experiment_name": experiment.name,
-        "phase_name": phase_name,
-        "primary_model_ref": experiment.primary_model_ref,
-        "resolved_model": asdict(backbone),
         "benchmarks": [asdict(benchmark) for benchmark in benchmarks],
         "message_modes": experiment.message_modes,
         "fixed_message_modes": experiment.fixed_message_modes,
         "aggregation_methods": experiment.aggregation_methods,
         "fixed_trigger_policy": experiment.fixed_trigger_policy,
+        "trigger_reference": asdict(experiment.trigger_reference) if experiment.trigger_reference is not None else None,
         "selected_trigger_policy": trigger_selection["selected_policy"],
         "trigger_selection": trigger_selection,
         "total_planned_calls": total_calls,
@@ -906,7 +903,7 @@ def _run_shared_stage_a(
                 max_output_tokens=protocol.max_output_tokens,
                 seed=experiment.global_seed + agent_id,
                 question_preview=question_preview,
-                output_mode=OUTPUT_MODE_SPARC_SOLVER,
+                output_mode=SCHEMA_ANSWER_WITH_PROXY_SIGNALS_DELIBERATION,
             )
         )
     return stage_a_turns
@@ -992,7 +989,7 @@ def _run_shared_stage_b(
             max_output_tokens=protocol.max_output_tokens,
             seed=experiment.global_seed + recipient_id + 100,
             question_preview=shared_context["question_preview"],
-            output_mode=OUTPUT_MODE_SPARC_BELIEF_UPDATE,
+            output_mode=SCHEMA_BELIEF_UPDATE_DELTA,
         )
         belief_row["message_mode"] = requested_message_mode
         belief_rows.append(belief_row)
@@ -1061,7 +1058,7 @@ def _run_single_judge(
         max_output_tokens=shared_context["protocol"].max_output_tokens,
         seed=shared_context["experiment"].global_seed + 999,
         question_preview=shared_context["question_preview"],
-        output_mode=OUTPUT_MODE_CORE,
+        output_mode=SCHEMA_ANSWER_CORE,
     )
     judge_row["input_includes_full_debate"] = False
     prediction = judge_row["normalized_answer"] or shared_context["stage_a_vote"]
@@ -1124,7 +1121,7 @@ def _run_local_auditing(
         max_output_tokens=shared_context["protocol"].max_output_tokens,
         seed=shared_context["experiment"].global_seed + 1999,
         question_preview=shared_context["question_preview"],
-        output_mode=OUTPUT_MODE_SPARC_AUDIT,
+        output_mode=SCHEMA_AUDIT_VERDICT,
     )
     audit_row["input_includes_full_debate"] = False
     audit_row["pair_type"] = pair["pair_type"]
@@ -1369,53 +1366,9 @@ def _export_paper_summary(path: Path, summary_rows: list[dict[str, Any]]) -> Non
 def _resolve_trigger_selection(experiment: SparcExperimentConfig, backbone) -> dict[str, Any]:
     if experiment.experiment_kind != "sparc_v1":
         return {"selected_policy": experiment.fixed_trigger_policy or "always_communicate", "reason": "not_applicable"}
-    default_policy = experiment.default_trigger_policy or "hybrid_trigger"
-    fallback_policy = experiment.fallback_trigger_policy or "disagreement_triggered"
-    trigger_root = Path(default_runs_root("selective_comm")) / "trigger_early_exit_main" / "smoke20"
-    best_run_dir = None
-    family_prefix = f"{backbone.provider}/{backbone.model_id.split('-', 1)[0]}"
-    for manifest_path in trigger_root.rglob("manifest.json"):
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        manifest_backbone = str(manifest.get("backbone", {}).get("name") or "")
-        if manifest_backbone == backbone.name:
-            best_run_dir = manifest_path.parent
-        elif best_run_dir is None and manifest_backbone.startswith(family_prefix):
-            best_run_dir = manifest_path.parent
-    if best_run_dir is None:
-        return {
-            "selected_policy": default_policy,
-            "reason": "reference_missing",
-            "reference_run_dir": None,
-        }
-    metrics = json.loads((best_run_dir / "policy_metrics.json").read_text(encoding="utf-8"))
-    overall_rows = {
-        row["method_name"]: row
-        for row in metrics.get("summary", [])
-        if row.get("dataset") == "overall"
-    }
-    always_row = overall_rows.get("always_communicate")
-    hybrid_row = overall_rows.get("hybrid_trigger")
-    selected = default_policy
-    reason = "default_policy_kept"
-    drop_questions = 0.0
-    if always_row and hybrid_row:
-        question_count = int(always_row.get("question_count") or 0)
-        drop_questions = max(
-            0.0,
-            (float(always_row.get("accuracy_mean") or 0.0) - float(hybrid_row.get("accuracy_mean") or 0.0)) * question_count,
-        )
-        if drop_questions > experiment.trigger_drop_questions:
-            selected = fallback_policy
-            reason = "hybrid_drops_more_than_threshold"
-    return {
-        "selected_policy": selected,
-        "reason": reason,
-        "reference_run_dir": str(best_run_dir),
-        "always_accuracy": always_row.get("accuracy_mean") if always_row else None,
-        "hybrid_accuracy": hybrid_row.get("accuracy_mean") if hybrid_row else None,
-        "drop_questions": round(drop_questions, 6),
-        "threshold_questions": experiment.trigger_drop_questions,
-    }
+    if experiment.trigger_reference is None:
+        return {"selected_policy": "hybrid_trigger", "reason": "trigger_reference_missing"}
+    return resolve_trigger_reference_selection(backbone=backbone, reference=experiment.trigger_reference)
 
 
 def _attach_content_compression_ratios(summary_rows: list[dict[str, Any]]) -> None:
@@ -1439,10 +1392,7 @@ def _best_summary_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _resolve_split_name(experiment: SparcExperimentConfig, phase_name: str, benchmark_slug: str) -> str:
-    phase = phase_metadata(experiment, phase_name)
-    if "split_overrides" in phase:
-        return phase["split_overrides"][benchmark_slug]
-    return phase["split_suffix"]
+    return resolve_phase_split_name(experiment, phase_name, benchmark_slug)
 
 
 def _estimate_work(
@@ -1488,15 +1438,11 @@ def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: s
 
 
 def _trace_hash(rows: list[dict[str, Any]], keys: list[str]) -> str:
-    payload = [{key: row.get(key) for key in keys} for row in rows]
-    return sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+    return stable_trace_hash(rows, keys)
 
 
 def _question_preview(question: str, max_chars: int = 120) -> str:
-    cleaned = " ".join(question.split())
-    if len(cleaned) <= max_chars:
-        return cleaned
-    return cleaned[: max_chars - 3] + "..."
+    return build_question_preview(question, max_chars=max_chars)
 
 
 def _execute_turn(
@@ -1560,7 +1506,7 @@ def _execute_turn(
         top_p=top_p,
         max_output_tokens=max_output_tokens,
         seed=seed,
-        output_mode=output_mode,
+        schema_id=output_mode,
         request_executor=_request_executor,
     )
     answer_for_normalization = _answer_for_output_mode(result.validated_output, output_mode) if result.validated_output else ""
@@ -1592,7 +1538,7 @@ def _execute_turn(
         "validated_output": result.validated_output,
         "sanitized_fallback_used": bool(result.response_payload.get("sanitized_fallback_used")),
     }
-    if output_mode == OUTPUT_MODE_SPARC_SOLVER:
+    if output_mode == SCHEMA_ANSWER_WITH_PROXY_SIGNALS_DELIBERATION:
         confidence_raw = result.validated_output.get("confidence_raw") if result.validated_output else None
         confidence_value, confidence_valid, confidence_source = normalize_confidence(confidence_raw)
         row.update(
@@ -1609,7 +1555,7 @@ def _execute_turn(
                 "uncertain_point": result.validated_output.get("uncertain_point") if result.validated_output else None,
             }
         )
-    elif output_mode == OUTPUT_MODE_SPARC_BELIEF_UPDATE:
+    elif output_mode == SCHEMA_BELIEF_UPDATE_DELTA:
         row.update(
             {
                 "changed_answer": result.validated_output.get("changed_answer") if result.validated_output else None,
@@ -1619,7 +1565,7 @@ def _execute_turn(
                 "remaining_disagreement": result.validated_output.get("remaining_disagreement") if result.validated_output else None,
             }
         )
-    elif output_mode == OUTPUT_MODE_SPARC_AUDIT:
+    elif output_mode == SCHEMA_AUDIT_VERDICT:
         row.update(
             {
                 "decision": result.validated_output.get("decision") if result.validated_output else None,
@@ -1627,15 +1573,15 @@ def _execute_turn(
                 "rationale": result.validated_output.get("rationale") if result.validated_output else None,
             }
         )
-    elif output_mode == OUTPUT_MODE_CORE:
+    elif output_mode == SCHEMA_ANSWER_CORE:
         row["reasoning"] = result.validated_output.get("reasoning") if result.validated_output else None
     return row
 
 
 def _answer_for_output_mode(validated_output: dict[str, Any], output_mode: str) -> str:
-    if output_mode == OUTPUT_MODE_SPARC_BELIEF_UPDATE:
+    if output_mode == SCHEMA_BELIEF_UPDATE_DELTA:
         return str(validated_output.get("new_answer") or "")
-    if output_mode == OUTPUT_MODE_SPARC_AUDIT:
+    if output_mode == SCHEMA_AUDIT_VERDICT:
         return str(validated_output.get("verified_answer") or "")
     return str(validated_output.get("final_answer") or "")
 
@@ -1700,12 +1646,9 @@ def _sanitize_messages_for_provider(messages: list[dict[str, str]]) -> list[dict
 
 
 def _sum_metric(rows: list[dict[str, Any]], key: str) -> float:
-    return round(sum(float(row.get(key) or 0.0) for row in rows), 6)
+    return round(sum_metric(rows, key), 6)
 
 
 def _mean(values) -> float:
-    materialized = list(values)
-    if not materialized:
-        return 0.0
-    return round(sum(materialized) / len(materialized), 6)
+    return safe_mean(values)
 

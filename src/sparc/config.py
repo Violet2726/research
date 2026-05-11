@@ -12,13 +12,14 @@ from typing import Any
 
 from experiment_core.foundation.config import BenchmarkConfig, ResolvedModelConfig
 from experiment_core.foundation.config_helpers import (
-    load_benchmarks as load_benchmarks_from_experiment,
+    load_benchmarks,
     load_toml,
     optional_int,
     optional_str,
-    phase_metadata as phase_metadata_from_raw,
-    resolve_model as resolve_shared_model,
+    phase_metadata,
+    resolve_model,
 )
+from experiment_core.orchestration.reference_runs import TriggerReferenceConfig
 
 
 EXPERIMENT_KIND_VALUES = {"content_ablation", "auditing_ablation", "sparc_v1"}
@@ -55,9 +56,7 @@ class SparcExperimentConfig:
     message_modes: list[str]
     fixed_message_modes: dict[str, str]
     aggregation_methods: list[str]
-    default_trigger_policy: str | None
-    fallback_trigger_policy: str | None
-    trigger_drop_questions: float
+    trigger_reference: TriggerReferenceConfig | None
     raw: dict[str, Any]
 
 
@@ -91,6 +90,30 @@ def load_experiment_config(path: str | Path) -> SparcExperimentConfig:
             or {}
         ).items()
     }
+    trigger_reference_payload = sparc_config.get("trigger_reference")
+    if trigger_reference_payload is None and any(
+        key in sparc_config for key in ("default_trigger_policy", "fallback_trigger_policy", "trigger_drop_questions")
+    ):
+        trigger_reference_payload = {
+            "source_family": "selective_comm",
+            "source_experiment": "trigger_early_exit_main",
+            "source_phase": "smoke20",
+            "default_policy": optional_str(sparc_config, "default_trigger_policy") or "hybrid_trigger",
+            "fallback_policy": optional_str(sparc_config, "fallback_trigger_policy") or "disagreement_triggered",
+            "drop_questions_threshold": float(sparc_config.get("trigger_drop_questions", 1.0)),
+        }
+    trigger_reference = (
+        TriggerReferenceConfig(
+            source_family=str(trigger_reference_payload["source_family"]),
+            source_experiment=str(trigger_reference_payload["source_experiment"]),
+            source_phase=str(trigger_reference_payload["source_phase"]),
+            default_policy=str(trigger_reference_payload["default_policy"]),
+            fallback_policy=str(trigger_reference_payload["fallback_policy"]),
+            drop_questions_threshold=float(trigger_reference_payload["drop_questions_threshold"]),
+        )
+        if trigger_reference_payload is not None
+        else None
+    )
     return SparcExperimentConfig(
         name=str(payload["name"]),
         description=str(payload["description"]),
@@ -107,23 +130,9 @@ def load_experiment_config(path: str | Path) -> SparcExperimentConfig:
         message_modes=[str(item) for item in content_config.get("message_modes", [])],
         fixed_message_modes=fixed_message_modes,
         aggregation_methods=[str(item) for item in auditing_config.get("aggregation_methods", [])],
-        default_trigger_policy=optional_str(sparc_config, "default_trigger_policy"),
-        fallback_trigger_policy=optional_str(sparc_config, "fallback_trigger_policy"),
-        trigger_drop_questions=float(sparc_config.get("trigger_drop_questions", 1.0)),
+        trigger_reference=trigger_reference,
         raw=payload,
     )
-
-
-def phase_metadata(experiment: SparcExperimentConfig, phase_name: str) -> dict[str, Any]:
-    return phase_metadata_from_raw(experiment, phase_name)
-
-
-def load_benchmarks(experiment: SparcExperimentConfig) -> list[BenchmarkConfig]:
-    return load_benchmarks_from_experiment(experiment)
-
-
-def resolve_model(model_ref: str) -> ResolvedModelConfig:
-    return resolve_shared_model(model_ref)
 
 
 def _first_str(primary: dict[str, Any], secondary: dict[str, Any], key: str) -> str | None:

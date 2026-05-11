@@ -71,9 +71,7 @@ def _build_inspect_payload(experiment_path: str, model_override: str | None) -> 
         "message_modes": experiment.message_modes,
         "fixed_message_modes": experiment.fixed_message_modes,
         "aggregation_methods": experiment.aggregation_methods,
-        "default_trigger_policy": experiment.default_trigger_policy,
-        "fallback_trigger_policy": experiment.fallback_trigger_policy,
-        "trigger_drop_questions": experiment.trigger_drop_questions,
+        "trigger_reference": asdict(experiment.trigger_reference) if experiment.trigger_reference is not None else None,
         "phases": {
             phase_name: phase_metadata(experiment, phase_name)
             for phase_name in experiment.raw["phases"]

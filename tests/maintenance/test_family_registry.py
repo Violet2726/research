@@ -65,7 +65,10 @@ def test_tracked_text_files_are_utf8_and_only_powershell_keeps_bom() -> None:
     unexpected_bom: list[str] = []
     for rel_path in tracked_paths:
         if rel_path.name in TEXT_FILENAMES or rel_path.suffix.lower() in TEXT_SUFFIXES:
-            data = (ROOT / rel_path).read_bytes()
+            abs_path = ROOT / rel_path
+            if not abs_path.exists():
+                continue
+            data = abs_path.read_bytes()
             try:
                 data.decode("utf-8")
             except UnicodeDecodeError:

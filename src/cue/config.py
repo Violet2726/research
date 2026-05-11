@@ -8,11 +8,11 @@ from typing import Any
 
 from experiment_core.foundation.config import BenchmarkConfig, ResolvedModelConfig
 from experiment_core.foundation.config_helpers import (
-    load_benchmarks as load_benchmarks_from_experiment,
+    load_benchmarks,
     load_toml,
     optional_int,
-    phase_metadata as phase_metadata_from_raw,
-    resolve_model as resolve_shared_model,
+    phase_metadata,
+    resolve_model,
 )
 from experiment_core.foundation.methods import MethodConfig, load_method_catalog
 
@@ -153,18 +153,4 @@ def load_experiment_config(path: str | Path) -> CueExperimentConfig:
         raw=payload,
     )
 
-
-def phase_metadata(experiment: CueExperimentConfig, phase_name: str) -> dict[str, Any]:
-    """读取指定 phase 的原始元数据。"""
-    return phase_metadata_from_raw(experiment, phase_name)
-
-
-def load_benchmarks(experiment: CueExperimentConfig) -> list[BenchmarkConfig]:
-    """解析实验引用的 benchmark 配置。"""
-    return load_benchmarks_from_experiment(experiment)
-
-
-def resolve_model(model_ref: str) -> ResolvedModelConfig:
-    """解析实验默认或命令行传入的模型引用。"""
-    return resolve_shared_model(model_ref)
 

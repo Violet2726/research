@@ -25,7 +25,10 @@ from sid_lite.reporting import summarize_run as summarize_sid
 from sid_lite.validation import validate_run as validate_sid
 from single_agent.reporting import summarize_run as summarize_single_agent
 from single_agent.validation import validate_run as validate_single_agent
-from experiment_core.foundation.structured_output import _recover_selective_output_from_reasoning_text
+from experiment_core.structured_outputs import (
+    SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE,
+    validate_or_recover_structured_output,
+)
 
 
 def test_single_agent_reporting_and_validation_use_method_name(tmp_path: Path) -> None:
@@ -164,6 +167,7 @@ def test_selective_comm_validation_contract(tmp_path: Path) -> None:
         },
     )
     _touch_json(tmp_path / "oracle_trigger_eval.json", {"summary_rows": []})
+    _touch_json(tmp_path / "policy_reference_summary.json", {"run_id": "seed", "overall_policies": {}})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
     _touch_figure_contract(tmp_path)
 
@@ -316,26 +320,32 @@ def test_selective_comm_resume_seed_state_keeps_only_complete_samples(tmp_path: 
 
 
 def test_selective_comm_reasoning_fallback_recovers_math_answer() -> None:
-    payload = _recover_selective_output_from_reasoning_text(
-        "The steps are straightforward. Final answer should be 68. Confidence 0.99.",
-        "gsm8k",
+    payload = validate_or_recover_structured_output(
+        "",
+        SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE,
+        dataset="gsm8k",
+        provider_reasoning_text="The steps are straightforward. Final answer should be 68. Confidence 0.99.",
     )
     assert payload["final_answer"] == "68"
     assert payload["claim_span"] == "68"
 
 
 def test_selective_comm_reasoning_fallback_recovers_strategy_answer() -> None:
-    payload = _recover_selective_output_from_reasoning_text(
-        "Avengers are Marvel, not DC. So the answer should be yes.",
-        "strategyqa",
+    payload = validate_or_recover_structured_output(
+        "",
+        SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE,
+        dataset="strategyqa",
+        provider_reasoning_text="Avengers are Marvel, not DC. So the answer should be yes.",
     )
     assert payload["final_answer"] == "yes"
 
 
 def test_selective_comm_reasoning_fallback_recovers_hotpot_answer() -> None:
-    payload = _recover_selective_output_from_reasoning_text(
-        "Tivolis Koncertsal is at Tivoli Gardens, and the answer should be 15 August 1843.",
-        "hotpotqa",
+    payload = validate_or_recover_structured_output(
+        "",
+        SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE,
+        dataset="hotpotqa",
+        provider_reasoning_text="Tivolis Koncertsal is at Tivoli Gardens, and the answer should be 15 August 1843.",
     )
     assert payload["final_answer"] == "15 August 1843"
 
