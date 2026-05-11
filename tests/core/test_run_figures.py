@@ -68,6 +68,7 @@ def test_write_figure_bundle_writes_manifest_svg_and_csv(tmp_path: Path) -> None
     assert manifest_path.exists()
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert payload["figure_count"] == 3
+    assert payload["figures"][0]["takeaway"]
     assert (tmp_path / "figures" / "frontier_overall.svg").exists()
     assert (tmp_path / "figures" / "frontier_overall.csv").exists()
 
@@ -120,6 +121,7 @@ def test_validate_figure_contract_checks_manifest_and_report_reference(tmp_path:
     contract = validate_figure_contract(tmp_path)
     assert contract["passed"] is True
     assert contract["report_references_count"] >= 1
+    assert "要点：" in report_text
 
 
 def test_summary_row_view_exposes_stable_label_and_numeric_access() -> None:

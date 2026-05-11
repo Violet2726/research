@@ -51,6 +51,7 @@ def write_figure_bundle(run_dir: str | Path, figure_specs: list[dict[str, Any]])
                 "figure_id": figure_id,
                 "title": str(normalized["title"]),
                 "caption": str(normalized["caption"]),
+                "takeaway": str(normalized.get("takeaway") or ""),
                 "svg_path": f"figures/{figure_id}.svg",
                 "csv_path": f"figures/{figure_id}.csv",
                 "source_kind": str(normalized["source_kind"]),
@@ -98,6 +99,9 @@ def append_figure_gallery_markdown(
             f"![{figure['title']}]({link})\n\n"
             f"*{figure['caption']}*\n"
         )
+        takeaway = str(figure.get("takeaway") or "").strip()
+        if takeaway:
+            body += f"\n要点：{takeaway}\n"
     return body.rstrip() + "\n"
 
 
@@ -174,6 +178,7 @@ def build_frontier_figure_spec(
         "figure_id": figure_id,
         "title": title,
         "caption": caption,
+        "takeaway": _frontier_takeaway(data, primary_metric),
         "renderer": "scatter",
         "source_kind": "metrics.summary",
         "dataset_scope": "overall",
@@ -212,6 +217,7 @@ def build_efficiency_rank_figure_spec(
         "figure_id": figure_id,
         "title": title,
         "caption": caption,
+        "takeaway": _rank_takeaway(data, primary_metric),
         "renderer": "rank_bar",
         "source_kind": "metrics.summary",
         "dataset_scope": "overall",
@@ -249,6 +255,7 @@ def build_score_by_dataset_figure_spec(
         "figure_id": figure_id,
         "title": title,
         "caption": caption,
+        "takeaway": _dataset_takeaway(data, primary_metric),
         "renderer": "matrix_dot",
         "source_kind": "metrics.summary",
         "dataset_scope": "per_dataset",
@@ -278,6 +285,7 @@ def build_scatter_figure_spec(
         "figure_id": figure_id,
         "title": title,
         "caption": caption,
+        "takeaway": _scatter_takeaway(data, primary_metric),
         "renderer": "scatter",
         "source_kind": source_kind,
         "dataset_scope": dataset_scope,
@@ -309,6 +317,7 @@ def build_grouped_bar_figure_spec(
         "figure_id": figure_id,
         "title": title,
         "caption": caption,
+        "takeaway": _grouped_bar_takeaway(data, series),
         "renderer": "grouped_bar",
         "source_kind": source_kind,
         "dataset_scope": dataset_scope,
@@ -337,6 +346,7 @@ def build_interval_figure_spec(
         "figure_id": figure_id,
         "title": title,
         "caption": caption,
+        "takeaway": _interval_takeaway(data, primary_metric),
         "renderer": "interval",
         "source_kind": source_kind,
         "dataset_scope": dataset_scope,
@@ -351,6 +361,7 @@ def build_interval_figure_spec(
 def _normalize_figure_spec(spec: dict[str, Any]) -> dict[str, Any]:
     payload = dict(spec)
     payload.setdefault("caption", "")
+    payload.setdefault("takeaway", "")
     payload.setdefault("source_kind", "metrics.summary")
     payload.setdefault("dataset_scope", "overall")
     payload.setdefault("primary_metric", "")
@@ -868,6 +879,58 @@ def _points_csv_headers(points: list[dict[str, Any]]) -> list[str]:
 def _series_color(index: int) -> str:
     palette = [COLOR_BLUE, COLOR_ORANGE, COLOR_GREEN, COLOR_RED, COLOR_PURPLE, COLOR_GRAY]
     return palette[index % len(palette)]
+
+
+def _frontier_takeaway(data: list[dict[str, Any]], primary_metric: str) -> str:
+    if not data:
+        return ""
+    best = max(data, key=lambda row: float(row.get("y") or 0.0))
+    cheapest = min(data, key=lambda row: float(row.get("x") or 0.0))
+    return (
+        f"{primary_metric}最高的方法是 `{best.get('label')}`；成本最低的方法是 `{cheapest.get('label')}`。"
+    )
+
+
+def _rank_takeaway(data: list[dict[str, Any]], primary_metric: str) -> str:
+    if not data:
+        return ""
+    best = max(data, key=lambda row: float(row.get("value") or 0.0))
+    return f"{primary_metric}最高的方法是 `{best.get('label')}`，数值为 {float(best.get('value') or 0.0):.4f}。"
+
+
+def _dataset_takeaway(data: list[dict[str, Any]], primary_metric: str) -> str:
+    if not data:
+        return ""
+    datasets = sorted({str(row.get('dataset') or '') for row in data if row.get("dataset")})
+    methods = sorted({str(row.get('label') or '') for row in data if row.get("label")})
+    return f"该图覆盖 `{len(datasets)}` 个数据集与 `{len(methods)}` 个方法，用于观察 {primary_metric} 的跨数据集稳定性。"
+
+
+def _scatter_takeaway(data: list[dict[str, Any]], primary_metric: str) -> str:
+    if not data:
+        return ""
+    best = max(data, key=lambda row: float(row.get("y") or row.get("value") or 0.0))
+    return f"图中表现最优的点对应 `{best.get('label')}`，其 {primary_metric} 为 {float(best.get('y') or best.get('value') or 0.0):.4f}。"
+
+
+def _grouped_bar_takeaway(data: list[dict[str, Any]], series: list[tuple[str, str]]) -> str:
+    if not data or not series:
+        return ""
+    first_key, first_label = series[0]
+    best = max(data, key=lambda row: float(row.get(first_key) or 0.0))
+    return f"按 `{first_label}` 指标看，最高的对象是 `{best.get('label')}`。"
+
+
+def _interval_takeaway(data: list[dict[str, Any]], primary_metric: str) -> str:
+    if not data:
+        return ""
+    best = max(data, key=lambda row: float(row.get("value") or 0.0))
+    excludes_zero = [
+        row for row in data
+        if float(row.get("low") or 0.0) > 0.0 or float(row.get("high") or 0.0) < 0.0
+    ]
+    qualifier = f"其中有 `{len(excludes_zero)}` 个比较的区间整体不跨 0。" if excludes_zero else "当前所有比较的区间都覆盖或接触 0。"
+    return f"`{best.get('label')}` 的 {primary_metric}差值最高；{qualifier}"
 
 
 def _safe_load_json(path: Path) -> dict[str, Any]:

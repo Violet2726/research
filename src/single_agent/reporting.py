@@ -8,7 +8,13 @@ from typing import Any
 from experiment_core.foundation.workspace import default_reports_root
 from experiment_core.reporting.report_pipeline import render_report_bundle
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
-from experiment_core.reporting.report_views import SummaryTableView, load_json_payload
+from experiment_core.reporting.report_statistics import (
+    PairwiseComparisonSpec,
+    build_pairwise_comparison_rows,
+    build_pairwise_interval_figure,
+    format_pairwise_ci_text,
+)
+from experiment_core.reporting.report_views import SummaryTableView, load_json_payload, load_jsonl_rows
 from experiment_core.reporting.run_figures import (
     build_efficiency_rank_figure_spec,
     build_frontier_figure_spec,
@@ -47,14 +53,15 @@ def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) ->
     root = Path(run_dir)
     manifest = load_json_payload(root / "manifest.json")
     metrics = load_metrics(root)
+    predictions = load_jsonl_rows(root / "predictions.jsonl")
     summary_rows = metrics.get("summary", [])
-    base_markdown = _render_markdown(manifest, summary_rows, root)
+    base_markdown = _render_markdown(manifest, summary_rows, predictions, root)
     return render_report_bundle(
         run_dir=root,
         publish_dir=publish_dir,
         manifest=manifest,
         base_markdown=base_markdown,
-        figure_specs=_build_figure_specs(summary_rows),
+        figure_specs=_build_figure_specs(summary_rows, predictions),
     )
 
 
@@ -113,11 +120,11 @@ def export_paper_tables(run_dir: str | Path, output_path: str | Path) -> Path:
     return output
 
 
-def _build_figure_specs(summary_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _build_figure_specs(summary_rows: list[dict[str, Any]], predictions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     summary = SummaryTableView.from_rows(summary_rows)
     overall_rows = summary.overall_rows()
     sc_rows = [row for row in overall_rows if row.method_name.startswith("sc_")]
-    return [
+    figure_specs = [
         build_frontier_figure_spec(
             summary_rows,
             title="单智能体成本-性能前沿",
@@ -187,9 +194,26 @@ def _build_figure_specs(summary_rows: list[dict[str, Any]]) -> list[dict[str, An
             note="把输入和输出 token 分开，便于判断预算增长主要来自提示词还是生成长度。",
         ),
     ]
+    evidence_rows = _single_agent_evidence_rows(predictions)
+    comparison_figure = build_pairwise_interval_figure(
+        figure_id="pairwise_accuracy_ci",
+        title="关键方法配对置信区间",
+        caption="同一批样本上，自洽方法相对于 CoT 基线的准确率差值与 bootstrap 95% CI。",
+        metric_label="准确率",
+        rows=evidence_rows,
+        note="区间整体高于 0 表示该自洽配置在当前 phase 中更稳定优于 CoT。",
+    )
+    if comparison_figure is not None:
+        figure_specs.append(comparison_figure)
+    return figure_specs
 
 
-def _render_markdown(manifest: dict[str, Any], summary_rows: list[dict[str, Any]], run_dir: Path) -> str:
+def _render_markdown(
+    manifest: dict[str, Any],
+    summary_rows: list[dict[str, Any]],
+    predictions: list[dict[str, Any]],
+    run_dir: Path,
+) -> str:
     backbone = resolve_manifest_model_name(manifest)
     summary = SummaryTableView.from_rows(summary_rows)
     overall_rows = summary.overall_rows()
@@ -214,6 +238,11 @@ def _render_markdown(manifest: dict[str, Any], summary_rows: list[dict[str, Any]
             f"在自洽类方法中，`{best_sc.method_name}` 表现最佳，说明当前预算下自洽采样仍具有可观察收益。"
         )
 
+    evidence_rows = _single_agent_evidence_rows(predictions)
+    if evidence_rows:
+        abstract.append(
+            f"`sc_5` ?? `cot_1` ????? 95% CI ? {format_pairwise_ci_text(evidence_rows, 'sc_5_vs_cot_1')}?"
+        )
     sections = [
         {
             "title": "研究问题与判读口径",
@@ -310,3 +339,17 @@ def _render_markdown(manifest: dict[str, Any], summary_rows: list[dict[str, Any]
         ],
         sections=sections,
     )
+
+
+def _single_agent_evidence_rows(predictions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    methods = sorted({str(row.get("method_name")) for row in predictions if str(row.get("method_name")).startswith("sc_")})
+    comparisons = [
+        PairwiseComparisonSpec(
+            comparison_id=f"{method}_vs_cot_1",
+            label=f"{method} vs cot_1",
+            method_a=method,
+            method_b="cot_1",
+        )
+        for method in methods
+    ]
+    return build_pairwise_comparison_rows(predictions, comparisons)

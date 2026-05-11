@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
-import json
-import math
-import random
 from typing import Any
 
 from budget_comm.logic import METHOD_ORDER
@@ -14,6 +11,12 @@ from experiment_core.foundation.workspace import default_reports_root
 from experiment_core.reporting.analysis_reports import render_frontier_report
 from experiment_core.reporting.report_pipeline import SupplementalReport, render_report_bundle
 from experiment_core.reporting.reporting_utils import resolve_manifest_model_name
+from experiment_core.reporting.report_statistics import (
+    PairwiseComparisonSpec,
+    build_pairwise_comparison_rows,
+    build_pairwise_interval_figure,
+    format_pairwise_ci_text,
+)
 from experiment_core.reporting.report_views import SummaryTableView, load_json_payload, load_jsonl_rows
 from experiment_core.reporting.run_figures import (
     build_efficiency_rank_figure_spec,
@@ -58,7 +61,7 @@ def render_report(
         publish_dir=publish_dir,
         manifest=manifest,
         base_markdown=base_markdown,
-        figure_specs=_build_figure_specs(metrics),
+        figure_specs=_build_figure_specs(metrics, predictions),
         supplemental_reports=[
             SupplementalReport(
                 result_key="frontier_report",
@@ -69,11 +72,11 @@ def render_report(
     )
 
 
-def _build_figure_specs(metrics: dict[str, Any]) -> list[dict[str, Any]]:
+def _build_figure_specs(metrics: dict[str, Any], predictions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     summary = SummaryTableView.from_metrics_payload(metrics)
     rows = [row.raw for row in summary.rows]
     overall_rows = summary.overall_rows()
-    return [
+    figure_specs = [
         build_frontier_figure_spec(
             rows,
             title="预算通信成本-性能前沿",
@@ -146,6 +149,18 @@ def _build_figure_specs(metrics: dict[str, Any]) -> list[dict[str, Any]]:
             reference_x=1.0,
         ),
     ]
+    evidence_rows = _budget_evidence_rows(predictions)
+    comparison_figure = build_pairwise_interval_figure(
+        figure_id="pairwise_accuracy_ci",
+        title="关键比较配对置信区间",
+        caption="同一批样本上，DALA-lite 相对于关键预算基线的准确率差值与 bootstrap 95% CI。",
+        metric_label="准确率",
+        rows=evidence_rows,
+        note="区间整体高于 0 表示该预算策略在当前 phase 中稳定优于对应基线。",
+    )
+    if comparison_figure is not None:
+        figure_specs.append(comparison_figure)
+    return figure_specs
 
 
 def _method_label(row: Any) -> str:
@@ -171,7 +186,8 @@ def _render_markdown(
     best_row = summary.best_by("accuracy_mean", rows=overall_rows)
     best_efficiency_row = summary.best_by("acc_per_1k_tokens", rows=overall_rows)
     failure_cases = _select_failure_cases(predictions)
-    ci_text = _bootstrap_ci_text(predictions, "dala_lite", "all_to_all_full")
+    evidence_rows = _budget_evidence_rows(predictions)
+    ci_text = format_pairwise_ci_text(evidence_rows, "dala_lite_vs_all_to_all_full")
 
     abstract: list[str] = []
     if best_row is not None:
@@ -357,63 +373,29 @@ def _select_failure_cases(predictions: list[dict[str, Any]]) -> list[dict[str, A
     return cases
 
 
-def _bootstrap_ci_text(predictions: list[dict[str, Any]], primary_method: str, reference_method: str) -> str:
-    """生成两种方法准确率差异的 bootstrap 置信区间文本。"""
-    paired = _paired_rows(predictions, primary_method, reference_method)
-    if not paired:
-        return "未计算"
-    deltas = _bootstrap_accuracy_delta(paired, iterations=2000, seed=42)
-    return f"[{_quantile(deltas, 0.025):.6f}, {_quantile(deltas, 0.975):.6f}]（探索性）"
+def _budget_evidence_rows(predictions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return build_pairwise_comparison_rows(
+        predictions,
+        [
+            PairwiseComparisonSpec(
+                comparison_id="dala_lite_vs_all_to_all_full",
+                label="dala_lite vs all_to_all_full",
+                method_a="dala_lite",
+                method_b="all_to_all_full",
+            ),
+            PairwiseComparisonSpec(
+                comparison_id="dala_lite_vs_mv_3",
+                label="dala_lite vs mv_3",
+                method_a="dala_lite",
+                method_b="mv_3",
+            ),
+        ],
+    )
 
 
-def _paired_rows(predictions: list[dict[str, Any]], primary_method: str, reference_method: str) -> list[tuple[float, float]]:
-    lookup = {
-        (row["dataset"], row["sample_id"], row["method_name"]): row
-        for row in predictions
-    }
-    paired: list[tuple[float, float]] = []
-    sample_keys = sorted({(row["dataset"], row["sample_id"]) for row in predictions})
-    for dataset, sample_id in sample_keys:
-        primary = lookup.get((dataset, sample_id, primary_method))
-        reference = lookup.get((dataset, sample_id, reference_method))
-        if primary is None or reference is None:
-            continue
-        paired.append((float(primary["score"]), float(reference["score"])))
-    return paired
-
-
-def _bootstrap_accuracy_delta(
-    paired_scores: list[tuple[float, float]],
-    *,
-    iterations: int,
-    seed: int,
-) -> list[float]:
-    rng = random.Random(seed)
-    rows = list(paired_scores)
-    samples: list[float] = []
-    for _ in range(iterations):
-        picked = [rows[rng.randrange(len(rows))] for _ in range(len(rows))]
-        primary_acc = sum(primary for primary, _ in picked) / len(picked)
-        reference_acc = sum(reference for _, reference in picked) / len(picked)
-        samples.append(round(primary_acc - reference_acc, 6))
-    return samples
 
 
 def _ordered_rows(rows: list[Any]) -> list[Any]:
     return sorted(rows, key=lambda row: METHOD_ORDER.index(row.method_name) if row.method_name in METHOD_ORDER else 999)
 
-
-def _quantile(values: list[float], q: float) -> float:
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    if len(ordered) == 1:
-        return float(ordered[0])
-    position = (len(ordered) - 1) * q
-    lower = math.floor(position)
-    upper = math.ceil(position)
-    if lower == upper:
-        return float(ordered[lower])
-    weight = position - lower
-    return round(ordered[lower] * (1 - weight) + ordered[upper] * weight, 6)
 
