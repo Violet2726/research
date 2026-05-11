@@ -16,7 +16,6 @@ from threading import Lock
 import time
 from typing import Any
 
-from h2.exceptions import ProtocolError as H2ProtocolError
 import httpx
 
 from experiment_core.foundation.config import ResolvedModelConfig
@@ -92,7 +91,7 @@ class OpenAICompatibleProvider:
                     try:
                         handle.client.close()
                     except Exception:
-                        # HTTP/2 连接在远端已关闭时，close 阶段不应反过来污染实验结果。
+                        # 关闭阶段的传输层异常不应反过来污染实验结果。
                         pass
                     finally:
                         self._shared_clients.pop(self._client_key, None)
@@ -161,15 +160,7 @@ class OpenAICompatibleProvider:
                         provider_request_id=provider_request_id,
                     ) from exc
                 time.sleep(_retry_delay_seconds(exc.response, attempt))
-            except (
-                httpx.ConnectError,
-                httpx.ReadError,
-                httpx.ReadTimeout,
-                httpx.WriteError,
-                httpx.CloseError,
-                httpx.RemoteProtocolError,
-                H2ProtocolError,
-            ) as exc:
+            except httpx.TransportError as exc:
                 last_error = exc
                 self._reset_shared_client(client)
                 if attempt == self.config.max_retries:
@@ -211,9 +202,8 @@ class OpenAICompatibleProvider:
 
 
 def _build_http_client() -> httpx.Client:
-    """构造统一的长生命周期 HTTP/2 client。"""
+    """构造统一的长生命周期 HTTP client。"""
     return httpx.Client(
-        http2=True,
         limits=httpx.Limits(
             max_connections=128,
             max_keepalive_connections=32,

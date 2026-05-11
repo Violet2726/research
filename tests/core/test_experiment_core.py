@@ -1046,7 +1046,7 @@ def test_provider_reuses_shared_http_client(monkeypatch: pytest.MonkeyPatch) -> 
         provider_a = OpenAICompatibleProvider(model)
         provider_b = OpenAICompatibleProvider(model)
         assert len(created_clients) == 1
-        assert created_http2_flags == [True]
+        assert created_http2_flags == [False]
     finally:
         if provider_a is not None:
             provider_a.close()
