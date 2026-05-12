@@ -38,21 +38,21 @@ PY
 
 echo "开始运行 faithful_matrix 四个阶段..."
 
-echo "[$(date)] 开始运行 smoke20 阶段..."
-SMOKE20_DIR="$(run_phase smoke20)"
-echo "[$(date)] smoke20 阶段完成: $SMOKE20_DIR"
+echo "[$(date)] 开始运行 count20 阶段..."
+COUNT20_DIR="$(run_phase count20)"
+echo "[$(date)] count20 阶段完成: $COUNT20_DIR"
 
-echo "[$(date)] 开始运行 pilot100 阶段..."
-PILOT100_DIR="$(run_phase pilot100 "$SMOKE20_DIR")"
-echo "[$(date)] pilot100 阶段完成: $PILOT100_DIR"
+echo "[$(date)] 开始运行 count100 阶段..."
+COUNT100_DIR="$(run_phase count100 "$COUNT20_DIR")"
+echo "[$(date)] count100 阶段完成: $COUNT100_DIR"
 
-echo "[$(date)] 开始运行 confirmatory300 阶段..."
-CONFIRM300_DIR="$(run_phase confirmatory300 "$PILOT100_DIR")"
-echo "[$(date)] confirmatory300 阶段完成: $CONFIRM300_DIR"
+echo "[$(date)] 开始运行 count300 阶段..."
+COUNT300_DIR="$(run_phase count300 "$COUNT100_DIR")"
+echo "[$(date)] count300 阶段完成: $COUNT300_DIR"
 
-echo "[$(date)] 开始运行 confirmatory500 阶段..."
-CONFIRM500_DIR="$(run_phase confirmatory500 "$CONFIRM300_DIR")"
-echo "[$(date)] confirmatory500 阶段完成: $CONFIRM500_DIR"
+echo "[$(date)] 开始运行 count500 阶段..."
+COUNT500_DIR="$(run_phase count500 "$COUNT300_DIR")"
+echo "[$(date)] count500 阶段完成: $COUNT500_DIR"
 
 auto_push_flag="${RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT:-}"
 if [[ -n "${RESEARCH_CACHE_HF_REPO:-}" ]] && [[ "${auto_push_flag,,}" =~ ^(1|true|yes|on)$ ]]; then

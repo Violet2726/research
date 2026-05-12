@@ -73,21 +73,21 @@ Import-DotEnvLocal
 
 Write-Host "开始运行 faithful_matrix 四个阶段..."
 
-Write-Host "[$(Get-Date -Format s)] 开始运行 smoke20 阶段..."
-$smoke20Dir = Invoke-MatrixPhase -Phase "smoke20"
-Write-Host "[$(Get-Date -Format s)] smoke20 阶段完成: $smoke20Dir"
+Write-Host "[$(Get-Date -Format s)] 开始运行 count20 阶段..."
+$count20Dir = Invoke-MatrixPhase -Phase "count20"
+Write-Host "[$(Get-Date -Format s)] count20 阶段完成: $count20Dir"
 
-Write-Host "[$(Get-Date -Format s)] 开始运行 pilot100 阶段..."
-$pilot100Dir = Invoke-MatrixPhase -Phase "pilot100" -ReferenceStatePath $smoke20Dir
-Write-Host "[$(Get-Date -Format s)] pilot100 阶段完成: $pilot100Dir"
+Write-Host "[$(Get-Date -Format s)] 开始运行 count100 阶段..."
+$count100Dir = Invoke-MatrixPhase -Phase "count100" -ReferenceStatePath $count20Dir
+Write-Host "[$(Get-Date -Format s)] count100 阶段完成: $count100Dir"
 
-Write-Host "[$(Get-Date -Format s)] 开始运行 confirmatory300 阶段..."
-$confirmatory300Dir = Invoke-MatrixPhase -Phase "confirmatory300" -ReferenceStatePath $pilot100Dir
-Write-Host "[$(Get-Date -Format s)] confirmatory300 阶段完成: $confirmatory300Dir"
+Write-Host "[$(Get-Date -Format s)] 开始运行 count300 阶段..."
+$count300Dir = Invoke-MatrixPhase -Phase "count300" -ReferenceStatePath $count100Dir
+Write-Host "[$(Get-Date -Format s)] count300 阶段完成: $count300Dir"
 
-Write-Host "[$(Get-Date -Format s)] 开始运行 confirmatory500 阶段..."
-$confirmatory500Dir = Invoke-MatrixPhase -Phase "confirmatory500" -ReferenceStatePath $confirmatory300Dir
-Write-Host "[$(Get-Date -Format s)] confirmatory500 阶段完成: $confirmatory500Dir"
+Write-Host "[$(Get-Date -Format s)] 开始运行 count500 阶段..."
+$count500Dir = Invoke-MatrixPhase -Phase "count500" -ReferenceStatePath $count300Dir
+Write-Host "[$(Get-Date -Format s)] count500 阶段完成: $count500Dir"
 
 $autoPushCache = if ([string]::IsNullOrWhiteSpace($env:RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT)) { "" } else { $env:RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT.ToLowerInvariant() }
 if (

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 import json
+import sqlite3
 import shutil
 import tempfile
 from typing import Any
@@ -12,7 +13,7 @@ from typing import Any
 from huggingface_hub import HfApi, snapshot_download
 
 from research_experiments.core.foundation.archive_common import sha256_file
-from research_experiments.core.foundation.cache import collect_cache_shard_summaries
+from research_experiments.core.foundation.cache import collect_cache_shard_summaries, repair_cache_shard
 from research_experiments.core.foundation.workspace import auto_push_cache_snapshot_enabled, default_cache_hf_repo, workspace_layout
 
 import zstandard as zstd
@@ -129,23 +130,30 @@ def build_cache_snapshot(
             continue
         target_dir = stage / relative_dir
         target_dir.mkdir(parents=True, exist_ok=True)
+        snapshot_path = target_dir / "requests.snapshot.sqlite"
         compressed_path = target_dir / "requests.sqlite.zst"
-        _compress_zstd_file(source_path, compressed_path)
+        snapshot_info = _export_consistent_sqlite_snapshot(source_path, snapshot_path)
+        _compress_zstd_file(snapshot_path, compressed_path)
         digest = sha256_file(compressed_path)
+        snapshot_size_bytes = snapshot_path.stat().st_size
         metadata = {
             "provider": shard.provider,
             "request_model": shard.request_model,
             "dataset": shard.dataset,
             "relative_dir": relative_dir,
             "source_path": source_path.relative_to(root).as_posix(),
-            "request_count": shard.request_count,
-            "original_size_bytes": shard.file_size_bytes,
+            "request_count": snapshot_info["request_count"],
+            "original_size_bytes": snapshot_size_bytes,
             "compressed_size_bytes": compressed_path.stat().st_size,
             "sha256": digest,
+            "schema_version": 2,
+            "snapshot_strategy": "sqlite_backup",
+            "repaired_before_snapshot": snapshot_info["repaired_before_snapshot"],
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
         (target_dir / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
         (target_dir / "sha256.txt").write_text(digest + "\n", encoding="utf-8")
+        snapshot_path.unlink()
 
         shards_payload.append(
             {
@@ -156,18 +164,20 @@ def build_cache_snapshot(
                 "compressed_name": "requests.sqlite.zst",
                 "metadata_name": "metadata.json",
                 "sha256_name": "sha256.txt",
-                "original_size_bytes": shard.file_size_bytes,
+                "original_size_bytes": snapshot_size_bytes,
                 "compressed_size_bytes": compressed_path.stat().st_size,
                 "sha256": digest,
+                "snapshot_strategy": "sqlite_backup",
             }
         )
-        total_original_size += shard.file_size_bytes
+        total_original_size += snapshot_size_bytes
         total_compressed_size += compressed_path.stat().st_size
 
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "semantics": "latest_only",
+        "snapshot_strategy": "sqlite_backup",
         "cache_root_name": root.name,
         "shard_count": len(shards_payload),
         "total_original_size_bytes": total_original_size,
@@ -200,7 +210,14 @@ def restore_cache_snapshot(
         compressed_path = source / relative_dir / compressed_name
         target_sqlite = destination / relative_dir / "requests.sqlite"
         target_sqlite.parent.mkdir(parents=True, exist_ok=True)
-        _decompress_zstd_file(compressed_path, target_sqlite)
+        temp_snapshot = target_sqlite.parent / "requests.snapshot.restore.sqlite"
+        _decompress_zstd_file(compressed_path, temp_snapshot)
+        try:
+            _validate_sqlite_snapshot(temp_snapshot)
+            _install_sqlite_snapshot(temp_snapshot, target_sqlite)
+        finally:
+            if temp_snapshot.exists():
+                temp_snapshot.unlink()
         restored_shards.append(target_sqlite.relative_to(destination).as_posix())
     return tuple(restored_shards)
 
@@ -217,6 +234,82 @@ def _decompress_zstd_file(source_path: Path, target_path: Path) -> None:
     with source_path.open("rb") as source_handle, target_path.open("wb") as target_handle:
         with dctx.stream_reader(source_handle) as decompressed_handle:
             shutil.copyfileobj(decompressed_handle, target_handle)
+
+
+def _export_consistent_sqlite_snapshot(source_path: Path, snapshot_path: Path) -> dict[str, Any]:
+    repaired_before_snapshot = False
+    try:
+        _backup_sqlite_database(source_path, snapshot_path)
+    except sqlite3.DatabaseError as exc:
+        if "malformed" not in str(exc).lower():
+            raise
+        repair_cache_shard(source_path)
+        repaired_before_snapshot = True
+        _backup_sqlite_database(source_path, snapshot_path)
+    _validate_sqlite_snapshot(snapshot_path)
+    return {
+        "request_count": _read_sqlite_request_count(snapshot_path),
+        "repaired_before_snapshot": repaired_before_snapshot,
+    }
+
+
+def _install_sqlite_snapshot(snapshot_path: Path, target_sqlite: Path) -> None:
+    staged_target = target_sqlite.parent / "requests.sqlite.restore.tmp"
+    _cleanup_sqlite_sidecars(staged_target)
+    if staged_target.exists():
+        staged_target.unlink()
+    _backup_sqlite_database(snapshot_path, staged_target)
+    _validate_sqlite_snapshot(staged_target)
+    _cleanup_sqlite_sidecars(target_sqlite)
+    try:
+        staged_target.replace(target_sqlite)
+    except OSError as exc:
+        if staged_target.exists():
+            staged_target.unlink()
+        raise RuntimeError(
+            f"无法安装 cache snapshot 到 {target_sqlite.as_posix()}；请先关闭正在使用该 cache 的进程。"
+        ) from exc
+
+
+def _backup_sqlite_database(source_path: Path, target_path: Path) -> None:
+    if target_path.exists():
+        target_path.unlink()
+    source = sqlite3.connect(source_path)
+    target = sqlite3.connect(target_path)
+    try:
+        source.backup(target)
+        target.commit()
+        target.execute("PRAGMA journal_mode=WAL")
+        target.commit()
+    finally:
+        source.close()
+        target.close()
+
+
+def _validate_sqlite_snapshot(snapshot_path: Path) -> None:
+    connection = sqlite3.connect(snapshot_path)
+    try:
+        issues = [row[0] for row in connection.execute("PRAGMA integrity_check").fetchall()]
+    finally:
+        connection.close()
+    if issues != ["ok"]:
+        raise sqlite3.DatabaseError(f"SQLite snapshot integrity check failed: {issues[:3]}")
+
+
+def _read_sqlite_request_count(snapshot_path: Path) -> int:
+    connection = sqlite3.connect(snapshot_path)
+    try:
+        row = connection.execute("SELECT COUNT(*) FROM requests").fetchone()
+    finally:
+        connection.close()
+    return int(row[0] if row is not None else 0)
+
+
+def _cleanup_sqlite_sidecars(sqlite_path: Path) -> None:
+    for suffix in ("-wal", "-shm"):
+        sidecar = sqlite_path.with_name(f"{sqlite_path.name}{suffix}")
+        if sidecar.exists():
+            sidecar.unlink()
 
 
 def _load_json(path: Path) -> dict[str, Any]:

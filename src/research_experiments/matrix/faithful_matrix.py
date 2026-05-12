@@ -133,6 +133,10 @@ def build_run_matrix(
 ) -> MatrixBuild:
     """根据覆盖参数生成可执行矩阵与语义去重后的目标集合。"""
     discovered = discover_phase_configs(overrides.phase_name)
+    if not discovered:
+        raise RuntimeError(
+            f"Phase {overrides.phase_name!r} 未发现任何实验配置，请检查 configs/families 下的 phases 命名是否已同步。"
+        )
 
     entries: list[MatrixEntry] = []
     semantic_entries: list[MatrixEntry] = []
@@ -673,4 +677,3 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
-

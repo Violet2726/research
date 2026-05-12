@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 import json
@@ -70,44 +71,53 @@ class CacheRootSummary:
     shards: tuple[CacheShardSummary, ...]
 
 
+REQUESTS_TABLE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS requests (
+    cache_key TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    payload_json TEXT NOT NULL,
+    response_json TEXT NOT NULL,
+    http_status INTEGER NOT NULL,
+    latency_ms REAL NOT NULL,
+    provider_request_id TEXT
+)
+"""
+
+REQUESTS_SELECT_COLUMNS = """
+rowid, cache_key, payload_json, response_json, http_status, latency_ms, provider_request_id
+"""
+
+REQUESTS_INSERT_SQL = """
+INSERT OR REPLACE INTO requests (
+    cache_key, payload_json, response_json, http_status, latency_ms, provider_request_id
+) VALUES (?, ?, ?, ?, ?, ?)
+"""
+
+
 class RequestCache:
     """线程安全的单库 SQLite 请求缓存。"""
 
     def __init__(self, db_path: str | Path) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.Lock()
-        self.connection = sqlite3.connect(self.db_path, check_same_thread=False)
-        self.connection.execute("PRAGMA journal_mode=WAL")
-        self.connection.execute("PRAGMA synchronous=NORMAL")
-        self.connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS requests (
-                cache_key TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                payload_json TEXT NOT NULL,
-                response_json TEXT NOT NULL,
-                http_status INTEGER NOT NULL,
-                latency_ms REAL NOT NULL,
-                provider_request_id TEXT
-            )
-            """
-        )
-        self.connection.commit()
+        self._lock = threading.RLock()
         self._pending_writes = 0
         self._commit_every = 32
+        self.connection = self._connect_with_recovery()
 
     def get(self, cache_key: str) -> CachedResponse | None:
         """按缓存键读取记录；未命中时返回 `None`。"""
         with self._lock:
-            row = self.connection.execute(
-                """
-                SELECT cache_key, payload_json, response_json, http_status, latency_ms, provider_request_id
-                FROM requests
-                WHERE cache_key = ?
-                """,
-                (cache_key,),
-            ).fetchone()
+            row = self._execute_with_recovery(
+                lambda: self.connection.execute(
+                    """
+                    SELECT cache_key, payload_json, response_json, http_status, latency_ms, provider_request_id
+                    FROM requests
+                    WHERE cache_key = ?
+                    """,
+                    (cache_key,),
+                ).fetchone()
+            )
         if row is None:
             return None
         return CachedResponse(*row)
@@ -115,33 +125,59 @@ class RequestCache:
     def put(self, record: CachedResponse) -> None:
         """写入或覆盖一条缓存记录。"""
         with self._lock:
-            self.connection.execute(
-                """
-                INSERT OR REPLACE INTO requests (
-                    cache_key, payload_json, response_json, http_status, latency_ms, provider_request_id
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    record.cache_key,
-                    record.payload_json,
-                    record.response_json,
-                    record.http_status,
-                    record.latency_ms,
-                    record.provider_request_id,
-                ),
-            )
-            self._pending_writes += 1
-            if self._pending_writes >= self._commit_every:
-                self.connection.commit()
-                self._pending_writes = 0
+            def _write() -> None:
+                self.connection.execute(
+                    REQUESTS_INSERT_SQL,
+                    (
+                        record.cache_key,
+                        record.payload_json,
+                        record.response_json,
+                        record.http_status,
+                        record.latency_ms,
+                        record.provider_request_id,
+                    ),
+                )
+                self._pending_writes += 1
+                if self._pending_writes >= self._commit_every:
+                    self.connection.commit()
+                    self._pending_writes = 0
+
+            self._execute_with_recovery(_write)
 
     def close(self) -> None:
         """关闭底层数据库连接。"""
         with self._lock:
             if self._pending_writes > 0:
-                self.connection.commit()
+                self._execute_with_recovery(self.connection.commit)
                 self._pending_writes = 0
             self.connection.close()
+
+    def _connect_with_recovery(self) -> sqlite3.Connection:
+        try:
+            return _open_cache_connection(self.db_path)
+        except sqlite3.DatabaseError as exc:
+            if not _is_malformed_sqlite_error(exc):
+                raise
+            repair_cache_shard(self.db_path)
+            return _open_cache_connection(self.db_path)
+
+    def _execute_with_recovery(self, callback):
+        try:
+            return callback()
+        except sqlite3.DatabaseError as exc:
+            if not _is_malformed_sqlite_error(exc):
+                raise
+            self._recover_malformed_shard()
+            return callback()
+
+    def _recover_malformed_shard(self) -> None:
+        try:
+            self.connection.close()
+        except Exception:
+            pass
+        repair_cache_shard(self.db_path)
+        self._pending_writes = 0
+        self.connection = _open_cache_connection(self.db_path)
 
 
 class RequestCacheRouter:
@@ -356,6 +392,53 @@ def format_bytes(num_bytes: int) -> str:
     return f"{value:.2f} {units[unit_index]}"
 
 
+def repair_cache_shard(shard_path: str | Path) -> dict[str, Any]:
+    """修复单个损坏的缓存分库；无法完全恢复时至少隔离坏库并重建空库。"""
+    path = Path(shard_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        connection = _open_cache_connection(path)
+        connection.close()
+        return {
+            "shard_path": path.as_posix(),
+            "status": "created",
+            "backup_path": None,
+            "recovered_row_count": 0,
+            "skipped_rowids": [],
+        }
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup_path = path.with_name(f"{path.name}.corrupt-{timestamp}")
+    recovered_path = path.with_name(f"{path.name}.recovered-{timestamp}")
+    _cleanup_sqlite_sidecars(path)
+
+    try:
+        recovered_row_count, skipped_rowids = _recover_cache_shard_rows(path, recovered_path)
+    except Exception:
+        if recovered_path.exists():
+            recovered_path.unlink()
+        path.replace(backup_path)
+        connection = _open_cache_connection(path)
+        connection.close()
+        return {
+            "shard_path": path.as_posix(),
+            "status": "reset_to_empty",
+            "backup_path": backup_path.as_posix(),
+            "recovered_row_count": 0,
+            "skipped_rowids": [],
+        }
+
+    path.replace(backup_path)
+    recovered_path.replace(path)
+    return {
+        "shard_path": path.as_posix(),
+        "status": "recovered",
+        "backup_path": backup_path.as_posix(),
+        "recovered_row_count": recovered_row_count,
+        "skipped_rowids": skipped_rowids,
+    }
+
+
 def _shard_identity(*, provider: str, request_model: str, dataset: str) -> str:
     """生成分库身份指纹，用于进程内路由复用。"""
     return json_dump(
@@ -385,6 +468,82 @@ def _read_request_count(shard_path: Path) -> int:
     finally:
         connection.close()
     return int(row[0] if row is not None else 0)
+
+
+def _open_cache_connection(db_path: Path) -> sqlite3.Connection:
+    connection = sqlite3.connect(db_path, check_same_thread=False)
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA synchronous=NORMAL")
+    connection.execute(REQUESTS_TABLE_SCHEMA)
+    connection.commit()
+    return connection
+
+
+def _is_malformed_sqlite_error(exc: sqlite3.Error) -> bool:
+    return "malformed" in str(exc).lower()
+
+
+def _cleanup_sqlite_sidecars(db_path: Path) -> None:
+    for suffix in ("-wal", "-shm"):
+        sidecar = db_path.with_name(f"{db_path.name}{suffix}")
+        if sidecar.exists():
+            sidecar.unlink()
+
+
+def _recover_cache_shard_rows(source_path: Path, target_path: Path) -> tuple[int, list[int]]:
+    if target_path.exists():
+        target_path.unlink()
+
+    source = sqlite3.connect(source_path)
+    target = _open_cache_connection(target_path)
+    recovered_row_count = 0
+    skipped_rowids: list[int] = []
+    try:
+        max_rowid = int(source.execute("SELECT max(rowid) FROM requests").fetchone()[0] or 0)
+        for start_rowid in range(0, max_rowid + 1, 2048):
+            end_rowid = min(max_rowid, start_rowid + 2048)
+            rows, skipped = _read_rows_with_salvage(source, start_rowid, end_rowid)
+            if rows:
+                target.executemany(
+                    REQUESTS_INSERT_SQL,
+                    [row[1:] for row in rows],
+                )
+                recovered_row_count += len(rows)
+            skipped_rowids.extend(skipped)
+        target.commit()
+    finally:
+        source.close()
+        target.close()
+    return recovered_row_count, skipped_rowids
+
+
+def _read_rows_with_salvage(
+    connection: sqlite3.Connection,
+    start_rowid: int,
+    end_rowid: int,
+) -> tuple[list[tuple[Any, ...]], list[int]]:
+    if end_rowid <= start_rowid:
+        return [], []
+    try:
+        rows = connection.execute(
+            f"""
+            SELECT {REQUESTS_SELECT_COLUMNS}
+            FROM requests
+            WHERE rowid > ? AND rowid <= ?
+            ORDER BY rowid
+            """,
+            (start_rowid, end_rowid),
+        ).fetchall()
+        return rows, []
+    except sqlite3.DatabaseError as exc:
+        if not _is_malformed_sqlite_error(exc):
+            raise
+        if end_rowid - start_rowid == 1:
+            return [], [end_rowid]
+        midpoint = start_rowid + ((end_rowid - start_rowid) // 2)
+        left_rows, left_skipped = _read_rows_with_salvage(connection, start_rowid, midpoint)
+        right_rows, right_skipped = _read_rows_with_salvage(connection, midpoint, end_rowid)
+        return left_rows + right_rows, left_skipped + right_skipped
 
 
 def _decompose_shard_path(cache_root: Path, shard_path: Path) -> tuple[str, str, str]:
