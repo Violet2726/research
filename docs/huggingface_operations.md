@@ -148,15 +148,15 @@ uv run research_cli tools hf-sync push-workspace
 单个：
 
 ```powershell
-uv run research_cli tools hf-sync push-workspace --skip-cache --run-dir local/runs/single_agent/same_context_main_table/smoke20/<run_id>
+uv run research_cli tools hf-sync push-workspace --skip-cache --run-dir local/runs/single_agent/same_context_main_table/count20/<run_id>
 ```
 
 多个：
 
 ```powershell
 uv run research_cli tools hf-sync push-workspace --skip-cache `
-  --run-dir local/runs/single_agent/same_context_main_table/smoke20/<run_id> `
-  --run-dir local/runs/selective_comm/trigger_early_exit_main/smoke20/<run_id>
+  --run-dir local/runs/single_agent/same_context_main_table/count20/<run_id> `
+  --run-dir local/runs/selective_comm/trigger_early_exit_main/count20/<run_id>
 ```
 
 ### 4. 只拉取某个或某些具体 run 文件夹
@@ -171,8 +171,8 @@ uv run research_cli tools hf-sync pull-workspace --skip-cache --run-id <run_id_a
 
 ```powershell
 uv run research_cli tools hf-sync pull-workspace --skip-cache `
-  --run-prefix single_agent/same_context_main_table/smoke20/<run_id> `
-  --run-prefix selective_comm/trigger_early_exit_main/smoke20/<run_id>
+  --run-prefix single_agent/same_context_main_table/count20/<run_id> `
+  --run-prefix selective_comm/trigger_early_exit_main/count20/<run_id>
 ```
 
 混合指定也支持：
@@ -180,20 +180,20 @@ uv run research_cli tools hf-sync pull-workspace --skip-cache `
 ```powershell
 uv run research_cli tools hf-sync pull-workspace --skip-cache `
   --run-id <run_id_a> `
-  --run-prefix selective_comm/trigger_early_exit_main/smoke20/<run_id>
+  --run-prefix selective_comm/trigger_early_exit_main/count20/<run_id>
 ```
 
 ### 5. 同时限制 runs 与 cache 的同步范围
 
 ```powershell
 uv run research_cli tools hf-sync push-workspace `
-  --run-dir local/runs/comm_necessary/hotpotqa_split_context_communication_necessity/confirmatory300/<run_id> `
+  --run-dir local/runs/comm_necessary/hotpotqa_split_context_communication_necessity/count300/<run_id> `
   --cache-shard providers/xiaomimimo/mimo-v2-5/hotpotqa
 ```
 
 ```powershell
 uv run research_cli tools hf-sync pull-workspace `
-  --run-prefix comm_necessary/hotpotqa_split_context_communication_necessity/confirmatory300/<run_id> `
+  --run-prefix comm_necessary/hotpotqa_split_context_communication_necessity/count300/<run_id> `
   --cache-shard providers/xiaomimimo/mimo-v2-5/hotpotqa
 ```
 

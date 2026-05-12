@@ -14,7 +14,7 @@ def test_single_agent_render_report_outputs_scientific_markdown(tmp_path: Path) 
         {
             "created_at": "2026-05-09T12:00:00+00:00",
             "experiment": "same_context_core_benchmarks",
-            "phase": "smoke20",
+            "phase": "count20",
             "resolved_model": {"name": "xiaomimimo/mimo-v2.5"},
             "prompt_version": "single_agent_v1",
         },
@@ -88,7 +88,7 @@ def test_selective_comm_render_report_outputs_scientific_markdown(tmp_path: Path
         {
             "created_at": "2026-05-09T12:00:00+00:00",
             "experiment": "trigger_early_exit_main",
-            "phase": "smoke20",
+            "phase": "count20",
             "resolved_model": {"name": "xiaomimimo/mimo-v2.5"},
             "prompt_version": "selective_comm_trigger_json",
         },
@@ -200,7 +200,7 @@ def test_sparc_render_report_outputs_scientific_markdown(tmp_path: Path) -> None
             "created_at": "2026-05-09T12:00:00+00:00",
             "experiment": "content_ablation",
             "variant_name": "content_ablation",
-            "phase": "smoke20",
+            "phase": "count20",
             "resolved_model": {"name": "xiaomimimo/mimo-v2.5"},
         },
     )

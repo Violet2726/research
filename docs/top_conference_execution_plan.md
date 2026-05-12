@@ -54,7 +54,7 @@ Reference：
 
 ## 3. Confirmatory Phase
 
-新增 phase：`confirmatory300`。
+新增 phase：`count300`。
 
 矩阵规模固定为 15 个正式 experiment，不包含本地开发项。
 
@@ -70,19 +70,19 @@ Reference：
 预检命令：
 
 ```powershell
-uv run research_cli matrix inspect-matrix --phase confirmatory300
+uv run research_cli matrix inspect-matrix --phase count300
 ```
 
 正式运行命令：
 
 ```powershell
-uv run research_cli matrix run --phase confirmatory300 --state-root local/runs/faithful_matrix_iterative --reference-state-path local/runs/faithful_matrix_iterative/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5
+uv run research_cli matrix run --phase count300 --state-root local/runs/faithful_matrix_iterative --reference-state-path local/runs/faithful_matrix_iterative/20260507T121658Z-count100-xiaomimimo-mimo-v2.5
 ```
 
 若运行中断，续跑命令：
 
 ```powershell
-uv run research_cli matrix resume --state-path <matrix_run_dir> --reference-state-path local/runs/faithful_matrix_iterative/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5
+uv run research_cli matrix resume --state-path <matrix_run_dir> --reference-state-path local/runs/faithful_matrix_iterative/20260507T121658Z-count100-xiaomimimo-mimo-v2.5
 ```
 
 ## 4. 离线分析链路
@@ -104,7 +104,7 @@ uv run research_cli matrix resume --state-path <matrix_run_dir> --reference-stat
 离线重渲染命令：
 
 ```powershell
-uv run research_cli matrix analyze-faithful --state-path <matrix_run_dir> --reference-state-path local/runs/smoke20_matrix_iterative/20260505T084626Z-smoke20-mimo-v2.5
+uv run research_cli matrix analyze-faithful --state-path <matrix_run_dir> --reference-state-path local/runs/count20_matrix_iterative/20260505T084626Z-count20-mimo-v2.5
 uv run research_cli matrix evaluate-acceptance --analysis-path <matrix_run_dir>
 uv run research_cli matrix render-statistics --state-path <matrix_run_dir>
 uv run research_cli matrix render-paper-package --state-path <matrix_run_dir>
@@ -175,10 +175,10 @@ uv run research_cli matrix render-paper-package --state-path <matrix_run_dir>
 
 ## 9. 最新回放状态
 
-已使用最新 `pilot100` 矩阵完成离线回放：
+已使用最新 `count100` 矩阵完成离线回放：
 
-- 矩阵：`local/runs/faithful_matrix_iterative/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5`
-- 论文包：`local/reports/faithful_matrix/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5-paper_package.md`
-- 图表：`local/runs/faithful_matrix_iterative/20260507T121658Z-pilot100-xiaomimimo-mimo-v2.5/figures/`
+- 矩阵：`local/runs/faithful_matrix_iterative/20260507T121658Z-count100-xiaomimimo-mimo-v2.5`
+- 论文包：`local/reports/faithful_matrix/20260507T121658Z-count100-xiaomimimo-mimo-v2.5-paper_package.md`
+- 图表：`local/runs/faithful_matrix_iterative/20260507T121658Z-count100-xiaomimimo-mimo-v2.5/figures/`
 
-该回放用于验证统计和报告链路，不替代后续 `confirmatory300` 正式运行。
+该回放用于验证统计和报告链路，不替代后续 `count300` 正式运行。

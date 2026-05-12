@@ -63,9 +63,9 @@ def test_no_legacy_package_imports() -> None:
         "experiment_common",
         "single_agent_baselines",
         "multi_agent_baselines",
-        "smoke20_orchestrator",
-        "smoke20_matrix",
-        "smoke20_matrix_cli",
+        "count20_orchestrator",
+        "count20_matrix",
+        "count20_matrix_cli",
     )
     violations: list[str] = []
     for path in SRC.rglob("*.py"):
@@ -81,4 +81,4 @@ def test_no_legacy_matrix_cli_entrypoint() -> None:
     scripts = payload["project"]["scripts"]
 
     assert "research_cli" in scripts
-    assert "smoke20_matrix_cli" not in scripts
+    assert "count20_matrix_cli" not in scripts

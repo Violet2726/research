@@ -33,7 +33,7 @@ def test_build_paper_package_payload_splits_evidence_tiers() -> None:
         ]
     }
     package = build_paper_package_payload(
-        {"semantic_entries": [], "overrides": {"phase_name": "pilot100", "model_ref": "xiaomimimo/mimo-v2.5"}},
+        {"semantic_entries": [], "overrides": {"phase_name": "count100", "model_ref": "xiaomimimo/mimo-v2.5"}},
         analysis,
         {"comparisons": []},
     )
@@ -64,7 +64,7 @@ def test_render_paper_package_writes_markdown_and_figures(tmp_path: Path) -> Non
         encoding="utf-8",
     )
     state_payload = {
-        "overrides": {"phase_name": "pilot100", "model_ref": "xiaomimimo/mimo-v2.5"},
+        "overrides": {"phase_name": "count100", "model_ref": "xiaomimimo/mimo-v2.5"},
         "counts": {"completed": 1},
         "semantic_entries": [
             {

@@ -12,17 +12,17 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
 
 
 def test_discover_publishable_runs_includes_standard_and_matrix(tmp_path: Path) -> None:
-    standard_root = tmp_path / "single_agent" / "demo" / "smoke20" / "20260510T000000Z-model"
+    standard_root = tmp_path / "single_agent" / "demo" / "count20" / "20260510T000000Z-model"
     _write_json(standard_root / "manifest.json", {"run_id": "20260510T000000Z-model"})
     (standard_root / "report.md").write_text("# report\n", encoding="utf-8")
     _write_json(standard_root / "run_validation.json", {"passed": True})
 
-    invalid_root = tmp_path / "budget_comm" / "demo" / "smoke20" / "20260510T000001Z-model"
+    invalid_root = tmp_path / "budget_comm" / "demo" / "count20" / "20260510T000001Z-model"
     _write_json(invalid_root / "manifest.json", {"run_id": "20260510T000001Z-model"})
     (invalid_root / "report.md").write_text("# report\n", encoding="utf-8")
     _write_json(invalid_root / "run_validation.json", {"passed": False})
 
-    matrix_root = tmp_path / "faithful_matrix" / "20260510T000100Z-smoke20-model"
+    matrix_root = tmp_path / "faithful_matrix" / "20260510T000100Z-count20-model"
     _write_json(
         matrix_root / "state.json",
         {
@@ -42,17 +42,17 @@ def test_discover_publishable_runs_includes_standard_and_matrix(tmp_path: Path) 
 
 
 def test_push_workspace_to_hub_batches_runs_and_cache(monkeypatch, tmp_path: Path) -> None:
-    standard_root = tmp_path / "runs" / "single_agent" / "demo" / "smoke20" / "20260510T000000Z-model"
+    standard_root = tmp_path / "runs" / "single_agent" / "demo" / "count20" / "20260510T000000Z-model"
     _write_json(standard_root / "manifest.json", {"run_id": "20260510T000000Z-model"})
     (standard_root / "report.md").write_text("# report\n", encoding="utf-8")
     _write_json(standard_root / "run_validation.json", {"passed": True})
 
-    invalid_root = tmp_path / "runs" / "budget_comm" / "demo" / "smoke20" / "20260510T000001Z-model"
+    invalid_root = tmp_path / "runs" / "budget_comm" / "demo" / "count20" / "20260510T000001Z-model"
     _write_json(invalid_root / "manifest.json", {"run_id": "20260510T000001Z-model"})
     (invalid_root / "report.md").write_text("# report\n", encoding="utf-8")
     _write_json(invalid_root / "run_validation.json", {"passed": False})
 
-    matrix_root = tmp_path / "runs" / "faithful_matrix" / "20260510T000100Z-smoke20-model"
+    matrix_root = tmp_path / "runs" / "faithful_matrix" / "20260510T000100Z-count20-model"
     _write_json(
         matrix_root / "state.json",
         {
@@ -107,8 +107,8 @@ def test_pull_workspace_from_hub_batches_runs_and_cache(monkeypatch, tmp_path: P
     monkeypatch.setattr(
         "research_experiments.core.foundation.hf_sync.list_remote_run_prefixes",
         lambda api, repo_id: [
-            "single_agent/demo/smoke20/20260510T000000Z-model",
-            "faithful_matrix/20260510T000100Z-smoke20-model",
+            "single_agent/demo/count20/20260510T000000Z-model",
+            "faithful_matrix/20260510T000100Z-count20-model",
         ],
     )
     monkeypatch.setattr(
@@ -138,20 +138,20 @@ def test_pull_workspace_from_hub_batches_runs_and_cache(monkeypatch, tmp_path: P
     )
 
     assert downloaded_prefixes == [
-        "single_agent/demo/smoke20/20260510T000000Z-model",
-        "faithful_matrix/20260510T000100Z-smoke20-model",
+        "single_agent/demo/count20/20260510T000000Z-model",
+        "faithful_matrix/20260510T000100Z-count20-model",
     ]
     assert payload["fetched_run_count"] == 2
     assert payload["cache_pulled"] is True
 
 
 def test_push_workspace_to_hub_can_target_selected_run_dirs(monkeypatch, tmp_path: Path) -> None:
-    standard_root = tmp_path / "runs" / "single_agent" / "demo" / "smoke20" / "20260510T000000Z-model"
+    standard_root = tmp_path / "runs" / "single_agent" / "demo" / "count20" / "20260510T000000Z-model"
     _write_json(standard_root / "manifest.json", {"run_id": "20260510T000000Z-model"})
     (standard_root / "report.md").write_text("# report\n", encoding="utf-8")
     _write_json(standard_root / "run_validation.json", {"passed": True})
 
-    another_root = tmp_path / "runs" / "budget_comm" / "demo" / "smoke20" / "20260510T000001Z-model"
+    another_root = tmp_path / "runs" / "budget_comm" / "demo" / "count20" / "20260510T000001Z-model"
     _write_json(another_root / "manifest.json", {"run_id": "20260510T000001Z-model"})
     (another_root / "report.md").write_text("# report\n", encoding="utf-8")
     _write_json(another_root / "run_validation.json", {"passed": True})
@@ -194,8 +194,8 @@ def test_pull_workspace_from_hub_can_target_selected_run_ids_and_prefixes(monkey
     monkeypatch.setattr(
         "research_experiments.core.foundation.hf_sync.list_remote_run_prefixes",
         lambda api, repo_id: [
-            "single_agent/demo/smoke20/20260510T000000Z-model",
-            "budget_comm/demo/smoke20/20260510T000001Z-model",
+            "single_agent/demo/count20/20260510T000000Z-model",
+            "budget_comm/demo/count20/20260510T000001Z-model",
         ],
     )
     monkeypatch.setattr(
@@ -222,11 +222,11 @@ def test_pull_workspace_from_hub_can_target_selected_run_ids_and_prefixes(monkey
         runs_repo_id="owner/research-runs",
         cache_repo_id="owner/research-cache",
         selected_run_ids=["20260510T000000Z-model"],
-        selected_run_prefixes=["budget_comm/demo/smoke20/20260510T000001Z-model"],
+        selected_run_prefixes=["budget_comm/demo/count20/20260510T000001Z-model"],
     )
 
     assert downloaded_prefixes == [
-        "single_agent/demo/smoke20/20260510T000000Z-model",
-        "budget_comm/demo/smoke20/20260510T000001Z-model",
+        "single_agent/demo/count20/20260510T000000Z-model",
+        "budget_comm/demo/count20/20260510T000001Z-model",
     ]
     assert payload["fetched_run_count"] == 2

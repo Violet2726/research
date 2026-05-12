@@ -36,8 +36,8 @@ def test_build_run_matrix_counts_expected() -> None:
     assert cue_entry.best_no_comm_candidates == ["mv_3"]
 
 
-def test_build_run_matrix_counts_expected_for_pilot100() -> None:
-    overrides = RuntimeOverrides(phase_name="pilot100")
+def test_build_run_matrix_counts_expected_for_count100() -> None:
+    overrides = RuntimeOverrides(phase_name="count100")
     matrix = build_run_matrix(overrides)
     semantic_counts = Counter(entry.status for entry in matrix.semantic_entries)
     entry_counts = Counter(entry.status for entry in matrix.entries)
@@ -51,13 +51,13 @@ def test_build_run_matrix_counts_expected_for_pilot100() -> None:
         for entry in matrix.semantic_entries
         if entry.experiment_name == "hotpotqa_split_context_communication_necessity"
     )
-    assert split_entry.phase_name == "pilot100"
+    assert split_entry.phase_name == "count100"
     assert split_entry.evaluation_track == "split_context"
     assert split_entry.evidence_tier == "headline"
 
 
-def test_build_run_matrix_counts_expected_for_confirmatory300() -> None:
-    overrides = RuntimeOverrides(phase_name="confirmatory300")
+def test_build_run_matrix_counts_expected_for_count300() -> None:
+    overrides = RuntimeOverrides(phase_name="count300")
     matrix = build_run_matrix(overrides)
     semantic_counts = Counter(entry.status for entry in matrix.semantic_entries)
     entry_counts = Counter(entry.status for entry in matrix.entries)
@@ -81,8 +81,8 @@ def test_build_run_matrix_counts_expected_for_confirmatory300() -> None:
     }
 
 
-def test_build_run_matrix_counts_expected_for_confirmatory500() -> None:
-    overrides = RuntimeOverrides(phase_name="confirmatory500")
+def test_build_run_matrix_counts_expected_for_count500() -> None:
+    overrides = RuntimeOverrides(phase_name="count500")
     matrix = build_run_matrix(overrides)
     semantic_counts = Counter(entry.status for entry in matrix.semantic_entries)
     entry_counts = Counter(entry.status for entry in matrix.entries)
@@ -96,18 +96,18 @@ def test_build_run_matrix_counts_expected_for_confirmatory500() -> None:
         for entry in matrix.semantic_entries
         if entry.experiment_name == "hotpotqa_split_context_communication_necessity"
     )
-    assert comm_entry.phase_name == "confirmatory500"
+    assert comm_entry.phase_name == "count500"
     assert comm_entry.evidence_tier == "headline"
 
 
-def test_apply_runtime_overrides_clears_single_agent_smoke20_tag_constraints() -> None:
+def test_apply_runtime_overrides_clears_single_agent_count20_tag_constraints() -> None:
     overrides = RuntimeOverrides()
     experiment = load_single_agent_experiment_config("configs/families/single_agent/experiments/cross_provider_robustness.toml")
 
     overridden = apply_runtime_overrides("single_agent", experiment, overrides)
 
-    assert required_model_tags(experiment, "smoke20") == ["provider_zhipu"]
-    assert required_model_tags(overridden, "smoke20") == []
+    assert required_model_tags(experiment, "count20") == ["provider_zhipu"]
+    assert required_model_tags(overridden, "count20") == []
     assert overridden.max_concurrent_requests == 90
     assert overridden.requests_per_minute_limit == 95
     assert overridden.tokens_per_minute_limit == 9000000
@@ -127,24 +127,24 @@ def test_apply_runtime_overrides_updates_backbone_without_mutating_source_config
 
 
 def test_prepare_orchestrator_paths_uses_resolved_model_slug(tmp_path: Path) -> None:
-    overrides = RuntimeOverrides(phase_name="pilot100", model_ref="openai/gpt-5.5")
+    overrides = RuntimeOverrides(phase_name="count100", model_ref="openai/gpt-5.5")
 
     paths = _prepare_orchestrator_paths(tmp_path, overrides)
 
     assert MATRIX_EXPERIMENT_KIND == "faithful_matrix"
-    assert "pilot100-openai-gpt-5.5" in paths.root.as_posix()
+    assert "count100-openai-gpt-5.5" in paths.root.as_posix()
 
 
 def test_resume_faithful_matrix_continues_rerun_needed_and_pending_entries(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    root = tmp_path / "20260506T000000Z-pilot100-xiaomimimo-mimo-v2.5"
+    root = tmp_path / "20260506T000000Z-count100-xiaomimimo-mimo-v2.5"
     root.mkdir(parents=True)
     state_path = root / "state.json"
     payload = {
         "overrides": {
-            "phase_name": "pilot100",
+            "phase_name": "count100",
             "model_ref": "xiaomimimo/mimo-v2.5",
             "max_concurrent_requests": 60,
             "requests_per_minute_limit": 90,
@@ -162,7 +162,7 @@ def test_resume_faithful_matrix_continues_rerun_needed_and_pending_entries(
                 "config_path": "configs/families/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml",
                 "experiment_name": "hotpotqa_split_context_communication_necessity",
                 "description": "",
-                "phase_name": "pilot100",
+                "phase_name": "count100",
                 "evaluation_track": "split_context",
                 "evidence_tier": "headline",
                 "primary_method_name": "full_packet_exchange",

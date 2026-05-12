@@ -9,7 +9,7 @@ from research_experiments.matrix.faithful_analysis import build_faithful_analysi
 
 
 def test_build_faithful_analysis_computes_reference_deltas_and_stage_ceiling(tmp_path: Path) -> None:
-    run_dir = tmp_path / "runs" / "budget_comm" / "dala_lite_same_context_main" / "smoke20" / "demo"
+    run_dir = tmp_path / "runs" / "budget_comm" / "dala_lite_same_context_main" / "count20" / "demo"
     run_dir.mkdir(parents=True)
     (run_dir / "metrics.json").write_text(
         json.dumps(
@@ -108,7 +108,7 @@ def test_build_faithful_analysis_computes_reference_deltas_and_stage_ceiling(tmp
 
 
 def test_render_faithful_analysis_writes_artifacts(tmp_path: Path) -> None:
-    run_dir = tmp_path / "runs" / "cue" / "cue_black_box_utility_main" / "smoke20" / "demo"
+    run_dir = tmp_path / "runs" / "cue" / "cue_black_box_utility_main" / "count20" / "demo"
     run_dir.mkdir(parents=True)
     (run_dir / "policy_metrics.json").write_text(
         json.dumps(
@@ -188,7 +188,7 @@ def test_render_faithful_analysis_writes_artifacts(tmp_path: Path) -> None:
 
 
 def test_build_faithful_analysis_synthesizes_overall_when_metrics_lack_it(tmp_path: Path) -> None:
-    run_dir = tmp_path / "runs" / "multi_agent" / "same_context_controlled_debate" / "smoke20" / "demo"
+    run_dir = tmp_path / "runs" / "multi_agent" / "same_context_controlled_debate" / "count20" / "demo"
     run_dir.mkdir(parents=True)
     (run_dir / "metrics.json").write_text(
         json.dumps(

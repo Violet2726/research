@@ -39,10 +39,10 @@ def test_faithful_matrix_inspect_cli() -> None:
             "matrix",
             "inspect-matrix",
             "--phase",
-            "smoke20",
+            "count20",
         ],
     )
-    assert payload["overrides"]["phase_name"] == "smoke20"
+    assert payload["overrides"]["phase_name"] == "count20"
     assert payload["counts"]["semantic_unique_targets"] == 15
 
 
@@ -316,7 +316,7 @@ def test_archive_runs_fetch_accepts_run_prefix(monkeypatch, tmp_path) -> None:
             "archive-runs",
             "fetch-run",
             "--run-prefix",
-            "single_agent/demo/smoke20/20260510T000000Z-model",
+            "single_agent/demo/count20/20260510T000000Z-model",
             "--target-root",
             str(tmp_path),
             "--json",
@@ -324,7 +324,7 @@ def test_archive_runs_fetch_accepts_run_prefix(monkeypatch, tmp_path) -> None:
     )
 
     assert payload["remote_repo"] == "owner/research-runs"
-    assert payload["remote_prefix"] == "single_agent/demo/smoke20/20260510T000000Z-model"
+    assert payload["remote_prefix"] == "single_agent/demo/count20/20260510T000000Z-model"
     assert payload["run_id"] is None
 
 
@@ -456,7 +456,7 @@ def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
             "--run-id",
             "20260510T000000Z-model",
             "--run-prefix",
-            "single_agent/demo/smoke20/20260510T000000Z-model",
+            "single_agent/demo/count20/20260510T000000Z-model",
             "--cache-shard",
             "providers/xiaomimimo/mimo-v2-5/strategyqa",
             "--json",
@@ -468,5 +468,5 @@ def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
     assert payload["fetch_runs"] is True
     assert payload["pull_cache"] is True
     assert payload["selected_run_ids"] == ["20260510T000000Z-model"]
-    assert payload["selected_run_prefixes"] == ["single_agent/demo/smoke20/20260510T000000Z-model"]
+    assert payload["selected_run_prefixes"] == ["single_agent/demo/count20/20260510T000000Z-model"]
     assert payload["cache_shard_filters"] == ["providers/xiaomimimo/mimo-v2-5/strategyqa"]

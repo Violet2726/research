@@ -19,7 +19,7 @@ def test_write_policy_reference_summary_writes_machine_readable_payload(tmp_path
     manifest = {
         "family_name": "selective_comm",
         "experiment_name": "trigger_early_exit_main",
-        "phase_name": "smoke20",
+        "phase_name": "count20",
         "run_id": "20260511T010203Z-demo",
         "primary_model_ref": "deepseek/deepseek-v4-flash",
         "resolved_model": {
@@ -77,7 +77,7 @@ def test_resolve_trigger_reference_selection_prefers_exact_model_and_keeps_defau
 ) -> None:
     monkeypatch.setenv("RESEARCH_RUNS_ROOT", tmp_path.as_posix())
     _write_reference_summary(
-        tmp_path / "selective_comm" / "trigger_early_exit_main" / "smoke20" / "20260511T010203Z-exact",
+        tmp_path / "selective_comm" / "trigger_early_exit_main" / "count20" / "20260511T010203Z-exact",
         model_name="deepseek/deepseek-v4-flash",
         provider="deepseek",
         model_id="deepseek-v4-flash",
@@ -86,7 +86,7 @@ def test_resolve_trigger_reference_selection_prefers_exact_model_and_keeps_defau
         question_count=20,
     )
     _write_reference_summary(
-        tmp_path / "selective_comm" / "trigger_early_exit_main" / "smoke20" / "20260511T010000Z-prefix",
+        tmp_path / "selective_comm" / "trigger_early_exit_main" / "count20" / "20260511T010000Z-prefix",
         model_name="deepseek/deepseek-v4",
         provider="deepseek",
         model_id="deepseek-v4",
@@ -99,7 +99,7 @@ def test_resolve_trigger_reference_selection_prefers_exact_model_and_keeps_defau
         reference=TriggerReferenceConfig(
             source_family="selective_comm",
             source_experiment="trigger_early_exit_main",
-            source_phase="smoke20",
+            source_phase="count20",
             default_policy="hybrid_trigger",
             fallback_policy="disagreement_triggered",
             drop_questions_threshold=1.0,
@@ -116,7 +116,7 @@ def test_resolve_trigger_reference_selection_falls_back_when_drop_exceeds_thresh
 ) -> None:
     monkeypatch.setenv("RESEARCH_RUNS_ROOT", tmp_path.as_posix())
     _write_reference_summary(
-        tmp_path / "selective_comm" / "trigger_early_exit_main" / "smoke20" / "20260511T010203Z-demo",
+        tmp_path / "selective_comm" / "trigger_early_exit_main" / "count20" / "20260511T010203Z-demo",
         model_name="deepseek/deepseek-v4-flash",
         provider="deepseek",
         model_id="deepseek-v4-flash",
@@ -129,7 +129,7 @@ def test_resolve_trigger_reference_selection_falls_back_when_drop_exceeds_thresh
         reference=TriggerReferenceConfig(
             source_family="selective_comm",
             source_experiment="trigger_early_exit_main",
-            source_phase="smoke20",
+            source_phase="count20",
             default_policy="hybrid_trigger",
             fallback_policy="disagreement_triggered",
             drop_questions_threshold=1.0,
@@ -150,7 +150,7 @@ def test_resolve_trigger_reference_selection_returns_default_when_reference_miss
         reference=TriggerReferenceConfig(
             source_family="selective_comm",
             source_experiment="trigger_early_exit_main",
-            source_phase="smoke20",
+            source_phase="count20",
             default_policy="hybrid_trigger",
             fallback_policy="disagreement_triggered",
             drop_questions_threshold=1.0,
@@ -175,7 +175,7 @@ def _write_reference_summary(
         "kind": "policy_reference_summary",
         "family_name": "selective_comm",
         "experiment_name": "trigger_early_exit_main",
-        "phase_name": "smoke20",
+        "phase_name": "count20",
         "run_id": run_dir.name,
         "run_dir": run_dir.as_posix(),
         "model_name": model_name,

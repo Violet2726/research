@@ -34,7 +34,7 @@ def _build_spec() -> CallSpec:
     return CallSpec(
         run_id="run-1",
         dataset="gsm8k",
-        split_name="smoke20",
+        split_name="count20",
         sample_id="gsm8k-00001",
         sample_order=0,
         method_name="cot_1",

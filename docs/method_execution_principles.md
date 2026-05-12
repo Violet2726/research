@@ -9,7 +9,7 @@
 1. 每个方法到底在“做什么”。
 2. 每个方法的执行流程是怎样展开的。
 3. 不同方法之间哪些地方可以直接比较，哪些地方只能方向性比较。
-4. `faithful_matrix` 是如何把这些方法统一编排到同一套 `smoke20 / pilot100` 主矩阵里的。
+4. `faithful_matrix` 是如何把这些方法统一编排到同一套 `count20 / count100` 主矩阵里的。
 
 本文档主要覆盖当前 authoritative 主线中的 9 个 family：
 
@@ -39,7 +39,7 @@
   - `voc_trigger_main`
 - `comm_necessary`
   只保留一个正式实验入口：`configs/families/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml`。
-  `smoke20 / pilot100 / main(split500)` 统一通过 phase 表达，不再拆成多个 experiment。
+  `count20 / count100 / count500_main` 统一通过 phase 表达，不再拆成多个 experiment。
 - `faithful_matrix`
   当前 authoritative 主矩阵是 `15` 个语义唯一目标，不再保留任何本地开发专用实验入口。
 
@@ -520,8 +520,8 @@
 
 - 一个固定的 split-context HotpotQA 通信必要性实验；
 - 通过不同 phase 运行不同规模的数据切片：
-  - `smoke20`
-  - `pilot100`
+  - `count20`
+  - `count100`
   - `main` (`count500_seed42`)
 
 ## 9.2 方法集合
@@ -922,7 +922,7 @@
 
 ## 15. 如何阅读当前 authoritative 结果
 
-如果你要结合 `smoke20 / pilot100` 结果解读这些方法，建议按下面顺序看：
+如果你要结合 `count20 / count100` 结果解读这些方法，建议按下面顺序看：
 
 1. 看 `state.json`
    判断 run 是否完整健康。

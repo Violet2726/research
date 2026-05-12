@@ -54,15 +54,15 @@ def test_extract_run_archives_restores_removed_files(tmp_path: Path) -> None:
 
 def test_build_run_publish_commit_message_is_human_readable() -> None:
     message = _build_run_publish_commit_message(
-        "comm_necessary/hotpotqa_split_context_communication_necessity/confirmatory300/20260510T045655Z-xiaomimimo-mimo-v2.5"
+        "comm_necessary/hotpotqa_split_context_communication_necessity/count300/20260510T045655Z-xiaomimimo-mimo-v2.5"
     )
     assert (
         message
-        == "发布 run [comm_necessary] hotpotqa_split_context_communication_necessity | confirmatory300 | 20260510T045655Z-xiaomimimo-mimo-v2.5"
+        == "发布 run [comm_necessary] hotpotqa_split_context_communication_necessity | count300 | 20260510T045655Z-xiaomimimo-mimo-v2.5"
     )
 
-    matrix_message = _build_run_publish_commit_message("faithful_matrix/20260510T045449Z-smoke20-xiaomimimo-mimo-v2.5")
-    assert matrix_message == "发布 run [faithful_matrix] 20260510T045449Z-smoke20-xiaomimimo-mimo-v2.5"
+    matrix_message = _build_run_publish_commit_message("faithful_matrix/20260510T045449Z-count20-xiaomimimo-mimo-v2.5")
+    assert matrix_message == "发布 run [faithful_matrix] 20260510T045449Z-count20-xiaomimimo-mimo-v2.5"
 
 
 def _seed_run_dir(root: Path) -> None:
