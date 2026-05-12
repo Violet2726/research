@@ -97,7 +97,7 @@ def load_experiment_config(path: str | Path) -> SparcExperimentConfig:
         trigger_reference_payload = {
             "source_family": "selective_comm",
             "source_experiment": "trigger_early_exit_main",
-            "source_phase": "smoke20",
+            "source_phase": "count20",
             "default_policy": optional_str(sparc_config, "default_trigger_policy") or "hybrid_trigger",
             "fallback_policy": optional_str(sparc_config, "fallback_trigger_policy") or "disagreement_triggered",
             "drop_questions_threshold": float(sparc_config.get("trigger_drop_questions", 1.0)),

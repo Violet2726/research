@@ -924,7 +924,7 @@ def _build_diagnostics(prediction_rows: list[dict[str, Any]], sample_views: list
         )
     split_views = [row for row in sample_views if int(row.get("agent_id") or -1) in {1, 2, 3}]
     return {
-        "smoke20_note": "Small-sample result for engineering validation and directional evidence only.",
+        "count20_note": "Small-sample result for engineering validation and directional evidence only.",
         "key_deltas": deltas,
         "split_view_count": len(split_views),
         "full_context_view_count": sum(1 for row in sample_views if row.get("view_kind") == "full_context"),

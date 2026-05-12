@@ -216,12 +216,12 @@ def _paired_summary_for_group(
         "accuracy_gain_per_1k_debate_tokens": accuracy_gain_per_1k_debate_tokens,
     }
 
-    if phase_name == "pilot100":
+    if phase_name == "count100":
         payload["statistics"] = _paired_statistics(rows)
     else:
         payload["statistics"] = {
             "computed": False,
-            "reason": "statistics are only reported for pilot100",
+            "reason": "statistics are only reported for count100",
             "mcnemar_exact_p": None,
             "bootstrap_ci_95": None,
             "bootstrap_iterations": 0,
@@ -348,7 +348,7 @@ def _render_debate_vs_vote_report(
         {
             "title": "局限性",
             "bullets": [
-                "`smoke20` 更适合联调与方向观察，不作为显著性结论来源；正式结论仍应依赖 `pilot100` 及以上 phase。",
+                "`count20` 更适合联调与方向观察，不作为显著性结论来源；正式结论仍应依赖 `count100` 及以上 phase。",
                 "若某个数据集存在明显噪声或较强题型异质性，应单独解释其 debate 收益，而不是简单并入总体叙述。",
             ],
         },

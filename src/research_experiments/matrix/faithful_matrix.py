@@ -24,7 +24,7 @@ from research_experiments.reporting.paper_statistics import render_paper_statist
 from research_experiments.core.foundation.workspace import default_reports_root, default_runs_root, workspace_defaults
 
 
-DEFAULT_PHASE = "smoke20"
+DEFAULT_PHASE = "count20"
 DEFAULT_MODEL_REF = "xiaomimimo/mimo-v2.5"
 DEFAULT_MAX_CONCURRENT_REQUESTS = 90
 DEFAULT_REQUESTS_PER_MINUTE = 95

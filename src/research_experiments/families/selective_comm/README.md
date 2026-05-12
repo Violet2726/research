@@ -13,6 +13,6 @@
 
 ```powershell
 uv run research_cli family selective_comm inspect-experiment --experiment configs/families/selective_comm/experiments/trigger_early_exit_main.toml
-uv run research_cli family selective_comm run --experiment configs/families/selective_comm/experiments/trigger_early_exit_main.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
-uv run research_cli family selective_comm render-report --run-dir local/runs/selective_comm/voc_trigger_main/smoke20/<run_id>
+uv run research_cli family selective_comm run --experiment configs/families/selective_comm/experiments/trigger_early_exit_main.toml --phase count20 --model xiaomimimo/mimo-v2.5
+uv run research_cli family selective_comm render-report --run-dir local/runs/selective_comm/voc_trigger_main/count20/<run_id>
 ```

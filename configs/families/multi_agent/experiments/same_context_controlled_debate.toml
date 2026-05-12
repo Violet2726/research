@@ -25,18 +25,18 @@ protocol = "configs/families/multi_agent/protocols/vanilla_mad_r1.toml"
 roster = "configs/families/multi_agent/rosters/homogeneous_3agent.toml"
 matched_controls = ["mv_6"]
 
-[phases.smoke20]
+[phases.count20]
 split_suffix = "count20_seed42"
 setups = ["mad_3a_r1"]
 
-[phases.pilot100]
+[phases.count100]
 split_suffix = "count100_seed42"
 setups = ["mad_3a_r1"]
 
-[phases.confirmatory300]
+[phases.count300]
 split_overrides = { gsm8k = "count300_seed42", strategyqa = "full229_seed42", hotpotqa = "count300_seed42" }
 setups = ["mad_3a_r1"]
 
-[phases.confirmatory500]
+[phases.count500]
 split_overrides = { gsm8k = "count500_seed42", strategyqa = "full229_seed42", hotpotqa = "count500_seed42" }
 setups = ["mad_3a_r1"]

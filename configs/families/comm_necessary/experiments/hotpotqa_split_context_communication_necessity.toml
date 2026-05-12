@@ -24,17 +24,17 @@ requests_per_minute_limit = 50
 tokens_per_minute_limit = 1000000
 primary_model_ref = "deepseek/deepseek-v4-flash"
 
-[phases.smoke20]
+[phases.count20]
 split_suffix = "count20_seed42"
 
-[phases.pilot100]
+[phases.count100]
 split_suffix = "count100_seed42"
 
-[phases.confirmatory300]
+[phases.count300]
 split_suffix = "count300_seed42"
 
-[phases.confirmatory500]
+[phases.count500]
 split_suffix = "count500_seed42"
 
-[phases.main]
+[phases.count500_main]
 split_suffix = "count500_seed42"

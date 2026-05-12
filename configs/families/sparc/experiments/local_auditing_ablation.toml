@@ -25,14 +25,14 @@ trigger_policy = "always_communicate"
 fixed_message_modes = { gsm8k = "disagreement_step_only", strategyqa = "disagreement_step_only", hotpotqa = "critical_evidence_only" }
 aggregation_methods = ["majority_vote", "weighted_vote_fallback", "single_judge", "final_round_vote", "local_auditing"]
 
-[phases.smoke20]
+[phases.count20]
 split_suffix = "count20_seed42"
 
-[phases.pilot100]
+[phases.count100]
 split_suffix = "count100_seed42"
 
-[phases.confirmatory300]
+[phases.count300]
 split_overrides = { gsm8k = "count300_seed42", strategyqa = "full229_seed42", hotpotqa = "count300_seed42" }
 
-[phases.confirmatory500]
+[phases.count500]
 split_overrides = { gsm8k = "count500_seed42", strategyqa = "full229_seed42", hotpotqa = "count500_seed42" }

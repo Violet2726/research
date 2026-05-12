@@ -13,6 +13,6 @@
 
 ```powershell
 uv run research_cli family free_mad_lite inspect-experiment --experiment configs/families/free_mad_lite/experiments/free_mad_lite_mechanism_validation.toml
-uv run research_cli family free_mad_lite run --experiment configs/families/free_mad_lite/experiments/free_mad_lite_mechanism_validation.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
-uv run research_cli family free_mad_lite render-report --run-dir local/runs/free_mad_lite/free_mad_lite_mechanism_validation/smoke20/<run_id>
+uv run research_cli family free_mad_lite run --experiment configs/families/free_mad_lite/experiments/free_mad_lite_mechanism_validation.toml --phase count20 --model xiaomimimo/mimo-v2.5
+uv run research_cli family free_mad_lite render-report --run-dir local/runs/free_mad_lite/free_mad_lite_mechanism_validation/count20/<run_id>
 ```

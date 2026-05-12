@@ -13,6 +13,6 @@
 
 ```powershell
 uv run research_cli family sparc inspect-experiment --experiment configs/families/sparc/experiments/content_ablation.toml
-uv run research_cli family sparc run --experiment configs/families/sparc/experiments/content_ablation.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
-uv run research_cli family sparc render-report --run-dir local/runs/sparc/content_ablation/smoke20/<run_id>
+uv run research_cli family sparc run --experiment configs/families/sparc/experiments/content_ablation.toml --phase count20 --model xiaomimimo/mimo-v2.5
+uv run research_cli family sparc render-report --run-dir local/runs/sparc/content_ablation/count20/<run_id>
 ```

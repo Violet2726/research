@@ -13,6 +13,6 @@
 
 ```powershell
 uv run research_cli family cue inspect-experiment --experiment configs/families/cue/experiments/cue_black_box_utility_main.toml
-uv run research_cli family cue run --experiment configs/families/cue/experiments/cue_black_box_utility_main.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
-uv run research_cli family cue render-report --run-dir local/runs/cue/cue_black_box_utility_main/smoke20/<run_id>
+uv run research_cli family cue run --experiment configs/families/cue/experiments/cue_black_box_utility_main.toml --phase count20 --model xiaomimimo/mimo-v2.5
+uv run research_cli family cue render-report --run-dir local/runs/cue/cue_black_box_utility_main/count20/<run_id>
 ```

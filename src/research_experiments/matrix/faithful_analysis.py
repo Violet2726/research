@@ -1,4 +1,4 @@
-"""汇总 smoke20 矩阵状态并生成 faithful 对照分析。"""
+"""汇总 count20 矩阵状态并生成 faithful 对照分析。"""
 
 from __future__ import annotations
 

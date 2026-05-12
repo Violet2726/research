@@ -13,6 +13,6 @@
 
 ```powershell
 uv run research_cli family comm_necessary inspect-experiment --experiment configs/families/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml
-uv run research_cli family comm_necessary run --experiment configs/families/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
-uv run research_cli family comm_necessary render-report --run-dir local/runs/comm_necessary/hotpotqa_split_context_communication_necessity/smoke20/<run_id>
+uv run research_cli family comm_necessary run --experiment configs/families/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml --phase count20 --model xiaomimimo/mimo-v2.5
+uv run research_cli family comm_necessary render-report --run-dir local/runs/comm_necessary/hotpotqa_split_context_communication_necessity/count20/<run_id>
 ```

@@ -20,28 +20,28 @@ requests_per_minute_limit = 50
 tokens_per_minute_limit = 1000000
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 
-[phases.smoke20]
+[phases.count20]
 split_suffix = "count20_seed42"
 methods = ["cot_1"]
 benchmark_filter = ["gsm8k", "strategyqa", "hotpotqa"]
 required_model_tags = ["provider_zhipu"]
 reruns_override = 1
 
-[phases.pilot100]
+[phases.count100]
 methods = ["cot_1", "sc_5"]
 split_overrides = { gsm8k = "count100_seed42", strategyqa = "count100_seed42", hotpotqa = "count100_seed42" }
 required_model_tags = ["robustness_pilot"]
 benchmark_required_tags = { strategyqa = ["general_qa"], hotpotqa = ["general_qa"] }
 reruns_override = 1
 
-[phases.confirmatory300]
+[phases.count300]
 methods = ["cot_1", "sc_5"]
 split_overrides = { gsm8k = "count300_seed42", strategyqa = "full229_seed42", hotpotqa = "count300_seed42" }
 required_model_tags = ["robustness_pilot"]
 benchmark_required_tags = { strategyqa = ["general_qa"], hotpotqa = ["general_qa"] }
 reruns_override = 1
 
-[phases.confirmatory500]
+[phases.count500]
 methods = ["cot_1", "sc_5"]
 split_overrides = { gsm8k = "count500_seed42", strategyqa = "full229_seed42", hotpotqa = "count500_seed42" }
 required_model_tags = ["robustness_pilot"]

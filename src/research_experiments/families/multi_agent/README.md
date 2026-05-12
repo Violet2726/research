@@ -13,6 +13,6 @@
 
 ```powershell
 uv run research_cli family multi_agent inspect-experiment --experiment configs/families/multi_agent/experiments/same_context_controlled_debate.toml
-uv run research_cli family multi_agent run --experiment configs/families/multi_agent/experiments/same_context_controlled_debate.toml --phase smoke20 --model xiaomimimo/mimo-v2.5
-uv run research_cli family multi_agent render-report --run-dir local/runs/multi_agent/same_context_controlled_debate/smoke20/<run_id>
+uv run research_cli family multi_agent run --experiment configs/families/multi_agent/experiments/same_context_controlled_debate.toml --phase count20 --model xiaomimimo/mimo-v2.5
+uv run research_cli family multi_agent render-report --run-dir local/runs/multi_agent/same_context_controlled_debate/count20/<run_id>
 ```
