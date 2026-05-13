@@ -6,13 +6,13 @@ from dataclasses import asdict
 from pathlib import Path
 import argparse
 
-from research_experiments.core.foundation.cli_output import emit_json
-from research_experiments.core.foundation.config import DEFAULT_MODEL_CATALOG_PATH, load_model_catalog
-from research_experiments.core.foundation.config import load_benchmark_config
-from research_experiments.core.foundation.datasets import generate_split_manifests
-from research_experiments.core.foundation.methods import load_method_catalog
-from research_experiments.core.foundation.workspace import workspace_defaults
-from research_experiments.families.cli_scaffold import (
+from research_experiments.cli_support.output import emit_json
+from research_experiments.core.config import DEFAULT_MODEL_CATALOG_PATH, load_model_catalog
+from research_experiments.core.config import load_benchmark_config
+from research_experiments.core.data.datasets import generate_split_manifests
+from research_experiments.families.shared.method_catalog import load_method_catalog
+from research_experiments.workspace.layout import workspace_defaults
+from research_experiments.families.shared.cli import (
     build_standard_family_parser,
     dispatch_standard_family_cli,
 )
@@ -191,3 +191,4 @@ def _subparsers_action(parser: argparse.ArgumentParser) -> argparse._SubParsersA
 
 if __name__ == "__main__":
     main()
+

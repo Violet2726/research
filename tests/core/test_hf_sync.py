@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from research_experiments.core.foundation.hf_sync import discover_publishable_runs, pull_workspace_from_hub, push_workspace_to_hub
+from research_experiments.workspace.hf_sync import discover_publishable_runs, pull_workspace_from_hub, push_workspace_to_hub
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:
@@ -66,7 +66,7 @@ def test_push_workspace_to_hub_batches_runs_and_cache(monkeypatch, tmp_path: Pat
     published_roots: list[str] = []
 
     monkeypatch.setattr(
-        "research_experiments.core.foundation.hf_sync.publish_run_to_hub",
+        "research_experiments.workspace.hf_sync.publish_run_to_hub",
         lambda run_dir, repo_id, token, runs_root, create_repo: published_roots.append(str(run_dir))
         or {
             "run_dir": str(run_dir),
@@ -76,7 +76,7 @@ def test_push_workspace_to_hub_batches_runs_and_cache(monkeypatch, tmp_path: Pat
         },
     )
     monkeypatch.setattr(
-        "research_experiments.core.foundation.hf_sync.push_latest_cache_snapshot",
+        "research_experiments.workspace.hf_sync.push_latest_cache_snapshot",
         lambda cache_root, repo_id, token, create_repo, private, shard_filters=None: {
             "cache_root": str(cache_root),
             "remote_repo": repo_id,
@@ -105,23 +105,23 @@ def test_pull_workspace_from_hub_batches_runs_and_cache(monkeypatch, tmp_path: P
     downloaded_prefixes: list[str] = []
 
     monkeypatch.setattr(
-        "research_experiments.core.foundation.hf_sync.list_remote_run_prefixes",
+        "research_experiments.workspace.hf_sync.list_remote_run_prefixes",
         lambda api, repo_id: [
             "single_agent/demo/count20/20260510T000000Z-model",
             "faithful_matrix/20260510T000100Z-count20-model",
         ],
     )
     monkeypatch.setattr(
-        "research_experiments.core.foundation.hf_sync.snapshot_download",
+        "research_experiments.workspace.hf_sync.snapshot_download",
         lambda repo_id, repo_type, allow_patterns, local_dir, token: downloaded_prefixes.append(allow_patterns[0][:-3])
         or (Path(local_dir) / allow_patterns[0][:-3]).mkdir(parents=True, exist_ok=True),
     )
     monkeypatch.setattr(
-        "research_experiments.core.foundation.hf_sync.extract_run_archives",
+        "research_experiments.workspace.hf_sync.extract_run_archives",
         lambda run_dir: ("a.jsonl", "b.jsonl"),
     )
     monkeypatch.setattr(
-        "research_experiments.core.foundation.hf_sync.pull_latest_cache_snapshot",
+        "research_experiments.workspace.hf_sync.pull_latest_cache_snapshot",
         lambda target_root, repo_id, token, shard_filters=None: {
             "target_root": str(target_root),
             "remote_repo": repo_id,
@@ -158,7 +158,7 @@ def test_push_workspace_to_hub_can_target_selected_run_dirs(monkeypatch, tmp_pat
 
     published_roots: list[str] = []
     monkeypatch.setattr(
-        "research_experiments.core.foundation.hf_sync.publish_run_to_hub",
+        "research_experiments.workspace.hf_sync.publish_run_to_hub",
         lambda run_dir, repo_id, token, runs_root, create_repo: published_roots.append(str(run_dir))
         or {
             "run_dir": str(run_dir),
@@ -168,7 +168,7 @@ def test_push_workspace_to_hub_can_target_selected_run_dirs(monkeypatch, tmp_pat
         },
     )
     monkeypatch.setattr(
-        "research_experiments.core.foundation.hf_sync.push_latest_cache_snapshot",
+        "research_experiments.workspace.hf_sync.push_latest_cache_snapshot",
         lambda cache_root, repo_id, token, create_repo, private, shard_filters=None: {
             "cache_root": str(cache_root),
             "remote_repo": repo_id,
@@ -192,23 +192,23 @@ def test_push_workspace_to_hub_can_target_selected_run_dirs(monkeypatch, tmp_pat
 def test_pull_workspace_from_hub_can_target_selected_run_ids_and_prefixes(monkeypatch, tmp_path: Path) -> None:
     downloaded_prefixes: list[str] = []
     monkeypatch.setattr(
-        "research_experiments.core.foundation.hf_sync.list_remote_run_prefixes",
+        "research_experiments.workspace.hf_sync.list_remote_run_prefixes",
         lambda api, repo_id: [
             "single_agent/demo/count20/20260510T000000Z-model",
             "budget_comm/demo/count20/20260510T000001Z-model",
         ],
     )
     monkeypatch.setattr(
-        "research_experiments.core.foundation.hf_sync.snapshot_download",
+        "research_experiments.workspace.hf_sync.snapshot_download",
         lambda repo_id, repo_type, allow_patterns, local_dir, token: downloaded_prefixes.append(allow_patterns[0][:-3])
         or (Path(local_dir) / allow_patterns[0][:-3]).mkdir(parents=True, exist_ok=True),
     )
     monkeypatch.setattr(
-        "research_experiments.core.foundation.hf_sync.extract_run_archives",
+        "research_experiments.workspace.hf_sync.extract_run_archives",
         lambda run_dir: (),
     )
     monkeypatch.setattr(
-        "research_experiments.core.foundation.hf_sync.pull_latest_cache_snapshot",
+        "research_experiments.workspace.hf_sync.pull_latest_cache_snapshot",
         lambda target_root, repo_id, token, shard_filters=None: {
             "target_root": str(target_root),
             "remote_repo": repo_id,
@@ -230,3 +230,4 @@ def test_pull_workspace_from_hub_can_target_selected_run_ids_and_prefixes(monkey
         "budget_comm/demo/count20/20260510T000001Z-model",
     ]
     assert payload["fetched_run_count"] == 2
+

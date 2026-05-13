@@ -11,8 +11,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
 from typing import Any, Callable
 
-from research_experiments.core.foundation.datasets import DatasetSample
-from research_experiments.core.foundation.evaluation import aggregate_majority, score_prediction
+from research_experiments.core.data.datasets import DatasetSample
+from research_experiments.core.data.evaluation import aggregate_majority, score_prediction
 
 
 BuildMessagesFn = Callable[[DatasetSample, int, str], list[dict[str, str]]]
@@ -138,4 +138,5 @@ def _run_no_comm_control_sample(
         run_id=run_id,
     )
     return turn_rows, prediction_row
+
 

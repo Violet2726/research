@@ -8,9 +8,10 @@ import random
 from typing import Any
 
 from research_experiments.families.free_mad_lite.algorithms import METHOD_ORDER
-from research_experiments.core.foundation.workspace import default_reports_root
+from research_experiments.workspace.layout import default_reports_root
 from research_experiments.reporting.analysis_reports import render_frontier_report
 from research_experiments.reporting.report_pipeline import SupplementalReport, render_report_bundle
+from research_experiments.families.shared.report_common import render_family_report_bundle, render_family_scientific_report
 from research_experiments.reporting.reporting_utils import resolve_manifest_model_name
 from research_experiments.reporting.report_views import SummaryTableView, load_json_payload, load_jsonl_rows
 from research_experiments.reporting.run_figures import (
@@ -45,7 +46,8 @@ def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) ->
     diagnostics = load_json_payload(root / "diagnostics.json")
     predictions = load_jsonl_rows(root / "final_predictions.jsonl")
     base_markdown = _render_markdown(manifest, metrics, diagnostics, predictions, root)
-    return render_report_bundle(
+    return render_family_report_bundle(
+        family_name="free_mad_lite",
         run_dir=root,
         publish_dir=publish_dir,
         manifest=manifest,
@@ -237,7 +239,7 @@ def _render_markdown(
             ],
         ),
     ]
-    return render_scientific_report(
+    return render_family_scientific_report(
         title="Free-MAD-lite 科研报告",
         abstract=abstract,
         overview_items=[
@@ -288,4 +290,5 @@ def _quantile(values: list[float], q: float) -> float:
         return float(ordered[lower])
     weight = position - lower
     return round(ordered[lower] * (1 - weight) + ordered[upper] * weight, 6)
+
 

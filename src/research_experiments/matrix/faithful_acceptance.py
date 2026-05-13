@@ -8,7 +8,7 @@ import json
 from typing import Any
 
 from research_experiments.matrix.matrix_specs import get_experiment_matrix_spec
-from research_experiments.core.foundation.workspace import default_reports_root
+from research_experiments.workspace.layout import default_reports_root
 
 SAME_CONTEXT_NON_INFERIORITY_FLOOR = -0.02
 SAME_CONTEXT_FULL_COMM_TOKEN_RATIO_CEILING = 0.85
@@ -223,4 +223,5 @@ def _token_gate_basis(row: dict[str, Any]) -> str:
     if not config_path:
         return "none"
     return get_experiment_matrix_spec(str(config_path)).token_gate_basis
+
 

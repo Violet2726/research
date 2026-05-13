@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 import sqlite3
 
-from research_experiments.core.foundation.cache import CachedResponse, RequestCacheRouter, json_dump
-from research_experiments.core.foundation.cache_snapshots import _build_cache_snapshot_commit_message, build_cache_snapshot, restore_cache_snapshot
+from research_experiments.core.execution.cache import CachedResponse, RequestCacheRouter, json_dump
+from research_experiments.workspace.cache_snapshots import _build_cache_snapshot_commit_message, build_cache_snapshot, restore_cache_snapshot
 
 
 def test_build_and_restore_cache_snapshot(tmp_path: Path) -> None:
@@ -186,3 +186,4 @@ def test_build_cache_snapshot_commit_message_is_human_readable() -> None:
         }
     )
     assert message == "更新 cache 快照 | 6 shards | 596.21 MiB -> 37.55 MiB | 2026-05-10T06:00:00+00:00"
+

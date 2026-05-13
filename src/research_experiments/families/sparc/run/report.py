@@ -16,6 +16,7 @@ from research_experiments.reporting.analysis_reports import (
     render_frontier_report,
 )
 from research_experiments.reporting.report_pipeline import SupplementalReport, render_report_bundle
+from research_experiments.families.shared.report_common import render_family_report_bundle, render_family_scientific_report
 from research_experiments.reporting.reporting_utils import resolve_manifest_model_name
 from research_experiments.reporting.report_views import SummaryRowView, SummaryTableView, load_json_payload, load_jsonl_rows
 from research_experiments.reporting.run_figures import (
@@ -30,7 +31,7 @@ from research_experiments.reporting.scientific_report import (
     render_run_reproducibility_section,
     render_scientific_report,
 )
-from research_experiments.core.foundation.workspace import default_reports_root
+from research_experiments.workspace.layout import default_reports_root
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
@@ -55,7 +56,8 @@ def render_report(
     diagnostics = load_json_payload(root / "diagnostics.json")
     predictions = load_jsonl_rows(root / "final_predictions.jsonl")
     base_markdown = _render_markdown(manifest, metrics, diagnostics, predictions, root)
-    return render_report_bundle(
+    return render_family_report_bundle(
+        family_name="sparc",
         run_dir=root,
         publish_dir=publish_dir,
         manifest=manifest,
@@ -323,7 +325,7 @@ def _render_content_report(
     )
     if failure_cases:
         sections.insert(3, {"title": "失败案例", "cases": failure_cases})
-    return render_scientific_report(
+    return render_family_scientific_report(
         title="SPARC 内容消融科研报告",
         abstract=abstract,
         overview_items=[
@@ -425,7 +427,7 @@ def _render_auditing_report(
     failure_cases = _failure_case_section(predictions, primary_method="local_auditing", reference_method="final_round_vote")
     if failure_cases:
         sections.insert(3, {"title": "失败案例", "cases": failure_cases})
-    return render_scientific_report(
+    return render_family_scientific_report(
         title="SPARC 审计消融科研报告",
         abstract=abstract,
         overview_items=[
@@ -541,7 +543,7 @@ def _render_sparc_report(
     failure_cases = _failure_case_section(predictions, primary_method="sparc_v1", reference_method="final_round_vote_baseline")
     if failure_cases:
         sections.insert(4, {"title": "失败案例", "cases": failure_cases})
-    return render_scientific_report(
+    return render_family_scientific_report(
         title="SPARC 主实验科研报告",
         abstract=abstract,
         overview_items=[
@@ -690,4 +692,5 @@ def _quantile(values: list[float], q: float) -> float:
         return float(ordered[lower])
     weight = position - lower
     return round(ordered[lower] * (1 - weight) + ordered[upper] * weight, 6)
+
 

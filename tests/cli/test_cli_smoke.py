@@ -6,7 +6,7 @@ import io
 import json
 from contextlib import redirect_stdout
 
-from research_experiments.core.foundation.cache import CachedResponse, RequestCacheRouter, json_dump
+from research_experiments.core.execution.cache import CachedResponse, RequestCacheRouter, json_dump
 from research_experiments.cli import main as research_main
 
 
@@ -470,3 +470,4 @@ def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
     assert payload["selected_run_ids"] == ["20260510T000000Z-model"]
     assert payload["selected_run_prefixes"] == ["single_agent/demo/count20/20260510T000000Z-model"]
     assert payload["cache_shard_filters"] == ["providers/xiaomimimo/mimo-v2-5/strategyqa"]
+

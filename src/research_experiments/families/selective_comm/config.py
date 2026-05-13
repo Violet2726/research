@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from research_experiments.core.foundation.config import BenchmarkConfig, ResolvedModelConfig
-from research_experiments.core.foundation.config_helpers import (
+from research_experiments.core.config import BenchmarkConfig, ResolvedModelConfig
+from research_experiments.families.shared.config_loading import (
     load_benchmarks,
     load_toml,
     optional_float,
@@ -15,7 +15,7 @@ from research_experiments.core.foundation.config_helpers import (
     phase_metadata,
     resolve_model,
 )
-from research_experiments.core.foundation.methods import MethodConfig, load_method_catalog
+from research_experiments.families.shared.method_catalog import MethodConfig, load_method_catalog
 
 GENERAL_QA_BENCHMARKS = {"strategyqa", "hotpotqa"}
 
@@ -152,5 +152,6 @@ def ensure_backbone_fit(
     warnings = describe_backbone_fit(experiment, backbone, benchmarks)
     if warnings:
         raise RuntimeError("Incompatible backbone/benchmark mix:\n- " + "\n- ".join(warnings))
+
 
 

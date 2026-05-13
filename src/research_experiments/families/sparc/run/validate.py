@@ -11,9 +11,8 @@ from pathlib import Path
 import json
 import re
 from typing import Any
+from research_experiments.families.shared.validate_common import load_json, load_jsonl, validate_shared_contracts
 
-from research_experiments.core.foundation.run_archives import validate_archive_contract
-from research_experiments.reporting.run_figures import validate_figure_contract
 
 
 DEFAULT_AUDITING_METHODS = ["majority_vote", "single_judge", "final_round_vote", "local_auditing"]
@@ -21,7 +20,7 @@ DEFAULT_AUDITING_METHODS = ["majority_vote", "single_judge", "final_round_vote",
 
 def validate_run(run_dir: str | Path, compare_run_dir: str | Path | None = None) -> dict[str, Any]:
     root = Path(run_dir)
-    manifest = _load_json(root / "manifest.json")
+    manifest = load_json(root / "manifest.json")
     variant_name = manifest.get("variant_name", "")
     report_name = "report.md"
     required = [
@@ -40,10 +39,10 @@ def validate_run(run_dir: str | Path, compare_run_dir: str | Path | None = None)
         "archive_manifest.json",
     ]
     missing = [name for name in required if not (root / name).exists()]
-    stage_a_rows = _load_jsonl(root / "stage_a_turns.jsonl")
-    belief_rows = _load_jsonl(root / "belief_updates.jsonl")
-    audit_rows = _load_jsonl(root / "audit_turns.jsonl")
-    prediction_rows = _load_jsonl(root / "final_predictions.jsonl")
+    stage_a_rows = load_jsonl(root / "stage_a_turns.jsonl")
+    belief_rows = load_jsonl(root / "belief_updates.jsonl")
+    audit_rows = load_jsonl(root / "audit_turns.jsonl")
+    prediction_rows = load_jsonl(root / "final_predictions.jsonl")
     request_failures = sum(1 for row in stage_a_rows + belief_rows + audit_rows if row.get("output_status") == "request_fail")
     schema_failures = sum(1 for row in stage_a_rows + belief_rows + audit_rows if row.get("output_status") == "schema_fail")
     shared_hash_check = _validate_shared_stage_a_hashes(prediction_rows)
@@ -51,8 +50,9 @@ def validate_run(run_dir: str | Path, compare_run_dir: str | Path | None = None)
     local_audit_scope_check = _validate_local_audit_scope(audit_rows)
     auditing_paired_check = _validate_auditing_paired_design(manifest, prediction_rows)
     compare_check = _validate_compare_run(prediction_rows, compare_run_dir)
-    figure_contract = validate_figure_contract(root)
-    archive_contract = validate_archive_contract(root)
+    shared_contracts = validate_shared_contracts(root)
+    figure_contract = shared_contracts["figure_contract"]
+    archive_contract = shared_contracts["archive_contract"]
     return {
         "run_dir": str(root),
         "passed": all(
@@ -294,7 +294,7 @@ def _validate_compare_run(
 ) -> dict[str, Any]:
     if compare_run_dir is None:
         return {"passed": True, "enabled": False}
-    compare_rows = _load_jsonl(Path(compare_run_dir) / "final_predictions.jsonl")
+    compare_rows = load_jsonl(Path(compare_run_dir) / "final_predictions.jsonl")
     current_ids = sorted({(row.get("dataset"), row.get("sample_id")) for row in prediction_rows})
     compare_ids = sorted({(row.get("dataset"), row.get("sample_id")) for row in compare_rows})
     return {
@@ -305,14 +305,15 @@ def _validate_compare_run(
     }
 
 
-def _load_json(path: Path) -> dict[str, Any]:
+def load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+

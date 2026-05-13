@@ -1,4 +1,4 @@
-# research_experiments.core.foundation.providers
+# research_experiments.core.execution.providers
 
 这里放共享 provider 适配层。
 
@@ -13,3 +13,4 @@
 
 - 不在实验家族里复制 provider 重试逻辑。
 - 新增 provider 兼容修复时，优先在这里做共享实现。
+

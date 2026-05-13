@@ -9,7 +9,7 @@ import os
 from statistics import mean
 from typing import Any
 
-from research_experiments.core.foundation.workspace import default_reports_root
+from research_experiments.workspace.layout import default_reports_root
 from research_experiments.matrix.matrix_specs import (
     EVIDENCE_DIAGNOSTIC,
     EVIDENCE_HEADLINE,
@@ -804,3 +804,4 @@ def _track_display_label(track: str) -> str:
     if track == TRACK_SPLIT_CONTEXT:
         return "split"
     return "other"
+

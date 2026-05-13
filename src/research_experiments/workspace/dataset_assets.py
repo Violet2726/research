@@ -12,13 +12,13 @@ import urllib.request
 import pyarrow.parquet as pq
 from huggingface_hub import hf_hub_download
 
-from research_experiments.core.foundation.config import BenchmarkConfig, load_benchmark_config
-from research_experiments.core.foundation.datasets import (
+from research_experiments.core.config import BenchmarkConfig, load_benchmark_config
+from research_experiments.core.data.datasets import (
     generate_split_manifests,
     load_samples,
     resolve_dataset_source_path,
 )
-from research_experiments.core.foundation.workspace import default_datasets_root
+from research_experiments.workspace.layout import default_datasets_root
 DATASETS_DOCS_ROOT = Path("datasets")
 SPLITS_ROOT = Path("configs/core/shared/benchmarks/splits")
 CONFIGS_ROOT = Path("configs")
@@ -666,3 +666,4 @@ def _format_bytes(size_bytes: int) -> str:
     if size_bytes < 1024 * 1024 * 1024:
         return f"{size_bytes / (1024 * 1024):.2f} MiB"
     return f"{size_bytes / (1024 * 1024 * 1024):.2f} GiB"
+

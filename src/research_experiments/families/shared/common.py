@@ -10,7 +10,7 @@ from hashlib import sha256
 import json
 from typing import Any, Iterable
 
-from research_experiments.core.foundation.config_helpers import SupportsRawPhases, phase_metadata
+from research_experiments.families.shared.config_loading import SupportsRawPhases, phase_metadata
 
 
 def resolve_phase_split_name(experiment: SupportsRawPhases, phase_name: str, benchmark_slug: str) -> str:
@@ -63,3 +63,4 @@ def safe_ratio(numerator: int | float, denominator: int | float) -> float:
     if not denominator:
         return 0.0
     return round(float(numerator) / float(denominator), 6)
+

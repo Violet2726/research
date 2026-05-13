@@ -11,10 +11,9 @@ from collections import Counter, defaultdict
 from pathlib import Path
 import json
 from typing import Any
+from research_experiments.families.shared.validate_common import load_json, load_jsonl, validate_shared_contracts
 
 from research_experiments.families.budget_comm.algorithms import METHOD_ORDER, assign_density_tiers, solve_knapsack
-from research_experiments.core.foundation.run_archives import validate_archive_contract
-from research_experiments.reporting.run_figures import validate_figure_contract
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
@@ -38,13 +37,13 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     ]
     missing = [name for name in required if not (root / name).exists()]
 
-    manifest = _load_json(root / "manifest.json")
-    sample_views = _load_jsonl(root / "sample_views.jsonl")
-    stage_a_rows = _load_jsonl(root / "stage_a_turns.jsonl")
-    candidate_rows = _load_jsonl(root / "candidate_packets.jsonl")
-    auction_rows = _load_jsonl(root / "auction_decisions.jsonl")
-    belief_rows = _load_jsonl(root / "belief_updates.jsonl")
-    prediction_rows = _load_jsonl(root / "final_predictions.jsonl")
+    manifest = load_json(root / "manifest.json")
+    sample_views = load_jsonl(root / "sample_views.jsonl")
+    stage_a_rows = load_jsonl(root / "stage_a_turns.jsonl")
+    candidate_rows = load_jsonl(root / "candidate_packets.jsonl")
+    auction_rows = load_jsonl(root / "auction_decisions.jsonl")
+    belief_rows = load_jsonl(root / "belief_updates.jsonl")
+    prediction_rows = load_jsonl(root / "final_predictions.jsonl")
 
     turn_rows = stage_a_rows + belief_rows
     request_failures = sum(1 for row in turn_rows if row.get("output_status") == "request_fail")
@@ -57,8 +56,9 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     paired_check = _validate_paired_design(prediction_rows)
     leak_check = _validate_context_leak(sample_views, manifest)
     shard_union_check = _validate_shard_union(sample_views, manifest)
-    figure_contract = validate_figure_contract(root)
-    archive_contract = validate_archive_contract(root)
+    shared_contracts = validate_shared_contracts(root)
+    figure_contract = shared_contracts["figure_contract"]
+    archive_contract = shared_contracts["archive_contract"]
 
     passed = all(
         [
@@ -261,16 +261,17 @@ def _validate_shard_union(sample_views: list[dict[str, Any]], manifest: dict[str
     return {"passed": len(violations) == 0, "enabled": True, "violation_count": len(violations), "violations": violations[:20]}
 
 
-def _load_json(path: Path) -> dict[str, Any]:
+def load_json(path: Path) -> dict[str, Any]:
     """读取 UTF-8 JSON；不存在时返回空字典。"""
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
     """读取 UTF-8 JSONL；不存在时返回空列表。"""
     if not path.exists():
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+

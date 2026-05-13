@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from typing import Callable
 
-from research_experiments.core.foundation.cli_output import configure_utf8_stdio
+from research_experiments.cli_support.output import configure_utf8_stdio
 from research_experiments.families.registry import get_family_spec, registered_family_names
 from research_experiments.matrix.faithful_matrix import main as matrix_main
 from research_experiments.tools.archive_runs import main as archive_runs_main
@@ -66,3 +66,4 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     raise RuntimeError(f"Unsupported command group: {args.group}")
+

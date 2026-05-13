@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from research_experiments.core.foundation.cache import (
+from research_experiments.core.execution.cache import (
     CacheRootSummary,
     CacheShardSummary,
     format_bytes,
@@ -13,8 +13,8 @@ from research_experiments.core.foundation.cache import (
     resolve_cache_shard_path,
     summarize_cache_root,
 )
-from research_experiments.core.foundation.cli_output import configure_utf8_stdio, emit_json
-from research_experiments.core.foundation.workspace import default_cache_root
+from research_experiments.cli_support.output import configure_utf8_stdio, emit_json
+from research_experiments.workspace.layout import default_cache_root
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -168,4 +168,5 @@ def _print_shard_summary(shard: CacheShardSummary, cache_root: Path, indent: str
     if shard.error:
         line += f" | 错误 {shard.error}"
     print(f"{indent}{line}")
+
 

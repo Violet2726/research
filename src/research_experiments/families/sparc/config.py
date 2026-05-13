@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from research_experiments.core.foundation.config import BenchmarkConfig, ResolvedModelConfig
-from research_experiments.core.foundation.config_helpers import (
+from research_experiments.core.config import BenchmarkConfig, ResolvedModelConfig
+from research_experiments.families.shared.config_loading import (
     load_benchmarks,
     load_toml,
     optional_int,
@@ -19,7 +19,7 @@ from research_experiments.core.foundation.config_helpers import (
     phase_metadata,
     resolve_model,
 )
-from research_experiments.families.reference_runs import TriggerReferenceConfig
+from research_experiments.families.shared.reference_runs import TriggerReferenceConfig
 
 
 VARIANT_NAME_VALUES = {"content_ablation", "auditing_ablation", "sparc_v1"}
@@ -140,4 +140,5 @@ def _first_str(primary: dict[str, Any], secondary: dict[str, Any], key: str) -> 
     if value is not None:
         return value
     return optional_str(secondary, key)
+
 

@@ -9,18 +9,18 @@ from pathlib import Path
 import json
 from typing import Any, Callable, Iterable, TypeVar
 
-from research_experiments.core.foundation.cache import (
+from research_experiments.core.execution.cache import (
     RequestCache,
     build_request_cache_key,
     cache_successful_response,
 )
-from research_experiments.core.foundation.config import ResolvedModelConfig
-from research_experiments.core.foundation.providers import (
+from research_experiments.core.config import ResolvedModelConfig
+from research_experiments.core.execution.providers import (
     OpenAICompatibleProvider,
     build_payload,
     execute_completion_request,
 )
-from research_experiments.core.foundation.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
 from research_experiments.core.structured_outputs import SchemaId, validate_or_recover_structured_output
 
 
@@ -184,4 +184,5 @@ def execute_cached_turn(
         output_status=output_status,
         usage=usage,
     )
+
 

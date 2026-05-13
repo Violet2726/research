@@ -12,7 +12,7 @@ import json
 import time
 from typing import Any, Callable
 
-from research_experiments.core.foundation.run_archives import pack_run_artifacts, publish_run_if_configured
+from research_experiments.workspace.run_archives import pack_run_artifacts, publish_run_if_configured
 
 
 class RunProgressTracker:
@@ -128,3 +128,4 @@ def finalize_run_outputs(
         validation["hf_publish"] = publish_payload
         output_path.write_text(json.dumps(validation, ensure_ascii=False, indent=2), encoding="utf-8")
     return validation
+

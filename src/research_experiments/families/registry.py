@@ -72,7 +72,7 @@ FAMILY_SPECS: dict[str, FamilySpec] = {
     "budget_comm": FamilySpec(
         family_name="budget_comm",
         config_loader_path="research_experiments.families.budget_comm.config:load_experiment_config",
-        model_resolver_path="research_experiments.core.foundation.config_helpers:resolve_model",
+        model_resolver_path="research_experiments.families.shared.config_loading:resolve_model",
         runner_path="research_experiments.families.budget_comm.run.execute:run_experiment",
         validator_path="research_experiments.families.budget_comm.run.validate:validate_run",
         summarizer_path="research_experiments.families.budget_comm.run.report:summarize_run",
@@ -82,7 +82,7 @@ FAMILY_SPECS: dict[str, FamilySpec] = {
     "comm_necessary": FamilySpec(
         family_name="comm_necessary",
         config_loader_path="research_experiments.families.comm_necessary.config:load_experiment_config",
-        model_resolver_path="research_experiments.core.foundation.config_helpers:resolve_model",
+        model_resolver_path="research_experiments.families.shared.config_loading:resolve_model",
         runner_path="research_experiments.families.comm_necessary.run.execute:run_experiment",
         validator_path="research_experiments.families.comm_necessary.run.validate:validate_run",
         summarizer_path="research_experiments.families.comm_necessary.run.report:summarize_run",
@@ -92,7 +92,7 @@ FAMILY_SPECS: dict[str, FamilySpec] = {
     "cue": FamilySpec(
         family_name="cue",
         config_loader_path="research_experiments.families.cue.config:load_experiment_config",
-        model_resolver_path="research_experiments.core.foundation.config_helpers:resolve_model",
+        model_resolver_path="research_experiments.families.shared.config_loading:resolve_model",
         runner_path="research_experiments.families.cue.run.execute:run_experiment",
         validator_path="research_experiments.families.cue.run.validate:validate_run",
         summarizer_path="research_experiments.families.cue.run.report:summarize_run",
@@ -102,7 +102,7 @@ FAMILY_SPECS: dict[str, FamilySpec] = {
     "free_mad_lite": FamilySpec(
         family_name="free_mad_lite",
         config_loader_path="research_experiments.families.free_mad_lite.config:load_experiment_config",
-        model_resolver_path="research_experiments.core.foundation.config_helpers:resolve_model",
+        model_resolver_path="research_experiments.families.shared.config_loading:resolve_model",
         runner_path="research_experiments.families.free_mad_lite.run.execute:run_experiment",
         validator_path="research_experiments.families.free_mad_lite.run.validate:validate_run",
         summarizer_path="research_experiments.families.free_mad_lite.run.report:summarize_run",
@@ -112,7 +112,7 @@ FAMILY_SPECS: dict[str, FamilySpec] = {
     "multi_agent": FamilySpec(
         family_name="multi_agent",
         config_loader_path="research_experiments.families.multi_agent.config:load_experiment_config",
-        model_resolver_path="research_experiments.core.foundation.config_helpers:resolve_model",
+        model_resolver_path="research_experiments.families.shared.config_loading:resolve_model",
         runner_path="research_experiments.families.multi_agent.run.execute:run_experiment",
         validator_path="research_experiments.families.multi_agent.run.validate:validate_run",
         summarizer_path="research_experiments.families.multi_agent.run.report:summarize_run",
@@ -122,7 +122,7 @@ FAMILY_SPECS: dict[str, FamilySpec] = {
     "selective_comm": FamilySpec(
         family_name="selective_comm",
         config_loader_path="research_experiments.families.selective_comm.config:load_experiment_config",
-        model_resolver_path="research_experiments.core.foundation.config_helpers:resolve_model",
+        model_resolver_path="research_experiments.families.shared.config_loading:resolve_model",
         runner_path="research_experiments.families.selective_comm.run.execute:run_experiment",
         validator_path="research_experiments.families.selective_comm.run.validate:validate_run",
         summarizer_path="research_experiments.families.selective_comm.run.report:summarize_run",
@@ -132,7 +132,7 @@ FAMILY_SPECS: dict[str, FamilySpec] = {
     "sid_lite": FamilySpec(
         family_name="sid_lite",
         config_loader_path="research_experiments.families.sid_lite.config:load_experiment_config",
-        model_resolver_path="research_experiments.core.foundation.config_helpers:resolve_model",
+        model_resolver_path="research_experiments.families.shared.config_loading:resolve_model",
         runner_path="research_experiments.families.sid_lite.run.execute:run_experiment",
         validator_path="research_experiments.families.sid_lite.run.validate:validate_run",
         summarizer_path="research_experiments.families.sid_lite.run.report:summarize_run",
@@ -142,7 +142,7 @@ FAMILY_SPECS: dict[str, FamilySpec] = {
     "single_agent": FamilySpec(
         family_name="single_agent",
         config_loader_path="research_experiments.families.single_agent.config:load_experiment_config",
-        model_resolver_path="research_experiments.core.foundation.config_helpers:resolve_model",
+        model_resolver_path="research_experiments.families.shared.config_loading:resolve_model",
         runner_path="research_experiments.families.single_agent.run.execute:run_experiment",
         validator_path="research_experiments.families.single_agent.run.validate:validate_run",
         summarizer_path="research_experiments.families.single_agent.run.report:summarize_run",
@@ -152,7 +152,7 @@ FAMILY_SPECS: dict[str, FamilySpec] = {
     "sparc": FamilySpec(
         family_name="sparc",
         config_loader_path="research_experiments.families.sparc.config:load_experiment_config",
-        model_resolver_path="research_experiments.core.foundation.config_helpers:resolve_model",
+        model_resolver_path="research_experiments.families.shared.config_loading:resolve_model",
         runner_path="research_experiments.families.sparc.run.execute:run_experiment",
         validator_path="research_experiments.families.sparc.run.validate:validate_run",
         summarizer_path="research_experiments.families.sparc.run.report:summarize_run",
@@ -181,4 +181,5 @@ def validator_map() -> dict[str, ValidatorFn]:
         family_name: spec.validator
         for family_name, spec in FAMILY_SPECS.items()
     }
+
 

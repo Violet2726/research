@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from research_experiments.core.foundation.config import load_benchmark_config
-from research_experiments.core.foundation.datasets import load_samples
-from research_experiments.core.foundation.evaluation import normalize_prediction, score_prediction
+from research_experiments.core.config import load_benchmark_config
+from research_experiments.core.data.datasets import load_samples
+from research_experiments.core.data.evaluation import normalize_prediction, score_prediction
 
 
 def test_math500_loader_reads_problem_and_unique_id() -> None:
@@ -52,4 +52,5 @@ def test_multiple_choice_scoring_accepts_letter_or_option_text() -> None:
     assert score_prediction("gpqa_diamond", "B", gold) == 1.0
     assert score_prediction("gpqa_diamond", "polyA tail", gold) == 1.0
     assert score_prediction("gpqa_diamond", "A", gold) == 0.0
+
 

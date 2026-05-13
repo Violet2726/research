@@ -10,9 +10,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 import json
 from typing import Any
+from research_experiments.families.shared.validate_common import load_json, load_jsonl, validate_shared_contracts
 
-from research_experiments.core.foundation.run_archives import validate_archive_contract
-from research_experiments.reporting.run_figures import validate_figure_contract
 
 
 def validate_run(
@@ -31,8 +30,8 @@ def validate_run(
         "archive_manifest.json",
     ]
     missing_files = [name for name in required if not (root / name).exists()]
-    raw_rows = _load_jsonl(root / "raw_responses.jsonl")
-    prediction_rows = _load_jsonl(root / "predictions.jsonl")
+    raw_rows = load_jsonl(root / "raw_responses.jsonl")
+    prediction_rows = load_jsonl(root / "predictions.jsonl")
     metrics = json.loads((root / "metrics.json").read_text(encoding="utf-8"))
 
     request_failures = sum(1 for row in raw_rows if row.get("output_status") == "request_fail")
@@ -53,8 +52,9 @@ def validate_run(
         }
 
     split_count_check = _validate_prediction_counts(prediction_rows)
-    figure_contract = validate_figure_contract(root)
-    archive_contract = validate_archive_contract(root)
+    shared_contracts = validate_shared_contracts(root)
+    figure_contract = shared_contracts["figure_contract"]
+    archive_contract = shared_contracts["archive_contract"]
 
     passed = all(
         [
@@ -106,7 +106,8 @@ def _validate_prediction_counts(prediction_rows: list[dict[str, Any]]) -> dict[s
     }
 
 
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
     """读取 UTF-8 JSONL 文件。"""
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+

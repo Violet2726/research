@@ -4,7 +4,7 @@ import io
 import json
 import sys
 
-from research_experiments.core.foundation.cli_output import emit_json
+from research_experiments.cli_support.output import emit_json
 
 
 def test_emit_json_reconfigures_non_utf8_stdout(monkeypatch) -> None:
@@ -20,3 +20,4 @@ def test_emit_json_reconfigures_non_utf8_stdout(monkeypatch) -> None:
 
     payload = json.loads(raw_stdout.getvalue().decode("utf-8"))
     assert payload["message"] == "中文输出"
+

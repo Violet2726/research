@@ -11,10 +11,9 @@ from datetime import datetime
 from pathlib import Path
 import json
 from typing import Any
+from research_experiments.families.shared.validate_common import load_json, load_jsonl, validate_shared_contracts
 
 from research_experiments.families.comm_necessary.algorithms import METHOD_ORDER
-from research_experiments.core.foundation.run_archives import validate_archive_contract
-from research_experiments.reporting.run_figures import validate_figure_contract
 
 
 REQUIRED_FILES = [
@@ -38,12 +37,12 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     """验证 comm_necessary run 是否满足实验契约。"""
     root = Path(run_dir)
     missing = [name for name in REQUIRED_FILES if not (root / name).exists()]
-    manifest = _load_json(root / "manifest.json")
-    sample_views = _load_jsonl(root / "sample_views.jsonl")
-    stage_a_rows = _load_jsonl(root / "stage_a_turns.jsonl")
-    packet_rows = _load_jsonl(root / "message_packets.jsonl")
-    stage_b_rows = _load_jsonl(root / "stage_b_turns.jsonl")
-    prediction_rows = _load_jsonl(root / "final_predictions.jsonl")
+    manifest = load_json(root / "manifest.json")
+    sample_views = load_jsonl(root / "sample_views.jsonl")
+    stage_a_rows = load_jsonl(root / "stage_a_turns.jsonl")
+    packet_rows = load_jsonl(root / "message_packets.jsonl")
+    stage_b_rows = load_jsonl(root / "stage_b_turns.jsonl")
+    prediction_rows = load_jsonl(root / "final_predictions.jsonl")
     turn_rows = stage_a_rows + stage_b_rows
 
     request_failures = sum(1 for row in turn_rows if row.get("output_status") == "request_fail")
@@ -54,8 +53,9 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     packet_cap_check = _packet_cap_check(packet_rows)
     hotpot_prediction_check = _hotpot_prediction_files_check(root, prediction_rows)
     rate_limit_check = _rate_limit_check(turn_rows, manifest)
-    figure_contract = validate_figure_contract(root)
-    archive_contract = validate_archive_contract(root)
+    shared_contracts = validate_shared_contracts(root)
+    figure_contract = shared_contracts["figure_contract"]
+    archive_contract = shared_contracts["archive_contract"]
 
     passed = all(
         [
@@ -178,7 +178,7 @@ def _hotpot_prediction_files_check(root: Path, prediction_rows: list[dict[str, A
         path = output_dir / f"{method}.json"
         if not path.exists():
             continue
-        payload = _load_json(path)
+        payload = load_json(path)
         answer = payload.get("answer")
         sp = payload.get("sp")
         expected_ids = expected_ids_by_method.get(method, set())
@@ -235,15 +235,16 @@ def _parse_timestamp(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def _load_json(path: Path) -> dict[str, Any]:
+def load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+
 

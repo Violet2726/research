@@ -32,7 +32,8 @@ uv run python -m compileall src tests
 
 - CLI 入口：同步检查 `pyproject.toml`、`README.md` 和相关 `docs/`
 - 实验配置名：同步检查根 README、`src/*/README.md` 和 `configs/*`
-- 共享结构：同步检查 `src/research_experiments/core/README.md` 与 `docs/project_structure.md`
+- 共享结构：同步检查 `src/research_experiments/core/README.md`、`src/README.md` 与 `docs/project_structure.md`
+- family 共享脚手架：同步检查 `src/research_experiments/families/shared/`
 - 中文注解或仓库说明：遵循 [docs/code_annotation_guidelines.md](/d:/user/research/docs/code_annotation_guidelines.md)
 
 ## Annotation Policy

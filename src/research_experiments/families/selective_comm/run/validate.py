@@ -11,9 +11,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 import json
 from typing import Any
+from research_experiments.families.shared.validate_common import load_json, load_jsonl, validate_shared_contracts
 
-from research_experiments.core.foundation.run_archives import validate_archive_contract
-from research_experiments.reporting.run_figures import validate_figure_contract
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
@@ -36,12 +35,12 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     ]
     missing = [name for name in required if not (root / name).exists()]
 
-    stage_a_rows = _load_jsonl(root / "stage_a_turns.jsonl")
-    stage_b_rows = _load_jsonl(root / "stage_b_turns.jsonl")
-    control_rows = _load_jsonl(root / "control_turns.jsonl")
-    trigger_rows = _load_jsonl(root / "trigger_decisions.jsonl")
-    prediction_rows = _load_jsonl(root / "policy_predictions.jsonl")
-    diagnostics = _load_json(root / "policy_diagnostics.json") if (root / "policy_diagnostics.json").exists() else {}
+    stage_a_rows = load_jsonl(root / "stage_a_turns.jsonl")
+    stage_b_rows = load_jsonl(root / "stage_b_turns.jsonl")
+    control_rows = load_jsonl(root / "control_turns.jsonl")
+    trigger_rows = load_jsonl(root / "trigger_decisions.jsonl")
+    prediction_rows = load_jsonl(root / "policy_predictions.jsonl")
+    diagnostics = load_json(root / "policy_diagnostics.json") if (root / "policy_diagnostics.json").exists() else {}
 
     all_turn_rows = stage_a_rows + stage_b_rows + control_rows
     request_failures = sum(1 for row in all_turn_rows if row.get("output_status") == "request_fail")
@@ -53,8 +52,9 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     early_exit_check = _validate_early_exit_tokens(prediction_rows)
     trigger_rate_check = _validate_always_trigger_rate(trigger_rows)
     invalid_confidence_check = _confidence_invalid_ratio(trigger_rows)
-    figure_contract = validate_figure_contract(root)
-    archive_contract = validate_archive_contract(root)
+    shared_contracts = validate_shared_contracts(root)
+    figure_contract = shared_contracts["figure_contract"]
+    archive_contract = shared_contracts["archive_contract"]
 
     passed = all(
         [
@@ -188,7 +188,7 @@ def _confidence_invalid_ratio(trigger_rows: list[dict[str, Any]]) -> dict[str, A
     }
 
 
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
     """读取 UTF-8 JSONL 文件。"""
     if not path.exists():
         return []
@@ -196,8 +196,9 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
         return [json.loads(line) for line in handle if line.strip()]
 
 
-def _load_json(path: Path) -> dict[str, Any]:
+def load_json(path: Path) -> dict[str, Any]:
     """读取 UTF-8 JSON 文件。"""
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+

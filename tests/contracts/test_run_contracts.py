@@ -19,7 +19,7 @@ from research_experiments.families.sparc.run.report import summarize_run as summ
 from research_experiments.families.sparc.run.validate import validate_run as validate_sparc
 from research_experiments.families.selective_comm.config import load_control_catalog, load_policies, load_protocol_config
 from research_experiments.families.selective_comm.run.report import summarize_run as summarize_selective
-from research_experiments.families.selective_comm.run.execute import _load_resume_seed_state
+from research_experiments.families.selective_comm.run.sample import _load_resume_seed_state
 from research_experiments.families.selective_comm.run.validate import validate_run as validate_selective
 from research_experiments.families.sid_lite.run.report import summarize_run as summarize_sid
 from research_experiments.families.sid_lite.run.validate import validate_run as validate_sid

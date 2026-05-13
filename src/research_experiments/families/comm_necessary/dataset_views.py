@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass
 from hashlib import sha256
 from typing import Any
 
-from research_experiments.core.foundation.datasets import DatasetSample
+from research_experiments.core.data.datasets import DatasetSample
 
 
 @dataclass(frozen=True)
@@ -170,5 +170,6 @@ def _slice(items: list[str], start: int, stop: int) -> list[str]:
 
 def _stable_hash(text: str) -> str:
     return sha256(text.encode("utf-8")).hexdigest()
+
 
 

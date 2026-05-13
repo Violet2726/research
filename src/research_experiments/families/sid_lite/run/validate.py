@@ -10,9 +10,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 import json
 from typing import Any
+from research_experiments.families.shared.validate_common import load_json, load_jsonl, validate_shared_contracts
 
-from research_experiments.core.foundation.run_archives import validate_archive_contract
-from research_experiments.reporting.run_figures import validate_figure_contract
 
 
 REQUIRED_FILES = [
@@ -34,11 +33,11 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     """验证 SID-lite run 是否满足 smoke 实验契约。"""
     root = Path(run_dir)
     missing = [name for name in REQUIRED_FILES if not (root / name).exists()]
-    manifest = _load_json(root / "manifest.json") if (root / "manifest.json").exists() else {}
-    stage_a_rows = _load_jsonl(root / "stage_a_turns.jsonl")
-    packet_rows = _load_jsonl(root / "message_packets.jsonl")
-    belief_rows = _load_jsonl(root / "belief_updates.jsonl")
-    prediction_rows = _load_jsonl(root / "final_predictions.jsonl")
+    manifest = load_json(root / "manifest.json") if (root / "manifest.json").exists() else {}
+    stage_a_rows = load_jsonl(root / "stage_a_turns.jsonl")
+    packet_rows = load_jsonl(root / "message_packets.jsonl")
+    belief_rows = load_jsonl(root / "belief_updates.jsonl")
+    prediction_rows = load_jsonl(root / "final_predictions.jsonl")
 
     request_failures = sum(1 for row in stage_a_rows + belief_rows if row.get("output_status") == "request_fail")
     schema_failures = sum(1 for row in stage_a_rows + belief_rows if row.get("output_status") == "schema_fail")
@@ -47,8 +46,9 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     early_exit_check = _early_exit_zero_comm_check(prediction_rows)
     packet_cap_check = _packet_cap_check(packet_rows)
     fail_open_check = _invalid_confidence_fail_open_check(prediction_rows)
-    figure_contract = validate_figure_contract(root)
-    archive_contract = validate_archive_contract(root)
+    shared_contracts = validate_shared_contracts(root)
+    figure_contract = shared_contracts["figure_contract"]
+    archive_contract = shared_contracts["archive_contract"]
     passed = (
         not missing
         and request_failures == 0
@@ -161,14 +161,15 @@ def _compact_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def _load_json(path: Path) -> dict[str, Any]:
+def load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+

@@ -6,9 +6,9 @@ import argparse
 
 from dotenv import load_dotenv
 
-from research_experiments.core.foundation.cli_output import configure_utf8_stdio, emit_json
-from research_experiments.core.foundation.hf_sync import collect_hf_sync_status, pull_workspace_from_hub, push_workspace_to_hub
-from research_experiments.core.foundation.workspace import default_cache_hf_repo, default_cache_root, default_runs_hf_repo, workspace_layout
+from research_experiments.cli_support.output import configure_utf8_stdio, emit_json
+from research_experiments.workspace.hf_sync import collect_hf_sync_status, pull_workspace_from_hub, push_workspace_to_hub
+from research_experiments.workspace.layout import default_cache_hf_repo, default_cache_root, default_runs_hf_repo, workspace_layout
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -117,3 +117,4 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
+

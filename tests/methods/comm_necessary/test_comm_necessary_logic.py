@@ -10,7 +10,7 @@ from research_experiments.families.comm_necessary.algorithms import (
     majority_vote_with_counts,
     score_hotpot_prediction,
 )
-from research_experiments.core.foundation.datasets import DatasetSample
+from research_experiments.core.data.datasets import DatasetSample
 
 
 def _sample() -> DatasetSample:
@@ -99,4 +99,5 @@ def test_hotpot_scorer_joint_metrics() -> None:
     assert scores.supporting_em == 1.0
     assert scores.joint_em == 1.0
     assert scores.joint_f1 == 1.0
+
 

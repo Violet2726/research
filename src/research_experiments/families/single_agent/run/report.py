@@ -5,8 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from research_experiments.core.foundation.workspace import default_reports_root
+from research_experiments.workspace.layout import default_reports_root
 from research_experiments.reporting.report_pipeline import render_report_bundle
+from research_experiments.families.shared.report_common import render_family_report_bundle, render_family_scientific_report
 from research_experiments.reporting.reporting_utils import resolve_manifest_model_name
 from research_experiments.reporting.report_statistics import (
     PairwiseComparisonSpec,
@@ -56,7 +57,8 @@ def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) ->
     predictions = load_jsonl_rows(root / "predictions.jsonl")
     summary_rows = metrics.get("summary", [])
     base_markdown = _render_markdown(manifest, summary_rows, predictions, root)
-    return render_report_bundle(
+    return render_family_report_bundle(
+        family_name="single_agent",
         run_dir=root,
         publish_dir=publish_dir,
         manifest=manifest,
@@ -327,7 +329,7 @@ def _render_markdown(
             ],
         ),
     ]
-    return render_scientific_report(
+    return render_family_scientific_report(
         title="单智能体科研报告",
         abstract=abstract,
         overview_items=[
@@ -353,3 +355,4 @@ def _single_agent_evidence_rows(predictions: list[dict[str, Any]]) -> list[dict[
         for method in methods
     ]
     return build_pairwise_comparison_rows(predictions, comparisons)
+

@@ -7,8 +7,8 @@ import json
 
 import pytest
 
-from research_experiments.core.foundation.config import ResolvedModelConfig
-from research_experiments.families.reference_runs import (
+from research_experiments.core.config import ResolvedModelConfig
+from research_experiments.families.shared.reference_runs import (
     TriggerReferenceConfig,
     resolve_trigger_reference_selection,
     write_policy_reference_summary,
@@ -218,3 +218,4 @@ def _resolved_model(name: str, provider: str, model_id: str) -> ResolvedModelCon
         max_retries=2,
         tags=["general_qa"],
     )
+

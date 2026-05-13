@@ -9,8 +9,8 @@ import time
 import httpx
 import pytest
 
-from research_experiments.core.foundation.artifacts import BufferedJsonlWriter
-from research_experiments.core.foundation.cache import (
+from research_experiments.core.execution.artifacts import BufferedJsonlWriter
+from research_experiments.core.execution.cache import (
     CachedResponse,
     RequestCache,
     RequestCacheRouter,
@@ -21,17 +21,17 @@ from research_experiments.core.foundation.cache import (
     resolve_cache_shard_path,
     summarize_cache_root,
 )
-from research_experiments.core.foundation.config import load_benchmark_config, load_model_catalog, parse_model_ref, resolve_model_ref
-from research_experiments.core.foundation.datasets import generate_split_manifests, load_split_ids, select_samples
-from research_experiments.core.foundation.providers import (
+from research_experiments.core.config import load_benchmark_config, load_model_catalog, parse_model_ref, resolve_model_ref
+from research_experiments.core.data.datasets import generate_split_manifests, load_split_ids, select_samples
+from research_experiments.core.execution.providers import (
     OpenAICompatibleProvider,
     ProviderResponse,
     _extract_message_channels,
     build_payload,
     execute_completion_request,
 )
-from research_experiments.core.foundation.rate_limits import SlidingWindowRateLimiter
-from research_experiments.core.foundation.runtime import finalize_run_outputs
+from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.runtime import finalize_run_outputs
 from research_experiments.core.controls.selective_signals import decide_trigger, summarize_confidence_rows, summarize_divergence_rows
 from research_experiments.core.structured_outputs import (
     SCHEMA_ANSWER_CORE,
@@ -48,7 +48,7 @@ from research_experiments.core.structured_outputs import (
     validate_or_recover_structured_output,
     validate_structured_output,
 )
-from research_experiments.core.foundation.workspace import (
+from research_experiments.workspace.layout import (
     auto_publish_runs_enabled,
     auto_push_cache_snapshot_enabled,
     default_cache_root,
@@ -1037,7 +1037,7 @@ def test_provider_reuses_shared_http_client(monkeypatch: pytest.MonkeyPatch) -> 
 
     model = resolve_model_ref("xiaomimimo/mimo-v2.5")
     monkeypatch.setenv(model.api_key_env, "test-key")
-    monkeypatch.setattr("research_experiments.core.foundation.providers.httpx.Client", DummyClient)
+    monkeypatch.setattr("research_experiments.core.execution.providers.httpx.Client", DummyClient)
     OpenAICompatibleProvider._shared_clients.clear()
     provider_a = None
     provider_b = None
@@ -1087,7 +1087,7 @@ def test_provider_rotates_shared_http_client_after_protocol_error(monkeypatch: p
 
     model = resolve_model_ref("xiaomimimo/mimo-v2.5")
     monkeypatch.setenv(model.api_key_env, "test-key")
-    monkeypatch.setattr("research_experiments.core.foundation.providers.httpx.Client", DummyClient)
+    monkeypatch.setattr("research_experiments.core.execution.providers.httpx.Client", DummyClient)
     OpenAICompatibleProvider._shared_clients.clear()
     provider = None
     try:
@@ -1120,7 +1120,7 @@ def test_provider_close_swallows_transport_close_errors(monkeypatch: pytest.Monk
 
     model = resolve_model_ref("xiaomimimo/mimo-v2.5")
     monkeypatch.setenv(model.api_key_env, "test-key")
-    monkeypatch.setattr("research_experiments.core.foundation.providers.httpx.Client", DummyClient)
+    monkeypatch.setattr("research_experiments.core.execution.providers.httpx.Client", DummyClient)
     OpenAICompatibleProvider._shared_clients.clear()
     provider = OpenAICompatibleProvider(model)
     provider.close()
@@ -1144,7 +1144,7 @@ def test_finalize_run_outputs_attaches_hf_publish_result(tmp_path: Path, monkeyp
     (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
     (tmp_path / "metrics.json").write_text(json.dumps({"summary": []}, ensure_ascii=False, indent=2), encoding="utf-8")
     monkeypatch.setattr(
-        "research_experiments.core.foundation.runtime.publish_run_if_configured",
+        "research_experiments.core.execution.runtime.publish_run_if_configured",
         lambda root, validation: {"published": True, "remote_repo": "owner/research-runs"},
     )
 
@@ -1156,3 +1156,4 @@ def test_finalize_run_outputs_attaches_hf_publish_result(tmp_path: Path, monkeyp
     assert payload["hf_publish"]["published"] is True
     validation_payload = json.loads((tmp_path / "run_validation.json").read_text(encoding="utf-8"))
     assert validation_payload["hf_publish"]["remote_repo"] == "owner/research-runs"
+

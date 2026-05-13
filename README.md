@@ -19,11 +19,13 @@
 ```text
 src/
   research_experiments/
+    cli_support/      CLI 输出与终端编码支持
     core/             共享核心能力
     families/         各实验家族
     matrix/           faithful matrix 编排
     reporting/        共享报告与论文包能力
     tools/            归档、缓存、数据集等工具
+    workspace/        工作区布局、归档、同步与数据集资产
 
 configs/
   core/
@@ -97,7 +99,7 @@ uv run research_cli tools archive-runs publish-run --run-root local/runs/<family
 
 ## 工作区与环境变量
 
-默认工作区根目录由 [workspace.py](/d:/user/research/src/research_experiments/core/foundation/workspace.py) 统一管理：
+默认工作区根目录由 [layout.py](/d:/user/research/src/research_experiments/workspace/layout.py) 统一管理：
 
 - `RESEARCH_RUNS_ROOT`
 - `RESEARCH_REPORTS_ROOT`

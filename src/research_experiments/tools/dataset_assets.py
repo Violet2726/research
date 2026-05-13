@@ -6,8 +6,8 @@ import argparse
 
 from dotenv import load_dotenv
 
-from research_experiments.core.foundation.cli_output import configure_utf8_stdio, emit_json
-from research_experiments.core.foundation.dataset_assets import (
+from research_experiments.cli_support.output import configure_utf8_stdio, emit_json
+from research_experiments.workspace.dataset_assets import (
     build_primary_dataset_specs,
     build_supplementary_dataset_specs,
     download_primary_dataset_sources,
@@ -150,3 +150,4 @@ def _serialize_result(result) -> dict[str, object]:
 
 if __name__ == "__main__":
     main()
+

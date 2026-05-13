@@ -7,8 +7,8 @@ from pathlib import Path
 import json
 from typing import Any
 
-from research_experiments.core.foundation.config import ResolvedModelConfig
-from research_experiments.core.foundation.workspace import default_runs_root
+from research_experiments.core.config import ResolvedModelConfig
+from research_experiments.workspace.layout import default_runs_root
 
 
 @dataclass(frozen=True)
@@ -195,4 +195,5 @@ def _optional_float(row: dict[str, Any] | None, key: str) -> float | None:
         return None
     value = row.get(key)
     return float(value) if value is not None else None
+
 

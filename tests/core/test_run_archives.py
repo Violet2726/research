@@ -6,7 +6,7 @@ from pathlib import Path
 import json
 import shutil
 
-from research_experiments.core.foundation.run_archives import (
+from research_experiments.workspace.run_archives import (
     _build_run_publish_commit_message,
     extract_run_archives,
     pack_run_artifacts,
@@ -106,3 +106,4 @@ def _seed_run_dir(root: Path) -> None:
     predictions_dir = root / "hotpot_predictions"
     predictions_dir.mkdir()
     (predictions_dir / "method_a.json").write_text(json.dumps({"answer": {}}, ensure_ascii=False, indent=2), encoding="utf-8")
+

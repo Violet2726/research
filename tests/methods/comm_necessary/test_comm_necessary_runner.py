@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from research_experiments.families.comm_necessary.run.execute import _apply_belief_answer_fallback
+from research_experiments.families.comm_necessary.run.sample import _apply_belief_answer_fallback
 
 
 def test_apply_belief_answer_fallback_keeps_previous_grounded_answer() -> None:

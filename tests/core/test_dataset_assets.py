@@ -5,13 +5,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from research_experiments.core.foundation.config import load_benchmark_config
-from research_experiments.core.foundation.dataset_assets import (
+from research_experiments.core.config import load_benchmark_config
+from research_experiments.workspace.dataset_assets import (
     build_supplementary_dataset_specs,
     discover_used_benchmark_config_paths,
     write_dataset_inventory_files,
 )
-from research_experiments.core.foundation.datasets import DatasetSample
+from research_experiments.core.data.datasets import DatasetSample
 
 
 def test_discover_used_benchmark_config_paths_scans_experiment_configs(tmp_path: Path) -> None:
@@ -112,7 +112,7 @@ def test_write_dataset_inventory_files_writes_local_manifest_and_repo_readme(tmp
     )
 
     monkeypatch.setattr(
-        "research_experiments.core.foundation.dataset_assets.load_samples",
+        "research_experiments.workspace.dataset_assets.load_samples",
         lambda _benchmark: [
             DatasetSample(
                 dataset="math500",
@@ -196,3 +196,4 @@ def test_build_supplementary_dataset_specs_covers_train_and_validation_assets(tm
         ("gsm8k", "train", "train"),
         ("mmlu_pro", "validation", "validation"),
     }
+

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from research_experiments.core.foundation.datasets import DatasetSample
-from research_experiments.core.foundation.prompt_contracts import build_json_system_prompt, dataset_instruction_for_sample
+from research_experiments.core.data.datasets import DatasetSample
+from research_experiments.core.prompts.dataset_contracts import build_json_system_prompt, dataset_instruction_for_sample
 
 
 DEFAULT_PROMPT_VERSION = "sparc_v1_json"
@@ -173,4 +173,5 @@ def _audit_system_prompt() -> str:
 
 def _dataset_instruction(sample: DatasetSample) -> str:
     return dataset_instruction_for_sample(sample, hotpot_style="shortest_span")
+
 

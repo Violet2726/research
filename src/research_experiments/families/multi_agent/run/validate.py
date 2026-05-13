@@ -11,9 +11,8 @@ from collections import Counter
 from pathlib import Path
 import json
 from typing import Any
+from research_experiments.families.shared.validate_common import load_json, load_jsonl, validate_shared_contracts
 
-from research_experiments.core.foundation.run_archives import validate_archive_contract
-from research_experiments.reporting.run_figures import validate_figure_contract
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
@@ -32,13 +31,14 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "archive_manifest.json",
     ]
     missing = [name for name in required if not (root / name).exists()]
-    agent_rows = _load_jsonl(root / "agent_turns.jsonl") if (root / "agent_turns.jsonl").exists() else []
-    prediction_rows = _load_jsonl(root / "final_predictions.jsonl") if (root / "final_predictions.jsonl").exists() else []
+    agent_rows = load_jsonl(root / "agent_turns.jsonl") if (root / "agent_turns.jsonl").exists() else []
+    prediction_rows = load_jsonl(root / "final_predictions.jsonl") if (root / "final_predictions.jsonl").exists() else []
     request_failures = sum(1 for row in agent_rows if row.get("output_status") == "request_fail")
     schema_failures = sum(1 for row in agent_rows if row.get("output_status") == "schema_fail")
     methods = Counter(row.get("method_name") for row in prediction_rows)
-    figure_contract = validate_figure_contract(root)
-    archive_contract = validate_archive_contract(root)
+    shared_contracts = validate_shared_contracts(root)
+    figure_contract = shared_contracts["figure_contract"]
+    archive_contract = shared_contracts["archive_contract"]
     return {
         "run_dir": str(root),
         "passed": not missing and request_failures == 0 and schema_failures == 0 and bool(prediction_rows) and figure_contract["passed"] and archive_contract["passed"],
@@ -54,7 +54,8 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     }
 
 
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
     """读取 UTF-8 JSONL 文件。"""
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+

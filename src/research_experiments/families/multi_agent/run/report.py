@@ -9,8 +9,9 @@ import math
 import random
 from typing import Any
 
-from research_experiments.core.foundation.workspace import default_reports_root
+from research_experiments.workspace.layout import default_reports_root
 from research_experiments.reporting.report_pipeline import render_report_bundle
+from research_experiments.families.shared.report_common import render_family_report_bundle, render_family_scientific_report
 from research_experiments.reporting.reporting_utils import resolve_manifest_model_name
 from research_experiments.reporting.report_views import SummaryTableView, load_json_payload, load_jsonl_rows
 from research_experiments.reporting.run_figures import (
@@ -77,7 +78,8 @@ def render_report(
     paired_json_path.write_text(json.dumps(paired_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     base_markdown = _render_debate_vs_vote_report(manifest, dataset_rows, root)
-    payload = render_report_bundle(
+    payload = render_family_report_bundle(
+        family_name="multi_agent",
         run_dir=root,
         publish_dir=publish_dir,
         manifest=manifest,
@@ -360,7 +362,7 @@ def _render_debate_vs_vote_report(
             ],
         ),
     ]
-    return render_scientific_report(
+    return render_family_scientific_report(
         title="多智能体 Debate vs Vote 科研报告",
         abstract=abstract,
         overview_items=[
@@ -399,7 +401,7 @@ def _enrich_prediction_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _score_like_dataset(dataset: str, predicted: str, gold: str) -> float:
-    from research_experiments.core.foundation.evaluation import score_prediction
+    from research_experiments.core.data.evaluation import score_prediction
 
     return float(score_prediction(dataset, predicted, gold))
 
@@ -432,3 +434,4 @@ def _ratio(numerator: int, denominator: int) -> float:
     if denominator == 0:
         return 0.0
     return round(numerator / denominator, 6)
+

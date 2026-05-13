@@ -38,6 +38,7 @@ def test_family_registry_matches_source_tree_and_cli_scripts() -> None:
         for path in FAMILIES_SRC.iterdir()
         if path.is_dir()
         and (path / "__init__.py").exists()
+        and path.name != "shared"
     )
     assert list(registered_family_names()) == src_families
 

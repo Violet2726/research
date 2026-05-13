@@ -15,7 +15,7 @@ import re
 import string
 from typing import Any, Iterable
 
-from research_experiments.core.foundation.evaluation import normalize_prediction
+from research_experiments.core.data.evaluation import normalize_prediction
 
 
 METHOD_ORDER = [
@@ -294,5 +294,6 @@ def _title_recall(predicted: set[tuple[str, int]], gold: set[tuple[str, int]]) -
         return 0.0
     predicted_titles = {title for title, _ in predicted}
     return len(predicted_titles & gold_titles) / len(gold_titles)
+
 
 

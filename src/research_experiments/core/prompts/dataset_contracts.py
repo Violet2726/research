@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from research_experiments.core.foundation.datasets import DatasetSample
+from research_experiments.core.data.datasets import DatasetSample
 
 
 ContextScope = Literal["provided", "visible"]
@@ -109,4 +109,5 @@ def build_tagged_lines_system_prompt(
     if extra_rules:
         lines.extend(rule.strip() for rule in extra_rules if rule.strip())
     return "\n".join(lines)
+
 

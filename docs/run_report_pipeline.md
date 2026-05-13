@@ -28,7 +28,7 @@ research_experiments.reporting.report_pipeline
             +--> local/reports/<family>/<date>-<experiment>-<phase>-<backbone>-report.md
             |
             v
-research_experiments.core.foundation.run_archives
+research_experiments.workspace.run_archives
             |
             +--> local/runs/.../archive_manifest.json
             +--> local/runs/.../traces.tar.zst
@@ -63,3 +63,4 @@ Hugging Face dataset repo
 - 新增实验家族时，优先复用 `report_pipeline.py`
 - 新增图表时，优先扩展 `run_figures.py`
 - 临时实验优先通过 `RESEARCH_*_ROOT` 输出到隔离目录，不直接写入正式工作区
+

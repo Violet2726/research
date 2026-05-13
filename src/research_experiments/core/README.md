@@ -4,29 +4,29 @@
 
 ## 分层结构
 
-- `foundation/`
-  基础设施层，包含配置、数据集、缓存、provider、限流、运行时、归档与工作区管理。
+- `config/`
+  provider、model、benchmark 的共享配置加载与解析。
+- `data/`
+  数据集加载、冻结 split 与答案评分归一化。
+- `execution/`
+  provider 调用、缓存、限流、runner 原语与运行时收尾。
+- `prompts/`
+  跨实验共享的题型指令与提示词契约。
 - `controls/`
   跨实验复用的控制逻辑，如选择性通信信号与无通信对照。
 - `structured_outputs/`
   按语义 schema 组织的结构化输出校验与恢复层，避免共享核心继续吸收 family 语义。
-- `matrix/`
-  faithful matrix 编排、分析与验收。
-- `reporting/`
-  科研报告、图资产、论文包与统计输出。
-- `tools/`
-  缓存检查、归档、清理等 CLI 工具。
 
 ## 关键职责
 
-- `foundation/workspace.py`
-  统一管理 `local/runs`、`local/reports`、`local/cache`、`files/` 与 HF 归档环境变量。
-- `foundation/runtime.py`
+- `config/catalog.py`
+  解析 benchmark、provider 与 model catalog。
+- `data/datasets.py`
+  读取上游数据源并生成冻结 split。
+- `execution/providers/`
+  统一 provider 客户端、请求载荷与响应归一化。
+- `execution/runtime.py`
   统一管理进度、`run_id` 与 run 收尾流程。
-- `foundation/run_archives.py`
-  统一打包 run 重型文件，并提供 HF 发布与回取能力。
-- `foundation/cache_snapshots.py`
-  统一管理 cache latest-only 快照的压缩、恢复与 HF 同步。
 - `reporting/report_pipeline.py`
   统一输出本地报告、图资产与附录报告。
 - `matrix/faithful_matrix.py`
@@ -35,5 +35,5 @@
 ## 维护约定
 
 - 新共享能力只进入 `research_experiments/core`
-- 新增运行产物时，优先补 `workspace.py`、归档合同与文档
+- 工作区、归档、同步与数据集资产统一进入 `research_experiments/workspace`
 - `runs/` 与 `cache/` 的正式远程归档统一走 Hugging Face dataset repo，不再发明实验家族私有同步逻辑

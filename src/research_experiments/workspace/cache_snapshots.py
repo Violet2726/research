@@ -12,9 +12,9 @@ from typing import Any
 
 from huggingface_hub import HfApi, snapshot_download
 
-from research_experiments.core.foundation.archive_common import sha256_file
-from research_experiments.core.foundation.cache import collect_cache_shard_summaries, repair_cache_shard
-from research_experiments.core.foundation.workspace import auto_push_cache_snapshot_enabled, default_cache_hf_repo, workspace_layout
+from research_experiments.workspace.archive_utils import sha256_file
+from research_experiments.core.execution.cache import collect_cache_shard_summaries, repair_cache_shard
+from research_experiments.workspace.layout import auto_push_cache_snapshot_enabled, default_cache_hf_repo, workspace_layout
 
 import zstandard as zstd
 
@@ -364,3 +364,4 @@ def _normalize_shard_filters(
 
 def _matches_shard_filter(relative_dir: str, normalized_filters: tuple[str, ...]) -> bool:
     return any(relative_dir == item or relative_dir.startswith(f"{item}/") for item in normalized_filters)
+

@@ -10,9 +10,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 import json
 from typing import Any
+from research_experiments.families.shared.validate_common import load_json, load_jsonl, validate_shared_contracts
 
-from research_experiments.core.foundation.run_archives import validate_archive_contract
-from research_experiments.reporting.run_figures import validate_figure_contract
 
 
 REQUIRED_FILES = [
@@ -34,10 +33,10 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     """验证 Free-MAD-lite run 是否满足 smoke 实验契约。"""
     root = Path(run_dir)
     missing = [name for name in REQUIRED_FILES if not (root / name).exists()]
-    manifest = _load_json(root / "manifest.json") if (root / "manifest.json").exists() else {}
-    turn_rows = _load_jsonl(root / "agent_turns.jsonl")
-    score_rows = _load_jsonl(root / "trajectory_scores.jsonl")
-    prediction_rows = _load_jsonl(root / "final_predictions.jsonl")
+    manifest = load_json(root / "manifest.json") if (root / "manifest.json").exists() else {}
+    turn_rows = load_jsonl(root / "agent_turns.jsonl")
+    score_rows = load_jsonl(root / "trajectory_scores.jsonl")
+    prediction_rows = load_jsonl(root / "final_predictions.jsonl")
 
     request_failures = sum(
         1
@@ -57,8 +56,9 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "anti_conformity_prompt_hash": manifest.get("anti_conformity_prompt_hash"),
     }
     judge_schema_check = _judge_schema_check(score_rows)
-    figure_contract = validate_figure_contract(root)
-    archive_contract = validate_archive_contract(root)
+    shared_contracts = validate_shared_contracts(root)
+    figure_contract = shared_contracts["figure_contract"]
+    archive_contract = shared_contracts["archive_contract"]
     passed = (
         not missing
         and request_failures == 0
@@ -163,14 +163,15 @@ def _compact_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def _load_json(path: Path) -> dict[str, Any]:
+def load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+

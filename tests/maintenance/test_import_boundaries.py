@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src" / "research_experiments"
 FAMILIES_SRC = SRC / "families"
 CORE_SRC = SRC / "core"
+TOOLS_SRC = SRC / "tools"
 EXPERIMENT_PACKAGES = set(registered_family_names())
 
 
@@ -59,6 +60,7 @@ def test_core_does_not_import_family_modules() -> None:
 
 def test_no_legacy_package_imports() -> None:
     legacy_markers = (
+        "research_experiments.core.foundation",
         "api_baselines",
         "experiment_common",
         "single_agent_baselines",
@@ -73,6 +75,44 @@ def test_no_legacy_package_imports() -> None:
         if any(marker in text for marker in legacy_markers):
             violations.append(str(path))
     assert not violations, "\n".join(violations)
+
+
+def test_no_core_foundation_python_modules_remain() -> None:
+    foundation_root = CORE_SRC / "foundation"
+    assert not any(foundation_root.rglob("*.py"))
+
+
+def test_tools_do_not_import_concrete_family_modules() -> None:
+    violations: list[str] = []
+    for path in TOOLS_SRC.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module]
+            else:
+                continue
+            for name in names:
+                if not name.startswith("research_experiments.families."):
+                    continue
+                segments = name.split(".")
+                family_name = segments[2] if len(segments) > 2 else ""
+                if family_name in EXPERIMENT_PACKAGES:
+                    violations.append(f"{path}: {name}")
+    assert not violations, "\n".join(violations)
+
+
+def test_export_only_package_init_modules() -> None:
+    targets = [
+        CORE_SRC / "execution" / "providers" / "__init__.py",
+        CORE_SRC / "structured_outputs" / "recovery" / "__init__.py",
+        CORE_SRC / "structured_outputs" / "validators" / "__init__.py",
+    ]
+    for path in targets:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in tree.body:
+            assert not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)), path
 
 
 def test_no_legacy_matrix_cli_entrypoint() -> None:

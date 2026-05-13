@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from research_experiments.core.foundation.prompt_contracts import dataset_instruction
+from research_experiments.core.prompts.dataset_contracts import dataset_instruction
 
 
 def test_dataset_instruction_uses_shortest_span_copy_for_controlled_hotpot() -> None:
@@ -30,4 +30,5 @@ def test_dataset_instruction_uses_visible_context_for_split_context_tracks() -> 
 def test_dataset_instruction_unifies_multiple_choice_answer_format() -> None:
     instruction = dataset_instruction("mmlu_pro")
     assert 'only the option letter' in instruction
+
 

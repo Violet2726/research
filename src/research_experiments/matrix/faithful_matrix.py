@@ -12,16 +12,16 @@ from pathlib import Path
 import tomllib
 from typing import Any
 
-from research_experiments.core.foundation.config import load_benchmark_config, resolve_model_ref
-from research_experiments.core.foundation.cli_output import configure_utf8_stdio, emit_json
+from research_experiments.core.config import load_benchmark_config, resolve_model_ref
+from research_experiments.cli_support.output import configure_utf8_stdio, emit_json
 from research_experiments.families.registry import get_family_spec, validator_map
-from research_experiments.core.foundation.run_archives import publish_run_if_configured
+from research_experiments.workspace.run_archives import publish_run_if_configured
 from research_experiments.matrix.faithful_acceptance import render_acceptance_summary
 from research_experiments.matrix.faithful_analysis import render_faithful_analysis
 from research_experiments.matrix.matrix_specs import get_experiment_matrix_spec, ordered_matrix_config_paths
 from research_experiments.reporting.paper_package import render_paper_package
 from research_experiments.reporting.paper_statistics import render_paper_statistics
-from research_experiments.core.foundation.workspace import default_reports_root, default_runs_root, workspace_defaults
+from research_experiments.workspace.layout import default_reports_root, default_runs_root, workspace_defaults
 
 
 DEFAULT_PHASE = "count20"
@@ -677,3 +677,4 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
+

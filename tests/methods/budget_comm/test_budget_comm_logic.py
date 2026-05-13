@@ -5,7 +5,7 @@ from __future__ import annotations
 from research_experiments.families.budget_comm.config import ContextViewConfig
 from research_experiments.families.budget_comm.dataset_views import build_context_views
 from research_experiments.families.budget_comm.algorithms import assign_density_tiers, solve_knapsack
-from research_experiments.core.foundation.datasets import DatasetSample
+from research_experiments.core.data.datasets import DatasetSample
 
 
 def test_assign_density_tiers_three_way_split() -> None:
@@ -82,4 +82,5 @@ def test_build_hotpot_split_views_do_not_leak_full_context() -> None:
         assert view.view_context_hash != view.full_context_hash
         covered.update(view.coverage_items)
     assert covered == {"A", "B"}
+
 

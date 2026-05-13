@@ -6,9 +6,8 @@ from collections import Counter
 from pathlib import Path
 import json
 from typing import Any
+from research_experiments.families.shared.validate_common import load_json, load_jsonl, validate_shared_contracts
 
-from research_experiments.core.foundation.run_archives import validate_archive_contract
-from research_experiments.reporting.run_figures import validate_figure_contract
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
@@ -29,18 +28,19 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "archive_manifest.json",
     ]
     missing = [name for name in required if not (root / name).exists()]
-    stage_a_rows = _load_jsonl(root / "stage_a_turns.jsonl")
-    communication_rows = _load_jsonl(root / "communication_turns.jsonl")
-    audit_rows = _load_jsonl(root / "audit_turns.jsonl")
-    control_rows = _load_jsonl(root / "control_turns.jsonl")
-    prediction_rows = _load_jsonl(root / "policy_predictions.jsonl")
+    stage_a_rows = load_jsonl(root / "stage_a_turns.jsonl")
+    communication_rows = load_jsonl(root / "communication_turns.jsonl")
+    audit_rows = load_jsonl(root / "audit_turns.jsonl")
+    control_rows = load_jsonl(root / "control_turns.jsonl")
+    prediction_rows = load_jsonl(root / "policy_predictions.jsonl")
     all_turn_rows = stage_a_rows + communication_rows + audit_rows + control_rows
     request_failures = sum(1 for row in all_turn_rows if row.get("output_status") == "request_fail")
     output_success_count = sum(1 for row in all_turn_rows if row.get("output_status") == "ok")
     output_success_rate = output_success_count / len(all_turn_rows) if all_turn_rows else 0.0
     stage_a_hash_check = _validate_stage_a_hashes(prediction_rows)
-    figure_contract = validate_figure_contract(root)
-    archive_contract = validate_archive_contract(root)
+    shared_contracts = validate_shared_contracts(root)
+    figure_contract = shared_contracts["figure_contract"]
+    archive_contract = shared_contracts["archive_contract"]
     passed = not missing and request_failures == 0 and output_success_rate >= 0.90 and stage_a_hash_check["passed"] and figure_contract["passed"] and archive_contract["passed"]
     return {
         "run_dir": str(root),
@@ -70,8 +70,9 @@ def _validate_stage_a_hashes(prediction_rows: list[dict[str, Any]]) -> dict[str,
     return {"passed": len(mismatches) == 0, "mismatch_count": len(mismatches), "mismatches": mismatches[:20]}
 
 
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+

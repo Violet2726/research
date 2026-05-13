@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from research_experiments.core.foundation.config import BenchmarkConfig, ResolvedModelConfig
-from research_experiments.core.foundation.config_helpers import (
+from research_experiments.core.config import BenchmarkConfig, ResolvedModelConfig
+from research_experiments.families.shared.config_loading import (
     load_benchmarks,
     load_toml,
     optional_int,
@@ -97,3 +97,4 @@ def _dedupe_preserving_order(items: list[str]) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
+

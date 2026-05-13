@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Protocol
 import tomllib
 
-from research_experiments.core.foundation.config import (
+from research_experiments.core.config import (
     BenchmarkConfig,
     ResolvedModelConfig,
     load_benchmark_config,
@@ -83,3 +83,4 @@ def resolve_model(model_ref: str) -> ResolvedModelConfig:
     """Resolve one shared model ref into a runnable config."""
 
     return resolve_model_ref(model_ref)
+

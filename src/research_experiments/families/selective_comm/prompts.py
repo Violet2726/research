@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from research_experiments.core.foundation.datasets import DatasetSample
-from research_experiments.core.foundation.prompt_contracts import (
+from research_experiments.core.data.datasets import DatasetSample
+from research_experiments.core.prompts.dataset_contracts import (
     build_json_system_prompt,
     build_tagged_lines_system_prompt,
     dataset_instruction_for_sample,
@@ -255,4 +255,5 @@ def _compact_text(value: str, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
     return text[: max_chars - 3] + "..."
+
 

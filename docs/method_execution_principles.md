@@ -89,23 +89,25 @@
 
 `research_experiments.core` 是唯一共享核心层，负责：
 
-- `config.py`
+- `config/catalog.py`
   解析 benchmark、provider 和 model 配置。
-- `datasets.py`
+- `data/datasets.py`
   根据冻结 split 选样本。
-- `providers/`
+- `execution/providers/`
   调用 OpenAI-compatible provider。
-- `cache.py`
+- `execution/cache.py`
   以请求体为键做响应缓存。
-- `rate_limits.py`
+- `execution/rate_limits.py`
   用滑动窗口做 RPM / TPM 限流。
 - `structured_outputs/`
   按语义 schema 组织结构化输出校验与恢复，而不是按 family 名字堆叠模式分支。
-- `evaluation.py`
+- `data/evaluation.py`
   做答案归一化、打分和投票聚合。
-- `runtime.py`
+- `execution/runtime.py`
   生成 `run_id`、写 `progress.json`。
-- `workspace.py`
+- `prompts/dataset_contracts.py`
+  统一题型指令与共享提示词约束。
+- `workspace/layout.py`
   统一 `local/runs/`、`local/reports/`、`local/cache/` 默认根目录。
 
 ## 3.2 结构化输出约束

@@ -5,12 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from research_experiments.core.foundation.workspace import default_reports_root
+from research_experiments.workspace.layout import default_reports_root
 from research_experiments.reporting.analysis_reports import (
     render_frontier_report,
     render_trigger_diagnostic_report,
 )
 from research_experiments.reporting.report_pipeline import SupplementalReport, render_report_bundle
+from research_experiments.families.shared.report_common import render_family_report_bundle, render_family_scientific_report
 from research_experiments.reporting.reporting_utils import resolve_manifest_model_name
 from research_experiments.reporting.report_views import (
     DiagnosticTableView,
@@ -67,7 +68,8 @@ def render_report(
     oracle = load_json_payload(root / "oracle_trigger_eval.json")
     predictions = load_jsonl_rows(root / "policy_predictions.jsonl")
     base_markdown = _render_markdown(manifest, metrics, diagnostics, oracle, predictions, root)
-    return render_report_bundle(
+    return render_family_report_bundle(
+        family_name="selective_comm",
         run_dir=root,
         publish_dir=publish_dir,
         manifest=manifest,
@@ -365,7 +367,7 @@ def _render_markdown(
             ],
         ),
     ]
-    return render_scientific_report(
+    return render_family_scientific_report(
         title="选择性通信科研报告",
         abstract=abstract,
         overview_items=[
@@ -433,3 +435,4 @@ def _ordered_rows(rows: list[Any]) -> list[Any]:
 
 def _ordered_policy_rows(rows: list[Any]) -> list[Any]:
     return sorted(rows, key=lambda row: METHOD_ORDER.index(row.method_name) if row.method_name in METHOD_ORDER else 999)
+

@@ -10,8 +10,8 @@ import json
 import re
 import shutil
 
-from research_experiments.core.foundation.cli_output import configure_utf8_stdio, emit_json
-from research_experiments.core.foundation.workspace import workspace_layout
+from research_experiments.cli_support.output import configure_utf8_stdio, emit_json
+from research_experiments.workspace.layout import workspace_layout
 from research_experiments.families.registry import validator_map
 
 
@@ -345,3 +345,4 @@ def _print_summary(summary: CleanupSummary, workspace_root: Path) -> None:
     if not summary.dry_run:
         print(f"removed run dirs: {len(summary.removed_run_dirs)}")
         print(f"removed reports: {len(summary.removed_report_paths)}")
+

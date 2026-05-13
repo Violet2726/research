@@ -12,8 +12,8 @@ from typing import Any
 
 from huggingface_hub import HfApi, snapshot_download
 
-from research_experiments.core.foundation.archive_common import copy_relative_files, extract_tar_zst, pack_tar_zst
-from research_experiments.core.foundation.workspace import auto_publish_runs_enabled, default_runs_hf_repo, workspace_layout
+from research_experiments.workspace.archive_utils import copy_relative_files, extract_tar_zst, pack_tar_zst
+from research_experiments.workspace.layout import auto_publish_runs_enabled, default_runs_hf_repo, workspace_layout
 
 
 ARCHIVE_MANIFEST_FILENAME = "archive_manifest.json"
@@ -443,3 +443,4 @@ def _sha256_of(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+

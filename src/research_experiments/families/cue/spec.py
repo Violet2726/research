@@ -11,8 +11,8 @@ from research_experiments.families.cue.config import (
     load_policies,
     load_protocol_config,
 )
-from research_experiments.core.foundation.workspace import workspace_defaults
-from research_experiments.families.cli_scaffold import (
+from research_experiments.workspace.layout import workspace_defaults
+from research_experiments.families.shared.cli import (
     build_standard_family_parser,
     dispatch_standard_family_cli,
 )
@@ -87,3 +87,4 @@ def _run_command(args: argparse.Namespace):
 
 if __name__ == "__main__":
     main()
+

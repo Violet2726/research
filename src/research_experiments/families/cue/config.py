@@ -6,15 +6,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from research_experiments.core.foundation.config import BenchmarkConfig, ResolvedModelConfig
-from research_experiments.core.foundation.config_helpers import (
+from research_experiments.core.config import BenchmarkConfig, ResolvedModelConfig
+from research_experiments.families.shared.config_loading import (
     load_benchmarks,
     load_toml,
     optional_int,
     phase_metadata,
     resolve_model,
 )
-from research_experiments.core.foundation.methods import MethodConfig, load_method_catalog
+from research_experiments.families.shared.method_catalog import MethodConfig, load_method_catalog
 
 
 @dataclass(frozen=True)
@@ -152,5 +152,6 @@ def load_experiment_config(path: str | Path) -> CueExperimentConfig:
         primary_model_ref=str(payload["primary_model_ref"]),
         raw=payload,
     )
+
 
 

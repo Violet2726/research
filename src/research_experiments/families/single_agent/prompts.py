@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from research_experiments.core.foundation.datasets import DatasetSample
-from research_experiments.core.foundation.prompt_contracts import build_json_system_prompt, dataset_instruction_for_sample
+from research_experiments.core.data.datasets import DatasetSample
+from research_experiments.core.prompts.dataset_contracts import build_json_system_prompt, dataset_instruction_for_sample
 
 
 DEFAULT_PROMPT_VERSION = "single_agent_reasoning_json_v1"
@@ -58,4 +58,5 @@ def _user_prompt(sample: DatasetSample, prompt_version: str) -> str:
 def _dataset_instruction(sample: DatasetSample, prompt_version: str) -> str:
     del prompt_version
     return dataset_instruction_for_sample(sample, hotpot_style="short_span")
+
 
