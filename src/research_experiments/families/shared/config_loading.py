@@ -1,4 +1,8 @@
-"""Shared helpers for family config loaders."""
+"""family 配置加载器的共享辅助函数。
+
+本模块只承接配置解析阶段反复出现的低层工具，
+避免各个 family 在读取 TOML、抽取 phase 字段和解析模型引用时重复写样板代码。
+"""
 
 from __future__ import annotations
 
@@ -15,22 +19,26 @@ from research_experiments.core.config import (
 
 
 class SupportsRawPhases(Protocol):
+    """约束拥有原始 `phases` 载荷的实验配置对象。"""
+
     raw: dict[str, Any]
 
 
 class SupportsBenchmarkConfigs(Protocol):
+    """约束显式列出 benchmark 配置路径的实验配置对象。"""
+
     benchmark_configs: list[Path]
 
 
 def load_toml(path: str | Path) -> dict[str, Any]:
-    """Load one TOML payload from disk."""
+    """从磁盘读取一个 TOML 载荷。"""
 
     with Path(path).open("rb") as handle:
         return tomllib.load(handle)
 
 
 def optional_int(payload: dict[str, Any], key: str) -> int | None:
-    """Read one optional integer field."""
+    """读取一个可选整数字段。"""
 
     value = payload.get(key)
     if value is None:
@@ -39,7 +47,7 @@ def optional_int(payload: dict[str, Any], key: str) -> int | None:
 
 
 def optional_float(payload: dict[str, Any], key: str) -> float | None:
-    """Read one optional float field."""
+    """读取一个可选浮点数字段。"""
 
     value = payload.get(key)
     if value is None:
@@ -48,7 +56,7 @@ def optional_float(payload: dict[str, Any], key: str) -> float | None:
 
 
 def optional_str(payload: dict[str, Any], key: str) -> str | None:
-    """Read one optional non-empty string field."""
+    """读取一个可选非空字符串字段。"""
 
     value = payload.get(key)
     if value is None:
@@ -58,7 +66,7 @@ def optional_str(payload: dict[str, Any], key: str) -> str | None:
 
 
 def first_str(payload: dict[str, Any], *keys: str) -> str | None:
-    """Return the first populated string field from a candidate list."""
+    """从候选字段列表里返回第一个有值的字符串。"""
 
     for key in keys:
         value = optional_str(payload, key)
@@ -68,19 +76,19 @@ def first_str(payload: dict[str, Any], *keys: str) -> str | None:
 
 
 def phase_metadata(experiment: SupportsRawPhases, phase_name: str) -> dict[str, Any]:
-    """Return a defensive copy of one phase payload."""
+    """返回指定 phase 配置的防御性拷贝。"""
 
     return dict(experiment.raw["phases"][phase_name])
 
 
 def load_benchmarks(experiment: SupportsBenchmarkConfigs) -> list[BenchmarkConfig]:
-    """Resolve benchmark config files referenced by one experiment."""
+    """解析实验配置里引用的全部 benchmark 配置文件。"""
 
     return [load_benchmark_config(path) for path in experiment.benchmark_configs]
 
 
 def resolve_model(model_ref: str) -> ResolvedModelConfig:
-    """Resolve one shared model ref into a runnable config."""
+    """把共享模型引用解析成可直接运行的模型配置。"""
 
     return resolve_model_ref(model_ref)
 

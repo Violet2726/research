@@ -321,7 +321,7 @@ def resume_faithful_matrix(
     *,
     reference_state_path_or_root: str | Path | None = None,
 ) -> Path:
-    """Resume a previously interrupted faithful matrix run in-place."""
+    """在原目录上恢复一次被中断的 faithful matrix 运行。"""
     matrix, paths = _load_existing_matrix_state(state_path_or_root)
 
     for entry in matrix.semantic_entries:

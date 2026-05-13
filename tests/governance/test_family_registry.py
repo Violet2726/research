@@ -1,4 +1,4 @@
-"""Registry and UTF-8 governance tests."""
+"""覆盖 family 注册表与 UTF-8 编码治理规则。"""
 
 from __future__ import annotations
 

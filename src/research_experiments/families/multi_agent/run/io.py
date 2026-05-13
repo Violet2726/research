@@ -1,4 +1,4 @@
-"""multi_agent ??????????"""
+"""`multi_agent` 运行目录与固定产物路径。"""
 
 from __future__ import annotations
 

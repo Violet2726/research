@@ -1,4 +1,4 @@
-"""CLI entrypoint for communication-necessity experiments."""
+"""`comm_necessary` 实验的 CLI 入口。"""
 
 from __future__ import annotations
 

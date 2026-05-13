@@ -1,4 +1,4 @@
-"""CLI entrypoint for CUE experiments."""
+"""`cue` 实验的 CLI 入口。"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""CLI entrypoint for Free-MAD-lite experiments."""
+"""`free_mad_lite` 实验的 CLI 入口。"""
 
 from __future__ import annotations
 

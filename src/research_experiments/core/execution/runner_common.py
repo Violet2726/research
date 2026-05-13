@@ -1,4 +1,11 @@
-"""Shared runner building blocks used across experiment families."""
+"""跨实验家族共享的 runner 基础原语。
+
+这里统一承接请求生命周期里的低层公共逻辑，包括：
+- 规范 run 根目录；
+- 为消息构造稳定哈希；
+- 统一并发批处理顺序；
+- 统一“查缓存 -> 发请求 -> 校验结构化输出 -> 选择性写缓存”的执行链路。
+"""
 
 from __future__ import annotations
 
@@ -37,7 +44,7 @@ TurnResponseHook = Callable[[dict[str, Any], dict[str, Any]], None]
 
 @dataclass(frozen=True)
 class CachedTurnResult:
-    """Shared normalized result for one cached-or-network turn."""
+    """表示一次“命中缓存或真实请求”的标准化结果。"""
 
     payload: dict[str, Any]
     prompt_hash: str
@@ -56,7 +63,7 @@ def prepare_run_root(
     phase_name: str,
     run_id: str,
 ) -> Path:
-    """Create and return the canonical run root path."""
+    """创建并返回规范的 run 根目录路径。"""
 
     root = Path(run_root) / experiment_name / phase_name / run_id
     root.mkdir(parents=True, exist_ok=True)
@@ -64,7 +71,7 @@ def prepare_run_root(
 
 
 def prompt_hash(messages: list[dict[str, Any]]) -> str:
-    """Build a stable hash for one prompt payload."""
+    """为一组消息构造稳定哈希，供追溯与去重使用。"""
 
     return sha256(json.dumps(messages, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
@@ -75,7 +82,7 @@ def run_indexed_batch(
     worker: Callable[[T], R],
     max_concurrent_requests: int,
 ) -> list[tuple[int, R]]:
-    """Run one indexed batch concurrently and return results in source order."""
+    """并发执行带索引批次，并按输入顺序返回结果。"""
 
     indexed_items = list(enumerate(items))
     max_workers = max(1, min(max_concurrent_requests, len(indexed_items) or 1))
@@ -109,7 +116,11 @@ def execute_cached_turn(
     request_executor: TurnRequestExecutor | None = None,
     response_hook: TurnResponseHook | None = None,
 ) -> CachedTurnResult:
-    """Execute one cached turn and normalize the shared request lifecycle."""
+    """执行一次带缓存的调用，并统一请求生命周期输出。
+
+    这个入口会显式区分“请求失败”“结构化失败”和“结构化成功”，
+    避免后续报告层把工程失败误判为方法行为。
+    """
 
     payload = build_payload(
         config=backbone,
@@ -161,6 +172,7 @@ def execute_cached_turn(
                     provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
                 )
             output_status = "ok"
+            # 只有结构化成功的响应才进入缓存，避免把坏输出固化成后续缓存命中。
             if not cache_hit:
                 cache_successful_response(
                     cache,

@@ -1,4 +1,4 @@
-"""CLI entrypoint for multi-agent experiments."""
+"""`multi_agent` 实验的 CLI 入口。"""
 
 from __future__ import annotations
 

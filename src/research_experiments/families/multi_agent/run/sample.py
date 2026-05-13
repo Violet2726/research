@@ -417,7 +417,7 @@ def _build_control_prediction_row(
     split_name: str,
     run_id: str,
 ) -> dict[str, Any]:
-    """Build the final prediction row for a shared no-communication control."""
+    """构造共享无通信对照组的最终预测行。"""
     prompt_tokens = sum(float(row["prompt_tokens"]) for row in turn_rows)
     completion_tokens = sum(float(row["completion_tokens"]) for row in turn_rows)
     total_tokens = sum(float(row["total_tokens"]) for row in turn_rows)

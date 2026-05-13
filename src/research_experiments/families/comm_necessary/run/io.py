@@ -1,4 +1,4 @@
-"""comm_necessary ??????????"""
+"""`comm_necessary` 运行目录与固定产物路径。"""
 
 from __future__ import annotations
 

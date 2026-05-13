@@ -1,4 +1,4 @@
-"""Cover `comm_necessary.runner` output-contract stabilization helpers."""
+"""覆盖 `comm_necessary` 运行链路中的输出兜底辅助逻辑。"""
 
 from __future__ import annotations
 

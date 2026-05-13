@@ -1,4 +1,4 @@
-"""Render paper-facing reports and figure bundles for faithful matrix runs."""
+"""为 faithful matrix 运行生成面向论文写作的报告包与图资产。"""
 
 from __future__ import annotations
 
@@ -71,7 +71,7 @@ def render_paper_package(
     published_path: str | Path | None = None,
     figures_root: str | Path | None = None,
 ) -> dict[str, str]:
-    """Render a paper package from an existing matrix run."""
+    """基于既有 matrix 运行目录生成一套论文包产物。"""
     state_path = _resolve_state_path(state_path_or_root)
     root = Path(output_root) if output_root is not None else state_path.parent
     root.mkdir(parents=True, exist_ok=True)
@@ -139,7 +139,7 @@ def build_paper_package_payload(
     analysis: dict[str, Any],
     statistics: dict[str, Any],
 ) -> dict[str, Any]:
-    """Convert matrix artifacts into stable paper-facing sections."""
+    """把 matrix 运行产物整理成稳定的论文包结构。"""
     rows = MatrixAnalysisTableView.from_analysis_payload(analysis)
     sections = {
         "same_context_main_table": [row.to_dict() for row in rows.by_tier(EVIDENCE_HEADLINE, track=TRACK_SAME_CONTEXT)],
@@ -168,7 +168,7 @@ def build_paper_package_payload(
 
 
 def render_paper_package_markdown(package: dict[str, Any]) -> str:
-    """Render the package payload as a compact paper-oriented Markdown report."""
+    """把论文包载荷渲染成紧凑的论文风格 Markdown 报告。"""
     lines = [
         "# 论文产物包",
         "",

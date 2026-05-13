@@ -88,7 +88,7 @@ def normalize_text(value: str) -> str:
 
 
 def normalize_multiple_choice(value: str) -> str:
-    """Normalize MCQ answers to either an option letter or normalized option text."""
+    """把选择题答案归一成选项字母或标准化后的选项文本。"""
     normalized = value.strip()
     if not normalized:
         return ""
@@ -99,7 +99,7 @@ def normalize_multiple_choice(value: str) -> str:
 
 
 def normalize_math_expression(value: str) -> str:
-    """Lightweight normalization for short mathematical expressions."""
+    """对短数学表达式做轻量归一化，尽量保留判题所需语义。"""
     normalized = value.strip().lower()
     normalized = normalized.replace("$", "")
     normalized = normalized.replace("\\left", "").replace("\\right", "")
@@ -111,7 +111,7 @@ def normalize_math_expression(value: str) -> str:
 
 
 def score_multiple_choice(predicted: str, gold: str) -> float:
-    """Accept either the option letter or the exact option text for MCQ benchmarks."""
+    """选择题允许命中字母选项，或命中对应选项文本。"""
     predicted_norm = normalize_multiple_choice(predicted)
     gold_letter, gold_text = _decode_multiple_choice_gold(gold)
     accepted = {gold_letter}

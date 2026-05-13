@@ -221,7 +221,7 @@ def aggregate_with_confidence_tiebreak(candidates: list[dict[str, Any]]) -> tupl
 
 
 def aggregate_weighted_vote(candidates: list[dict[str, Any]]) -> tuple[str, dict[str, float]]:
-    """Aggregate answers by confidence-weighted support with deterministic tie-breaking."""
+    """按 confidence 加权聚合答案，并使用确定性规则打破平票。"""
     grouped_weights: dict[str, float] = defaultdict(float)
     grouped_counts: dict[str, int] = defaultdict(int)
     best_confidence: dict[str, float] = defaultdict(lambda: -1.0)

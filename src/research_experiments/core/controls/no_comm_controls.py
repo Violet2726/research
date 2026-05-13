@@ -1,8 +1,8 @@
-"""Shared execution helpers for no-communication matched controls.
+"""无通信对照组的共享执行辅助。
 
-This module hosts equal-budget single-solver control execution so method
-families such as `multi_agent` can reference `cot/sc/mv` controls without
-owning their runtime logic.
+本模块把“等预算、单求解器、彼此不通信”的对照执行链路统一下沉，
+让 `multi_agent` 等实验家族可以直接复用 `cot / sc / mv` 对照，
+而不必在各自目录里重复维护一套运行时细节。
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ def run_no_comm_control_batch(
     execute_turn: ExecuteTurnFn,
     build_prediction_row: BuildPredictionRowFn,
 ) -> list[tuple[int, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]]:
-    """Run no-communication matched controls in parallel across samples."""
+    """按样本并发执行无通信对照，并保持输出顺序稳定。"""
     worker = partial(
         _run_no_comm_control_sample,
         run_id=run_id,
@@ -90,7 +90,7 @@ def _run_no_comm_control_sample(
     execute_turn: ExecuteTurnFn,
     build_prediction_row: BuildPredictionRowFn,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Run one no-communication matched control sample."""
+    """执行单题无通信对照，返回调用轨迹与最终预测。"""
     turn_rows: list[dict[str, Any]] = []
     for replicate_id in range(method.budget_calls):
         messages = build_messages(sample, replicate_id + 1, prompt_version)

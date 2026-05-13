@@ -1,4 +1,4 @@
-"""CLI entrypoint for SID-lite experiments."""
+"""`sid_lite` 实验的 CLI 入口。"""
 
 from __future__ import annotations
 

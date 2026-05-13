@@ -1,4 +1,4 @@
-"""CLI entrypoint for selective communication experiments."""
+"""`selective_comm` 实验的 CLI 入口。"""
 
 from __future__ import annotations
 

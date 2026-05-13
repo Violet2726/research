@@ -1,4 +1,4 @@
-"""CLI entrypoint for single-agent experiments."""
+"""`single_agent` 实验的 CLI 入口。"""
 
 from __future__ import annotations
 

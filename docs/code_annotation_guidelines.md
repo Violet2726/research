@@ -14,6 +14,7 @@
 - Python 模块级 docstring
 - 类与公开函数 docstring
 - 关键代码块注释
+- 测试模块与测试辅助函数说明
 - README、设计说明、贡献文档
 - 运行与报告产物中的固定说明文字
 
@@ -66,6 +67,7 @@
 - `docs/` 讲长期结构、流程和规范
 - `src/research_experiments/families/*/README.md` 讲 family 目录职责
 - `CONTRIBUTING.md` 讲提交流程、同步要求和写作约定
+- `tests/README.md` 讲测试目录职责与测试分层约定
 
 ## 提交前检查
 

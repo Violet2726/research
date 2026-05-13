@@ -457,12 +457,11 @@ def _build_prediction_rows(
 
 
 def _apply_belief_answer_fallback(row: dict[str, Any], previous_row: dict[str, Any]) -> None:
-    """Keep the prior belief when Stage B returns no grounded answer.
+    """当 Stage B 没有产出落地答案时，保留上一轮已知信念。
 
-    Belief-update methods are defined as revisions over an existing Stage A
-    answer. When the model emits a structurally valid JSON object but leaves
-    `final_answer` empty, the least-assumptive interpretation is "no grounded
-    revision beyond the previous belief", not a hard schema failure.
+    belief-update 方法的语义是“在既有 Stage A 结论上做修正”。
+    因此当模型返回结构合法、但 `final_answer` 为空时，
+    更稳妥的解释是“没有形成新的有根据修正”，而不是硬性判成 schema 失败。
     """
     if str(row.get("output_status") or "") != "ok":
         return

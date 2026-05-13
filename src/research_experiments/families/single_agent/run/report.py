@@ -243,7 +243,7 @@ def _render_markdown(
     evidence_rows = _single_agent_evidence_rows(predictions)
     if evidence_rows:
         abstract.append(
-            f"`sc_5` ?? `cot_1` ????? 95% CI ? {format_pairwise_ci_text(evidence_rows, 'sc_5_vs_cot_1')}?"
+            f"`sc_5` 相对 `cot_1` 的配对 95% CI 为 {format_pairwise_ci_text(evidence_rows, 'sc_5_vs_cot_1')}。"
         )
     sections = [
         {

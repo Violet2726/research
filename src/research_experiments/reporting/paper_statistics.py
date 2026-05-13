@@ -1,10 +1,8 @@
-"""Paper-grade statistical analysis for faithful matrix runs.
+"""为 faithful matrix 运行生成论文级统计分析。
 
-The module is deliberately offline: it reads completed run artifacts and never
-changes any method decision graph. Its job is to make the confirmatory evidence
-auditable by pairing sample-level predictions, estimating bootstrap confidence
-intervals, and applying McNemar-style tests only when the paired outcomes are
-binary correctness indicators.
+本模块刻意保持离线分析属性：它只读取已经完成的运行产物，
+绝不回写方法决策图。职责是把样本级预测配对、Bootstrap 区间估计、
+以及 McNemar 类检验整理成可审计的确认性证据。
 """
 
 from __future__ import annotations
@@ -28,7 +26,7 @@ PREDICTION_FILE_CANDIDATES = (
 
 @dataclass(frozen=True)
 class MethodComparison:
-    """A fixed same-run comparison used by the paper package."""
+    """表示论文包里一组固定的同 run 方法对比。"""
 
     comparison_id: str
     experiment_name: str
@@ -54,7 +52,7 @@ def render_paper_statistics(
     seed: int = 42,
     bootstrap_samples: int = 2000,
 ) -> dict[str, str]:
-    """Write statistical artifacts for a matrix run and return their paths."""
+    """为一个 matrix 运行写出统计产物，并返回产物路径。"""
     state_path = _resolve_state_path(state_path_or_root)
     state_payload = _load_json(state_path)
     stats = build_paper_statistics(
@@ -86,7 +84,7 @@ def build_paper_statistics(
     seed: int = 42,
     bootstrap_samples: int = 2000,
 ) -> dict[str, Any]:
-    """Build all fixed statistical comparisons from completed matrix entries."""
+    """从已完成的 matrix 条目中构建全部固定统计对比。"""
     entries = {
         str(entry.get("experiment_name")): entry
         for entry in state_payload.get("semantic_entries", [])

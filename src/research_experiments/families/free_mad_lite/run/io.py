@@ -1,4 +1,4 @@
-"""free_mad_lite ??????????"""
+"""`free_mad_lite` 运行目录与固定产物路径。"""
 
 from __future__ import annotations
 
