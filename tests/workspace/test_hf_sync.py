@@ -1,36 +1,31 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from research_experiments.workspace.hf_sync import discover_publishable_runs, pull_workspace_from_hub, push_workspace_to_hub
-
-
-def _write_json(path: Path, payload: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+from testsupport.filesystem import write_json
 
 
 def test_discover_publishable_runs_includes_standard_and_matrix(tmp_path: Path) -> None:
     standard_root = tmp_path / "single_agent" / "demo" / "count20" / "20260510T000000Z-model"
-    _write_json(standard_root / "manifest.json", {"run_id": "20260510T000000Z-model"})
+    write_json(standard_root / "manifest.json", {"run_id": "20260510T000000Z-model"})
     (standard_root / "report.md").write_text("# report\n", encoding="utf-8")
-    _write_json(standard_root / "run_validation.json", {"passed": True})
+    write_json(standard_root / "run_validation.json", {"passed": True})
 
     invalid_root = tmp_path / "budget_comm" / "demo" / "count20" / "20260510T000001Z-model"
-    _write_json(invalid_root / "manifest.json", {"run_id": "20260510T000001Z-model"})
+    write_json(invalid_root / "manifest.json", {"run_id": "20260510T000001Z-model"})
     (invalid_root / "report.md").write_text("# report\n", encoding="utf-8")
-    _write_json(invalid_root / "run_validation.json", {"passed": False})
+    write_json(invalid_root / "run_validation.json", {"passed": False})
 
     matrix_root = tmp_path / "faithful_matrix" / "20260510T000100Z-count20-model"
-    _write_json(
+    write_json(
         matrix_root / "state.json",
         {
             "counts": {"completed": 2, "semantic_unique_targets": 2},
             "entries": [{"status": "completed"}, {"status": "completed"}],
         },
     )
-    _write_json(matrix_root / "paper_package.json", {"ok": True})
+    write_json(matrix_root / "paper_package.json", {"ok": True})
 
     rows = discover_publishable_runs(tmp_path)
     by_root = {row["run_root"]: row for row in rows}
@@ -43,25 +38,25 @@ def test_discover_publishable_runs_includes_standard_and_matrix(tmp_path: Path) 
 
 def test_push_workspace_to_hub_batches_runs_and_cache(monkeypatch, tmp_path: Path) -> None:
     standard_root = tmp_path / "runs" / "single_agent" / "demo" / "count20" / "20260510T000000Z-model"
-    _write_json(standard_root / "manifest.json", {"run_id": "20260510T000000Z-model"})
+    write_json(standard_root / "manifest.json", {"run_id": "20260510T000000Z-model"})
     (standard_root / "report.md").write_text("# report\n", encoding="utf-8")
-    _write_json(standard_root / "run_validation.json", {"passed": True})
+    write_json(standard_root / "run_validation.json", {"passed": True})
 
     invalid_root = tmp_path / "runs" / "budget_comm" / "demo" / "count20" / "20260510T000001Z-model"
-    _write_json(invalid_root / "manifest.json", {"run_id": "20260510T000001Z-model"})
+    write_json(invalid_root / "manifest.json", {"run_id": "20260510T000001Z-model"})
     (invalid_root / "report.md").write_text("# report\n", encoding="utf-8")
-    _write_json(invalid_root / "run_validation.json", {"passed": False})
+    write_json(invalid_root / "run_validation.json", {"passed": False})
 
     matrix_root = tmp_path / "runs" / "faithful_matrix" / "20260510T000100Z-count20-model"
-    _write_json(
+    write_json(
         matrix_root / "state.json",
         {
             "counts": {"completed": 1, "semantic_unique_targets": 1},
             "entries": [{"status": "completed"}],
         },
     )
-    _write_json(matrix_root / "paper_package.json", {"ok": True})
-    _write_json(matrix_root / "hf_publish.json", {"published": True, "remote_repo": "owner/research-runs"})
+    write_json(matrix_root / "paper_package.json", {"ok": True})
+    write_json(matrix_root / "hf_publish.json", {"published": True, "remote_repo": "owner/research-runs"})
 
     published_roots: list[str] = []
 
@@ -147,14 +142,14 @@ def test_pull_workspace_from_hub_batches_runs_and_cache(monkeypatch, tmp_path: P
 
 def test_push_workspace_to_hub_can_target_selected_run_dirs(monkeypatch, tmp_path: Path) -> None:
     standard_root = tmp_path / "runs" / "single_agent" / "demo" / "count20" / "20260510T000000Z-model"
-    _write_json(standard_root / "manifest.json", {"run_id": "20260510T000000Z-model"})
+    write_json(standard_root / "manifest.json", {"run_id": "20260510T000000Z-model"})
     (standard_root / "report.md").write_text("# report\n", encoding="utf-8")
-    _write_json(standard_root / "run_validation.json", {"passed": True})
+    write_json(standard_root / "run_validation.json", {"passed": True})
 
     another_root = tmp_path / "runs" / "budget_comm" / "demo" / "count20" / "20260510T000001Z-model"
-    _write_json(another_root / "manifest.json", {"run_id": "20260510T000001Z-model"})
+    write_json(another_root / "manifest.json", {"run_id": "20260510T000001Z-model"})
     (another_root / "report.md").write_text("# report\n", encoding="utf-8")
-    _write_json(another_root / "run_validation.json", {"passed": True})
+    write_json(another_root / "run_validation.json", {"passed": True})
 
     published_roots: list[str] = []
     monkeypatch.setattr(

@@ -6,10 +6,11 @@ from pathlib import Path
 from research_experiments.families.selective_comm.run.report import render_report as render_selective_report
 from research_experiments.families.single_agent.run.report import render_report as render_single_agent_report
 from research_experiments.families.sparc.run.report import render_report as render_sparc_report
+from testsupport.filesystem import write_json
 
 
 def test_single_agent_render_report_outputs_scientific_markdown(tmp_path: Path) -> None:
-    _write_json(
+    write_json(
         tmp_path / "manifest.json",
         {
             "created_at": "2026-05-09T12:00:00+00:00",
@@ -19,7 +20,7 @@ def test_single_agent_render_report_outputs_scientific_markdown(tmp_path: Path) 
             "prompt_version": "single_agent_v1",
         },
     )
-    _write_json(
+    write_json(
         tmp_path / "metrics.json",
         {
             "summary": [
@@ -83,7 +84,7 @@ def test_single_agent_render_report_outputs_scientific_markdown(tmp_path: Path) 
 
 
 def test_selective_comm_render_report_outputs_scientific_markdown(tmp_path: Path) -> None:
-    _write_json(
+    write_json(
         tmp_path / "manifest.json",
         {
             "created_at": "2026-05-09T12:00:00+00:00",
@@ -93,7 +94,7 @@ def test_selective_comm_render_report_outputs_scientific_markdown(tmp_path: Path
             "prompt_version": "selective_comm_trigger_json",
         },
     )
-    _write_json(
+    write_json(
         tmp_path / "policy_metrics.json",
         {
             "summary": [
@@ -136,7 +137,7 @@ def test_selective_comm_render_report_outputs_scientific_markdown(tmp_path: Path
             ]
         },
     )
-    _write_json(
+    write_json(
         tmp_path / "policy_diagnostics.json",
         {
             "policy_rows": [
@@ -179,7 +180,7 @@ def test_selective_comm_render_report_outputs_scientific_markdown(tmp_path: Path
             "recommended_next_default_policy": {"selected_policy": "hybrid_trigger"},
         },
     )
-    _write_json(tmp_path / "oracle_trigger_eval.json", {"sample_rows": []})
+    write_json(tmp_path / "oracle_trigger_eval.json", {"sample_rows": []})
     (tmp_path / "policy_predictions.jsonl").write_text("", encoding="utf-8")
 
     payload = render_selective_report(tmp_path, publish_dir=tmp_path / "published")
@@ -194,7 +195,7 @@ def test_selective_comm_render_report_outputs_scientific_markdown(tmp_path: Path
 
 
 def test_sparc_render_report_outputs_scientific_markdown(tmp_path: Path) -> None:
-    _write_json(
+    write_json(
         tmp_path / "manifest.json",
         {
             "created_at": "2026-05-09T12:00:00+00:00",
@@ -204,7 +205,7 @@ def test_sparc_render_report_outputs_scientific_markdown(tmp_path: Path) -> None
             "resolved_model": {"name": "xiaomimimo/mimo-v2.5"},
         },
     )
-    _write_json(
+    write_json(
         tmp_path / "metrics.json",
         {
             "summary": [
@@ -247,7 +248,7 @@ def test_sparc_render_report_outputs_scientific_markdown(tmp_path: Path) -> None
             ]
         },
     )
-    _write_json(
+    write_json(
         tmp_path / "diagnostics.json",
         {
             "variant_name": "content_ablation",
@@ -350,6 +351,3 @@ def test_sparc_render_report_outputs_scientific_markdown(tmp_path: Path) -> None
     assert "## 图表资产" in local_report
     assert Path(payload["figure_manifest"]).exists()
 
-
-def _write_json(path: Path, payload: object) -> None:
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

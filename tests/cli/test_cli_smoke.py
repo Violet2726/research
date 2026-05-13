@@ -2,23 +2,14 @@
 
 from __future__ import annotations
 
-import io
 import json
-from contextlib import redirect_stdout
 
 from research_experiments.core.execution.cache import CachedResponse, RequestCacheRouter, json_dump
-from research_experiments.cli import main as research_main
-
-
-def _run_cli(argv: list[str]) -> dict[str, object]:
-    buffer = io.StringIO()
-    with redirect_stdout(buffer):
-        research_main(argv[1:])
-    return json.loads(buffer.getvalue())
+from testsupport.cli import run_cli_json
 
 
 def test_single_agent_inspect_cli() -> None:
-    payload = _run_cli(
+    payload = run_cli_json(
         [
             "research_cli",
             "family",
@@ -33,7 +24,7 @@ def test_single_agent_inspect_cli() -> None:
 
 
 def test_faithful_matrix_inspect_cli() -> None:
-    payload = _run_cli(
+    payload = run_cli_json(
         [
             "research_cli",
             "matrix",
@@ -47,7 +38,7 @@ def test_faithful_matrix_inspect_cli() -> None:
 
 
 def test_multi_agent_inspect_cli() -> None:
-    payload = _run_cli(
+    payload = run_cli_json(
         [
             "research_cli",
             "family",
@@ -61,7 +52,7 @@ def test_multi_agent_inspect_cli() -> None:
 
 
 def test_selective_comm_inspect_cli() -> None:
-    payload = _run_cli(
+    payload = run_cli_json(
         [
             "research_cli",
             "family",
@@ -76,7 +67,7 @@ def test_selective_comm_inspect_cli() -> None:
 
 
 def test_selective_comm_voc_v2_inspect_cli() -> None:
-    payload = _run_cli(
+    payload = run_cli_json(
         [
             "research_cli",
             "family",
@@ -96,7 +87,7 @@ def test_selective_comm_voc_v2_inspect_cli() -> None:
 
 
 def test_sparc_inspect_cli() -> None:
-    payload = _run_cli(
+    payload = run_cli_json(
         [
             "research_cli",
             "family",
@@ -110,7 +101,7 @@ def test_sparc_inspect_cli() -> None:
 
 
 def test_sparc_local_auditing_inspect_cli() -> None:
-    payload = _run_cli(
+    payload = run_cli_json(
         [
             "research_cli",
             "family",
@@ -135,7 +126,7 @@ def test_sparc_local_auditing_inspect_cli() -> None:
 
 
 def test_budget_comm_inspect_cli() -> None:
-    payload = _run_cli(
+    payload = run_cli_json(
         [
             "research_cli",
             "family",
@@ -151,7 +142,7 @@ def test_budget_comm_inspect_cli() -> None:
 
 
 def test_sid_lite_inspect_cli() -> None:
-    payload = _run_cli(
+    payload = run_cli_json(
         [
             "research_cli",
             "family",
@@ -169,7 +160,7 @@ def test_sid_lite_inspect_cli() -> None:
 
 
 def test_free_mad_lite_inspect_cli() -> None:
-    payload = _run_cli(
+    payload = run_cli_json(
         [
             "research_cli",
             "family",
@@ -191,7 +182,7 @@ def test_free_mad_lite_inspect_cli() -> None:
 
 
 def test_comm_necessary_inspect_cli() -> None:
-    payload = _run_cli(
+    payload = run_cli_json(
         [
             "research_cli",
             "family",
@@ -215,7 +206,7 @@ def test_comm_necessary_inspect_cli() -> None:
 
 
 def test_cue_inspect_cli() -> None:
-    payload = _run_cli(
+    payload = run_cli_json(
         [
             "research_cli",
             "family",
@@ -248,7 +239,7 @@ def test_cache_inspector_summarize_cli(tmp_path) -> None:
     )
     router.close()
 
-    payload = _run_cli(
+    payload = run_cli_json(
         [
             "research_cli",
             "tools",
@@ -281,7 +272,7 @@ def test_archive_runs_publish_uses_repo_env(monkeypatch, tmp_path) -> None:
         },
     )
 
-    payload = _run_cli(
+    payload = run_cli_json(
         [
             "research_cli",
             "tools",
@@ -309,7 +300,7 @@ def test_archive_runs_fetch_accepts_run_prefix(monkeypatch, tmp_path) -> None:
         },
     )
 
-    payload = _run_cli(
+    payload = run_cli_json(
         [
             "research_cli",
             "tools",
@@ -341,7 +332,7 @@ def test_cache_archive_push_uses_repo_env(monkeypatch, tmp_path) -> None:
         },
     )
 
-    payload = _run_cli(
+    payload = run_cli_json(
         [
             "research_cli",
             "tools",
@@ -368,7 +359,7 @@ def test_cache_archive_pull_accepts_cache_shard(monkeypatch, tmp_path) -> None:
         },
     )
 
-    payload = _run_cli(
+    payload = run_cli_json(
         [
             "research_cli",
             "tools",
@@ -401,7 +392,7 @@ def test_hf_sync_push_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
         },
     )
 
-    payload = _run_cli(
+    payload = run_cli_json(
         [
             "research_cli",
             "tools",
@@ -443,7 +434,7 @@ def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
         },
     )
 
-    payload = _run_cli(
+    payload = run_cli_json(
         [
             "research_cli",
             "tools",
