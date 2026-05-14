@@ -11,6 +11,7 @@ from research_experiments.families.budget_comm.spec import build_parser as build
 from research_experiments.families.comm_necessary.spec import build_parser as build_comm_necessary_parser
 from research_experiments.families.cue.spec import build_parser as build_cue_parser
 from research_experiments.families.free_mad_lite.spec import build_parser as build_free_mad_parser
+from research_experiments.families.imad.spec import build_parser as build_imad_parser
 from research_experiments.families.multi_agent.spec import build_parser as build_multi_agent_parser
 from research_experiments.families.selective_comm.spec import build_parser as build_selective_parser
 from research_experiments.families.sid_lite.spec import build_parser as build_sid_parser
@@ -33,6 +34,7 @@ MARKDOWN_DOCS = [
     ROOT / "src" / "research_experiments" / "families" / "comm_necessary" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "cue" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "free_mad_lite" / "README.md",
+    ROOT / "src" / "research_experiments" / "families" / "imad" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "multi_agent" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "selective_comm" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "sid_lite" / "README.md",
@@ -53,6 +55,7 @@ def test_all_family_clis_expose_render_report() -> None:
         build_budget_parser(),
         build_sid_parser(),
         build_free_mad_parser(),
+        build_imad_parser(),
         build_comm_necessary_parser(),
         build_cue_parser(),
     ]

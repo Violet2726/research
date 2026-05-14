@@ -121,9 +121,9 @@ faithful gate 通过只说明该 experiment 在当前验收规则下可接受。
 - 哪些模块需要后续改进；
 - 为什么最终框架需要强调高价值分歧，而不是默认全量 debate。
 
-## 1.8 不继续扩展 family
+## 1.8 不随意扩展 family
 
-后续重点不应是新增方法 family。
+后续重点不应是无约束地新增方法 family。
 
 优先级应转向：
 
@@ -133,6 +133,11 @@ faithful gate 通过只说明该 experiment 在当前验收规则下可接受。
 - 成本前沿图；
 - 机制分析；
 - 更强 equal-budget baseline。
+
+允许的例外只有两类：
+
+- 直接对应高价值顶会论文、且能进入统一 matrix / validation / reporting 契约的正式复现 family；
+- 明确服务主结论证据缺口、而不是为了局部分数追涨的 reproduction family。
 
 ## 1.9 必须补强 equal-budget 反方基线
 

@@ -4,7 +4,7 @@
 
 项目主线冻结为：固定预算下的多智能体高价值分歧处理框架。
 
-后续不再新增方法 family，不再为了局部分数改动方法结构。允许继续改动的内容只包括：
+后续默认冻结主线 family，不再为了局部分数随意改动方法结构；但允许为高价值论文复现新增少量正式 family，并纳入统一 matrix / validation / reporting 契约。允许继续改动的内容包括：
 
 - 矩阵编排、phase 配置和运行记录管理。
 - 解析、评分、统计检验和报告生成。
@@ -37,6 +37,7 @@ Split-context headline：
 
 Supporting：
 
+- `imad_same_context_main`
 - `same_context_controlled_debate`
 - `free_mad_lite_mechanism_validation`
 - `local_auditing_ablation`
@@ -57,7 +58,7 @@ Reference：
 
 新增 phase：`count300`。
 
-矩阵规模固定为 15 个正式 experiment，不包含本地开发项。
+矩阵规模固定为 16 个正式 experiment，不包含本地开发项。
 
 数据规模规则：
 

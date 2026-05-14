@@ -1,0 +1,58 @@
+# iMAD same-context 自适应停止主实验入口。
+name = "imad_same_context_main"
+description = "复现自适应稳定性检测的 same-context 多轮 debate 主实验。"
+experiment_note = """
+实验定位：Adaptive Stopping / Efficient Debate 复现 family 的正式入口，覆盖 GSM8K、StrategyQA、HotpotQA。
+核心问题：在 same-context 多轮 debate 中，自适应停止能否减少不必要轮次，同时保持接近固定三轮 debate 的准确率。
+结果用途：作为 faithful matrix 中的 supporting 证据，用于分析 debate 轮数效率与稳定性门控。
+"""
+benchmark_configs = [
+  "configs/core/shared/benchmarks/gsm8k.toml",
+  "configs/core/shared/benchmarks/strategyqa.toml",
+  "configs/core/shared/benchmarks/hotpotqa.toml",
+]
+control_catalog = "configs/core/shared/controls/no_comm_equal_budget.toml"
+protocol = "configs/families/imad/protocols/adaptive_3a_r3.toml"
+global_seed = 42
+prompt_version = "imad_controlled_json"
+max_concurrent_requests = 5
+requests_per_minute_limit = 50
+tokens_per_minute_limit = 1000000
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+
+[[methods]]
+name = "mad_fixed_r1"
+mode = "fixed"
+round_limit = 1
+matched_controls = ["mv_6"]
+
+[[methods]]
+name = "mad_fixed_r2"
+mode = "fixed"
+round_limit = 2
+matched_controls = []
+
+[[methods]]
+name = "mad_fixed_r3"
+mode = "fixed"
+round_limit = 3
+matched_controls = []
+
+[[methods]]
+name = "imad_adaptive"
+mode = "adaptive"
+round_limit = 3
+matched_controls = ["mv_6"]
+
+[phases.count20]
+split_suffix = "count20_seed42"
+
+[phases.count100]
+split_suffix = "count100_seed42"
+
+[phases.count300]
+split_overrides = { gsm8k = "count300_seed42", strategyqa = "full229_seed42", hotpotqa = "count300_seed42" }
+
+[phases.count500]
+split_overrides = { gsm8k = "count500_seed42", strategyqa = "full229_seed42", hotpotqa = "count500_seed42" }
+

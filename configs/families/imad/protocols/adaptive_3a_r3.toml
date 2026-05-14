@@ -1,0 +1,10 @@
+# iMAD 共享的 3 智能体、最多 3 轮 debate 协议。
+agent_count = 3
+max_rounds = 3
+initial_temperature = 0.7
+debate_temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256
+posterior_sample_count = 256
+stability_ks_threshold = 0.10
+stable_posterior_mean_threshold = 0.60

@@ -13,6 +13,14 @@ primary_method_name = "mad_3a_r1"
 best_no_comm_candidates = ["mv_6"]
 
 [[entries]]
+config_path = "configs/families/imad/experiments/imad_same_context_main.toml"
+evaluation_track = "same_context"
+evidence_tier = "supporting"
+primary_method_name = "imad_adaptive"
+best_no_comm_candidates = ["mv_6"]
+full_comm_reference = "mad_fixed_r3"
+
+[[entries]]
 config_path = "configs/families/free_mad_lite/experiments/free_mad_lite_mechanism_validation.toml"
 evaluation_track = "same_context"
 evidence_tier = "supporting"

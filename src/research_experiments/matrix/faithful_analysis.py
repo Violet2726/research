@@ -29,6 +29,9 @@ PREDICTION_FILE_CANDIDATES = (
 )
 STAGE_SCORE_KEYS = (
     "score",
+    "round_1_score",
+    "round_2_score",
+    "round_3_score",
     "stage_a_score",
     "stage_b_score",
     "initial_vote_score",
