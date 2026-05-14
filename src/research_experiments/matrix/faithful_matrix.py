@@ -19,6 +19,7 @@ from research_experiments.workspace.run_archives import publish_run_if_configure
 from research_experiments.matrix.faithful_acceptance import render_acceptance_summary
 from research_experiments.matrix.faithful_analysis import render_faithful_analysis
 from research_experiments.matrix.matrix_specs import get_experiment_matrix_spec, ordered_matrix_config_paths
+from research_experiments.reporting.family_landscape import render_family_landscape
 from research_experiments.reporting.paper_package import render_paper_package
 from research_experiments.reporting.paper_statistics import render_paper_statistics
 from research_experiments.workspace.layout import default_reports_root, default_runs_root, workspace_defaults
@@ -311,6 +312,7 @@ def run_faithful_matrix(
     render_acceptance_summary(paths.root)
     render_paper_statistics(paths.root)
     render_paper_package(paths.root)
+    render_family_landscape(paths.root)
     if not collect_blocking_entries(paths.root):
         publish_run_if_configured(paths.root)
     return paths.root
@@ -370,6 +372,7 @@ def resume_faithful_matrix(
     render_acceptance_summary(paths.root)
     render_paper_statistics(paths.root)
     render_paper_package(paths.root)
+    render_family_landscape(paths.root)
     if not collect_blocking_entries(paths.root):
         publish_run_if_configured(paths.root)
     return paths.root
@@ -580,6 +583,7 @@ def build_parser() -> argparse.ArgumentParser:
     acceptance_cmd = subparsers.add_parser("evaluate-acceptance", help="Render acceptance summary for an existing faithful-matrix run.")
     statistics_cmd = subparsers.add_parser("render-statistics", help="Render paper-grade statistical artifacts for an existing run.")
     paper_cmd = subparsers.add_parser("render-paper-package", help="Render paper-facing tables and figures for an existing run.")
+    landscape_cmd = subparsers.add_parser("render-family-landscape", help="Render the family-level landscape view for an existing run.")
 
     for command in (inspect_cmd, run_cmd):
         command.add_argument("--phase", default=DEFAULT_PHASE)
@@ -597,6 +601,7 @@ def build_parser() -> argparse.ArgumentParser:
     acceptance_cmd.add_argument("--analysis-path", required=True)
     statistics_cmd.add_argument("--state-path", required=True)
     paper_cmd.add_argument("--state-path", required=True)
+    landscape_cmd.add_argument("--state-path", required=True)
     return parser
 
 
@@ -669,6 +674,11 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "render-paper-package":
         paths = render_paper_package(args.state_path)
+        emit_json(paths)
+        return
+
+    if args.command == "render-family-landscape":
+        paths = render_family_landscape(args.state_path)
         emit_json(paths)
         return
 

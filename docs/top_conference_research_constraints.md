@@ -95,6 +95,8 @@ split-context 研究：
 ## 1.6 accepted 不等于 headline
 
 faithful gate 通过只说明该 experiment 在当前验收规则下可接受。
+即便后续补充 `global_total_board` 这类横向景观视图，也只能把它当作扫描入口，
+不能把 accepted、headline、supporting、diagnostic 压成同一语义层级。
 
 它不等于：
 
@@ -241,6 +243,7 @@ appendix 应放：
 
 - supporting family；
 - diagnostic family；
+- `global_total_board` 等横向景观视图；
 - 失败案例；
 - 完整 per-dataset 表；
 - prompt 和配置细节。

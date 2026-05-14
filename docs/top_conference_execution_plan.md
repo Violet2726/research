@@ -21,6 +21,7 @@
 ## 2. 证据分层
 
 主文只使用 headline 子集，其他实验进入 supporting 或 diagnostic。
+`global_total_board` 只用于横向景观扫描，不等于论文主结论表，也不能替代分轨分层解释。
 
 Same-context headline：
 
@@ -98,7 +99,10 @@ uv run research_cli matrix resume --state-path <matrix_run_dir> --reference-stat
 - `dataset_breakdown.json`
 - `paper_package.json`
 - `paper_package.md`
+- `family_landscape.json`
+- `family_landscape.md`
 - `local/reports/faithful_matrix/<run_id>-paper_package.md`
+- `local/reports/faithful_matrix/<run_id>-family_landscape.md`
 - `<matrix_run_dir>/figures/`
 
 离线重渲染命令：
@@ -108,6 +112,7 @@ uv run research_cli matrix analyze-faithful --state-path <matrix_run_dir> --refe
 uv run research_cli matrix evaluate-acceptance --analysis-path <matrix_run_dir>
 uv run research_cli matrix render-statistics --state-path <matrix_run_dir>
 uv run research_cli matrix render-paper-package --state-path <matrix_run_dir>
+uv run research_cli matrix render-family-landscape --state-path <matrix_run_dir>
 ```
 
 ## 5. 固定统计比较
@@ -179,6 +184,7 @@ uv run research_cli matrix render-paper-package --state-path <matrix_run_dir>
 
 - 矩阵：`local/runs/faithful_matrix_iterative/20260507T121658Z-count100-xiaomimimo-mimo-v2.5`
 - 论文包：`local/reports/faithful_matrix/20260507T121658Z-count100-xiaomimimo-mimo-v2.5-paper_package.md`
+- 景观总览：`local/reports/faithful_matrix/20260507T121658Z-count100-xiaomimimo-mimo-v2.5-family_landscape.md`
 - 图表：`local/runs/faithful_matrix_iterative/20260507T121658Z-count100-xiaomimimo-mimo-v2.5/figures/`
 
 该回放用于验证统计和报告链路，不替代后续 `count300` 正式运行。

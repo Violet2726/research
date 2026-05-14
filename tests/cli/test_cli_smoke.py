@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from research_experiments.core.execution.cache import CachedResponse, RequestCacheRouter, json_dump
 from testsupport.cli import run_cli_json
+from testsupport.filesystem import write_json
 
 
 def test_single_agent_inspect_cli() -> None:
@@ -35,6 +37,50 @@ def test_faithful_matrix_inspect_cli() -> None:
     )
     assert payload["overrides"]["phase_name"] == "count20"
     assert payload["counts"]["semantic_unique_targets"] == 15
+
+
+def test_faithful_matrix_render_family_landscape_cli(tmp_path: Path) -> None:
+    write_json(
+        tmp_path / "state.json",
+        {
+            "overrides": {"phase_name": "count100", "model_ref": "xiaomimimo/mimo-v2.5"},
+            "counts": {"completed": 1, "semantic_unique_targets": 1},
+        },
+    )
+    write_json(
+        tmp_path / "faithful_analysis.json",
+        {
+            "combined_overall": [
+                {
+                    "family": "budget_comm",
+                    "experiment_name": "dala_lite_same_context_main",
+                    "evaluation_track": "same_context",
+                    "evidence_tier": "headline",
+                    "primary_method_name": "dala_lite",
+                    "faithful_score": 0.708082,
+                    "delta_vs_best_no_comm": 0.110977,
+                    "delta_vs_full_comm": -0.028951,
+                    "total_tokens_mean": 1600.0,
+                    "communication_tokens_mean": 90.0,
+                    "calls_per_question_mean": 6.0,
+                    "stage_ceiling_gap": 0.014475,
+                }
+            ]
+        },
+    )
+
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "matrix",
+            "render-family-landscape",
+            "--state-path",
+            str(tmp_path),
+        ],
+    )
+
+    assert Path(payload["json_path"]).exists()
+    assert Path(payload["markdown_path"]).exists()
 
 
 def test_multi_agent_inspect_cli() -> None:

@@ -208,13 +208,18 @@ def test_resume_faithful_matrix_continues_rerun_needed_and_pending_entries(
         "research_experiments.matrix.faithful_matrix.render_paper_package",
         lambda *args, **kwargs: {},
     )
+    landscape_calls: list[tuple[object, ...]] = []
+    monkeypatch.setattr(
+        "research_experiments.matrix.faithful_matrix.render_family_landscape",
+        lambda *args, **kwargs: landscape_calls.append(args) or {},
+    )
 
     resumed_root = resume_faithful_matrix(state_path)
 
     assert resumed_root == root
+    assert landscape_calls
     resumed = json.loads(state_path.read_text(encoding="utf-8"))
     statuses = {item["experiment_name"]: item["status"] for item in resumed["semantic_entries"]}
     assert statuses["hotpotqa_split_context_communication_necessity"] == "completed"
     entry_statuses = {item["experiment_name"]: item["status"] for item in resumed["entries"]}
     assert entry_statuses["hotpotqa_split_context_communication_necessity"] == "completed"
-
