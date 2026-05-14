@@ -63,7 +63,12 @@ def run_experiment(
     run_id = build_run_id(backbone.name)
     run_paths = _prepare_run_paths(run_root, experiment.name, phase_name, run_id)
     total_calls, total_predictions = _estimate_work(experiment, phase_name, benchmarks, protocol, methods, controls)
-    progress = RunProgressTracker(run_paths.progress, total_calls, total_predictions)
+    progress = RunProgressTracker(
+        run_paths.progress,
+        total_calls,
+        total_predictions,
+        planned_calls_are_upper_bound=True,
+    )
 
     manifest = {
         "run_id": run_id,

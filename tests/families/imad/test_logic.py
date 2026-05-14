@@ -17,6 +17,8 @@ def test_load_imad_experiment_config_reads_methods_and_protocol() -> None:
     ]
     assert protocol.agent_count == 3
     assert protocol.max_rounds == 3
+    assert experiment.methods[0].matched_controls == ["mv_6"]
+    assert experiment.methods[-1].matched_controls == []
 
 
 def test_assess_stability_gate_requires_same_top_answer_and_low_ks() -> None:
@@ -47,7 +49,7 @@ def test_assess_stability_gate_requires_same_top_answer_and_low_ks() -> None:
 
 def test_build_metrics_reports_round_and_early_stop_fields() -> None:
     methods = [
-        DebateMethodSpec(name="imad_adaptive", mode="adaptive", round_limit=3, matched_controls=["mv_6"]),
+        DebateMethodSpec(name="imad_adaptive", mode="adaptive", round_limit=3, matched_controls=[]),
         DebateMethodSpec(name="mad_fixed_r1", mode="fixed", round_limit=1, matched_controls=["mv_6"]),
     ]
     metrics = _build_metrics(
@@ -76,6 +78,27 @@ def test_build_metrics_reports_round_and_early_stop_fields() -> None:
             {
                 "dataset": "gsm8k",
                 "model_name": "xiaomimimo/mimo-v2.5",
+                "method_name": "mad_fixed_r1",
+                "method_type": "mad",
+                "method_mode": "fixed",
+                "configured_round_limit": 1,
+                "score": 1.0,
+                "prompt_tokens_per_question": 8.0,
+                "completion_tokens_per_question": 4.0,
+                "total_tokens_per_question": 12.0,
+                "debate_total_tokens_per_question": 3.0,
+                "latency_ms_per_question": 15.0,
+                "calls_per_question": 6,
+                "debate_rounds": 1,
+                "executed_round_count": 1,
+                "stopped_early": False,
+                "stop_reason": "fixed_round_limit_r1",
+                "ks_statistic_last": None,
+                "posterior_mean_last": 0.68,
+            },
+            {
+                "dataset": "gsm8k",
+                "model_name": "xiaomimimo/mimo-v2.5",
                 "method_name": "mv_6",
                 "method_type": "control",
                 "method_mode": "control",
@@ -99,8 +122,9 @@ def test_build_metrics_reports_round_and_early_stop_fields() -> None:
     )
 
     adaptive_row = next(row for row in metrics["summary"] if row["method_name"] == "imad_adaptive")
+    fixed_row = next(row for row in metrics["summary"] if row["method_name"] == "mad_fixed_r1")
     assert adaptive_row["executed_round_count_mean"] == 2.0
     assert adaptive_row["stopped_early_rate"] == 1.0
     assert adaptive_row["stability_stop_rate"] == 1.0
-    assert adaptive_row["debate_gain_over_vote"] == 0.5
-
+    assert adaptive_row["debate_gain_over_vote"] is None
+    assert fixed_row["debate_gain_over_vote"] == 0.5

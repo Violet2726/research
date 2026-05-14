@@ -196,8 +196,19 @@ def _run_method_sample(
     initial_disagreement = len(set(initial_answers)) > 1
 
     previous_round = initial_turns
-    previous_top_answer: str | None = None
-    previous_posterior_samples: list[float] | None = None
+    initial_support_count = int(initial_vote_counts.get(initial_vote, 0))
+    previous_top_answer: str | None = initial_vote
+    previous_posterior_samples: list[float] | None = _beta_posterior_samples(
+        support_count=initial_support_count,
+        agent_count=protocol.agent_count,
+        sample_count=protocol.posterior_sample_count,
+        seed=_posterior_seed(
+            sample_id=sample.sample_id,
+            method_name=method.name,
+            round_index=0,
+            global_seed=global_seed,
+        ),
+    )
     executed_round_count = 0
     stop_reason = ""
     stopped_early = False
@@ -327,7 +338,7 @@ def _run_method_sample(
         previous_top_answer = round_vote
         previous_posterior_samples = posterior_samples
 
-        if method.mode == "adaptive" and round_index >= 2 and stability_gate_passed:
+        if method.mode == "adaptive" and stability_gate_passed:
             stopped_early = round_index < method.round_limit
             stop_reason = "stability_gate"
             round_diagnostics[-1]["stop_triggered"] = True

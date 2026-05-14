@@ -36,6 +36,20 @@ def test_imad_render_report_outputs_markdown_and_figures(tmp_path: Path) -> None
                 },
                 {
                     "dataset": "overall",
+                    "method_name": "mad_fixed_r1",
+                    "accuracy_mean": 0.79,
+                    "total_tokens_mean": 1500.0,
+                    "communication_tokens_mean": 400.0,
+                    "calls_per_question_mean": 6.0,
+                    "accuracy_per_1k_tokens": 0.526,
+                    "executed_round_count_mean": 1.0,
+                    "stopped_early_rate": 0.0,
+                    "stability_stop_rate": 0.0,
+                    "matched_vote_control": "mv_6",
+                    "debate_gain_over_vote": 0.07,
+                },
+                {
+                    "dataset": "overall",
                     "method_name": "mad_fixed_r3",
                     "accuracy_mean": 0.80,
                     "total_tokens_mean": 2200.0,
@@ -57,6 +71,8 @@ def test_imad_render_report_outputs_markdown_and_figures(tmp_path: Path) -> None
                     "executed_round_count_mean": 2.0,
                     "stopped_early_rate": 0.6,
                     "stability_stop_rate": 0.6,
+                    "matched_vote_control": None,
+                    "debate_gain_over_vote": None,
                 },
             ]
         },
@@ -96,6 +112,8 @@ def test_imad_render_report_outputs_markdown_and_figures(tmp_path: Path) -> None
 
     assert "## 摘要" in local_report
     assert "## 研究问题与实验设计" in local_report
+    assert "mad_fixed_r1" in local_report
+    assert "mv_6` 只对应 `mad_fixed_r1`" in local_report
     assert "## 稳定性诊断" in local_report
     assert Path(payload["figure_manifest"]).exists()
 
@@ -152,4 +170,3 @@ def test_imad_validate_run_accepts_complete_artifacts(tmp_path: Path) -> None:
     payload = validate_run(tmp_path)
 
     assert payload["passed"] is True
-

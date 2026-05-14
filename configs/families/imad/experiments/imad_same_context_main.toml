@@ -42,7 +42,7 @@ matched_controls = []
 name = "imad_adaptive"
 mode = "adaptive"
 round_limit = 3
-matched_controls = ["mv_6"]
+matched_controls = []
 
 [phases.count20]
 split_suffix = "count20_seed42"
@@ -55,4 +55,3 @@ split_overrides = { gsm8k = "count300_seed42", strategyqa = "full229_seed42", ho
 
 [phases.count500]
 split_overrides = { gsm8k = "count500_seed42", strategyqa = "full229_seed42", hotpotqa = "count500_seed42" }
-

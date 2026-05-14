@@ -26,6 +26,7 @@ class RunProgressTracker:
         *,
         initial_completed_calls: int = 0,
         initial_completed_predictions: int = 0,
+        planned_calls_are_upper_bound: bool = False,
     ) -> None:
         self.progress_path = progress_path
         self.total_planned_calls = total_planned_calls
@@ -34,6 +35,7 @@ class RunProgressTracker:
         self.started_monotonic = time.monotonic()
         self.completed_calls = initial_completed_calls
         self.completed_predictions = initial_completed_predictions
+        self.planned_calls_are_upper_bound = planned_calls_are_upper_bound
         self.cache_hits = 0
         self.network_calls = 0
         self.last_dataset: str | None = None
@@ -78,6 +80,11 @@ class RunProgressTracker:
         remaining_network_calls = max(0, self.total_planned_calls - self.completed_calls)
         if self.network_calls > 0 and calls_per_minute > 0:
             eta_seconds = remaining_network_calls / calls_per_minute * 60
+        effective_total_calls = (
+            max(self.completed_calls, 1)
+            if self.status == "completed" and self.planned_calls_are_upper_bound
+            else self.total_planned_calls
+        )
         payload = {
             "status": self.status,
             "started_at": self.started_at,
@@ -85,7 +92,9 @@ class RunProgressTracker:
             "elapsed_seconds": round(elapsed, 2),
             "total_planned_calls": self.total_planned_calls,
             "completed_calls": self.completed_calls,
-            "completed_call_ratio": round(self.completed_calls / self.total_planned_calls, 6) if self.total_planned_calls else 0.0,
+            "planned_calls_are_upper_bound": self.planned_calls_are_upper_bound,
+            "completed_call_ratio": round(self.completed_calls / effective_total_calls, 6) if effective_total_calls else 0.0,
+            "completed_call_ratio_upper_bound": round(self.completed_calls / self.total_planned_calls, 6) if self.total_planned_calls else 0.0,
             "total_planned_predictions": self.total_planned_predictions,
             "completed_predictions": self.completed_predictions,
             "completed_prediction_ratio": round(self.completed_predictions / self.total_planned_predictions, 6) if self.total_planned_predictions else 0.0,
