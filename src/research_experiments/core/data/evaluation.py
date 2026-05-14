@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import string
@@ -21,7 +22,18 @@ def normalize_prediction(dataset: str, final_answer: str) -> str:
         return normalize_math_expression(final_answer)
     if dataset == "strategyqa":
         return normalize_yes_no(final_answer)
-    if dataset == "hotpotqa":
+    if dataset in {
+        "hotpotqa",
+        "webquestions",
+        "grailqa",
+        "dog_webquestions",
+        "dog_grailqa",
+        "dog_webqsp",
+        "dog_cwq",
+        "dog_metaqa_1hop",
+        "dog_metaqa_2hop",
+        "dog_metaqa_3hop",
+    }:
         return normalize_text(final_answer)
     if dataset in {"mmlu_pro", "gpqa_diamond"}:
         return normalize_multiple_choice(final_answer)
@@ -30,6 +42,19 @@ def normalize_prediction(dataset: str, final_answer: str) -> str:
 
 def normalize_gold(dataset: str, answer: str) -> str:
     """对金标答案沿用与预测值一致的归一化规则。"""
+    if dataset in {
+        "webquestions",
+        "grailqa",
+        "dog_webquestions",
+        "dog_grailqa",
+        "dog_webqsp",
+        "dog_cwq",
+        "dog_metaqa_1hop",
+        "dog_metaqa_2hop",
+        "dog_metaqa_3hop",
+    }:
+        answers = _decode_text_answer_set_gold(answer)
+        return normalize_text(answers[0]) if answers else ""
     return normalize_prediction(dataset, answer)
 
 
@@ -40,6 +65,18 @@ def score_prediction(dataset: str, predicted: str, gold: str) -> float:
     """
     if dataset in {"mmlu_pro", "gpqa_diamond"}:
         return score_multiple_choice(predicted, gold)
+    if dataset in {"webquestions", "grailqa"}:
+        return score_text_answer_set(predicted, gold)
+    if dataset in {
+        "dog_webquestions",
+        "dog_grailqa",
+        "dog_webqsp",
+        "dog_cwq",
+        "dog_metaqa_1hop",
+        "dog_metaqa_2hop",
+        "dog_metaqa_3hop",
+    }:
+        return score_text_answer_alias_exact(predicted, gold)
     return 1.0 if normalize_prediction(dataset, predicted) == normalize_gold(dataset, gold) else 0.0
 
 
@@ -126,3 +163,62 @@ def _decode_multiple_choice_gold(gold: str) -> tuple[str, str]:
         return normalize_multiple_choice(letter), text.strip()
     normalized = normalize_multiple_choice(gold)
     return normalized, ""
+
+
+def score_text_answer_set(predicted: str, gold: str) -> float:
+    """在多个文本别名上取最大 token-F1，更贴近图问答常见评测口径。"""
+    predicted_norm = normalize_text(predicted)
+    if not predicted_norm:
+        return 0.0
+    gold_aliases = [normalize_text(answer) for answer in _decode_text_answer_set_gold(gold) if normalize_text(answer)]
+    if not gold_aliases:
+        return 0.0
+    return round(max(_token_f1(predicted_norm, gold_alias) for gold_alias in gold_aliases), 6)
+
+
+def score_text_answer_alias_exact(predicted: str, gold: str) -> float:
+    """按 DoG 官方脚本的近似方式比较文本答案集合。
+
+    官方实现会把生成答案整体转成小写并去空格，只要任一金标别名是其子串就算命中。
+    这里保留这一判定口径，用于高保真论文主线。
+    """
+
+    normalized_prediction = re.sub(r"\s+", "", str(predicted or "").lower())
+    if not normalized_prediction:
+        return 0.0
+    gold_aliases = [
+        re.sub(r"\s+", "", normalize_text(answer))
+        for answer in _decode_text_answer_set_gold(gold)
+        if normalize_text(answer)
+    ]
+    if any(alias and alias in normalized_prediction for alias in gold_aliases):
+        return 1.0
+    return 0.0
+
+
+def _decode_text_answer_set_gold(gold: str) -> list[str]:
+    stripped = str(gold or "").strip()
+    if not stripped:
+        return []
+    if stripped.startswith("["):
+        try:
+            payload = json.loads(stripped)
+        except json.JSONDecodeError:
+            return [stripped]
+        if isinstance(payload, list):
+            return [str(item).strip() for item in payload if str(item).strip()]
+    return [stripped]
+
+
+def _token_f1(predicted: str, gold: str) -> float:
+    predicted_tokens = predicted.split()
+    gold_tokens = gold.split()
+    if not predicted_tokens or not gold_tokens:
+        return 0.0
+    common = Counter(predicted_tokens) & Counter(gold_tokens)
+    overlap = sum(common.values())
+    if overlap == 0:
+        return 0.0
+    precision = overlap / len(predicted_tokens)
+    recall = overlap / len(gold_tokens)
+    return 2 * precision * recall / (precision + recall)

@@ -11,6 +11,10 @@
 - 单智能体同预算评估对照。
 - 图表、论文包和 appendix 证据组织。
 
+当前唯一明确打开的平行复现支线是：
+
+- `dog_graph_main`：DoG 原论文高保真复现主线，覆盖 `WebQuestions / GrailQA / WebQSP / CWQ / MetaQA 1-hop / 2-hop / 3-hop`，使用动态图检索、enough-answer 判断、三角色顺序问题简化与 direct fallback；独立运行、独立报告，不并入当前 `faithful_matrix`。
+
 方法本体禁止改动：
 
 - 不新增 early exit。

@@ -1,0 +1,44 @@
+# DoG 原论文高保真主复现实验入口。
+name = "dog_graph_main"
+description = "按官方论文与官方仓流程复现 DoG：动态图检索、enough-answer 判断、三角色顺序问题简化与 direct fallback。"
+experiment_kind = "paper"
+benchmark_configs = [
+  "configs/core/shared/benchmarks/dog_webquestions.toml",
+  "configs/core/shared/benchmarks/dog_grailqa.toml",
+  "configs/core/shared/benchmarks/dog_webqsp.toml",
+  "configs/core/shared/benchmarks/dog_cwq.toml",
+  "configs/core/shared/benchmarks/dog_metaqa_1hop.toml",
+  "configs/core/shared/benchmarks/dog_metaqa_2hop.toml",
+  "configs/core/shared/benchmarks/dog_metaqa_3hop.toml",
+]
+protocol = "configs/families/dog_graph/protocols/dog_graph_paper.toml"
+global_seed = 42
+prompt_version = "dog_paper_v1"
+max_concurrent_requests = 5
+requests_per_minute_limit = 50
+tokens_per_minute_limit = 1000000
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+
+[[methods]]
+name = "tog_iterative_baseline"
+mode = "iterative_baseline"
+matched_controls = []
+note = "同样执行动态关系检索与逐跳回答，但不使用 DoG 的三角色顺序问题简化。"
+
+[[methods]]
+name = "dog_graph_paper"
+mode = "paper_dog"
+matched_controls = ["tog_iterative_baseline"]
+note = "完整 DoG：动态关系检索 + enough-answer 判断 + 三角色顺序问题简化 + direct fallback。"
+
+[phases.count20]
+split_suffix = "count20_seed42"
+
+[phases.count100]
+split_suffix = "count100_seed42"
+
+[phases.count300]
+split_suffix = "count300_seed42"
+
+[phases.full]
+split_suffix = "full_seed42"

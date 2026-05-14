@@ -1,0 +1,19 @@
+name = "DoG GrailQA"
+slug = "dog_grailqa"
+loader = "dog_grailqa_json"
+source_path = "dog-freebase/grailqa.json"
+source_split = "test"
+sample_id_prefix = "dog-grail"
+question_field = "question"
+answer_field = "answer"
+smoke_size = 20
+pilot_size = 100
+main_size = 300
+random_seed = 42
+notes = "DoG 官方仓使用的 GrailQA JSON。运行时还需要本地 Freebase/Virtuoso 后端。"
+split_presets = [
+  { name = "count20_seed42", strategy = "shuffle", size = 20 },
+  { name = "count100_seed42", strategy = "shuffle", size = 100 },
+  { name = "count300_seed42", strategy = "shuffle", size = 300 },
+  { name = "full_seed42", strategy = "full" },
+]

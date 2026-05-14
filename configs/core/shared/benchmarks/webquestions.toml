@@ -1,0 +1,39 @@
+# WebQuestions 图问答 benchmark 配置。
+name = "WebQuestions"
+slug = "webquestions"
+loader = "webquestions_json"
+source_path = "webquestions/test.json"
+source_split = "test"
+sample_id_prefix = "webquestions"
+question_field = "qText"
+answer_field = "answers"
+smoke_size = 20
+pilot_size = 100
+main_size = 300
+random_seed = 42
+notes = "主文件只包含问题与答案；若补充下载 Freebase 路径注释，loader 会自动拼接静态候选子图。"
+
+[[split_presets]]
+name = "count20_seed42"
+strategy = "shuffle"
+size = 20
+
+[[split_presets]]
+name = "count100_seed42"
+strategy = "shuffle"
+size = 100
+
+[[split_presets]]
+name = "count300_seed42"
+strategy = "shuffle"
+size = 300
+
+[[split_presets]]
+name = "count500_seed42"
+strategy = "shuffle"
+size = 500
+
+[[split_presets]]
+name = "full2032_seed42"
+strategy = "full"
+size = 2032

@@ -55,6 +55,52 @@ def test_imad_inspect_cli() -> None:
     assert payload["methods"][-1]["name"] == "imad_adaptive"
 
 
+def test_dog_graph_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "family",
+            "dog_graph",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/dog_graph/experiments/dog_graph_main.toml",
+        ],
+    )
+    assert payload["name"] == "dog_graph_main"
+    assert payload["experiment_kind"] == "paper"
+    assert payload["protocol"]["max_hops"] == 3
+    assert payload["methods"][-1]["name"] == "dog_graph_paper"
+
+
+def test_dog_graph_validate_backend_cli(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "research_experiments.families.dog_graph.spec.validate_required_backends",
+        lambda benchmarks, freebase_sparql_url, freebase_backend_mode: {
+            "ok": True,
+            "checks": [
+                {
+                    "backend_name": "local_reduced_freebase",
+                    "dataset_slug": "dog_webquestions",
+                    "ok": True,
+                    "detail": freebase_backend_mode,
+                }
+            ],
+        },
+    )
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "family",
+            "dog_graph",
+            "validate-backend",
+            "--experiment",
+            "configs/families/dog_graph/experiments/dog_graph_main.toml",
+        ],
+    )
+    assert payload["ok"] is True
+    assert payload["checks"][0]["backend_name"] == "local_reduced_freebase"
+
+
 def test_faithful_matrix_render_family_landscape_cli(tmp_path: Path) -> None:
     write_json(
         tmp_path / "state.json",

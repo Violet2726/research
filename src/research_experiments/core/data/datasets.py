@@ -48,6 +48,13 @@ def load_samples(config: BenchmarkConfig) -> list[DatasetSample]:
         "math500_jsonl": _load_math500,
         "strategyqa_json": _load_strategyqa,
         "hotpotqa_parquet": _load_hotpotqa,
+        "webquestions_json": _load_webquestions,
+        "grailqa_parquet": _load_grailqa,
+        "dog_webquestions_json": _load_dog_webquestions,
+        "dog_grailqa_json": _load_dog_grailqa,
+        "dog_webqsp_json": _load_dog_webqsp,
+        "dog_cwq_json": _load_dog_cwq,
+        "dog_metaqa_txt": _load_dog_metaqa,
         "mmlu_pro_parquet": _load_mmlu_pro,
         "gpqa_zip_csv": _load_gpqa_zip_csv,
         "gsm_symbolic_jsonl": _load_gsm_symbolic,
@@ -371,7 +378,281 @@ def _load_hotpotqa(config: BenchmarkConfig) -> list[DatasetSample]:
                     "raw_context": record.get("context"),
                 },
             )
+            )
+    return samples
+
+
+def _load_webquestions(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载 WebQuestions，并尽量拼接可用的 Freebase 路径注释为静态候选子图。"""
+    path = resolve_dataset_source_path(config.source_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    relation_paths = _optional_webquestions_annotation(path.parent / "relation_paths_test.json")
+    branched_relation_paths = _optional_webquestions_annotation(path.parent / "branched_relation_paths_test.json")
+    freebase_keys = _optional_webquestions_annotation(path.parent / "freebase_key_test.json")
+    freebase_mids = _optional_webquestions_annotation(path.parent / "freebase_mids_test.json")
+    question_entities = _optional_webquestions_annotation(path.parent / "entities_test.json")
+    question_dumps = _optional_webquestions_annotation(path.parent / "question_dump_test.json")
+
+    samples: list[DatasetSample] = []
+    for index, record in enumerate(payload):
+        sample_id = str(record.get("qId") or f"{config.sample_id_prefix}-{index:05d}")
+        answers = [str(item).strip() for item in record.get("answers", []) if str(item).strip()]
+        graph = _build_webquestions_candidate_graph(
+            url=str(record.get("url") or "").strip(),
+            freebase_key=freebase_keys.get(sample_id, {}).get("freebaseKey"),
+            freebase_mids=freebase_mids.get(sample_id, {}).get("freebaseMids", []),
+            question_entities=question_entities.get(sample_id, {}).get("entities", []),
+            question_dump=question_dumps.get(sample_id, {}),
+            relation_paths=branched_relation_paths.get(sample_id, {}).get("relPaths")
+            or relation_paths.get(sample_id, {}).get("relPaths", []),
         )
+        samples.append(
+            DatasetSample(
+                dataset=config.slug,
+                sample_id=sample_id,
+                question=str(record.get("qText") or record.get("question") or "").strip(),
+                reference_answer=_encode_answer_list(answers),
+                prompt_context=_render_candidate_graph(graph),
+                metadata={
+                    "raw_index": index,
+                    "url": record.get("url"),
+                    "answer_aliases": answers,
+                    "freebase_key": freebase_keys.get(sample_id, {}).get("freebaseKey"),
+                    "freebase_mids": freebase_mids.get(sample_id, {}).get("freebaseMids", []),
+                    "question_entities": question_entities.get(sample_id, {}).get("entities", []),
+                    "question_dump": question_dumps.get(sample_id, {}),
+                    "relation_paths": relation_paths.get(sample_id, {}).get("relPaths", []),
+                    "branched_relation_paths": branched_relation_paths.get(sample_id, {}).get("relPaths", []),
+                    "candidate_subgraph": graph,
+                    "graph_source": "webquestions_freebase_paths",
+                },
+            )
+        )
+    return samples
+
+
+def _load_grailqa(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载 GrailQA Parquet，并把 `graph_query` 转成可直接提示的静态候选子图。"""
+    table = pq.read_table(resolve_dataset_source_path(config.source_path))
+    payload = table.to_pylist()
+    samples: list[DatasetSample] = []
+    for index, record in enumerate(payload):
+        answers = _extract_grailqa_answers(record.get("answer"))
+        graph = _build_grailqa_candidate_graph(record)
+        sample_id = str(record.get("qid") or f"{config.sample_id_prefix}-{index:05d}")
+        samples.append(
+            DatasetSample(
+                dataset=config.slug,
+                sample_id=sample_id,
+                question=str(record.get("question") or "").strip(),
+                reference_answer=_encode_answer_list(answers),
+                prompt_context=_render_candidate_graph(graph),
+                metadata={
+                    "raw_index": index,
+                    "answer_aliases": answers,
+                    "function": record.get("function"),
+                    "num_node": record.get("num_node"),
+                    "num_edge": record.get("num_edge"),
+                    "graph_query": record.get("graph_query"),
+                    "sparql_query": record.get("sparql_query"),
+                    "domains": list(record.get("domains") or []),
+                    "level": record.get("level"),
+                    "s_expression": record.get("s_expression"),
+                    "candidate_subgraph": graph,
+                    "graph_source": "grailqa_graph_query",
+                },
+            )
+        )
+    return samples
+
+
+def _load_dog_webquestions(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载官方 DoG 仓的 WebQuestions JSON。"""
+
+    payload = json.loads(resolve_dataset_source_path(config.source_path).read_text(encoding="utf-8"))
+    samples: list[DatasetSample] = []
+    for index, record in enumerate(payload):
+        sample_id = str(record.get("qId") or record.get("QuestionId") or f"{config.sample_id_prefix}-{index:05d}")
+        answers = [str(item).strip() for item in record.get("answers", []) if str(item).strip()]
+        topic_entity_id, topic_entity_name = _extract_first_topic_entity(record.get("topic_entity"))
+        samples.append(
+            DatasetSample(
+                dataset=config.slug,
+                sample_id=sample_id,
+                question=str(record.get("question") or "").strip(),
+                reference_answer=_encode_answer_list(answers),
+                prompt_context="",
+                metadata={
+                    "raw_index": index,
+                    "paper_dataset_name": "WebQuestions",
+                    "dog_task_family": "freebase",
+                    "topic_entity": dict(record.get("topic_entity") or {}),
+                    "topic_entity_id": topic_entity_id,
+                    "topic_entity_name": topic_entity_name,
+                    "answers": answers,
+                    "qid_topic_entity": dict(record.get("qid_topic_entity") or {}),
+                    "source_record": record,
+                },
+            )
+        )
+    return samples
+
+
+def _load_dog_grailqa(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载官方 DoG 仓的 GrailQA JSON。"""
+
+    payload = json.loads(resolve_dataset_source_path(config.source_path).read_text(encoding="utf-8"))
+    samples: list[DatasetSample] = []
+    for index, record in enumerate(payload):
+        sample_id = str(record.get("qid") or f"{config.sample_id_prefix}-{index:05d}")
+        answers = [
+            str(item.get("entity_name") or item.get("answer_argument") or "").strip()
+            for item in record.get("answer", [])
+            if isinstance(item, dict)
+        ]
+        answers = [item for item in answers if item]
+        topic_entity_id, topic_entity_name = _extract_first_topic_entity(record.get("topic_entity"))
+        samples.append(
+            DatasetSample(
+                dataset=config.slug,
+                sample_id=sample_id,
+                question=str(record.get("question") or "").strip(),
+                reference_answer=_encode_answer_list(answers),
+                prompt_context="",
+                metadata={
+                    "raw_index": index,
+                    "paper_dataset_name": "GrailQA",
+                    "dog_task_family": "freebase",
+                    "topic_entity": dict(record.get("topic_entity") or {}),
+                    "topic_entity_id": topic_entity_id,
+                    "topic_entity_name": topic_entity_name,
+                    "answers": answers,
+                    "graph_query": record.get("graph_query"),
+                    "sparql_query": record.get("sparql_query"),
+                    "domains": list(record.get("domains") or []),
+                    "level": record.get("level"),
+                    "s_expression": record.get("s_expression"),
+                    "source_record": record,
+                },
+            )
+        )
+    return samples
+
+
+def _load_dog_webqsp(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载官方 DoG 仓的 WebQSP JSON。"""
+
+    payload = json.loads(resolve_dataset_source_path(config.source_path).read_text(encoding="utf-8"))
+    samples: list[DatasetSample] = []
+    for index, record in enumerate(payload):
+        sample_id = str(record.get("QuestionId") or f"{config.sample_id_prefix}-{index:05d}")
+        answers: list[str] = []
+        for parse in record.get("Parses", []):
+            if not isinstance(parse, dict):
+                continue
+            for item in parse.get("Answers", []):
+                if not isinstance(item, dict):
+                    continue
+                alias = str(item.get("EntityName") or item.get("AnswerArgument") or "").strip()
+                if alias:
+                    answers.append(alias)
+        answers = list(dict.fromkeys(answers))
+        topic_entity_id, topic_entity_name = _extract_first_topic_entity(record.get("topic_entity"))
+        samples.append(
+            DatasetSample(
+                dataset=config.slug,
+                sample_id=sample_id,
+                question=str(record.get("RawQuestion") or record.get("ProcessedQuestion") or "").strip(),
+                reference_answer=_encode_answer_list(answers),
+                prompt_context="",
+                metadata={
+                    "raw_index": index,
+                    "paper_dataset_name": "WebQSP",
+                    "dog_task_family": "freebase",
+                    "topic_entity": dict(record.get("topic_entity") or {}),
+                    "topic_entity_id": topic_entity_id,
+                    "topic_entity_name": topic_entity_name,
+                    "answers": answers,
+                    "processed_question": record.get("ProcessedQuestion"),
+                    "parses": record.get("Parses"),
+                    "source_record": record,
+                },
+            )
+        )
+    return samples
+
+
+def _load_dog_cwq(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载官方 DoG 仓的 CWQ JSON。"""
+
+    payload = json.loads(resolve_dataset_source_path(config.source_path).read_text(encoding="utf-8"))
+    samples: list[DatasetSample] = []
+    for index, record in enumerate(payload):
+        sample_id = str(record.get("ID") or f"{config.sample_id_prefix}-{index:05d}")
+        answer_payload = record.get("answer")
+        if isinstance(answer_payload, list):
+            answers = [str(item).strip() for item in answer_payload if str(item).strip()]
+        else:
+            answer_value = str(answer_payload or "").strip()
+            answers = [answer_value] if answer_value else []
+        topic_entity_id, topic_entity_name = _extract_first_topic_entity(record.get("topic_entity"))
+        samples.append(
+            DatasetSample(
+                dataset=config.slug,
+                sample_id=sample_id,
+                question=str(record.get("question") or "").strip(),
+                reference_answer=_encode_answer_list(answers),
+                prompt_context="",
+                metadata={
+                    "raw_index": index,
+                    "paper_dataset_name": "CWQ",
+                    "dog_task_family": "freebase",
+                    "topic_entity": dict(record.get("topic_entity") or {}),
+                    "topic_entity_id": topic_entity_id,
+                    "topic_entity_name": topic_entity_name,
+                    "answers": answers,
+                    "webqsp_id": record.get("webqsp_ID"),
+                    "source_record": record,
+                },
+            )
+        )
+    return samples
+
+
+def _load_dog_metaqa(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载官方 DoG 仓的 MetaQA 测试文件。"""
+
+    path = resolve_dataset_source_path(config.source_path)
+    hop_count = _extract_metaqa_hop_count(path)
+    samples: list[DatasetSample] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for index, raw_line in enumerate(handle):
+            line = raw_line.strip()
+            if not line:
+                continue
+            question_text, _, answer_text = line.partition("\t")
+            answers = [item.strip() for item in answer_text.split("|") if item.strip()]
+            topic_entity_name = _extract_metaqa_topic_entity(question_text)
+            samples.append(
+                DatasetSample(
+                    dataset=config.slug,
+                    sample_id=f"{config.sample_id_prefix}-{index:05d}",
+                    question=question_text.strip(),
+                    reference_answer=_encode_answer_list(answers),
+                    prompt_context="",
+                    metadata={
+                        "raw_index": index,
+                        "paper_dataset_name": f"MetaQA {hop_count}-hop",
+                        "dog_task_family": "metaqa",
+                        "topic_entity": {topic_entity_name: topic_entity_name} if topic_entity_name else {},
+                        "topic_entity_id": topic_entity_name,
+                        "topic_entity_name": topic_entity_name,
+                        "answers": answers,
+                        "hop_count": hop_count,
+                        "source_record": {"line": line},
+                    },
+                )
+            )
     return samples
 
 
@@ -481,6 +762,324 @@ def _load_gsm_symbolic(config: BenchmarkConfig) -> list[DatasetSample]:
                 )
             )
     return samples
+
+
+def _optional_webquestions_annotation(path: Path) -> dict[str, dict[str, Any]]:
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        return {}
+    rows: dict[str, dict[str, Any]] = {}
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        sample_id = str(item.get("qId") or "").strip()
+        if sample_id:
+            rows[sample_id] = item
+    return rows
+
+
+def _build_webquestions_candidate_graph(
+    *,
+    url: str,
+    freebase_key: Any,
+    freebase_mids: list[dict[str, Any]],
+    question_entities: list[list[str]],
+    question_dump: dict[str, Any],
+    relation_paths: list[list[Any]],
+) -> dict[str, Any]:
+    topic_seed = _best_webquestions_topic_seed(question_dump, freebase_key, url)
+    topic_id = f"topic:{topic_seed}"
+    nodes = [
+        {"id": topic_id, "label": topic_seed, "type": "topic_seed"},
+        {"id": "node:?answer", "label": "?answer", "type": "answer_slot"},
+    ]
+    edges: list[dict[str, Any]] = []
+
+    clue_rows = list(question_dump.get("Clue") or [])
+    concept_rows = list(question_dump.get("Concept") or [])
+    for offset, concept in enumerate(concept_rows[:4]):
+        label = str(concept.get("fullLabel") or concept.get("cookedLabel") or "").strip()
+        if not label:
+            continue
+        node_id = f"concept:{offset}"
+        nodes.append({"id": node_id, "label": label, "type": "concept_candidate"})
+        edges.append(
+            {
+                "source": topic_id,
+                "relation": "concept_candidate",
+                "target": node_id,
+                "friendly_name": "concept candidate",
+                "support": round(float(concept.get("score") or 0.0), 6) if concept.get("score") is not None else 0.0,
+            }
+        )
+
+    for offset, clue in enumerate(clue_rows[:5]):
+        label = str(clue.get("label") or "").strip()
+        clue_type = str(clue.get("type") or "clue").strip()
+        if not label:
+            continue
+        node_id = f"clue:{offset}"
+        nodes.append({"id": node_id, "label": label, "type": "question_clue", "clue_type": clue_type})
+        edges.append(
+            {
+                "source": topic_id,
+                "relation": clue_type,
+                "target": node_id,
+                "friendly_name": clue_type.replace("Clue", "clue "),
+                "support": round(float(clue.get("weight") or 0.0), 6) if clue.get("weight") is not None else 0.0,
+            }
+        )
+
+    include_linked_entities = bool(relation_paths)
+    for offset, entity in enumerate(freebase_mids[:6] if include_linked_entities else []):
+        concept = str(entity.get("concept") or f"linked_entity_{offset + 1}").strip()
+        mid = str(entity.get("mid") or f"mid_{offset + 1}").strip()
+        node_id = f"mid:{mid}"
+        nodes.append({"id": node_id, "label": concept or mid, "type": "linked_entity", "mid": mid})
+        edges.append(
+            {
+                "source": topic_id,
+                "relation": "linked_entity",
+                "target": node_id,
+                "friendly_name": "linked_entity",
+                "support": 1,
+            }
+        )
+
+    for offset, entity in enumerate(question_entities):
+        mention = str(entity[0]).strip() if entity else f"mention_{offset + 1}"
+        tag = str(entity[1]).strip() if len(entity) > 1 else "question_mention"
+        node_id = f"mention:{offset}"
+        nodes.append({"id": node_id, "label": mention, "type": "question_mention", "tag": tag})
+        edges.append(
+            {
+                "source": f"question:{offset}",
+                "relation": tag or "question_mention",
+                "target": node_id,
+                "friendly_name": tag or "question_mention",
+                "support": 1,
+            }
+        )
+
+    for path_spec in relation_paths[:8]:
+        relation_chain = [str(item).strip() for item in (path_spec[0] if path_spec else []) if str(item).strip()]
+        support = int(path_spec[1]) if len(path_spec) > 1 else 1
+        if not relation_chain:
+            continue
+        relation_text = " -> ".join(_humanize_webquestions_relation_name(item) for item in relation_chain)
+        edges.append(
+            {
+                "source": topic_id,
+                "relation": relation_text,
+                "target": "node:?answer",
+                "friendly_name": relation_text,
+                "support": support,
+            }
+        )
+
+    if not relation_paths:
+        edges.append(
+            {
+                "source": topic_id,
+                "relation": "candidate_answer_relation",
+                "target": "node:?answer",
+                "friendly_name": "candidate_answer_relation",
+                "support": 1,
+            }
+        )
+
+    return {
+        "graph_kind": "webquestions_static_paths",
+        "topic_seed": topic_seed,
+        "nodes": nodes,
+        "edges": edges,
+        "question_clues": [
+            {
+                "label": str(item.get("label") or "").strip(),
+                "type": str(item.get("type") or "").strip(),
+            }
+            for item in clue_rows
+            if str(item.get("label") or "").strip()
+        ],
+        "concept_candidates": [
+            str(item.get("fullLabel") or item.get("cookedLabel") or "").strip()
+            for item in concept_rows
+            if str(item.get("fullLabel") or item.get("cookedLabel") or "").strip()
+        ],
+    }
+
+
+def _build_grailqa_candidate_graph(record: dict[str, Any]) -> dict[str, Any]:
+    graph_query = record.get("graph_query") or {}
+    nodes_payload = graph_query.get("nodes") or {}
+    edges_payload = graph_query.get("edges") or {}
+    node_rows: list[dict[str, Any]] = []
+    node_id_to_label: dict[int, str] = {}
+
+    node_count = min(
+        len(nodes_payload.get("nid") or []),
+        len(nodes_payload.get("id") or []),
+    )
+    for index in range(node_count):
+        node_numeric_id = int((nodes_payload.get("nid") or [index])[index])
+        label = str((nodes_payload.get("friendly_name") or [""])[index] or (nodes_payload.get("id") or [""])[index]).strip()
+        node_rows.append(
+            {
+                "id": f"node:{node_numeric_id}",
+                "label": label or str((nodes_payload.get("id") or [""])[index]),
+                "type": str((nodes_payload.get("node_type") or ["unknown"])[index]),
+                "kb_id": str((nodes_payload.get("id") or [""])[index]),
+                "class": str((nodes_payload.get("class") or [""])[index]),
+                "question_node": bool((nodes_payload.get("question_node") or [0])[index]),
+                "function": str((nodes_payload.get("function") or ["none"])[index]),
+            }
+        )
+        node_id_to_label[node_numeric_id] = label or str((nodes_payload.get("id") or [""])[index])
+
+    edge_rows: list[dict[str, Any]] = []
+    edge_count = min(
+        len(edges_payload.get("start") or []),
+        len(edges_payload.get("end") or []),
+        len(edges_payload.get("relation") or []),
+    )
+    for index in range(edge_count):
+        start_id = int((edges_payload.get("start") or [0])[index])
+        end_id = int((edges_payload.get("end") or [0])[index])
+        relation = str((edges_payload.get("relation") or [""])[index]).strip()
+        friendly = str((edges_payload.get("friendly_name") or [""])[index]).strip() or relation
+        edge_rows.append(
+            {
+                "source": f"node:{start_id}",
+                "relation": relation,
+                "target": f"node:{end_id}",
+                "friendly_name": friendly,
+                "source_label": node_id_to_label.get(start_id, f"node:{start_id}"),
+                "target_label": node_id_to_label.get(end_id, f"node:{end_id}"),
+                "support": 1,
+            }
+        )
+
+    return {
+        "graph_kind": "grailqa_graph_query",
+        "topic_seed": str(record.get("qid") or ""),
+        "nodes": node_rows,
+        "edges": edge_rows,
+        "domains": list(record.get("domains") or []),
+        "level": str(record.get("level") or ""),
+        "s_expression": str(record.get("s_expression") or ""),
+    }
+
+
+def _extract_first_topic_entity(payload: Any) -> tuple[str, str]:
+    if not isinstance(payload, dict) or not payload:
+        return "", ""
+    entity_id, entity_name = next(iter(payload.items()))
+    return str(entity_id).strip(), str(entity_name).strip()
+
+
+def _extract_metaqa_topic_entity(question_text: str) -> str:
+    match = re.search(r"\[(?P<entity>.+?)\]", question_text)
+    if not match:
+        return ""
+    return str(match.group("entity")).strip()
+
+
+def _extract_metaqa_hop_count(path: Path) -> int:
+    for part in path.parts:
+        match = re.fullmatch(r"(?P<hops>\d+)-hop", part)
+        if match:
+            return int(match.group("hops"))
+    return 1
+
+
+def _extract_grailqa_answers(answer_payload: Any) -> list[str]:
+    if not isinstance(answer_payload, dict):
+        return []
+    aliases = [str(item).strip() for item in answer_payload.get("entity_name", []) if str(item).strip()]
+    if aliases:
+        return aliases
+    return [str(item).strip() for item in answer_payload.get("answer_argument", []) if str(item).strip()]
+
+
+def _encode_answer_list(answers: list[str]) -> str:
+    unique_answers = list(dict.fromkeys(answer for answer in answers if answer))
+    return json.dumps(unique_answers, ensure_ascii=False)
+
+
+def _render_candidate_graph(graph: dict[str, Any]) -> str:
+    """把统一候选子图渲染成 prompt 可直接使用的图证据块。"""
+    lines = ["Candidate graph:", ""]
+    topic_seed = str(graph.get("topic_seed") or "").strip()
+    if topic_seed:
+        lines.append(f"- topic_seed: {topic_seed}")
+    domains = [str(item).strip() for item in graph.get("domains", []) if str(item).strip()]
+    if domains:
+        lines.append(f"- domains: {', '.join(domains)}")
+    level = str(graph.get("level") or "").strip()
+    if level:
+        lines.append(f"- level: {level}")
+    question_clues = graph.get("question_clues") or []
+    if question_clues:
+        rendered_clues = ", ".join(
+            f"{item.get('label')} [{item.get('type')}]"
+            for item in question_clues[:5]
+            if str(item.get("label") or "").strip()
+        )
+        if rendered_clues:
+            lines.append(f"- question_clues: {rendered_clues}")
+    concept_candidates = [str(item).strip() for item in graph.get("concept_candidates", []) if str(item).strip()]
+    if concept_candidates:
+        lines.append(f"- concept_candidates: {', '.join(concept_candidates[:5])}")
+
+    lines.extend(["", "Nodes:"])
+    for node in graph.get("nodes", []):
+        lines.append(f"- {node.get('id')}: {node.get('label')} [{node.get('type')}]")
+
+    lines.extend(["", "Triples / path fragments:"])
+    for edge in graph.get("edges", []):
+        source_label = edge.get("source_label") or edge.get("source")
+        target_label = edge.get("target_label") or edge.get("target")
+        relation = edge.get("friendly_name") or edge.get("relation")
+        support = edge.get("support")
+        support_suffix = f" (support={support})" if support not in {None, ""} else ""
+        lines.append(f"- ({source_label}, {relation}, {target_label}){support_suffix}")
+
+    s_expression = str(graph.get("s_expression") or "").strip()
+    if s_expression:
+        lines.extend(["", "Query sketch:", f"- {s_expression}"])
+    return "\n".join(lines).strip()
+
+
+def _best_webquestions_topic_seed(question_dump: dict[str, Any], freebase_key: Any, url: str) -> str:
+    for clue in question_dump.get("Clue") or []:
+        clue_type = str(clue.get("type") or "").strip()
+        if clue_type == "ClueSubjectPhrase":
+            label = str(clue.get("label") or "").strip()
+            if label:
+                return label
+    for clue in question_dump.get("Clue") or []:
+        label = str(clue.get("label") or "").strip()
+        if label:
+            return label
+    for concept in question_dump.get("Concept") or []:
+        label = str(concept.get("fullLabel") or concept.get("cookedLabel") or "").strip()
+        if label:
+            return label
+    fallback = str(freebase_key or url.rsplit("/", 1)[-1] or "topic").strip() or "topic"
+    return fallback.replace("_", " ")
+
+
+def _humanize_webquestions_relation_name(value: str) -> str:
+    parts = [part for part in str(value).split("/") if part]
+    if not parts:
+        return str(value)
+    tail = parts[-1].replace("_", " ")
+    if " -> " in value:
+        chain = [segment for segment in str(value).split(" -> ") if segment]
+        return " -> ".join(_humanize_webquestions_relation_name(segment) for segment in chain)
+    return tail
 
 
 def _render_hotpot_context(context: dict[str, Any]) -> str:

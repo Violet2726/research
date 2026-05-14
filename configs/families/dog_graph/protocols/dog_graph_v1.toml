@@ -1,0 +1,9 @@
+# DoG 静态子图消融的固定协议。
+protocol_kind = "static"
+agent_count = 3
+initial_temperature = 0.7
+debate_temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256
+max_evidence_triples = 4
+max_answer_path_hops = 4

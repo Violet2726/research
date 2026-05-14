@@ -66,6 +66,13 @@ def dataset_instruction(
             f"Answer the multi-hop question using only the {context_phrase}. "
             "The final_answer must be a short text span."
         )
+    if dataset in {"webquestions", "grailqa"}:
+        context_phrase = "provided graph evidence" if context_scope == "provided" else "graph evidence visible to you"
+        return (
+            f"Answer the graph question using only the {context_phrase}. "
+            "The final_answer must be the shortest judgeable entity span or literal answer. "
+            "Do not add category words, explanations, or extra qualifiers."
+        )
     if dataset in {"mmlu_pro", "gpqa_diamond"}:
         if multiple_choice_scope == "visible":
             return (

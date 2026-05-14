@@ -139,6 +139,10 @@ faithful gate 通过只说明该 experiment 在当前验收规则下可接受。
 - 直接对应高价值顶会论文、且能进入统一 matrix / validation / reporting 契约的正式复现 family；
 - 明确服务主结论证据缺口、而不是为了局部分数追涨的 reproduction family。
 
+当前已启用的例外是：
+
+- `dog_graph`：结构化图推理复现支线。`dog_graph_main` 现在代表 DoG 原论文高保真主线，`dog_graph_static_ablation` 只保留为静态候选子图 legacy 对照。它不进入当前 `faithful_matrix`，也不直接改写 same-context / split-context 主论文口径。
+
 ## 1.9 必须补强 equal-budget 反方基线
 
 为回应“单智能体在同等 thinking-token 下可能更强”的审稿质疑，应增加强单智能体 equal-budget baseline。

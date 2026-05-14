@@ -1,0 +1,59 @@
+# DoG 静态候选子图消融入口。
+name = "dog_graph_static_ablation"
+description = "保留当前静态候选子图上的图求解、投票与图辩论消融，用作 DoG 高保真主线的 legacy 对照。"
+experiment_kind = "static"
+benchmark_configs = [
+  "configs/core/shared/benchmarks/webquestions.toml",
+  "configs/core/shared/benchmarks/grailqa.toml",
+]
+protocol = "configs/families/dog_graph/protocols/dog_graph_v1.toml"
+global_seed = 42
+prompt_version = "dog_graph_json_v1"
+max_concurrent_requests = 5
+requests_per_minute_limit = 50
+tokens_per_minute_limit = 1000000
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+
+[[methods]]
+name = "single_graph_solver"
+mode = "single"
+agent_count = 1
+round_limit = 0
+view_mode = "full_subgraph"
+matched_controls = []
+
+[[methods]]
+name = "graph_mv3"
+mode = "vote"
+agent_count = 3
+round_limit = 0
+view_mode = "graph_views_v1"
+matched_controls = []
+
+[[methods]]
+name = "dog_graph_r1"
+mode = "debate"
+agent_count = 3
+round_limit = 1
+view_mode = "graph_views_v1"
+matched_controls = ["graph_mv3"]
+
+[[methods]]
+name = "dog_graph_r2"
+mode = "debate"
+agent_count = 3
+round_limit = 2
+view_mode = "graph_views_v1"
+matched_controls = ["graph_mv3"]
+
+[phases.count20]
+split_suffix = "count20_seed42"
+
+[phases.count100]
+split_suffix = "count100_seed42"
+
+[phases.count300]
+split_suffix = "count300_seed42"
+
+[phases.count500]
+split_suffix = "count500_seed42"

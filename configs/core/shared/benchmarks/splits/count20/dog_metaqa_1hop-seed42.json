@@ -1,0 +1,29 @@
+{
+  "dataset": "dog_metaqa_1hop",
+  "split_name": "count20_seed42",
+  "source_split": "test",
+  "sample_count": 20,
+  "sample_ids": [
+    "dog-metaqa1-03208",
+    "dog-metaqa1-06123",
+    "dog-metaqa1-02005",
+    "dog-metaqa1-04317",
+    "dog-metaqa1-09505",
+    "dog-metaqa1-00680",
+    "dog-metaqa1-05883",
+    "dog-metaqa1-06399",
+    "dog-metaqa1-05151",
+    "dog-metaqa1-04912",
+    "dog-metaqa1-05056",
+    "dog-metaqa1-01136",
+    "dog-metaqa1-02795",
+    "dog-metaqa1-08367",
+    "dog-metaqa1-05659",
+    "dog-metaqa1-06084",
+    "dog-metaqa1-07499",
+    "dog-metaqa1-04447",
+    "dog-metaqa1-02213",
+    "dog-metaqa1-07640"
+  ],
+  "random_seed": 42
+}

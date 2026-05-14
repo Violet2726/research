@@ -141,7 +141,10 @@ def build_run_matrix(
 
     entries: list[MatrixEntry] = []
     semantic_entries: list[MatrixEntry] = []
+    allowed_config_paths = set(ordered_matrix_config_paths()) | set(EXCLUDED_CONFIGS)
     for item in discovered:
+        if item.config_path not in allowed_config_paths:
+            continue
         if item.config_path in EXCLUDED_CONFIGS:
             spec = get_experiment_matrix_spec(item.config_path)
             entries.append(

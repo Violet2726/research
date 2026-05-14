@@ -1,0 +1,39 @@
+# GrailQA 图问答 benchmark 配置。
+name = "GrailQA"
+slug = "grailqa"
+loader = "grailqa_parquet"
+source_path = "grailqa/validation.parquet"
+source_split = "validation"
+sample_id_prefix = "grailqa"
+question_field = "question"
+answer_field = "answer"
+smoke_size = 20
+pilot_size = 100
+main_size = 300
+random_seed = 42
+notes = "当前主评测使用 validation split 的静态图查询结构；图证据直接来自上游 `graph_query`。"
+
+[[split_presets]]
+name = "count20_seed42"
+strategy = "shuffle"
+size = 20
+
+[[split_presets]]
+name = "count100_seed42"
+strategy = "shuffle"
+size = 100
+
+[[split_presets]]
+name = "count300_seed42"
+strategy = "shuffle"
+size = 300
+
+[[split_presets]]
+name = "count500_seed42"
+strategy = "shuffle"
+size = 500
+
+[[split_presets]]
+name = "full6763_seed42"
+strategy = "full"
+size = 6763

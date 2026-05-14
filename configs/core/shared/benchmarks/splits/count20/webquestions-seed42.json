@@ -1,0 +1,29 @@
+{
+  "dataset": "webquestions",
+  "split_name": "count20_seed42",
+  "source_split": "test",
+  "sample_count": 20,
+  "sample_ids": [
+    "wqs001581",
+    "wqs001544",
+    "wqs001676",
+    "wqs001684",
+    "wqs000297",
+    "wqs001804",
+    "wqs001279",
+    "wqs001031",
+    "wqs000276",
+    "wqs001744",
+    "wqs001246",
+    "wqs001540",
+    "wqs000280",
+    "wqs001250",
+    "wqs000196",
+    "wqs000933",
+    "wqs001515",
+    "wqs001983",
+    "wqs000091",
+    "wqs001207"
+  ],
+  "random_seed": 42
+}

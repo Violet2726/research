@@ -1,0 +1,18 @@
+# DoG 原论文高保真协议。
+protocol_kind = "paper"
+max_hops = 3
+max_selected_relations = 2
+selector_temperature = 0.0
+enough_answer_temperature = 0.0
+simplifier_temperature = 0.0
+fallback_temperature = 0.0
+top_p = 1.0
+max_output_tokens = 256
+direct_fallback_enabled = true
+freebase_sparql_url = "http://localhost:8890/sparql"
+freebase_backend_mode = "local_reduced"
+role_names = [
+  "Question Simplifying Expert",
+  "Critic",
+  "Linguist",
+]
