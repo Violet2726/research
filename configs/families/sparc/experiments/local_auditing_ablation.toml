@@ -8,9 +8,9 @@ experiment_note = """
 """
 variant_name = "auditing_ablation"
 benchmark_configs = [
-  "configs/core/shared/benchmarks/gsm8k.toml",
-  "configs/core/shared/benchmarks/strategyqa.toml",
-  "configs/core/shared/benchmarks/hotpotqa.toml",
+  "configs/core/shared/benchmarks/gsm8k/test.toml",
+  "configs/core/shared/benchmarks/strategyqa/dev.toml",
+  "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
 ]
 protocol = "configs/families/sparc/protocols/shared_3a_r1.toml"
 global_seed = 42

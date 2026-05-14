@@ -476,13 +476,13 @@ def test_cache_archive_pull_accepts_cache_shard(monkeypatch, tmp_path) -> None:
             "--target",
             str(tmp_path),
             "--cache-shard",
-            "providers/xiaomimimo/mimo-v2-5/strategyqa",
+            "providers/xiaomimimo/mimo-v2-5/strategyqa/dev",
             "--json",
         ],
     )
 
     assert payload["remote_repo"] == "owner/research-cache"
-    assert payload["shard_filters"] == ["providers/xiaomimimo/mimo-v2-5/strategyqa"]
+    assert payload["shard_filters"] == ["providers/xiaomimimo/mimo-v2-5/strategyqa/dev"]
 
 
 def test_hf_sync_push_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
@@ -513,7 +513,7 @@ def test_hf_sync_push_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
             "--run-dir",
             str(tmp_path / "runs" / "single_agent" / "demo"),
             "--cache-shard",
-            "providers/xiaomimimo/mimo-v2-5/strategyqa",
+            "providers/xiaomimimo/mimo-v2-5/strategyqa/dev",
             "--json",
         ],
     )
@@ -523,7 +523,7 @@ def test_hf_sync_push_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
     assert payload["publish_runs"] is True
     assert payload["push_cache"] is True
     assert payload["selected_run_dirs"] == [str(tmp_path / "runs" / "single_agent" / "demo")]
-    assert payload["cache_shard_filters"] == ["providers/xiaomimimo/mimo-v2-5/strategyqa"]
+    assert payload["cache_shard_filters"] == ["providers/xiaomimimo/mimo-v2-5/strategyqa/dev"]
 
 
 def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
@@ -557,7 +557,7 @@ def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
             "--run-prefix",
             "single_agent/demo/count20/20260510T000000Z-model",
             "--cache-shard",
-            "providers/xiaomimimo/mimo-v2-5/strategyqa",
+            "providers/xiaomimimo/mimo-v2-5/strategyqa/dev",
             "--json",
         ],
     )
@@ -568,5 +568,5 @@ def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
     assert payload["pull_cache"] is True
     assert payload["selected_run_ids"] == ["20260510T000000Z-model"]
     assert payload["selected_run_prefixes"] == ["single_agent/demo/count20/20260510T000000Z-model"]
-    assert payload["cache_shard_filters"] == ["providers/xiaomimimo/mimo-v2-5/strategyqa"]
+    assert payload["cache_shard_filters"] == ["providers/xiaomimimo/mimo-v2-5/strategyqa/dev"]
 

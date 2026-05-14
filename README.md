@@ -52,8 +52,8 @@ tests/                自动化测试
 - 默认工作区统一放在 `local/`
   - `local/runs/<family>/<experiment>/<phase>/<run_id>/`
   - `local/reports/<family>/`
-  - `local/cache/providers/<provider>/<request_model>/<dataset>/requests.sqlite`
-  - `local/datasets/<dataset>/...`
+  - `local/cache/providers/<provider>/<request_model>/<dataset_path_key>/requests.sqlite`
+  - `local/datasets/<dataset_path>/...`
 - 每个 run 的正式图资产统一固化在 `local/runs/.../figures/`，并通过 `figure_manifest.json` 编目
 - 正式远程归档统一使用 Hugging Face dataset repo
 - 项目文本文件统一使用 UTF-8
@@ -134,6 +134,12 @@ $env:RESEARCH_DATASETS_ROOT = "D:/artifacts/datasets"
 uv run research_cli tools dataset-assets prepare-used
 uv run research_cli tools dataset-assets prepare-all-sources
 ```
+
+层级约束：
+
+- `configs/core/shared/benchmarks/` 下的 benchmark 配置路径必须镜像 `local/datasets/` 的相对路径层级，并使用“去掉数据文件扩展名后的路径”作为配置路径。
+- `local/cache/providers/<provider>/<request_model>/...` 下的数据集 cache 分库必须沿用同一套层级键。
+- 示例：`local/datasets/dog-freebase/cwq.json` 对应 `configs/core/shared/benchmarks/dog-freebase/cwq.toml` 与 `local/cache/providers/xiaomimimo/mimo-v2-5/dog-freebase/cwq/requests.sqlite`。
 
 ## Hugging Face 归档
 

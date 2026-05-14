@@ -7,9 +7,9 @@ experiment_note = """
 结果用途：验证 VoC 风格触发是否能够替代更朴素的分歧或置信度触发规则。
 """
 benchmark_configs = [
-  "configs/core/shared/benchmarks/gsm8k.toml",
-  "configs/core/shared/benchmarks/strategyqa.toml",
-  "configs/core/shared/benchmarks/hotpotqa.toml",
+  "configs/core/shared/benchmarks/gsm8k/test.toml",
+  "configs/core/shared/benchmarks/strategyqa/dev.toml",
+  "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
 ]
 protocol = "configs/families/selective_comm/protocols/shared_3a_r1.toml"
 policy_configs = [

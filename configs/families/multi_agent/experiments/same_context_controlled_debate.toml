@@ -7,9 +7,9 @@ experiment_note = """
 结果用途：作为后续机制增强方法的基础通信参照组。
 """
 benchmark_configs = [
-  "configs/core/shared/benchmarks/gsm8k.toml",
-  "configs/core/shared/benchmarks/strategyqa.toml",
-  "configs/core/shared/benchmarks/hotpotqa.toml",
+  "configs/core/shared/benchmarks/gsm8k/test.toml",
+  "configs/core/shared/benchmarks/strategyqa/dev.toml",
+  "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
 ]
 control_catalog = "configs/core/shared/controls/no_comm_equal_budget.toml"
 global_seed = 42

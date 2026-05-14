@@ -47,13 +47,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--benchmarks",
         nargs="*",
         default=[
-            "configs/core/shared/benchmarks/gsm8k.toml",
-            "configs/core/shared/benchmarks/strategyqa.toml",
-            "configs/core/shared/benchmarks/hotpotqa.toml",
-            "configs/core/shared/benchmarks/math500.toml",
-            "configs/core/shared/benchmarks/mmlu_pro.toml",
-            "configs/core/shared/benchmarks/gpqa_diamond.toml",
-            "configs/core/shared/benchmarks/gsm_symbolic.toml",
+            "configs/core/shared/benchmarks/gsm8k/test.toml",
+            "configs/core/shared/benchmarks/strategyqa/dev.toml",
+            "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
+            "configs/core/shared/benchmarks/math500/test.toml",
+            "configs/core/shared/benchmarks/mmlu-pro/test.toml",
+            "configs/core/shared/benchmarks/gpqa/dataset.toml",
+            "configs/core/shared/benchmarks/gsm-symbolic/GSM_symbolic.toml",
         ],
     )
     generate.add_argument("--output-dir", default="configs/core/shared/benchmarks/splits")

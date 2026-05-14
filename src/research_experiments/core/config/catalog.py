@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
 from typing import Any
 import tomllib
@@ -92,6 +93,8 @@ class BenchmarkConfig:
     archive_member: str | None = None
     archive_password: str | None = None
     split_presets: list[dict[str, Any]] = field(default_factory=list)
+    config_path: str | None = None
+    cache_namespace: str | None = None
 
 
 def _load_toml(path: str | Path) -> dict[str, Any]:
@@ -150,7 +153,17 @@ def load_model_catalog(path: str | Path = DEFAULT_MODEL_CATALOG_PATH) -> dict[st
 
 def load_benchmark_config(path: str | Path) -> BenchmarkConfig:
     """加载单个 benchmark 配置。"""
-    return BenchmarkConfig(**_load_toml(path))
+    payload = _load_toml(path)
+    config_path = Path(path)
+    try:
+        config_path_text = Path(os.path.relpath(config_path, Path.cwd())).as_posix()
+    except ValueError:
+        config_path_text = config_path.as_posix()
+    return BenchmarkConfig(
+        **payload,
+        config_path=config_path_text,
+        cache_namespace=benchmark_cache_namespace(str(payload["source_path"])),
+    )
 
 
 def resolve_model_ref(
@@ -220,6 +233,23 @@ def parse_model_ref(model_ref: str) -> tuple[str, str]:
             f"Invalid model ref '{model_ref}'. Use the format 'provider/model_name'."
         )
     return provider_name, model_name
+
+
+def benchmark_cache_namespace(source_path: str | Path) -> str:
+    """把数据集源路径转换成 cache / config 共用的层级键。"""
+
+    normalized = str(source_path).replace("\\", "/").strip()
+    path = Path(normalized)
+    if not path.is_absolute():
+        return path.with_suffix("").as_posix()
+
+    parts = list(path.parts)
+    lowered = [str(part).lower() for part in parts]
+    if "datasets" in lowered:
+        anchor = lowered.index("datasets") + 1
+        return Path(*parts[anchor:]).with_suffix("").as_posix()
+
+    return path.with_suffix("").name
 
 
 def _optional_bool(payload: dict[str, Any], key: str) -> bool | None:

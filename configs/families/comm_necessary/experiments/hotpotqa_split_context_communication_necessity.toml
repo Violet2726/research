@@ -7,7 +7,7 @@ experiment_note = """
 结果用途：证明“通信是否必要、传什么最关键”这一问题，而不是单纯比较模型强弱。
 """
 benchmark_configs = [
-  "configs/core/shared/benchmarks/hotpotqa.toml",
+  "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
 ]
 protocol = "configs/families/comm_necessary/protocols/split_3a_r1.toml"
 methods = [

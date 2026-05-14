@@ -78,10 +78,11 @@ def generate_split_manifests(
     for config in benchmark_configs:
         samples = load_samples(config)
         split_specs = _resolve_split_specs(config, samples)
+        dataset_key = config.cache_namespace or config.slug
 
         for split_name, sample_ids in split_specs:
             path = resolve_split_manifest_path(
-                config.slug,
+                dataset_key,
                 split_name,
                 splits_root=output,
                 random_seed=config.random_seed,
@@ -239,7 +240,7 @@ def select_samples(
 ) -> list[DatasetSample]:
     """按冻结 split 从全量 benchmark 中选出本轮样本。"""
     split_ids = load_split_ids(
-        benchmark.slug,
+        benchmark.cache_namespace or benchmark.slug,
         split_name,
         splits_root=splits_root,
         random_seed=benchmark.random_seed,
@@ -258,7 +259,8 @@ def resolve_split_manifest_path(
     """把 split 名解析成统一目录化后的 manifest 路径。"""
 
     split_dir_name, seed = _split_directory_and_seed(split_name, random_seed)
-    return Path(splits_root) / split_dir_name / f"{dataset_slug}-seed{seed}.json"
+    dataset_path = Path(str(dataset_slug).replace("\\", "/"))
+    return Path(splits_root) / split_dir_name / dataset_path.parent / f"{dataset_path.name}-seed{seed}.json"
 
 
 def _split_directory_and_seed(split_name: str, fallback_seed: int) -> tuple[str, int]:

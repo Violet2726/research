@@ -18,7 +18,7 @@ def test_build_and_restore_cache_snapshot(tmp_path: Path) -> None:
     cache = router.for_request_target(
         provider="xiaomimimo",
         request_model="mimo-v2.5",
-        dataset="strategyqa",
+        dataset="strategyqa/dev",
     )
     cache.put(
         CachedResponse(
@@ -36,7 +36,7 @@ def test_build_and_restore_cache_snapshot(tmp_path: Path) -> None:
     restored = restore_cache_snapshot(stage_root, restore_root)
 
     assert payload["shard_count"] == 1
-    assert restored == ("providers/xiaomimimo/mimo-v2-5/strategyqa/requests.sqlite",)
+    assert restored == ("providers/xiaomimimo/mimo-v2-5/strategyqa/dev/requests.sqlite",)
     restored_sqlite = restore_root / restored[0]
     assert restored_sqlite.exists()
 
@@ -57,7 +57,7 @@ def test_build_and_restore_cache_snapshot_with_shard_filters(tmp_path: Path) -> 
     strategyqa = router.for_request_target(
         provider="xiaomimimo",
         request_model="mimo-v2.5",
-        dataset="strategyqa",
+        dataset="strategyqa/dev",
     )
     strategyqa.put(
         CachedResponse(
@@ -89,16 +89,16 @@ def test_build_and_restore_cache_snapshot_with_shard_filters(tmp_path: Path) -> 
     payload = build_cache_snapshot(
         cache_root,
         staging_root=stage_root,
-        shard_filters=["providers/xiaomimimo/mimo-v2-5/strategyqa"],
+        shard_filters=["providers/xiaomimimo/mimo-v2-5/strategyqa/dev"],
     )
     restored = restore_cache_snapshot(
         stage_root,
         restore_root,
-        shard_filters=["providers/xiaomimimo/mimo-v2-5/strategyqa"],
+        shard_filters=["providers/xiaomimimo/mimo-v2-5/strategyqa/dev"],
     )
 
     assert payload["shard_count"] == 1
-    assert restored == ("providers/xiaomimimo/mimo-v2-5/strategyqa/requests.sqlite",)
+    assert restored == ("providers/xiaomimimo/mimo-v2-5/strategyqa/dev/requests.sqlite",)
     assert not (restore_root / "providers/xiaomimimo/mimo-v2-5/gsm8k/requests.sqlite").exists()
 
 
@@ -111,7 +111,7 @@ def test_build_cache_snapshot_reads_consistent_live_wal_state(tmp_path: Path) ->
     cache = router.for_request_target(
         provider="xiaomimimo",
         request_model="mimo-v2.5",
-        dataset="strategyqa",
+        dataset="strategyqa/dev",
     )
     for index in range(32):
         cache.put(

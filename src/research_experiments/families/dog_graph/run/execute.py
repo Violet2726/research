@@ -138,7 +138,7 @@ def run_experiment(
                 cache = cache_router.for_request_target(
                     provider=backbone.provider,
                     request_model=backbone.model_id,
-                    dataset=benchmark.slug,
+                    dataset=_cache_dataset_key(experiment.experiment_kind, benchmark),
                 )
                 for method in methods:
                     if experiment.experiment_kind == "paper":
@@ -278,3 +278,16 @@ def _serialize_protocol(protocol) -> dict[str, object]:
     if is_dataclass(protocol):
         return asdict(protocol)
     return dict(protocol)
+
+
+def _cache_dataset_key(experiment_kind: str, benchmark) -> str:
+    """为 DoG 运行解析真正的缓存分库键。
+
+    `dog_graph_main` 的 benchmark slug 带有 `dog_` 前缀，是为了和仓库里已有
+    的 benchmark 配置及 split manifest 解耦；但 cache 分库应该按“真实数据集”
+    归档，而不是按实验线名字归档。
+    """
+
+    if experiment_kind != "paper":
+        return benchmark.cache_namespace or benchmark.slug
+    return benchmark.cache_namespace or benchmark.slug

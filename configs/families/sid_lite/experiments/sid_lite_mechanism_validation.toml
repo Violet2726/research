@@ -7,9 +7,9 @@ experiment_note = """
 结果用途：为后续是否保留 SID-lite 路线提供机制证据。
 """
 benchmark_configs = [
-  "configs/core/shared/benchmarks/gsm8k.toml",
-  "configs/core/shared/benchmarks/strategyqa.toml",
-  "configs/core/shared/benchmarks/hotpotqa.toml",
+  "configs/core/shared/benchmarks/gsm8k/test.toml",
+  "configs/core/shared/benchmarks/strategyqa/dev.toml",
+  "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
 ]
 protocol = "configs/families/sid_lite/protocols/shared_3a_r1.toml"
 methods = ["mv_3", "always_full", "compression_only", "sid_lite"]

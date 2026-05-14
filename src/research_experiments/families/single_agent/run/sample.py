@@ -150,7 +150,7 @@ def _run_method_batch(
             call_specs.append(
                 CallSpec(
                     run_id=run_id,
-                    dataset=benchmark.slug,
+                    dataset=benchmark.cache_namespace or benchmark.slug,
                     split_name=split_name,
                     sample_id=sample.sample_id,
                     sample_order=sample_order,
@@ -494,7 +494,7 @@ def _estimate_run_work(
             if not _benchmark_is_allowed(experiment, phase_name, model, benchmark.slug):
                 continue
             split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
-            split_size = len(load_split_ids(benchmark.slug, split_name))
+            split_size = len(load_split_ids(benchmark.cache_namespace or benchmark.slug, split_name))
             for method in methods:
                 reruns = (
                     1 if method.family == "cot"

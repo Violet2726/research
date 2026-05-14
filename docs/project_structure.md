@@ -52,9 +52,14 @@
 
 - `local/runs/<family>/<experiment>/<phase>/<run_id>/`
 - `local/reports/<family>/`
-- `local/cache/providers/<provider>/<request_model>/<dataset>/requests.sqlite`
-- `local/datasets/<dataset>/...`
+- `local/cache/providers/<provider>/<request_model>/<dataset_path_key>/requests.sqlite`
+- `local/datasets/<dataset_path>/...`
 - `files/`
+
+层级约束：
+
+- `configs/core/shared/benchmarks/` 下的 benchmark 配置必须镜像 `local/datasets/` 的相对路径层级，并使用“去掉数据文件扩展名后的路径”作为配置路径。
+- cache 分库路径必须复用同一套层级键，避免把方法名或实验线名写成 dataset shard 名。
 
 ### 环境变量覆盖
 

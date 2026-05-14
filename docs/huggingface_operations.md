@@ -19,7 +19,7 @@
   - 标准 run：`local/runs/<family>/<experiment>/<phase>/<run_id>/`
   - matrix run：`local/runs/faithful_matrix/<run_id>/`
 - `cache` 的同步单位是“分库目录”
-  - `local/cache/providers/<provider>/<request_model>/<dataset>/`
+  - `local/cache/providers/<provider>/<request_model>/<dataset_path_key>/`
 - `runs` 推送时会自动打包，可浏览外壳文件会单独保留，重型 JSONL / 预测文件会进入：
   - `traces.tar.zst`
   - `predictions.tar.zst`
@@ -89,15 +89,15 @@ uv run research_cli tools cache-archive pull-latest --target local/cache
 单个：
 
 ```powershell
-uv run research_cli tools cache-archive push-latest --cache-root local/cache --cache-shard providers/xiaomimimo/mimo-v2-5/strategyqa
+uv run research_cli tools cache-archive push-latest --cache-root local/cache --cache-shard providers/xiaomimimo/mimo-v2-5/strategyqa/dev
 ```
 
 多个：
 
 ```powershell
 uv run research_cli tools cache-archive push-latest --cache-root local/cache `
-  --cache-shard providers/xiaomimimo/mimo-v2-5/strategyqa `
-  --cache-shard providers/xiaomimimo/mimo-v2-5/hotpotqa
+  --cache-shard providers/xiaomimimo/mimo-v2-5/strategyqa/dev `
+  --cache-shard providers/xiaomimimo/mimo-v2-5/hotpotqa/validation-distractor
 ```
 
 ### 4. 拉取一个或多个指定 cache 分库目录
@@ -105,15 +105,15 @@ uv run research_cli tools cache-archive push-latest --cache-root local/cache `
 单个：
 
 ```powershell
-uv run research_cli tools cache-archive pull-latest --target local/cache --cache-shard providers/xiaomimimo/mimo-v2-5/strategyqa
+uv run research_cli tools cache-archive pull-latest --target local/cache --cache-shard providers/xiaomimimo/mimo-v2-5/strategyqa/dev
 ```
 
 多个：
 
 ```powershell
 uv run research_cli tools cache-archive pull-latest --target local/cache `
-  --cache-shard providers/xiaomimimo/mimo-v2-5/strategyqa `
-  --cache-shard providers/xiaomimimo/mimo-v2-5/hotpotqa
+  --cache-shard providers/xiaomimimo/mimo-v2-5/strategyqa/dev `
+  --cache-shard providers/xiaomimimo/mimo-v2-5/hotpotqa/validation-distractor
 ```
 
 说明：
@@ -188,13 +188,13 @@ uv run research_cli tools hf-sync pull-workspace --skip-cache `
 ```powershell
 uv run research_cli tools hf-sync push-workspace `
   --run-dir local/runs/comm_necessary/hotpotqa_split_context_communication_necessity/count300/<run_id> `
-  --cache-shard providers/xiaomimimo/mimo-v2-5/hotpotqa
+  --cache-shard providers/xiaomimimo/mimo-v2-5/hotpotqa/validation-distractor
 ```
 
 ```powershell
 uv run research_cli tools hf-sync pull-workspace `
   --run-prefix comm_necessary/hotpotqa_split_context_communication_necessity/count300/<run_id> `
-  --cache-shard providers/xiaomimimo/mimo-v2-5/hotpotqa
+  --cache-shard providers/xiaomimimo/mimo-v2-5/hotpotqa/validation-distractor
 ```
 
 ### 6. 其他常用控制项

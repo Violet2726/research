@@ -57,7 +57,7 @@ def _estimate_work(
     control_names = sorted({name for method in methods for name in method.matched_controls})
     for benchmark in benchmarks:
         split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
-        sample_count = len(load_split_ids(benchmark.slug, split_name))
+        sample_count = len(load_split_ids(benchmark.cache_namespace or benchmark.slug, split_name))
         for method in methods:
             total_calls += sample_count * protocol.agent_count * (1 + method.round_limit)
             total_predictions += sample_count

@@ -8,10 +8,10 @@ experiment_note = """
 """
 method_catalog = "configs/families/single_agent/methods/common.toml"
 benchmark_configs = [
-  "configs/core/shared/benchmarks/math500.toml",
-  "configs/core/shared/benchmarks/hotpotqa.toml",
-  "configs/core/shared/benchmarks/mmlu_pro.toml",
-  "configs/core/shared/benchmarks/gpqa_diamond.toml",
+  "configs/core/shared/benchmarks/math500/test.toml",
+  "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
+  "configs/core/shared/benchmarks/mmlu-pro/test.toml",
+  "configs/core/shared/benchmarks/gpqa/dataset.toml",
 ]
 global_seed = 42
 reruns_per_method = 3

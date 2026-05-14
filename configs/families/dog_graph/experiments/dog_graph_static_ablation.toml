@@ -3,8 +3,8 @@ name = "dog_graph_static_ablation"
 description = "保留当前静态候选子图上的图求解、投票与图辩论消融，用作 DoG 高保真主线的 legacy 对照。"
 experiment_kind = "static"
 benchmark_configs = [
-  "configs/core/shared/benchmarks/webquestions.toml",
-  "configs/core/shared/benchmarks/grailqa.toml",
+  "configs/core/shared/benchmarks/webquestions/test.toml",
+  "configs/core/shared/benchmarks/grailqa/validation.toml",
 ]
 protocol = "configs/families/dog_graph/protocols/dog_graph_v1.toml"
 global_seed = 42

@@ -3,13 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from research_experiments.core.data.datasets import DatasetSample
-from research_experiments.families.dog_graph.config import load_experiment_config, load_protocol_config
+from research_experiments.families.dog_graph.config import load_benchmarks, load_experiment_config, load_protocol_config
 from research_experiments.families.dog_graph.paper_backend import EntityRef, MetaqaGraphBackend
 from research_experiments.families.dog_graph.paper_prompts import (
     parse_enough_answer_output,
     parse_selected_relations,
     parse_simplified_question,
 )
+from research_experiments.families.dog_graph.run.execute import _cache_dataset_key
 from research_experiments.families.dog_graph.run.paper import _build_metrics as _build_paper_metrics
 from research_experiments.families.dog_graph.run.sample import _build_metrics as _build_static_metrics
 from research_experiments.families.dog_graph.run.sample import _ground_graph_payload, _validate_graph_answer_payload
@@ -44,6 +45,18 @@ def test_load_dog_graph_static_config_preserves_legacy_methods() -> None:
     ]
     assert protocol.protocol_kind == "static"
     assert protocol.agent_count == 3
+
+
+def test_cache_dataset_key_uses_real_dataset_name_for_paper_line() -> None:
+    paper_experiment = load_experiment_config("configs/families/dog_graph/experiments/dog_graph_main.toml")
+    static_experiment = load_experiment_config("configs/families/dog_graph/experiments/dog_graph_static_ablation.toml")
+    paper_benchmarks = load_benchmarks(paper_experiment)
+    static_benchmarks = load_benchmarks(static_experiment)
+
+    assert _cache_dataset_key("paper", next(item for item in paper_benchmarks if item.slug == "dog_webquestions")) == "dog-freebase/WebQuestions"
+    assert _cache_dataset_key("paper", next(item for item in paper_benchmarks if item.slug == "dog_grailqa")) == "dog-freebase/grailqa"
+    assert _cache_dataset_key("paper", next(item for item in paper_benchmarks if item.slug == "dog_metaqa_3hop")) == "dog-metaqa/3-hop/qa_test"
+    assert _cache_dataset_key("static", next(item for item in static_benchmarks if item.slug == "webquestions")) == "webquestions/test"
 
 
 def test_parse_selected_relations_accepts_relation_slot_and_literal() -> None:

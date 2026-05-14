@@ -50,3 +50,5 @@ uv run python -m compileall src tests
 - 正式 `runs` 归档进入 `RESEARCH_RUNS_HF_REPO`
 - 正式 `cache` 快照进入 `RESEARCH_CACHE_HF_REPO`
 - 不再维护顶层 `runs/`、`reports/`、`cache/` 目录占位
+- `configs/core/shared/benchmarks/` 下的 benchmark 配置路径必须镜像 `local/datasets/` 的相对路径层级，并使用去掉数据文件扩展名后的路径
+- `local/cache/providers/<provider>/<model>/...` 下的数据集 cache 分库必须沿用同一套层级键

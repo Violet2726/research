@@ -790,7 +790,7 @@ def _estimate_work(
     total_predictions = 0
     for benchmark in benchmarks:
         split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
-        sample_count = len(load_split_ids(benchmark.slug, split_name))
+        sample_count = len(load_split_ids(benchmark.cache_namespace or benchmark.slug, split_name))
         total_calls += sample_count * protocol.agent_count * (1 + 4 * protocol.debate_rounds)
         total_predictions += sample_count * len(METHOD_ORDER)
     return total_calls, total_predictions

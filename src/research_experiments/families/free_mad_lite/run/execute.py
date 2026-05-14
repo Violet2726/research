@@ -136,13 +136,13 @@ def run_experiment(
                 cache = cache_router.for_request_target(
                     provider=backbone.provider,
                     request_model=backbone.model_id,
-                    dataset=benchmark.slug,
+                    dataset=benchmark.cache_namespace or benchmark.slug,
                 )
                 split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
                 samples = select_samples(benchmark, split_name)
                 results = _run_sample_batch(
                     run_id=run_id,
-                    dataset=benchmark.slug,
+                    dataset=benchmark.cache_namespace or benchmark.slug,
                     split_name=split_name,
                     samples=samples,
                     protocol=protocol,

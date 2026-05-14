@@ -7,11 +7,11 @@ experiment_note = """
 结果用途：为效用控制型通信策略提供诊断性和机制性证据。
 """
 benchmark_configs = [
-  "configs/core/shared/benchmarks/gsm8k.toml",
-  "configs/core/shared/benchmarks/math500.toml",
-  "configs/core/shared/benchmarks/strategyqa.toml",
-  "configs/core/shared/benchmarks/hotpotqa.toml",
-  "configs/core/shared/benchmarks/mmlu_pro.toml",
+  "configs/core/shared/benchmarks/gsm8k/test.toml",
+  "configs/core/shared/benchmarks/math500/test.toml",
+  "configs/core/shared/benchmarks/strategyqa/dev.toml",
+  "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
+  "configs/core/shared/benchmarks/mmlu-pro/test.toml",
 ]
 protocol = "configs/families/cue/protocols/shared_3a_r1.toml"
 policy_configs = [

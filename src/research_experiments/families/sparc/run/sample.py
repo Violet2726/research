@@ -1262,7 +1262,7 @@ def _estimate_work(
     total_predictions = 0
     for benchmark in benchmarks:
         split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
-        sample_count = len(load_split_ids(benchmark.slug, split_name))
+        sample_count = len(load_split_ids(benchmark.cache_namespace or benchmark.slug, split_name))
         if experiment.variant_name == "content_ablation":
             total_calls += sample_count * protocol.agent_count * (1 + len(experiment.message_modes))
             total_predictions += sample_count * (len(experiment.message_modes) + 1)

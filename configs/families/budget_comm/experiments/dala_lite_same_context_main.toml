@@ -7,9 +7,9 @@ experiment_note = """
 结果用途：作为预算通信路线的 headline 结果来源。
 """
 benchmark_configs = [
-  "configs/core/shared/benchmarks/gsm8k.toml",
-  "configs/core/shared/benchmarks/strategyqa.toml",
-  "configs/core/shared/benchmarks/hotpotqa.toml",
+  "configs/core/shared/benchmarks/gsm8k/test.toml",
+  "configs/core/shared/benchmarks/strategyqa/dev.toml",
+  "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
 ]
 protocol = "configs/families/budget_comm/protocols/shared_3a_r1.toml"
 auction_policy = "configs/families/budget_comm/policies/dala_lite_v1.toml"

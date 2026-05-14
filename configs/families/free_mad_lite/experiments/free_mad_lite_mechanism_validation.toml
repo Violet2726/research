@@ -7,9 +7,9 @@ experiment_note = """
 结果用途：为是否继续扩展 Free-MAD-lite 提供机制层面的证据，而不是直接承担主表职责。
 """
 benchmark_configs = [
-  "configs/core/shared/benchmarks/gsm8k.toml",
-  "configs/core/shared/benchmarks/strategyqa.toml",
-  "configs/core/shared/benchmarks/hotpotqa.toml",
+  "configs/core/shared/benchmarks/gsm8k/test.toml",
+  "configs/core/shared/benchmarks/strategyqa/dev.toml",
+  "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
 ]
 protocol = "configs/families/free_mad_lite/protocols/shared_3a_r1.toml"
 methods = [

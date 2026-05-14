@@ -158,7 +158,7 @@ def run_experiment(
                 cache = cache_router.for_request_target(
                     provider=model.provider,
                     request_model=model.model_id,
-                    dataset=benchmark.slug,
+                    dataset=benchmark.cache_namespace or benchmark.slug,
                 )
                 split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
                 selected_samples = select_samples(benchmark, split_name)

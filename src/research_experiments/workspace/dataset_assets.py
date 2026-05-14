@@ -65,7 +65,7 @@ def discover_used_benchmark_config_paths(configs_root: str | Path = CONFIGS_ROOT
 
     shared_benchmarks_root = root / "core" / "shared" / "benchmarks"
     if shared_benchmarks_root.exists():
-        for benchmark_path in shared_benchmarks_root.glob("*.toml"):
+        for benchmark_path in shared_benchmarks_root.rglob("*.toml"):
             discovered.add(benchmark_path.resolve())
 
     for experiment_path in root.glob("families/*/experiments/*.toml"):
@@ -576,6 +576,7 @@ def collect_dataset_inventory(
             {
                 "slug": benchmark.slug,
                 "name": benchmark.name,
+                "benchmark_config_path": benchmark.config_path,
                 "config_source_path": benchmark.source_path,
                 "local_path": source_path.as_posix(),
                 "source_split": benchmark.source_split,
@@ -585,7 +586,9 @@ def collect_dataset_inventory(
                 "size_bytes": source_path.stat().st_size if source_path.exists() else 0,
                 "split_files": sorted(
                     path.relative_to(splits_root_path).as_posix()
-                    for path in splits_root_path.rglob(f"{benchmark.slug}-*.json")
+                    for path in splits_root_path.rglob(f"{Path(str(benchmark.cache_namespace or benchmark.slug)).name}-*.json")
+                    if path.parent.as_posix().endswith(Path(str(benchmark.cache_namespace or benchmark.slug)).parent.as_posix())
+                    or Path(str(benchmark.cache_namespace or benchmark.slug)).parent.as_posix() == "."
                 ),
                 "notes": spec.notes,
             }
@@ -633,6 +636,12 @@ def write_dataset_inventory_files(
         "- 保持 benchmark split 可复现",
         "- 把合规说明、恢复命令和本地资产边界写清楚",
         "",
+        "## 层级约束",
+        "",
+        "- `configs/core/shared/benchmarks/` 下的 benchmark 配置必须镜像 `local/datasets/` 的相对路径层级，并使用“去掉数据文件扩展名后的路径”作为配置路径。",
+        "- `local/cache/providers/<provider>/<model>/...` 下的数据集缓存分片必须使用同一套层级键，避免把方法名或实验线名写成 dataset shard 名。",
+        "- 示例：`local/datasets/dog-freebase/cwq.json` 对应 `configs/core/shared/benchmarks/dog-freebase/cwq.toml` 与 `local/cache/providers/<provider>/<model>/dog-freebase/cwq/requests.sqlite`。",
+        "",
         "## 当前本地资产根目录",
         "",
         f"- 默认路径：`{inventory['datasets_root']}`",
@@ -667,7 +676,8 @@ def write_dataset_inventory_files(
             [
                 f"### {item['name']} (`{item['slug']}`)",
                 "",
-                f"- 配置路径：`{item['config_source_path']}`",
+                f"- benchmark 配置：`{item['benchmark_config_path']}`",
+                f"- 数据相对路径：`{item['config_source_path']}`",
                 f"- 本地资产：`{item['local_path']}`",
                 f"- 上游来源：{item['source_label']}，`{item['source_url']}`",
                 f"- 上游 split：`{item['source_split']}`",

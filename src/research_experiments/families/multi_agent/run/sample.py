@@ -666,7 +666,7 @@ def _estimate_work(
     total_predictions = 0
     for benchmark in benchmarks:
         split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
-        sample_count = len(load_split_ids(benchmark.slug, split_name))
+        sample_count = len(load_split_ids(benchmark.cache_namespace or benchmark.slug, split_name))
         for setup in setups:
             protocol = load_protocol_config(setup.protocol)
             roster = load_roster_config(setup.roster)

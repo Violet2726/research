@@ -17,7 +17,9 @@ from research_experiments.core.data.datasets import DatasetSample
 def test_discover_used_benchmark_config_paths_scans_experiment_configs(tmp_path: Path) -> None:
     shared_benchmarks = tmp_path / "configs" / "core" / "shared" / "benchmarks"
     shared_benchmarks.mkdir(parents=True)
-    (shared_benchmarks / "gsm8k.toml").write_text(
+    (shared_benchmarks / "gsm8k").mkdir(parents=True)
+    (shared_benchmarks / "strategyqa").mkdir(parents=True)
+    (shared_benchmarks / "gsm8k" / "test.toml").write_text(
         "\n".join(
             [
                 'name = "GSM8K"',
@@ -37,7 +39,7 @@ def test_discover_used_benchmark_config_paths_scans_experiment_configs(tmp_path:
         ),
         encoding="utf-8",
     )
-    (shared_benchmarks / "strategyqa.toml").write_text(
+    (shared_benchmarks / "strategyqa" / "dev.toml").write_text(
         "\n".join(
             [
                 'name = "StrategyQA"',
@@ -65,9 +67,9 @@ def test_discover_used_benchmark_config_paths_scans_experiment_configs(tmp_path:
             [
                 'name = "demo"',
                 'benchmark_configs = [',
-                '  "configs/core/shared/benchmarks/gsm8k.toml",',
-                '  "configs/core/shared/benchmarks/strategyqa.toml",',
-                '  "configs/core/shared/benchmarks/gsm8k.toml",',
+                '  "configs/core/shared/benchmarks/gsm8k/test.toml",',
+                '  "configs/core/shared/benchmarks/strategyqa/dev.toml",',
+                '  "configs/core/shared/benchmarks/gsm8k/test.toml",',
                 ']',
             ]
         ),
@@ -75,7 +77,10 @@ def test_discover_used_benchmark_config_paths_scans_experiment_configs(tmp_path:
     )
 
     discovered = discover_used_benchmark_config_paths(tmp_path / "configs")
-    assert [path.name for path in discovered] == ["gsm8k.toml", "strategyqa.toml"]
+    assert sorted(path.relative_to(tmp_path / "configs" / "core" / "shared" / "benchmarks").as_posix() for path in discovered) == [
+        "gsm8k/test.toml",
+        "strategyqa/dev.toml",
+    ]
 
 
 def test_write_dataset_inventory_files_writes_local_manifest_and_repo_readme(tmp_path: Path, monkeypatch) -> None:

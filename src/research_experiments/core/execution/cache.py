@@ -5,7 +5,7 @@
 2. `RequestCacheRouter`：按 `provider + request_model + dataset` 路由到对应分库。
 
 目录结构示例：
-`local/cache/providers/xiaomimimo/mimo-v2-5/strategyqa/requests.sqlite`
+`local/cache/providers/xiaomimimo/mimo-v2-5/strategyqa/dev/requests.sqlite`
 """
 
 from __future__ import annotations
@@ -284,9 +284,9 @@ def resolve_cache_shard_path(
     return (
         root
         / "providers"
-        / _slugify(provider)
-        / _slugify(request_model)
-        / _slugify(dataset)
+        / _slugify_segment(provider)
+        / _slugify_segment(request_model)
+        / _slugify_dataset_path(dataset)
         / "requests.sqlite"
     )
 
@@ -452,12 +452,27 @@ def _shard_identity(*, provider: str, request_model: str, dataset: str) -> str:
 
 def _slugify(value: str) -> str:
     """把路径片段压缩成适合目录名与文件名的 ASCII 形式。"""
+    return _slugify_segment(value)
+
+
+def _slugify_segment(value: str) -> str:
+    """压缩单个路径片段。"""
     lowered = value.strip().lower()
     pieces = [character if character.isalnum() else "-" for character in lowered]
     slug = "".join(pieces).strip("-")
     while "--" in slug:
         slug = slug.replace("--", "-")
     return slug or "default"
+
+
+def _slugify_dataset_path(dataset: str) -> Path:
+    """把 dataset 键解析成可嵌套的目录层级。"""
+
+    normalized = str(dataset).replace("\\", "/").strip("/")
+    if not normalized:
+        return Path("default")
+    parts = [part for part in normalized.split("/") if part]
+    return Path(*[_slugify_segment(part) for part in parts])
 
 
 def _read_request_count(shard_path: Path) -> int:
@@ -557,5 +572,6 @@ def _decompose_shard_path(cache_root: Path, shard_path: Path) -> tuple[str, str,
     parts = relative.parts
     provider = parts[0] if len(parts) >= 1 else "unknown"
     request_model = parts[1] if len(parts) >= 2 else "unknown"
-    dataset = parts[2] if len(parts) >= 3 else "unknown"
+    dataset_parts = parts[2:-1] if len(parts) >= 4 else parts[2:3]
+    dataset = "/".join(dataset_parts) if dataset_parts else "unknown"
     return (provider, request_model, dataset)

@@ -8,7 +8,7 @@ from research_experiments.core.data.evaluation import normalize_prediction, scor
 
 
 def test_math500_loader_reads_problem_and_unique_id() -> None:
-    benchmark = load_benchmark_config("configs/core/shared/benchmarks/math500.toml")
+    benchmark = load_benchmark_config("configs/core/shared/benchmarks/math500/test.toml")
     samples = load_samples(benchmark)
     assert samples
     sample = samples[0]
@@ -19,7 +19,7 @@ def test_math500_loader_reads_problem_and_unique_id() -> None:
 
 
 def test_mmlu_pro_loader_renders_options_and_mcq_gold() -> None:
-    benchmark = load_benchmark_config("configs/core/shared/benchmarks/mmlu_pro.toml")
+    benchmark = load_benchmark_config("configs/core/shared/benchmarks/mmlu-pro/test.toml")
     samples = load_samples(benchmark)
     assert samples
     sample = samples[0]
@@ -30,7 +30,7 @@ def test_mmlu_pro_loader_renders_options_and_mcq_gold() -> None:
 
 
 def test_gpqa_loader_renders_options_and_mcq_gold() -> None:
-    benchmark = load_benchmark_config("configs/core/shared/benchmarks/gpqa_diamond.toml")
+    benchmark = load_benchmark_config("configs/core/shared/benchmarks/gpqa/dataset.toml")
     samples = load_samples(benchmark)
     assert samples
     sample = samples[0]

@@ -7,9 +7,9 @@ experiment_note = """
 结果用途：作为 faithful matrix 中的 supporting 证据，用于分析 debate 轮数效率与稳定性门控。
 """
 benchmark_configs = [
-  "configs/core/shared/benchmarks/gsm8k.toml",
-  "configs/core/shared/benchmarks/strategyqa.toml",
-  "configs/core/shared/benchmarks/hotpotqa.toml",
+  "configs/core/shared/benchmarks/gsm8k/test.toml",
+  "configs/core/shared/benchmarks/strategyqa/dev.toml",
+  "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
 ]
 control_catalog = "configs/core/shared/controls/no_comm_equal_budget.toml"
 protocol = "configs/families/imad/protocols/adaptive_3a_r3.toml"
