@@ -2,7 +2,9 @@
 
 这个目录不再承载正式数据文件。
 
-项目的数据集资产现在统一放在本地工作区 `local/datasets/`，并通过 `research_cli tools dataset-assets` 一键恢复。
+项目的数据集资产现在统一放在本地工作区 `local/datasets/`，并通过 `research_cli tools dataset-assets` 一键恢复公开可下载的数据文件与冻结 split。
+
+这组命令只负责数据资产、split 与盘点文档，不负责外部后端服务、数据库、模型访问凭证或 family 运行时依赖的安装配置。
 
 这样做的目标是：
 
@@ -23,7 +25,7 @@
 
 ## 一键恢复
 
-只恢复主评测源并重建 split：
+恢复主评测源、公开可下载的运行必需补充资产，并重建 split：
 
 ```powershell
 uv run research_cli tools dataset-assets prepare-used
@@ -40,6 +42,12 @@ uv run research_cli tools dataset-assets prepare-all-sources
 ```powershell
 uv run research_cli tools dataset-assets prepare-all-sources --force
 ```
+
+说明：
+
+- `prepare-used` 会下载当前项目实际用到的主评测数据资产，以及公开可下载的运行必需补充资产，重建 frozen split，并刷新 `datasets/README.md` 与 `local/datasets/manifest.json`。
+- `prepare-all-sources` 会额外下载公开可得的训练集、验证集与注释补充源，但仍只处理数据资产本身。
+- 这些命令不会自动安装或启动外部后端，例如 Freebase/Virtuoso、SPARQL 服务或其他 family 专属运行时依赖。
 
 ## 主评测源文件
 
@@ -232,24 +240,6 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 说明：主文件只包含问题与答案。若要恢复更完整的图注释，请再下载 supplementary 里的 Freebase 路径与实体链接文件。
 
 ## 训练集与补充上游 split
-
-### DoG MetaQA / kb
-
-- 本地资产：`local/datasets/dog-metaqa/kb.txt`
-- 用途：`backend`
-- 上游来源：DoG official GitHub，`https://raw.githubusercontent.com/mira-ai-lab/DoG/main/KBQA_TASK/metaqa/dataset/kb.txt`
-- 上游 split：`shared`
-- 文件大小：`4.98 MiB`
-- 说明：MetaQA 论文复现共享知识图谱后端，供 1/2/3-hop 三个 benchmark 共用。
-
-### DoG MetaQA / kb
-
-- 本地资产：`local/datasets/dog-metaqa/kb.txt`
-- 用途：`backend`
-- 上游来源：DoG official GitHub，`https://raw.githubusercontent.com/mira-ai-lab/DoG/main/KBQA_TASK/metaqa/dataset/kb.txt`
-- 上游 split：`shared`
-- 文件大小：`4.98 MiB`
-- 说明：MetaQA 论文复现共享知识图谱后端，供 1/2/3-hop 三个 benchmark 共用。
 
 ### DoG MetaQA / kb
 

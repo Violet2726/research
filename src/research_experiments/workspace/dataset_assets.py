@@ -42,6 +42,7 @@ class DatasetAssetSpec:
     filename: str | None = None
     revision: str = "main"
     notes: str = ""
+    runtime_required: bool = False
 
 
 @dataclass(frozen=True)
@@ -418,6 +419,7 @@ def build_supplementary_dataset_specs(benchmarks: list[BenchmarkConfig]) -> list
                 source_url="https://raw.githubusercontent.com/brmson/dataset-factoid-webquestions/master/d-dump/test.json",
                 source_split="test",
                 notes="YodaQA 生成的问题概念、clue 与词汇注释，可用于更稳的 topic seed 与角色提示。",
+                runtime_required=True,
             ),
             DatasetAssetSpec(
                 slug="webquestions",
@@ -430,6 +432,7 @@ def build_supplementary_dataset_specs(benchmarks: list[BenchmarkConfig]) -> list
                 source_url="https://raw.githubusercontent.com/brmson/dataset-factoid-webquestions/master/d-freebase/test.json",
                 source_split="test",
                 notes="官方提供的单实体 Freebase key 注释，可作为 topic seed。",
+                runtime_required=True,
             ),
             DatasetAssetSpec(
                 slug="webquestions",
@@ -442,6 +445,7 @@ def build_supplementary_dataset_specs(benchmarks: list[BenchmarkConfig]) -> list
                 source_url="https://raw.githubusercontent.com/brmson/dataset-factoid-webquestions/master/d-freebase-mids/test.json",
                 source_split="test",
                 notes="问题概念到 Freebase MID 的链接结果。",
+                runtime_required=True,
             ),
             DatasetAssetSpec(
                 slug="webquestions",
@@ -454,6 +458,7 @@ def build_supplementary_dataset_specs(benchmarks: list[BenchmarkConfig]) -> list
                 source_url="https://raw.githubusercontent.com/brmson/dataset-factoid-webquestions/master/d-freebase-rp/test.json",
                 source_split="test",
                 notes="官方发布的关系路径注释，是 v1 WebQuestions 图视角的主要证据源。",
+                runtime_required=True,
             ),
             DatasetAssetSpec(
                 slug="webquestions",
@@ -466,6 +471,7 @@ def build_supplementary_dataset_specs(benchmarks: list[BenchmarkConfig]) -> list
                 source_url="https://raw.githubusercontent.com/brmson/dataset-factoid-webquestions/master/d-freebase-brp/test.json",
                 source_split="test",
                 notes="Branched relation paths 是 relation-path 视角的更丰富补充；若存在，loader 会优先使用它。",
+                runtime_required=True,
             ),
             DatasetAssetSpec(
                 slug="webquestions",
@@ -478,6 +484,7 @@ def build_supplementary_dataset_specs(benchmarks: list[BenchmarkConfig]) -> list
                 source_url="https://raw.githubusercontent.com/brmson/dataset-factoid-webquestions/master/d-entities/test.json",
                 source_split="test",
                 notes="问题实体识别结果，用于 neighborhood 视角构造。",
+                runtime_required=True,
             ),
         ],
         "dog_metaqa_1hop": [
@@ -492,6 +499,7 @@ def build_supplementary_dataset_specs(benchmarks: list[BenchmarkConfig]) -> list
                 source_url="https://raw.githubusercontent.com/mira-ai-lab/DoG/main/KBQA_TASK/metaqa/dataset/kb.txt",
                 source_split="shared",
                 notes="MetaQA 论文复现共享知识图谱后端，供 1/2/3-hop 三个 benchmark 共用。",
+                runtime_required=True,
             )
         ],
         "dog_metaqa_2hop": [
@@ -506,6 +514,7 @@ def build_supplementary_dataset_specs(benchmarks: list[BenchmarkConfig]) -> list
                 source_url="https://raw.githubusercontent.com/mira-ai-lab/DoG/main/KBQA_TASK/metaqa/dataset/kb.txt",
                 source_split="shared",
                 notes="MetaQA 论文复现共享知识图谱后端，供 1/2/3-hop 三个 benchmark 共用。",
+                runtime_required=True,
             )
         ],
         "dog_metaqa_3hop": [
@@ -520,13 +529,19 @@ def build_supplementary_dataset_specs(benchmarks: list[BenchmarkConfig]) -> list
                 source_url="https://raw.githubusercontent.com/mira-ai-lab/DoG/main/KBQA_TASK/metaqa/dataset/kb.txt",
                 source_split="shared",
                 notes="MetaQA 论文复现共享知识图谱后端，供 1/2/3-hop 三个 benchmark 共用。",
+                runtime_required=True,
             )
         ],
     }
     specs: list[DatasetAssetSpec] = []
     for benchmark in sorted(benchmarks, key=lambda item: item.slug):
         specs.extend(source_map.get(benchmark.slug, []))
-    return specs
+    return _deduplicate_dataset_specs(specs)
+
+
+def build_runtime_support_dataset_specs(benchmarks: list[BenchmarkConfig]) -> list[DatasetAssetSpec]:
+    """构建公开可下载且属于运行必需品的补充资产清单。"""
+    return [spec for spec in build_supplementary_dataset_specs(benchmarks) if spec.runtime_required]
 
 
 def download_primary_dataset_sources(
@@ -545,6 +560,15 @@ def download_supplementary_dataset_sources(
 ) -> list[DatasetDownloadResult]:
     """下载训练集与可用的非测试补充源。"""
     return _download_specs(build_supplementary_dataset_specs(benchmarks), force=force)
+
+
+def download_runtime_support_dataset_sources(
+    benchmarks: list[BenchmarkConfig],
+    *,
+    force: bool = False,
+) -> list[DatasetDownloadResult]:
+    """下载公开可得且运行实验所必需的补充资产。"""
+    return _download_specs(build_runtime_support_dataset_specs(benchmarks), force=force)
 
 
 def regenerate_used_dataset_splits(
@@ -628,7 +652,9 @@ def write_dataset_inventory_files(
         "",
         "这个目录不再承载正式数据文件。",
         "",
-        "项目的数据集资产现在统一放在本地工作区 `local/datasets/`，并通过 `research_cli tools dataset-assets` 一键恢复。",
+        "项目的数据集资产现在统一放在本地工作区 `local/datasets/`，并通过 `research_cli tools dataset-assets` 一键恢复公开可下载的数据文件与冻结 split。",
+        "",
+        "这组命令只负责数据资产、split 与盘点文档，不负责外部后端服务、数据库、模型访问凭证或 family 运行时依赖的安装配置。",
         "",
         "这样做的目标是：",
         "",
@@ -649,7 +675,7 @@ def write_dataset_inventory_files(
         "",
         "## 一键恢复",
         "",
-        "只恢复主评测源并重建 split：",
+        "恢复主评测源、公开可下载的运行必需补充资产，并重建 split：",
         "",
         "```powershell",
         "uv run research_cli tools dataset-assets prepare-used",
@@ -666,6 +692,12 @@ def write_dataset_inventory_files(
         "```powershell",
         "uv run research_cli tools dataset-assets prepare-all-sources --force",
         "```",
+        "",
+        "说明：",
+        "",
+        "- `prepare-used` 会下载当前项目实际用到的主评测数据资产，以及公开可下载的运行必需补充资产，重建 frozen split，并刷新 `datasets/README.md` 与 `local/datasets/manifest.json`。",
+        "- `prepare-all-sources` 会额外下载公开可得的训练集、验证集与注释补充源，但仍只处理数据资产本身。",
+        "- 这些命令不会自动安装或启动外部后端，例如 Freebase/Virtuoso、SPARQL 服务或其他 family 专属运行时依赖。",
         "",
         "## 主评测源文件",
         "",
@@ -742,14 +774,18 @@ def prepare_used_datasets(
     splits_root: str | Path = SPLITS_ROOT,
     force: bool = False,
 ) -> dict[str, object]:
-    """下载主评测源并重建 split。"""
+    """下载主评测数据资产与公开运行依赖、重建 split，并刷新数据集清单文档。"""
     benchmarks = load_used_benchmark_configs(configs_root)
-    downloads = download_primary_dataset_sources(benchmarks, force=force)
+    primary_downloads = download_primary_dataset_sources(benchmarks, force=force)
+    runtime_support_downloads = download_runtime_support_dataset_sources(benchmarks, force=force)
+    downloads = [*primary_downloads, *runtime_support_downloads]
     created_splits = regenerate_used_dataset_splits(benchmarks, output_dir=splits_root)
     inventory_paths = write_dataset_inventory_files(benchmarks, datasets_root=_current_datasets_root(), docs_root=DATASETS_DOCS_ROOT, splits_root=splits_root)
     inventory = collect_dataset_inventory(benchmarks, splits_root=splits_root)
     return {
         "benchmark_count": len(benchmarks),
+        "primary_downloads": [_serialize_download_result(item) for item in primary_downloads],
+        "runtime_support_downloads": [_serialize_download_result(item) for item in runtime_support_downloads],
         "downloads": [_serialize_download_result(item) for item in downloads],
         "splits_created": [path.as_posix() for path in created_splits],
         "inventory": inventory,
@@ -764,7 +800,7 @@ def prepare_all_dataset_sources(
     splits_root: str | Path = SPLITS_ROOT,
     force: bool = False,
 ) -> dict[str, object]:
-    """下载主评测源、训练/验证补充源，并重建 split。"""
+    """下载公开可得的数据资产、重建 split，并刷新数据集清单文档。"""
     benchmarks = load_used_benchmark_configs(configs_root)
     primary_downloads = download_primary_dataset_sources(benchmarks, force=force)
     supplementary_downloads = download_supplementary_dataset_sources(benchmarks, force=force)
@@ -875,6 +911,19 @@ def _describe_unavailable_supplementary_assets(benchmarks: list[BenchmarkConfig]
         if reason is not None:
             items.append({"slug": benchmark.slug, "reason": reason})
     return items
+
+
+def _deduplicate_dataset_specs(specs: list[DatasetAssetSpec]) -> list[DatasetAssetSpec]:
+    unique: dict[tuple[str, str, str, str], DatasetAssetSpec] = {}
+    for spec in specs:
+        key = (
+            spec.relative_path.as_posix(),
+            spec.asset_id,
+            spec.purpose,
+            spec.source_url,
+        )
+        unique.setdefault(key, spec)
+    return list(unique.values())
 
 
 def _count_samples_from_file(path: Path) -> int | None:

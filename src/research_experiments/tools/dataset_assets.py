@@ -9,8 +9,10 @@ from dotenv import load_dotenv
 from research_experiments.cli_support.output import configure_utf8_stdio, emit_json
 from research_experiments.workspace.dataset_assets import (
     build_primary_dataset_specs,
+    build_runtime_support_dataset_specs,
     build_supplementary_dataset_specs,
     download_primary_dataset_sources,
+    download_runtime_support_dataset_sources,
     download_supplementary_dataset_sources,
     load_used_benchmark_configs,
     prepare_all_dataset_sources,
@@ -24,13 +26,13 @@ def build_parser() -> argparse.ArgumentParser:
     """构建数据集资产命令行。"""
 
     load_dotenv(".env.local", override=False)
-    parser = argparse.ArgumentParser(description="下载并准备项目 benchmark 数据集。")
+    parser = argparse.ArgumentParser(description="下载并准备项目 benchmark 数据集资产，不负责外部后端安装。")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     list_used = subparsers.add_parser("list-used", help="列出项目当前使用的 benchmark 与数据集资产。")
     list_used.add_argument("--configs-root", default="configs")
 
-    download_used = subparsers.add_parser("download-used", help="下载主评测源文件。")
+    download_used = subparsers.add_parser("download-used", help="下载主评测数据资产与公开运行依赖。")
     download_used.add_argument("--configs-root", default="configs")
     download_used.add_argument("--force", action="store_true")
 
@@ -42,12 +44,12 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--configs-root", default="configs")
     generate.add_argument("--splits-root", default="configs/core/shared/benchmarks/splits")
 
-    prepare = subparsers.add_parser("prepare-used", help="下载主评测源、重建 split，并刷新说明文档。")
+    prepare = subparsers.add_parser("prepare-used", help="下载主评测数据资产与公开运行依赖，重建 split，并刷新说明文档。")
     prepare.add_argument("--configs-root", default="configs")
     prepare.add_argument("--splits-root", default="configs/core/shared/benchmarks/splits")
     prepare.add_argument("--force", action="store_true")
 
-    prepare_all = subparsers.add_parser("prepare-all-sources", help="下载主评测源与训练补充源，并重建 split。")
+    prepare_all = subparsers.add_parser("prepare-all-sources", help="下载公开可得的数据资产并重建 split，不安装外部后端。")
     prepare_all.add_argument("--configs-root", default="configs")
     prepare_all.add_argument("--splits-root", default="configs/core/shared/benchmarks/splits")
     prepare_all.add_argument("--force", action="store_true")
@@ -81,6 +83,7 @@ def main(argv: list[str] | None = None) -> None:
                 for benchmark in benchmarks
             ],
             "primary_assets": [_serialize_spec(spec) for spec in build_primary_dataset_specs(benchmarks)],
+            "runtime_support_assets": [_serialize_spec(spec) for spec in build_runtime_support_dataset_specs(benchmarks)],
             "supplementary_assets": [_serialize_spec(spec) for spec in build_supplementary_dataset_specs(benchmarks)],
         }
         emit_json(payload)
@@ -88,8 +91,16 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "download-used":
         benchmarks = load_used_benchmark_configs(args.configs_root)
-        results = download_primary_dataset_sources(benchmarks, force=args.force)
-        emit_json({"download_count": len(results), "downloads": [_serialize_result(item) for item in results]})
+        primary_results = download_primary_dataset_sources(benchmarks, force=args.force)
+        runtime_results = download_runtime_support_dataset_sources(benchmarks, force=args.force)
+        emit_json(
+            {
+                "download_count": len(primary_results) + len(runtime_results),
+                "primary_downloads": [_serialize_result(item) for item in primary_results],
+                "runtime_support_downloads": [_serialize_result(item) for item in runtime_results],
+                "downloads": [_serialize_result(item) for item in [*primary_results, *runtime_results]],
+            }
+        )
         return
 
     if args.command == "download-training":

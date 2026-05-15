@@ -8,6 +8,7 @@ from pathlib import Path
 from research_experiments.core.config import load_benchmark_config
 from research_experiments.workspace.dataset_assets import (
     build_supplementary_dataset_specs,
+    build_runtime_support_dataset_specs,
     discover_used_benchmark_config_paths,
     write_dataset_inventory_files,
 )
@@ -144,6 +145,7 @@ def test_write_dataset_inventory_files_writes_local_manifest_and_repo_readme(tmp
     assert "local/datasets" in readme
     assert "不再承载正式数据文件" in readme
     assert "uv run research_cli tools dataset-assets prepare-all-sources" in readme
+    assert "公开可下载的运行必需补充资产" in readme
     assert manifest["dataset_count"] == 1
     assert manifest["primary_assets"][0]["slug"] == "math500"
 
@@ -201,4 +203,89 @@ def test_build_supplementary_dataset_specs_covers_train_and_validation_assets(tm
         ("gsm8k", "train", "train"),
         ("mmlu_pro", "validation", "validation"),
     }
+
+
+def test_build_runtime_support_dataset_specs_includes_public_runtime_assets_and_deduplicates_shared_files(tmp_path: Path) -> None:
+    benchmark_dir = tmp_path / "benchmarks"
+    benchmark_dir.mkdir()
+    (benchmark_dir / "webquestions.toml").write_text(
+        "\n".join(
+            [
+                'name = "WebQuestions"',
+                'slug = "webquestions"',
+                'loader = "webquestions_json"',
+                'source_path = "webquestions/test.json"',
+                'source_split = "test"',
+                'sample_id_prefix = "webquestions"',
+                'question_field = "qText"',
+                'answer_field = "answers"',
+                "smoke_size = 20",
+                "pilot_size = 100",
+                "main_size = 300",
+                "random_seed = 42",
+                'notes = ""',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (benchmark_dir / "dog_metaqa_1hop.toml").write_text(
+        "\n".join(
+            [
+                'name = "DoG MetaQA 1-hop"',
+                'slug = "dog_metaqa_1hop"',
+                'loader = "dog_metaqa_txt"',
+                'source_path = "dog-metaqa/1-hop/qa_test.txt"',
+                'source_split = "test"',
+                'sample_id_prefix = "dog_metaqa_1hop"',
+                'question_field = "question"',
+                'answer_field = "answer"',
+                "smoke_size = 20",
+                "pilot_size = 100",
+                "main_size = 300",
+                "random_seed = 42",
+                'notes = ""',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (benchmark_dir / "dog_metaqa_3hop.toml").write_text(
+        "\n".join(
+            [
+                'name = "DoG MetaQA 3-hop"',
+                'slug = "dog_metaqa_3hop"',
+                'loader = "dog_metaqa_txt"',
+                'source_path = "dog-metaqa/3-hop/qa_test.txt"',
+                'source_split = "test"',
+                'sample_id_prefix = "dog_metaqa_3hop"',
+                'question_field = "question"',
+                'answer_field = "answer"',
+                "smoke_size = 20",
+                "pilot_size = 100",
+                "main_size = 300",
+                "random_seed = 42",
+                'notes = ""',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    benchmarks = [
+        load_benchmark_config(benchmark_dir / "webquestions.toml"),
+        load_benchmark_config(benchmark_dir / "dog_metaqa_1hop.toml"),
+        load_benchmark_config(benchmark_dir / "dog_metaqa_3hop.toml"),
+    ]
+
+    specs = build_runtime_support_dataset_specs(benchmarks)
+
+    assert {spec.asset_id for spec in specs} == {
+        "question_dump_test",
+        "freebase_key_test",
+        "freebase_mids_test",
+        "relation_paths_test",
+        "branched_relation_paths_test",
+        "entities_test",
+        "kb",
+    }
+    assert sum(1 for spec in specs if spec.relative_path.as_posix() == "dog-metaqa/kb.txt") == 1
+    assert all(spec.runtime_required for spec in specs)
 
