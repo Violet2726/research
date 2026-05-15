@@ -1,0 +1,54 @@
+# Table-Critic 原论文主复现实验入口。
+name = "table_critic_main"
+description = "复现 Table-Critic 的多角色批判-修正主逻辑，覆盖 WikiTQ 与 TabFact。"
+experiment_kind = "paper"
+benchmark_configs = [
+  "configs/core/shared/benchmarks/wikitq/test_lower.toml",
+  "configs/core/shared/benchmarks/tabfact/test.toml",
+]
+protocol = "configs/families/table_critic/protocols/paper_main.toml"
+global_seed = 42
+prompt_version = "table_critic_paper_v1"
+max_concurrent_requests = 80
+requests_per_minute_limit = 95
+tokens_per_minute_limit = 1000000
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+
+[[methods]]
+name = "end_to_end_qa"
+mode = "direct_qa"
+note = "直接读取整张表与问题，不做显式中间批判。"
+
+[[methods]]
+name = "few_shot_qa"
+mode = "few_shot_qa"
+note = "带少量示例的直接表推理。"
+
+[[methods]]
+name = "chain_of_table"
+mode = "chain_of_table"
+note = "Chain-of-Table 风格初始求解，用作 Table-Critic 的初答基线。"
+
+[[methods]]
+name = "critic_cot"
+mode = "critic_cot"
+note = "单轮 generic critic-refiner 基线，不使用模板树与多轮 curator。"
+
+[[methods]]
+name = "table_critic_paper"
+mode = "table_critic_paper"
+matched_controls = ["chain_of_table"]
+note = "完整 Table-Critic：Chain-of-Table 初答 + Judge/Critic/Refiner/Curator + self-evolving template tree。"
+
+[phases.count20]
+split_suffix = "count20_seed42"
+
+[phases.count100]
+split_suffix = "count100_seed42"
+
+[phases.count300]
+split_suffix = "count300_seed42"
+
+[phases.full]
+split_suffix = "full_seed42"
+

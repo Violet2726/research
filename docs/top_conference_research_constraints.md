@@ -142,6 +142,7 @@ faithful gate 通过只说明该 experiment 在当前验收规则下可接受。
 当前已启用的例外是：
 
 - `dog_graph`：结构化图推理复现支线。`dog_graph_main` 现在代表 DoG 原论文高保真主线，`dog_graph_static_ablation` 只保留为静态候选子图 legacy 对照。它不进入当前 `faithful_matrix`，也不直接改写 same-context / split-context 主论文口径。
+- `table_critic`：结构化表推理复现支线。`table_critic_main` 现在代表 Table-Critic 原论文主复现主线，当前聚焦 `WikiTQ / TabFact`，不纳入 `Binder / Dater`，也不进入当前 `faithful_matrix`。
 
 ## 1.9 必须补强 equal-budget 反方基线
 

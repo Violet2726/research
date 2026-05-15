@@ -22,10 +22,13 @@ def normalize_prediction(dataset: str, final_answer: str) -> str:
         return normalize_math_expression(final_answer)
     if dataset == "strategyqa":
         return normalize_yes_no(final_answer)
+    if dataset == "tabfact":
+        return normalize_tabfact_label(final_answer)
     if dataset in {
         "hotpotqa",
         "webquestions",
         "grailqa",
+        "wikitq",
         "dog_webquestions",
         "dog_grailqa",
         "dog_webqsp",
@@ -45,6 +48,7 @@ def normalize_gold(dataset: str, answer: str) -> str:
     if dataset in {
         "webquestions",
         "grailqa",
+        "wikitq",
         "dog_webquestions",
         "dog_grailqa",
         "dog_webqsp",
@@ -67,6 +71,10 @@ def score_prediction(dataset: str, predicted: str, gold: str) -> float:
         return score_multiple_choice(predicted, gold)
     if dataset in {"webquestions", "grailqa"}:
         return score_text_answer_set(predicted, gold)
+    if dataset == "wikitq":
+        return score_wikitq_answer_set(predicted, gold)
+    if dataset == "tabfact":
+        return 1.0 if normalize_tabfact_label(predicted) == normalize_tabfact_label(gold) else 0.0
     if dataset in {
         "dog_webquestions",
         "dog_grailqa",
@@ -112,6 +120,17 @@ def normalize_yes_no(value: str) -> str:
         return "yes"
     if lowered.startswith("no"):
         return "no"
+    return lowered
+
+
+def normalize_tabfact_label(value: str) -> str:
+    """把 TabFact 的真假标签归一成 `entailed / refuted`。"""
+
+    lowered = normalize_text(value)
+    if lowered in {"entailed", "entail", "true", "yes", "supported", "correct"}:
+        return "entailed"
+    if lowered in {"refuted", "refute", "false", "no", "unsupported", "incorrect"}:
+        return "refuted"
     return lowered
 
 
@@ -196,6 +215,16 @@ def score_text_answer_alias_exact(predicted: str, gold: str) -> float:
     return 0.0
 
 
+def score_wikitq_answer_set(predicted: str, gold: str) -> float:
+    """按 WikiTQ 的答案集合口径比较最终答案。"""
+
+    gold_answers = [normalize_text(item) for item in _decode_text_answer_set_gold(gold) if normalize_text(item)]
+    predicted_answers = [normalize_text(item) for item in _decode_predicted_answer_set(predicted, gold_answers) if normalize_text(item)]
+    if not gold_answers or not predicted_answers:
+        return 0.0
+    return 1.0 if set(predicted_answers) == set(gold_answers) else 0.0
+
+
 def _decode_text_answer_set_gold(gold: str) -> list[str]:
     stripped = str(gold or "").strip()
     if not stripped:
@@ -208,6 +237,23 @@ def _decode_text_answer_set_gold(gold: str) -> list[str]:
         if isinstance(payload, list):
             return [str(item).strip() for item in payload if str(item).strip()]
     return [stripped]
+
+
+def _decode_predicted_answer_set(predicted: str, gold_answers: list[str]) -> list[str]:
+    stripped = str(predicted or "").strip()
+    if not stripped:
+        return []
+
+    cleaned = stripped.replace("\r", "\n")
+    if "|" in cleaned:
+        return [item.strip() for item in cleaned.split("|") if item.strip()]
+    if ";" in cleaned:
+        return [item.strip() for item in cleaned.split(";") if item.strip()]
+    if "\n" in cleaned:
+        return [item.strip() for item in cleaned.splitlines() if item.strip()]
+    if len(gold_answers) > 1 and "," in cleaned:
+        return [item.strip() for item in cleaned.split(",") if item.strip()]
+    return [cleaned]
 
 
 def _token_f1(predicted: str, gold: str) -> float:

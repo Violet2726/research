@@ -169,6 +169,16 @@ FAMILY_SPECS: dict[str, FamilySpec] = {
         report_renderer_path="research_experiments.families.single_agent.run.report:render_report",
         cli_main_path="research_experiments.families.single_agent.spec:main",
     ),
+    "table_critic": FamilySpec(
+        family_name="table_critic",
+        config_loader_path="research_experiments.families.table_critic.config:load_experiment_config",
+        model_resolver_path="research_experiments.families.shared.config_loading:resolve_model",
+        runner_path="research_experiments.families.table_critic.run.execute:run_experiment",
+        validator_path="research_experiments.families.table_critic.run.validate:validate_run",
+        summarizer_path="research_experiments.families.table_critic.run.report:summarize_run",
+        report_renderer_path="research_experiments.families.table_critic.run.report:render_report",
+        cli_main_path="research_experiments.families.table_critic.spec:main",
+    ),
     "sparc": FamilySpec(
         family_name="sparc",
         config_loader_path="research_experiments.families.sparc.config:load_experiment_config",

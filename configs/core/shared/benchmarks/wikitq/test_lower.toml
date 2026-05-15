@@ -1,0 +1,14 @@
+name = "WikiTQ"
+slug = "wikitq"
+loader = "wikitq_jsonl"
+source_path = "wikitq/test_lower.jsonl"
+source_split = "test"
+sample_id_prefix = "wikitq"
+question_field = "statement"
+answer_field = "answer"
+smoke_size = 20
+pilot_size = 100
+main_size = 300
+random_seed = 42
+notes = "Table-Critic 官方仓提供的 WikiTQ 测试文件，保留表格正文与答案集合。"
+

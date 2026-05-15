@@ -48,6 +48,8 @@ def load_samples(config: BenchmarkConfig) -> list[DatasetSample]:
         "math500_jsonl": _load_math500,
         "strategyqa_json": _load_strategyqa,
         "hotpotqa_parquet": _load_hotpotqa,
+        "wikitq_jsonl": _load_wikitq,
+        "tabfact_jsonl": _load_tabfact,
         "webquestions_json": _load_webquestions,
         "grailqa_parquet": _load_grailqa,
         "dog_webquestions_json": _load_dog_webquestions,
@@ -380,6 +382,88 @@ def _load_hotpotqa(config: BenchmarkConfig) -> list[DatasetSample]:
                     "raw_context": record.get("context"),
                 },
             )
+            )
+    return samples
+
+
+def _load_wikitq(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载 Table-Critic 官方仓提供的 WikiTQ 测试 JSONL。"""
+
+    path = resolve_dataset_source_path(config.source_path)
+    samples: list[DatasetSample] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for index, line in enumerate(handle):
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            answers = [str(item).strip() for item in record.get("answer", []) if str(item).strip()]
+            table_rows = record.get("table_text") or []
+            sample_id = str(record.get("ids") or f"{config.sample_id_prefix}-{index:05d}")
+            question = str(record.get("statement") or record.get("question") or "").strip()
+            prompt_context = _render_table_context(
+                table_rows,
+                caption=str(record.get("table_caption") or "").strip() or None,
+            )
+            samples.append(
+                DatasetSample(
+                    dataset=config.slug,
+                    sample_id=sample_id,
+                    question=question,
+                    reference_answer=_encode_answer_list(answers),
+                    prompt_context=prompt_context,
+                    metadata={
+                        "raw_index": index,
+                        "paper_dataset_name": "WikiTQ",
+                        "table_id": str(record.get("table_id") or sample_id),
+                        "table_caption": record.get("table_caption"),
+                        "table_text": table_rows,
+                        "answers": answers,
+                        "question_type": _infer_table_question_type(question),
+                        "source_record": record,
+                    },
+                )
+            )
+    return samples
+
+
+def _load_tabfact(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载 Table-Critic 官方仓提供的 TabFact 测试 JSONL。"""
+
+    path = resolve_dataset_source_path(config.source_path)
+    raw2clean_path = path.with_name("raw2clean.jsonl")
+    cleaned_index = _load_tabfact_cleaned_index(raw2clean_path)
+    samples: list[DatasetSample] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for index, line in enumerate(handle):
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            statement = str(record.get("statement") or "").strip()
+            table_rows = record.get("table_text") or []
+            table_caption = str(record.get("table_caption") or "").strip()
+            table_id = str(record.get("table_id") or f"{config.sample_id_prefix}-table-{index:05d}")
+            sample_id = f"{table_id}::{index:05d}"
+            cleaned_statement = cleaned_index.get((table_id, statement))
+            prompt_context = _render_table_context(table_rows, caption=table_caption or None)
+            samples.append(
+                DatasetSample(
+                    dataset=config.slug,
+                    sample_id=sample_id,
+                    question=statement,
+                    reference_answer="entailed" if int(record.get("label") or 0) == 1 else "refuted",
+                    prompt_context=prompt_context,
+                    metadata={
+                        "raw_index": index,
+                        "paper_dataset_name": "TabFact",
+                        "table_id": table_id,
+                        "table_caption": table_caption,
+                        "table_text": table_rows,
+                        "label": int(record.get("label") or 0),
+                        "cleaned_statement": cleaned_statement,
+                        "question_type": "verification",
+                        "source_record": record,
+                    },
+                )
             )
     return samples
 
@@ -780,6 +864,58 @@ def _optional_webquestions_annotation(path: Path) -> dict[str, dict[str, Any]]:
         if sample_id:
             rows[sample_id] = item
     return rows
+
+
+def _load_tabfact_cleaned_index(path: Path) -> dict[tuple[str, str], str]:
+    if not path.exists():
+        return {}
+    rows: dict[tuple[str, str], str] = {}
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            statement = str(record.get("statement") or "").strip()
+            table_id = str(record.get("table_id") or "").strip()
+            cleaned_statement = str(record.get("cleaned_statement") or "").strip()
+            if statement and table_id and cleaned_statement:
+                rows[(table_id, statement)] = cleaned_statement
+    return rows
+
+
+def _render_table_context(table_rows: list[list[Any]], *, caption: str | None = None) -> str:
+    if not table_rows:
+        return "Table:\n<empty>"
+    header = [str(cell).strip() for cell in table_rows[0]]
+    body = [
+        [str(cell).strip() for cell in row]
+        for row in table_rows[1:]
+    ]
+    lines: list[str] = []
+    if caption:
+        lines.append(f"Caption: {caption}")
+    lines.append("Table:")
+    lines.append("/*")
+    lines.append("col : " + " | ".join(header))
+    for index, row in enumerate(body, start=1):
+        lines.append(f"row {index} : " + " | ".join(row))
+    lines.append("*/")
+    return "\n".join(lines)
+
+
+def _infer_table_question_type(question: str) -> str:
+    normalized = question.lower()
+    if normalized.startswith("how many") or "number of" in normalized or "count" in normalized:
+        return "count"
+    if normalized.startswith("which") or "what is the name" in normalized:
+        return "lookup"
+    if "average" in normalized or "sum" in normalized or "total" in normalized:
+        return "aggregation"
+    if "most" in normalized or "least" in normalized or "highest" in normalized or "lowest" in normalized:
+        return "superlative"
+    if normalized.startswith("is ") or normalized.startswith("are ") or normalized.startswith("did "):
+        return "boolean"
+    return "table_qa"
 
 
 def _build_webquestions_candidate_graph(

@@ -139,6 +139,30 @@ def build_primary_dataset_specs(benchmarks: list[BenchmarkConfig]) -> list[Datas
             repo_type="dataset",
             filename="distractor/validation-00000-of-00001.parquet",
         ),
+        "wikitq": DatasetAssetSpec(
+            slug="wikitq",
+            dataset_name="WikiTQ",
+            asset_id="evaluation",
+            purpose="evaluation",
+            relative_path=Path("wikitq/test_lower.jsonl"),
+            source_kind="http_file",
+            source_label="Table-Critic official GitHub",
+            source_url="https://raw.githubusercontent.com/Peiying-Yu/Table-Critic/main/thought/TableQA/data/wikitq/test_lower.jsonl",
+            source_split="test",
+            notes="Table-Critic 官方仓提供的 WikiTQ 论文复现测试文件，保留了表格正文与答案集合。",
+        ),
+        "tabfact": DatasetAssetSpec(
+            slug="tabfact",
+            dataset_name="TabFact",
+            asset_id="evaluation",
+            purpose="evaluation",
+            relative_path=Path("tabfact/test.jsonl"),
+            source_kind="http_file",
+            source_label="Table-Critic official GitHub",
+            source_url="https://raw.githubusercontent.com/Peiying-Yu/Table-Critic/main/thought/TableFV/data/tabfact/test.jsonl",
+            source_split="test",
+            notes="Table-Critic 官方仓提供的 TabFact 论文复现测试文件，包含表格、陈述与真假标签。",
+        ),
         "grailqa": DatasetAssetSpec(
             slug="grailqa",
             dataset_name="GrailQA",
@@ -487,6 +511,21 @@ def build_supplementary_dataset_specs(benchmarks: list[BenchmarkConfig]) -> list
                 runtime_required=True,
             ),
         ],
+        "tabfact": [
+            DatasetAssetSpec(
+                slug="tabfact",
+                dataset_name="TabFact",
+                asset_id="raw2clean",
+                purpose="annotation",
+                relative_path=Path("tabfact/raw2clean.jsonl"),
+                source_kind="http_file",
+                source_label="Table-Critic official GitHub",
+                source_url="https://raw.githubusercontent.com/Peiying-Yu/Table-Critic/main/thought/TableFV/data/tabfact/raw2clean.jsonl",
+                source_split="test",
+                notes="Table-Critic 官方仓提供的清洗陈述对齐文件，可用于更贴近论文的 statement 标准化提示。",
+                runtime_required=True,
+            )
+        ],
         "dog_metaqa_1hop": [
             DatasetAssetSpec(
                 slug="dog_metaqa_1hop",
@@ -595,7 +634,13 @@ def collect_dataset_inventory(
     for benchmark in sorted(benchmarks, key=lambda item: item.slug):
         spec = primary_spec_by_slug[benchmark.slug]
         source_path = resolve_dataset_source_path(benchmark.source_path)
-        samples = load_samples(benchmark)
+        if source_path.exists():
+            try:
+                sample_count = len(load_samples(benchmark))
+            except FileNotFoundError:
+                sample_count = None
+        else:
+            sample_count = None
         primary_assets.append(
             {
                 "slug": benchmark.slug,
@@ -606,7 +651,7 @@ def collect_dataset_inventory(
                 "source_split": benchmark.source_split,
                 "source_label": spec.source_label,
                 "source_url": spec.source_url,
-                "sample_count": len(samples),
+                "sample_count": sample_count,
                 "size_bytes": source_path.stat().st_size if source_path.exists() else 0,
                 "split_files": sorted(
                     path.relative_to(splits_root_path).as_posix()
@@ -713,7 +758,7 @@ def write_dataset_inventory_files(
                 f"- 本地资产：`{item['local_path']}`",
                 f"- 上游来源：{item['source_label']}，`{item['source_url']}`",
                 f"- 上游 split：`{item['source_split']}`",
-                f"- 样本数：`{item['sample_count']}`",
+                f"- 样本数：`{item['sample_count']}`" if item["sample_count"] is not None else "- 样本数：尚未下载",
                 f"- 文件大小：`{_format_bytes(int(item['size_bytes']))}`",
                 f"- 冻结 split：{', '.join(f'`{name}`' for name in item['split_files'])}",
             ]

@@ -227,6 +227,18 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 文件大小：`414.25 KiB`
 - 冻结 split：`count100/strategyqa/dev-seed42.json`, `count20/strategyqa/dev-seed42.json`, `full/strategyqa/dev-seed42.json`
 
+### TabFact (`tabfact`)
+
+- benchmark 配置：`configs/core/shared/benchmarks/tabfact/test.toml`
+- 数据相对路径：`tabfact/test.jsonl`
+- 本地资产：`local/datasets/tabfact/test.jsonl`
+- 上游来源：Table-Critic official GitHub，`https://raw.githubusercontent.com/Peiying-Yu/Table-Critic/main/thought/TableFV/data/tabfact/test.jsonl`
+- 上游 split：`test`
+- 样本数：`2024`
+- 文件大小：`2.84 MiB`
+- 冻结 split：`count100/tabfact/test-seed42.json`, `count20/tabfact/test-seed42.json`, `count300/tabfact/test-seed42.json`, `count500/tabfact/test-seed42.json`, `full/tabfact/test-seed42.json`
+- 说明：Table-Critic 官方仓提供的 TabFact 论文复现测试文件，包含表格、陈述与真假标签。
+
 ### WebQuestions (`webquestions`)
 
 - benchmark 配置：`configs/core/shared/benchmarks/webquestions/test.toml`
@@ -238,6 +250,18 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 文件大小：`267.79 KiB`
 - 冻结 split：`count100/webquestions/test-seed42.json`, `count20/webquestions/test-seed42.json`, `count300/webquestions/test-seed42.json`, `count500/webquestions/test-seed42.json`, `full/webquestions/test-seed42.json`
 - 说明：主文件只包含问题与答案。若要恢复更完整的图注释，请再下载 supplementary 里的 Freebase 路径与实体链接文件。
+
+### WikiTQ (`wikitq`)
+
+- benchmark 配置：`configs/core/shared/benchmarks/wikitq/test_lower.toml`
+- 数据相对路径：`wikitq/test_lower.jsonl`
+- 本地资产：`local/datasets/wikitq/test_lower.jsonl`
+- 上游来源：Table-Critic official GitHub，`https://raw.githubusercontent.com/Peiying-Yu/Table-Critic/main/thought/TableQA/data/wikitq/test_lower.jsonl`
+- 上游 split：`test`
+- 样本数：`4344`
+- 文件大小：`11.18 MiB`
+- 冻结 split：`count100/wikitq/test_lower-seed42.json`, `count20/wikitq/test_lower-seed42.json`, `count300/wikitq/test_lower-seed42.json`, `count500/wikitq/test_lower-seed42.json`, `full/wikitq/test_lower-seed42.json`
+- 说明：Table-Critic 官方仓提供的 WikiTQ 论文复现测试文件，保留了表格正文与答案集合。
 
 ## 训练集与补充上游 split
 
@@ -314,6 +338,16 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 上游 split：`train`
 - 文件大小：`3.68 MiB`
 - 样本数：`2061`
+
+### TabFact / raw2clean
+
+- 本地资产：`local/datasets/tabfact/raw2clean.jsonl`
+- 用途：`annotation`
+- 上游来源：Table-Critic official GitHub，`https://raw.githubusercontent.com/Peiying-Yu/Table-Critic/main/thought/TableFV/data/tabfact/raw2clean.jsonl`
+- 上游 split：`test`
+- 文件大小：`2.96 MiB`
+- 样本数：`1971`
+- 说明：Table-Critic 官方仓提供的清洗陈述对齐文件，可用于更贴近论文的 statement 标准化提示。
 
 ### WebQuestions / question_dump_test
 

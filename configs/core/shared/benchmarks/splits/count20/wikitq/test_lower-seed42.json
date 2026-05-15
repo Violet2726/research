@@ -1,0 +1,29 @@
+{
+  "dataset": "wikitq",
+  "split_name": "count20_seed42",
+  "source_split": "test",
+  "sample_count": 20,
+  "sample_ids": [
+    "nu-2501",
+    "nu-1525",
+    "nu-2726",
+    "nu-1006",
+    "nu-2623",
+    "nu-98",
+    "nu-3933",
+    "nu-3058",
+    "nu-3694",
+    "nu-1660",
+    "nu-4119",
+    "nu-1634",
+    "nu-379",
+    "nu-2684",
+    "nu-1770",
+    "nu-3191",
+    "nu-1257",
+    "nu-3869",
+    "nu-672",
+    "nu-949"
+  ],
+  "random_seed": 42
+}

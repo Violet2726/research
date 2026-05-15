@@ -101,6 +101,23 @@ def test_dog_graph_validate_backend_cli(monkeypatch) -> None:
     assert payload["checks"][0]["backend_name"] == "local_reduced_freebase"
 
 
+def test_table_critic_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "family",
+            "table_critic",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/table_critic/experiments/table_critic_main.toml",
+        ],
+    )
+    assert payload["name"] == "table_critic_main"
+    assert payload["experiment_kind"] == "paper"
+    assert payload["protocol"]["max_refine_rounds"] == 2
+    assert payload["methods"][-1]["name"] == "table_critic_paper"
+
+
 def test_faithful_matrix_render_family_landscape_cli(tmp_path: Path) -> None:
     write_json(
         tmp_path / "state.json",

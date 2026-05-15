@@ -1,0 +1,21 @@
+# Table-Critic 原论文主线协议。
+protocol_kind = "paper"
+max_refine_rounds = 2
+initial_temperature = 0.0
+judge_temperature = 0.0
+critic_temperature = 0.0
+refiner_temperature = 0.0
+curator_temperature = 0.0
+top_p = 1.0
+max_output_tokens = 1536
+max_template_examples = 3
+template_tree_max_summaries_per_node = 8
+use_curator = true
+seed_template_paths = [
+  "ROOT/Sub-table Error/Row Error",
+  "ROOT/Sub-table Error/Column Error",
+  "ROOT/Final Query Error/Calculation Error",
+  "ROOT/Final Query Error/Logical Error",
+  "ROOT/Answer Format Error",
+]
+

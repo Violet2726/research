@@ -1,0 +1,14 @@
+name = "TabFact"
+slug = "tabfact"
+loader = "tabfact_jsonl"
+source_path = "tabfact/test.jsonl"
+source_split = "test"
+sample_id_prefix = "tabfact"
+question_field = "statement"
+answer_field = "label"
+smoke_size = 20
+pilot_size = 100
+main_size = 300
+random_seed = 42
+notes = "Table-Critic 官方仓提供的 TabFact 测试文件，保留表格、陈述与真假标签。"
+
