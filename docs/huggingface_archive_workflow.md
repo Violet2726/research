@@ -55,6 +55,7 @@ uv run research_cli tools archive-runs fetch-run --run-id <run_id>
 - 目录结构保持 `providers/<provider>/<request_model>/<dataset>/`
 - 每个分库压缩为 `requests.sqlite.zst`
 - 同目录保留 `metadata.json` 与 `sha256.txt`
+- push/pull 会按 shard 级快照 hash 自动跳过未变化分库，避免重复上传、下载或覆盖
 
 常用命令：
 

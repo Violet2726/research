@@ -10,7 +10,7 @@ import shutil
 import tempfile
 from typing import Any
 
-from huggingface_hub import HfApi, snapshot_download
+from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 
 from research_experiments.workspace.archive_utils import sha256_file
 from research_experiments.core.execution.cache import collect_cache_shard_summaries, repair_cache_shard
@@ -33,23 +33,30 @@ def push_latest_cache_snapshot(
 ) -> dict[str, Any]:
     """压缩当前 cache 根目录并发布到 HF dataset repo。"""
     root = Path(cache_root)
+    previous_manifest = _download_remote_cache_manifest(repo_id=repo_id, token=token, missing_ok=True)
     with tempfile.TemporaryDirectory(prefix="research-cache-publish-") as temp_dir:
         staging_root = Path(temp_dir)
-        summary = build_cache_snapshot(root, staging_root=staging_root, shard_filters=shard_filters)
-        api = HfApi(token=token)
-        if create_repo:
-            api.create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
-        api.upload_folder(
-            repo_id=repo_id,
-            repo_type="dataset",
-            folder_path=staging_root.as_posix(),
-            path_in_repo="",
-            commit_message=_build_cache_snapshot_commit_message(summary),
+        summary = build_cache_snapshot(
+            root,
+            staging_root=staging_root,
+            shard_filters=shard_filters,
+            previous_manifest=previous_manifest,
         )
+        api = HfApi(token=token)
+        if summary["upload_required"]:
+            if create_repo:
+                api.create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
+            api.upload_folder(
+                repo_id=repo_id,
+                repo_type="dataset",
+                folder_path=staging_root.as_posix(),
+                path_in_repo="",
+                commit_message=_build_cache_snapshot_commit_message(summary),
+            )
     return {
         **summary,
         "remote_repo": repo_id,
-        "published": True,
+        "published": bool(summary["upload_required"]),
         "private_repo": private,
     }
 
@@ -89,20 +96,47 @@ def pull_latest_cache_snapshot(
 ) -> dict[str, Any]:
     """从 HF dataset repo 拉取最新 cache 快照，并恢复 sqlite 分库。"""
     destination = Path(target_root)
+    normalized_filters = _normalize_shard_filters(shard_filters)
+    manifest = _download_remote_cache_manifest(repo_id=repo_id, token=token, missing_ok=False)
+    selected_rows = _select_manifest_rows(manifest, normalized_filters)
+    rows_to_restore: list[dict[str, Any]] = []
+    skipped_shards: list[str] = []
+    for row in selected_rows:
+        relative_dir = str(row.get("relative_dir") or "")
+        target_sqlite = destination / relative_dir / "requests.sqlite"
+        if _local_cache_matches_remote(target_sqlite, row):
+            skipped_shards.append(target_sqlite.relative_to(destination).as_posix())
+            continue
+        rows_to_restore.append(row)
+
+    restored_shards: tuple[str, ...] = ()
     with tempfile.TemporaryDirectory(prefix="research-cache-fetch-") as temp_dir:
         temp_root = Path(temp_dir)
-        snapshot_download(
-            repo_id=repo_id,
-            repo_type="dataset",
-            local_dir=temp_root,
-            token=token,
-        )
-        restored_shards = restore_cache_snapshot(temp_root, destination, shard_filters=shard_filters)
+        if rows_to_restore:
+            allow_patterns = [CACHE_SNAPSHOT_MANIFEST]
+            allow_patterns.extend(
+                f"{str(row.get('relative_dir') or '').strip('/')}/{str(row.get('compressed_name') or 'requests.sqlite.zst')}"
+                for row in rows_to_restore
+            )
+            snapshot_download(
+                repo_id=repo_id,
+                repo_type="dataset",
+                local_dir=temp_root,
+                allow_patterns=allow_patterns,
+                token=token,
+            )
+            restored_shards = restore_cache_snapshot(
+                temp_root,
+                destination,
+                shard_filters=[str(row.get("relative_dir") or "") for row in rows_to_restore],
+            )
     return {
         "target_root": destination.as_posix(),
         "remote_repo": repo_id,
         "restored_shard_count": len(restored_shards),
         "restored_shards": restored_shards,
+        "skipped_shard_count": len(skipped_shards),
+        "skipped_shards": tuple(skipped_shards),
     }
 
 
@@ -111,15 +145,19 @@ def build_cache_snapshot(
     *,
     staging_root: str | Path,
     shard_filters: list[str] | None = None,
+    previous_manifest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """把 cache 根目录压缩成适合远程同步的最新快照目录。"""
     root = Path(cache_root)
     stage = Path(staging_root)
     stage.mkdir(parents=True, exist_ok=True)
     normalized_filters = _normalize_shard_filters(shard_filters, base_root=root)
+    previous_rows = _index_manifest_shards(previous_manifest, normalized_filters)
     shards_payload: list[dict[str, Any]] = []
     total_original_size = 0
     total_compressed_size = 0
+    uploaded_shards: list[str] = []
+    skipped_shards: list[str] = []
 
     for shard in collect_cache_shard_summaries(root):
         if not shard.exists:
@@ -133,9 +171,29 @@ def build_cache_snapshot(
         snapshot_path = target_dir / "requests.snapshot.sqlite"
         compressed_path = target_dir / "requests.sqlite.zst"
         snapshot_info = _export_consistent_sqlite_snapshot(source_path, snapshot_path)
+        snapshot_sha256 = sha256_file(snapshot_path)
+        previous_row = previous_rows.get(relative_dir)
+        snapshot_size_bytes = snapshot_path.stat().st_size
+        if _manifest_row_matches_snapshot(previous_row, snapshot_sha256):
+            snapshot_path.unlink()
+            shards_payload.append(
+                _reuse_manifest_row(
+                    previous_row=previous_row,
+                    provider=shard.provider,
+                    request_model=shard.request_model,
+                    dataset=shard.dataset,
+                    relative_dir=relative_dir,
+                    original_size_bytes=snapshot_size_bytes,
+                    snapshot_sha256=snapshot_sha256,
+                )
+            )
+            skipped_shards.append(relative_dir)
+            total_original_size += snapshot_size_bytes
+            total_compressed_size += int(previous_row.get("compressed_size_bytes") or 0)
+            continue
+
         _compress_zstd_file(snapshot_path, compressed_path)
         digest = sha256_file(compressed_path)
-        snapshot_size_bytes = snapshot_path.stat().st_size
         metadata = {
             "provider": shard.provider,
             "request_model": shard.request_model,
@@ -146,7 +204,8 @@ def build_cache_snapshot(
             "original_size_bytes": snapshot_size_bytes,
             "compressed_size_bytes": compressed_path.stat().st_size,
             "sha256": digest,
-            "schema_version": 2,
+            "snapshot_sha256": snapshot_sha256,
+            "schema_version": 3,
             "snapshot_strategy": "sqlite_backup",
             "repaired_before_snapshot": snapshot_info["repaired_before_snapshot"],
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -167,14 +226,17 @@ def build_cache_snapshot(
                 "original_size_bytes": snapshot_size_bytes,
                 "compressed_size_bytes": compressed_path.stat().st_size,
                 "sha256": digest,
+                "snapshot_sha256": snapshot_sha256,
                 "snapshot_strategy": "sqlite_backup",
             }
         )
+        uploaded_shards.append(relative_dir)
         total_original_size += snapshot_size_bytes
         total_compressed_size += compressed_path.stat().st_size
 
+    previous_signature = _manifest_rows_signature(_select_manifest_rows(previous_manifest, normalized_filters))
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "semantics": "latest_only",
         "snapshot_strategy": "sqlite_backup",
@@ -182,8 +244,15 @@ def build_cache_snapshot(
         "shard_count": len(shards_payload),
         "total_original_size_bytes": total_original_size,
         "total_compressed_size_bytes": total_compressed_size,
+        "uploaded_shard_count": len(uploaded_shards),
+        "uploaded_shards": tuple(uploaded_shards),
+        "skipped_shard_count": len(skipped_shards),
+        "skipped_shards": tuple(skipped_shards),
         "shards": shards_payload,
     }
+    manifest_changed = _manifest_rows_signature(shards_payload) != previous_signature
+    payload["manifest_changed"] = manifest_changed
+    payload["upload_required"] = bool(uploaded_shards) or manifest_changed
     (stage / CACHE_SNAPSHOT_MANIFEST).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
 
@@ -316,6 +385,124 @@ def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _download_remote_cache_manifest(
+    *,
+    repo_id: str,
+    token: str | None,
+    missing_ok: bool,
+) -> dict[str, Any]:
+    try:
+        manifest_path = Path(
+            hf_hub_download(
+                repo_id=repo_id,
+                repo_type="dataset",
+                filename=CACHE_SNAPSHOT_MANIFEST,
+                token=token,
+            )
+        )
+    except Exception as exc:
+        if missing_ok:
+            return {}
+        raise RuntimeError(f"无法读取远端 cache manifest：{repo_id}/{CACHE_SNAPSHOT_MANIFEST}") from exc
+    return _load_json(manifest_path)
+
+
+def _select_manifest_rows(
+    manifest: dict[str, Any] | None,
+    normalized_filters: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    if not manifest:
+        return []
+    rows: list[dict[str, Any]] = []
+    for row in manifest.get("shards", []):
+        if not isinstance(row, dict):
+            continue
+        relative_dir = str(row.get("relative_dir") or "").strip()
+        if not relative_dir:
+            continue
+        if normalized_filters and not _matches_shard_filter(relative_dir, normalized_filters):
+            continue
+        rows.append(row)
+    return rows
+
+
+def _index_manifest_shards(
+    manifest: dict[str, Any] | None,
+    normalized_filters: tuple[str, ...],
+) -> dict[str, dict[str, Any]]:
+    indexed: dict[str, dict[str, Any]] = {}
+    for row in _select_manifest_rows(manifest, normalized_filters):
+        relative_dir = str(row.get("relative_dir") or "").strip()
+        if relative_dir:
+            indexed[relative_dir] = row
+    return indexed
+
+
+def _manifest_row_matches_snapshot(previous_row: dict[str, Any] | None, snapshot_sha256: str) -> bool:
+    if not previous_row:
+        return False
+    previous_snapshot_sha256 = str(previous_row.get("snapshot_sha256") or "").strip()
+    if not previous_snapshot_sha256:
+        return False
+    return previous_snapshot_sha256 == snapshot_sha256
+
+
+def _reuse_manifest_row(
+    *,
+    previous_row: dict[str, Any],
+    provider: str,
+    request_model: str,
+    dataset: str,
+    relative_dir: str,
+    original_size_bytes: int,
+    snapshot_sha256: str,
+) -> dict[str, Any]:
+    return {
+        "provider": provider,
+        "request_model": request_model,
+        "dataset": dataset,
+        "relative_dir": relative_dir,
+        "compressed_name": str(previous_row.get("compressed_name") or "requests.sqlite.zst"),
+        "metadata_name": str(previous_row.get("metadata_name") or "metadata.json"),
+        "sha256_name": str(previous_row.get("sha256_name") or "sha256.txt"),
+        "original_size_bytes": original_size_bytes,
+        "compressed_size_bytes": int(previous_row.get("compressed_size_bytes") or 0),
+        "sha256": str(previous_row.get("sha256") or ""),
+        "snapshot_sha256": snapshot_sha256,
+        "snapshot_strategy": str(previous_row.get("snapshot_strategy") or "sqlite_backup"),
+    }
+
+
+def _manifest_rows_signature(rows: list[dict[str, Any]]) -> tuple[tuple[str, str, str, str, int, int, str], ...]:
+    normalized: list[tuple[str, str, str, str, int, int, str]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        normalized.append(
+            (
+                str(row.get("relative_dir") or ""),
+                str(row.get("compressed_name") or "requests.sqlite.zst"),
+                str(row.get("sha256") or ""),
+                str(row.get("snapshot_sha256") or ""),
+                int(row.get("compressed_size_bytes") or 0),
+                int(row.get("original_size_bytes") or 0),
+                str(row.get("snapshot_strategy") or "sqlite_backup"),
+            )
+        )
+    return tuple(sorted(normalized))
+
+
+def _local_cache_matches_remote(target_sqlite: Path, remote_row: dict[str, Any]) -> bool:
+    remote_snapshot_sha256 = str(remote_row.get("snapshot_sha256") or "").strip()
+    if not remote_snapshot_sha256 or not target_sqlite.exists():
+        return False
+    with tempfile.TemporaryDirectory(prefix="research-cache-compare-") as temp_dir:
+        snapshot_path = Path(temp_dir) / "requests.snapshot.sqlite"
+        _export_consistent_sqlite_snapshot(target_sqlite, snapshot_path)
+        local_snapshot_sha256 = sha256_file(snapshot_path)
+    return local_snapshot_sha256 == remote_snapshot_sha256
 
 
 def _build_cache_snapshot_commit_message(summary: dict[str, Any]) -> str:

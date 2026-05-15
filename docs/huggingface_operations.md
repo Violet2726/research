@@ -26,6 +26,7 @@
   - `artifacts.tar.zst`
 - `runs` 拉取时会自动完成全部归档解压
 - `cache` 推送时会压缩为 `requests.sqlite.zst`，并附带 `metadata.json`、`sha256.txt`
+- `cache` push/pull 会按 shard 级快照 hash 做增量判断；未变化的分库不会重复上传、下载或覆盖
 
 ## 一、runs：支持的操作
 

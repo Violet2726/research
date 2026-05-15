@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sqlite3
 
 from research_experiments.core.execution.cache import CachedResponse, RequestCacheRouter, json_dump
-from research_experiments.workspace.cache_snapshots import _build_cache_snapshot_commit_message, build_cache_snapshot, restore_cache_snapshot
+from research_experiments.workspace.cache_snapshots import (
+    _build_cache_snapshot_commit_message,
+    build_cache_snapshot,
+    pull_latest_cache_snapshot,
+    push_latest_cache_snapshot,
+    restore_cache_snapshot,
+)
 
 
 def test_build_and_restore_cache_snapshot(tmp_path: Path) -> None:
@@ -186,4 +193,128 @@ def test_build_cache_snapshot_commit_message_is_human_readable() -> None:
         }
     )
     assert message == "更新 cache 快照 | 6 shards | 596.21 MiB -> 37.55 MiB | 2026-05-10T06:00:00+00:00"
+
+
+def test_build_cache_snapshot_marks_unchanged_shards_against_previous_manifest(tmp_path: Path) -> None:
+    cache_root = tmp_path / "cache"
+    first_stage = tmp_path / "snapshot-first"
+    second_stage = tmp_path / "snapshot-second"
+
+    router = RequestCacheRouter(cache_root)
+    cache = router.for_request_target(
+        provider="xiaomimimo",
+        request_model="mimo-v2.5",
+        dataset="strategyqa/dev",
+    )
+    cache.put(
+        CachedResponse(
+            cache_key="abc",
+            payload_json=json_dump({"request": 1}),
+            response_json=json_dump({"ok": True}),
+            http_status=200,
+            latency_ms=1.0,
+            provider_request_id="req_1",
+        )
+    )
+    router.close()
+
+    first_payload = build_cache_snapshot(cache_root, staging_root=first_stage)
+    second_payload = build_cache_snapshot(
+        cache_root,
+        staging_root=second_stage,
+        previous_manifest=json.loads((first_stage / "snapshot_manifest.json").read_text(encoding="utf-8")),
+    )
+
+    shard_dir = second_stage / "providers" / "xiaomimimo" / "mimo-v2-5" / "strategyqa" / "dev"
+    assert first_payload["shard_count"] == 1
+    assert second_payload["uploaded_shard_count"] == 0
+    assert second_payload["skipped_shard_count"] == 1
+    assert second_payload["upload_required"] is False
+    assert not (shard_dir / "requests.sqlite.zst").exists()
+
+
+def test_push_latest_cache_snapshot_skips_upload_when_remote_manifest_matches(monkeypatch, tmp_path: Path) -> None:
+    cache_root = tmp_path / "cache"
+    stage_root = tmp_path / "seed-remote"
+
+    router = RequestCacheRouter(cache_root)
+    cache = router.for_request_target(
+        provider="xiaomimimo",
+        request_model="mimo-v2.5",
+        dataset="strategyqa/dev",
+    )
+    cache.put(
+        CachedResponse(
+            cache_key="abc",
+            payload_json=json_dump({"request": 1}),
+            response_json=json_dump({"ok": True}),
+            http_status=200,
+            latency_ms=1.0,
+            provider_request_id="req_1",
+        )
+    )
+    router.close()
+
+    build_cache_snapshot(cache_root, staging_root=stage_root)
+    remote_manifest = json.loads((stage_root / "snapshot_manifest.json").read_text(encoding="utf-8"))
+    upload_calls: list[str] = []
+
+    class FakeApi:
+        def __init__(self, token=None) -> None:
+            self.token = token
+
+        def create_repo(self, **kwargs) -> None:
+            return None
+
+        def upload_folder(self, **kwargs) -> None:
+            upload_calls.append(kwargs["folder_path"])
+
+    monkeypatch.setattr("research_experiments.workspace.cache_snapshots._download_remote_cache_manifest", lambda **kwargs: remote_manifest)
+    monkeypatch.setattr("research_experiments.workspace.cache_snapshots.HfApi", FakeApi)
+
+    payload = push_latest_cache_snapshot(cache_root, repo_id="owner/research-cache", create_repo=False)
+
+    assert payload["published"] is False
+    assert payload["uploaded_shard_count"] == 0
+    assert payload["skipped_shard_count"] == 1
+    assert upload_calls == []
+
+
+def test_pull_latest_cache_snapshot_skips_download_when_local_shard_already_matches(monkeypatch, tmp_path: Path) -> None:
+    cache_root = tmp_path / "cache"
+    stage_root = tmp_path / "seed-remote"
+
+    router = RequestCacheRouter(cache_root)
+    cache = router.for_request_target(
+        provider="xiaomimimo",
+        request_model="mimo-v2.5",
+        dataset="strategyqa/dev",
+    )
+    cache.put(
+        CachedResponse(
+            cache_key="abc",
+            payload_json=json_dump({"request": 1}),
+            response_json=json_dump({"ok": True}),
+            http_status=200,
+            latency_ms=1.0,
+            provider_request_id="req_1",
+        )
+    )
+    router.close()
+
+    build_cache_snapshot(cache_root, staging_root=stage_root)
+    remote_manifest = json.loads((stage_root / "snapshot_manifest.json").read_text(encoding="utf-8"))
+    download_calls: list[list[str] | None] = []
+
+    monkeypatch.setattr("research_experiments.workspace.cache_snapshots._download_remote_cache_manifest", lambda **kwargs: remote_manifest)
+    monkeypatch.setattr(
+        "research_experiments.workspace.cache_snapshots.snapshot_download",
+        lambda **kwargs: download_calls.append(kwargs.get("allow_patterns")),
+    )
+
+    payload = pull_latest_cache_snapshot(cache_root, repo_id="owner/research-cache")
+
+    assert payload["restored_shard_count"] == 0
+    assert payload["skipped_shard_count"] == 1
+    assert download_calls == []
 
