@@ -1,0 +1,11 @@
+protocol_kind = "paper"
+actor_temperature = 0.0
+critic_temperature = 0.0
+top_p = 1.0
+max_output_tokens = 1536
+parent_artifact_token_cap = 180
+inbound_instruction_token_cap = 120
+memory_control_max_parents = 4
+profile_asset_path = "macnet/srdd-profile-repo.zip"
+default_direction_mode = "divergent"
+terminal_fuse_temperature = 0.0

@@ -144,6 +144,7 @@ faithful gate 通过只说明该 experiment 在当前验收规则下可接受。
 - `dog_graph`：结构化图推理复现支线。`dog_graph_main` 现在代表 DoG 原论文高保真主线，`dog_graph_static_ablation` 只保留为静态候选子图 legacy 对照。它不进入当前 `faithful_matrix`，也不直接改写 same-context / split-context 主论文口径。
 - `table_critic`：结构化表推理复现支线。`table_critic_main` 现在代表 Table-Critic 原论文主复现主线，当前聚焦 `WikiTQ / TabFact`，不纳入 `Binder / Dater`，也不进入当前 `faithful_matrix`。
 - `econ`：低通信协调论文复现支线。`econ_same_context_main` 现在代表 ECON 的正式复现主线，直接进入当前 `faithful_matrix` 的 `same_context / supporting` 分层，用于验证 belief-driven coordination 是否优于无通信投票并以更低成本接近高通信参考线。
+- `macnet`：拓扑协作论文复现支线。`macnet_paper_main` 现在代表 MacNet 的正式复现主线，聚焦 `MMLU / HumanEval / CommonGen-Hard` 与 DAG 拓扑差异；`macnet_scaling_study` 负责规模曲线与调用数匹配控制，不进入当前 `faithful_matrix`。
 
 ## 1.9 必须补强 equal-budget 反方基线
 

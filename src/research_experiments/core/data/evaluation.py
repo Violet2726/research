@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import json
 import math
+import subprocess
 import re
 import string
+import sys
+import tempfile
 from collections import Counter
 from typing import Iterable
 
@@ -24,6 +27,8 @@ def normalize_prediction(dataset: str, final_answer: str) -> str:
         return normalize_yes_no(final_answer)
     if dataset == "tabfact":
         return normalize_tabfact_label(final_answer)
+    if dataset == "commongen_hard":
+        return normalize_commongen_sentence(final_answer)
     if dataset in {
         "hotpotqa",
         "webquestions",
@@ -40,6 +45,10 @@ def normalize_prediction(dataset: str, final_answer: str) -> str:
         return normalize_text(final_answer)
     if dataset in {"mmlu_pro", "gpqa_diamond"}:
         return normalize_multiple_choice(final_answer)
+    if dataset == "mmlu":
+        return normalize_multiple_choice(final_answer)
+    if dataset == "humaneval":
+        return normalize_code_completion(final_answer)
     raise ValueError(f"Unsupported dataset {dataset}")
 
 
@@ -75,6 +84,10 @@ def score_prediction(dataset: str, predicted: str, gold: str) -> float:
         return score_wikitq_answer_set(predicted, gold)
     if dataset == "tabfact":
         return 1.0 if normalize_tabfact_label(predicted) == normalize_tabfact_label(gold) else 0.0
+    if dataset == "commongen_hard":
+        return score_commongen_hard(predicted, gold)
+    if dataset == "humaneval":
+        return score_humaneval(predicted, gold)
     if dataset in {
         "dog_webquestions",
         "dog_grailqa",
@@ -85,6 +98,8 @@ def score_prediction(dataset: str, predicted: str, gold: str) -> float:
         "dog_metaqa_3hop",
     }:
         return score_text_answer_alias_exact(predicted, gold)
+    if dataset == "mmlu":
+        return score_multiple_choice(predicted, gold)
     return 1.0 if normalize_prediction(dataset, predicted) == normalize_gold(dataset, gold) else 0.0
 
 
@@ -154,6 +169,20 @@ def normalize_multiple_choice(value: str) -> str:
     return normalize_text(normalized)
 
 
+def normalize_commongen_sentence(value: str) -> str:
+    """把 CommonGen 类生成题的答案清洗成稳定句子。"""
+
+    cleaned = re.sub(r"\s+", " ", _strip_code_fences(value).strip())
+    return cleaned.strip().strip("\"'")
+
+
+def normalize_code_completion(value: str) -> str:
+    """把 HumanEval 代码补全整理成可执行的补全文本。"""
+
+    cleaned = _strip_code_fences(str(value or ""))
+    return cleaned.replace("\r\n", "\n").rstrip() + ("\n" if cleaned.strip() else "")
+
+
 def normalize_math_expression(value: str) -> str:
     """对短数学表达式做轻量归一化，尽量保留判题所需语义。"""
     normalized = value.strip().lower()
@@ -182,6 +211,74 @@ def _decode_multiple_choice_gold(gold: str) -> tuple[str, str]:
         return normalize_multiple_choice(letter), text.strip()
     normalized = normalize_multiple_choice(gold)
     return normalized, ""
+
+
+def score_commongen_hard(predicted: str, gold: str) -> float:
+    """用概念覆盖率作为 CommonGen-Hard 的稳定主指标。"""
+
+    normalized_prediction = normalize_commongen_sentence(predicted).lower()
+    if not normalized_prediction:
+        return 0.0
+    try:
+        payload = json.loads(gold)
+    except json.JSONDecodeError:
+        return 0.0
+    concept_set = payload.get("concept_set") or []
+    normalized_concepts = [_normalize_commongen_concept(item) for item in concept_set]
+    normalized_concepts = [item for item in normalized_concepts if item]
+    if not normalized_concepts:
+        return 0.0
+    hits = sum(1 for concept in normalized_concepts if concept in normalized_prediction)
+    return round(hits / len(normalized_concepts), 6)
+
+
+def score_humaneval(predicted: str, gold: str) -> float:
+    """在本地 Python 子进程里执行 HumanEval 用例，返回 pass@1。"""
+
+    try:
+        payload = json.loads(gold)
+    except json.JSONDecodeError:
+        return 0.0
+
+    prompt = str(payload.get("prompt") or "")
+    test_code = str(payload.get("test") or "")
+    entry_point = str(payload.get("entry_point") or "").strip()
+    completion = normalize_code_completion(predicted)
+    if not prompt or not test_code or not entry_point or not completion.strip():
+        return 0.0
+
+    program = "\n".join(
+        [
+            prompt.rstrip("\n"),
+            completion.rstrip("\n"),
+            "",
+            test_code.strip("\n"),
+            "",
+            f"check({entry_point})",
+            "",
+        ]
+    )
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".py", delete=False) as handle:
+        handle.write(program)
+        temp_path = handle.name
+    try:
+        completed = subprocess.run(
+            [sys.executable, temp_path],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except Exception:
+        return 0.0
+    finally:
+        try:
+            import os
+
+            os.unlink(temp_path)
+        except OSError:
+            pass
+    return 1.0 if completed.returncode == 0 else 0.0
 
 
 def score_text_answer_set(predicted: str, gold: str) -> float:
@@ -268,3 +365,18 @@ def _token_f1(predicted: str, gold: str) -> float:
     precision = overlap / len(predicted_tokens)
     recall = overlap / len(gold_tokens)
     return 2 * precision * recall / (precision + recall)
+
+
+def _normalize_commongen_concept(value: str) -> str:
+    concept = str(value or "").strip().lower()
+    concept = re.sub(r"_[nv]$", "", concept)
+    concept = concept.replace("_", " ")
+    return normalize_text(concept)
+
+
+def _strip_code_fences(value: str) -> str:
+    text = str(value or "")
+    fence_match = re.search(r"```(?:python)?\s*(.*?)```", text, flags=re.DOTALL | re.IGNORECASE)
+    if fence_match:
+        return fence_match.group(1).strip("\r\n")
+    return text.strip("\r\n")

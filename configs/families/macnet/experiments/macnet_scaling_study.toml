@@ -1,0 +1,72 @@
+name = "macnet_scaling_study"
+description = "复现 MacNet 的拓扑规模曲线与调用数匹配控制实验。"
+experiment_kind = "scaling_study"
+benchmark_configs = [
+  "configs/core/shared/benchmarks/mmlu/test.toml",
+  "configs/core/shared/benchmarks/humaneval/test.toml",
+  "configs/core/shared/benchmarks/commongen-hard/commongen_hard_nohuman.toml",
+]
+protocol = "configs/families/macnet/protocols/paper_main.toml"
+global_seed = 42
+prompt_version = "macnet_scaling_v1"
+max_concurrent_requests = 80
+requests_per_minute_limit = 95
+tokens_per_minute_limit = 1000000
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+
+[[methods]]
+name = "single_agent_cot"
+mode = "single_agent_cot"
+note = "单智能体参考线。"
+
+[[methods]]
+name = "vote_mvN_closed"
+mode = "vote_control"
+note = "闭域任务的调用数匹配投票控制。"
+
+[[methods]]
+name = "best_of_n_open"
+mode = "best_of_n_control"
+note = "开放生成任务的调用数匹配采样控制。"
+
+[[methods]]
+name = "macnet_chain"
+mode = "macnet_topology"
+topology_type = "chain"
+note = "链式 DAG 协作。"
+
+[[methods]]
+name = "macnet_layer"
+mode = "macnet_topology"
+topology_type = "layer"
+note = "分层 DAG 协作。"
+
+[[methods]]
+name = "macnet_mesh"
+mode = "macnet_topology"
+topology_type = "mesh"
+note = "稠密 mesh DAG 协作。"
+
+[[methods]]
+name = "macnet_random"
+mode = "macnet_topology"
+topology_type = "random"
+note = "随机 DAG 协作。"
+
+[phases.count20]
+split_suffix = "count20_seed42"
+scaling_node_scales = [1, 2, 4]
+direction_modes = ["convergent", "divergent"]
+dense_topology_scale_cap = 4
+
+[phases.count100]
+split_suffix = "count100_seed42"
+scaling_node_scales = [1, 2, 4, 8, 16]
+direction_modes = ["convergent", "divergent"]
+dense_topology_scale_cap = 16
+
+[phases.count300]
+split_suffix = "count300_seed42"
+scaling_node_scales = [1, 2, 4, 8, 16, 32]
+direction_modes = ["convergent", "divergent"]
+dense_topology_scale_cap = 16

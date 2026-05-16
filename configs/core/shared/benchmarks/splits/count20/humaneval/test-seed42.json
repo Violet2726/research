@@ -1,0 +1,29 @@
+{
+  "dataset": "humaneval",
+  "split_name": "count20_seed42",
+  "source_split": "test",
+  "sample_count": 20,
+  "sample_ids": [
+    "HumanEval/61",
+    "HumanEval/104",
+    "HumanEval/105",
+    "HumanEval/42",
+    "HumanEval/145",
+    "HumanEval/130",
+    "HumanEval/88",
+    "HumanEval/11",
+    "HumanEval/137",
+    "HumanEval/66",
+    "HumanEval/30",
+    "HumanEval/124",
+    "HumanEval/154",
+    "HumanEval/18",
+    "HumanEval/127",
+    "HumanEval/121",
+    "HumanEval/0",
+    "HumanEval/17",
+    "HumanEval/52",
+    "HumanEval/123"
+  ],
+  "random_seed": 42
+}

@@ -134,6 +134,22 @@ def test_econ_inspect_cli() -> None:
     assert payload["methods"][-1]["name"] == "econ_bne_main"
 
 
+def test_macnet_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "family",
+            "macnet",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/macnet/experiments/macnet_paper_main.toml",
+        ],
+    )
+    assert payload["name"] == "macnet_paper_main"
+    assert payload["experiment_kind"] == "paper"
+    assert payload["protocol"]["default_direction_mode"] == "divergent"
+
+
 def test_faithful_matrix_render_family_landscape_cli(tmp_path: Path) -> None:
     write_json(
         tmp_path / "state.json",

@@ -44,8 +44,11 @@ class DatasetSample:
 def load_samples(config: BenchmarkConfig) -> list[DatasetSample]:
     """按 `loader` 类型读取 benchmark 的全量样本。"""
     loader_map = {
+        "commongen_hard_json": _load_commongen_hard,
+        "humaneval_parquet": _load_humaneval,
         "gsm8k_jsonl": _load_gsm8k,
         "math500_jsonl": _load_math500,
+        "mmlu_parquet": _load_mmlu,
         "strategyqa_json": _load_strategyqa,
         "hotpotqa_parquet": _load_hotpotqa,
         "wikitq_jsonl": _load_wikitq,
@@ -333,6 +336,38 @@ def _load_math500(config: BenchmarkConfig) -> list[DatasetSample]:
     return samples
 
 
+def _load_mmlu(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载 MMLU 聚合 parquet，并把选项渲染成统一多选提示。"""
+
+    table = pq.read_table(resolve_dataset_source_path(config.source_path))
+    payload = table.to_pylist()
+    samples: list[DatasetSample] = []
+    for index, record in enumerate(payload):
+        options = [str(item).strip() for item in record.get("choices", [])]
+        answer_index = int(record.get("answer") or 0)
+        answer_letter = _choice_letter(answer_index)
+        answer_text = options[answer_index] if 0 <= answer_index < len(options) else ""
+        sample_id = f"{config.sample_id_prefix}-{index:05d}"
+        samples.append(
+            DatasetSample(
+                dataset=config.slug,
+                sample_id=sample_id,
+                question=str(record.get("question") or "").strip(),
+                reference_answer=f"{answer_letter}|||{answer_text}",
+                prompt_context=_render_multiple_choice_options(options),
+                metadata={
+                    "raw_index": index,
+                    "subject": record.get("subject"),
+                    "choices": options,
+                    "answer_index": answer_index,
+                    "answer_letter": answer_letter,
+                    "answer_text": answer_text,
+                },
+            )
+        )
+    return samples
+
+
 def _load_strategyqa(config: BenchmarkConfig) -> list[DatasetSample]:
     """加载 StrategyQA JSON，并把答案规范化为 `yes / no`。"""
     path = resolve_dataset_source_path(config.source_path)
@@ -354,6 +389,77 @@ def _load_strategyqa(config: BenchmarkConfig) -> list[DatasetSample]:
                     "facts": list(record.get("facts", [])),
                     "decomposition": list(record.get("decomposition", [])),
                     "evidence": record.get("evidence"),
+                },
+            )
+        )
+    return samples
+
+
+def _load_humaneval(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载 HumanEval parquet，并把 prompt 与测试契约编码进参考答案。"""
+
+    table = pq.read_table(resolve_dataset_source_path(config.source_path))
+    payload = table.to_pylist()
+    samples: list[DatasetSample] = []
+    for index, record in enumerate(payload):
+        prompt = str(record.get("prompt") or "")
+        test_code = str(record.get("test") or "")
+        entry_point = str(record.get("entry_point") or "").strip()
+        canonical_solution = str(record.get("canonical_solution") or "")
+        sample_id = str(record.get("task_id") or f"{config.sample_id_prefix}-{index:05d}")
+        reference_answer = json.dumps(
+            {
+                "prompt": prompt,
+                "test": test_code,
+                "entry_point": entry_point,
+                "canonical_solution": canonical_solution,
+            },
+            ensure_ascii=False,
+        )
+        samples.append(
+            DatasetSample(
+                dataset=config.slug,
+                sample_id=sample_id,
+                question=prompt.rstrip(),
+                reference_answer=reference_answer,
+                prompt_context="Return only the Python completion for the unfinished function.",
+                metadata={
+                    "raw_index": index,
+                    "task_id": sample_id,
+                    "entry_point": entry_point,
+                    "canonical_solution": canonical_solution,
+                    "test": test_code,
+                },
+            )
+        )
+    return samples
+
+
+def _load_commongen_hard(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载 CommonGen-Hard JSON，并把 concept set 编码为稳定参考。"""
+
+    payload = json.loads(resolve_dataset_source_path(config.source_path).read_text(encoding="utf-8"))
+    samples: list[DatasetSample] = []
+    for index, record in enumerate(payload):
+        concept_set = [str(item).strip() for item in record.get("concept_set", []) if str(item).strip()]
+        reference_answer = json.dumps(
+            {
+                "concept_set": concept_set,
+                "id": str(record.get("id") or f"{config.sample_id_prefix}-{index:05d}"),
+            },
+            ensure_ascii=False,
+        )
+        samples.append(
+            DatasetSample(
+                dataset=config.slug,
+                sample_id=str(record.get("id") or f"{config.sample_id_prefix}-{index:05d}"),
+                question=str(record.get("instruction") or "").strip(),
+                reference_answer=reference_answer,
+                prompt_context="Required concepts:\n- " + "\n- ".join(concept_set),
+                metadata={
+                    "raw_index": index,
+                    "concept_set": concept_set,
+                    "human_annotations": list(record.get("human_annotations") or []),
                 },
             )
         )

@@ -17,6 +17,7 @@
 - `table_critic_main`：Table-Critic 原论文主复现主线，覆盖 `WikiTQ / TabFact`，使用 `Chain-of-Table 初答 -> Judge -> Critic -> Refiner -> Curator` 与 self-evolving template tree；独立运行、独立报告，不并入当前 `faithful_matrix`。
 当前下一篇正式复现主线已切换为：
 - `econ_same_context_main`：ECON 低通信协调复现线，覆盖 `GSM8K / StrategyQA / HotpotQA`，使用 `独立求解 -> belief state -> equilibrium action selection -> 一次受控 belief update`；直接进入 `faithful_matrix` 作为 `same_context / supporting` 条目。
+- `macnet_paper_main`：MacNet 拓扑协作复现主线，覆盖 `MMLU / HumanEval / CommonGen-Hard`，使用 `actor 节点 + critic 边 + DAG 拓扑序传播`；独立运行、独立报告，不并入当前 `faithful_matrix`。
 
 方法本体禁止改动：
 

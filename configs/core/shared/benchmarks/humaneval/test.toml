@@ -1,0 +1,33 @@
+name = "HumanEval"
+slug = "humaneval"
+loader = "humaneval_parquet"
+source_path = "humaneval/test.parquet"
+source_split = "test"
+sample_id_prefix = "humaneval"
+question_field = "prompt"
+answer_field = "canonical_solution"
+smoke_size = 20
+pilot_size = 100
+main_size = 164
+random_seed = 42
+notes = "使用公开 HumanEval 测试集，主指标为本地 pass@1。"
+
+[[split_presets]]
+name = "count20_seed42"
+strategy = "shuffle"
+size = 20
+
+[[split_presets]]
+name = "count100_seed42"
+strategy = "shuffle"
+size = 100
+
+[[split_presets]]
+name = "count300_seed42"
+strategy = "full"
+size = 164
+
+[[split_presets]]
+name = "full164_seed42"
+strategy = "full"
+size = 164

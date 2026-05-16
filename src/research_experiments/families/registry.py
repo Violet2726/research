@@ -139,6 +139,16 @@ FAMILY_SPECS: dict[str, FamilySpec] = {
         report_renderer_path="research_experiments.families.imad.run.report:render_report",
         cli_main_path="research_experiments.families.imad.spec:main",
     ),
+    "macnet": FamilySpec(
+        family_name="macnet",
+        config_loader_path="research_experiments.families.macnet.config:load_experiment_config",
+        model_resolver_path="research_experiments.families.shared.config_loading:resolve_model",
+        runner_path="research_experiments.families.macnet.run.execute:run_experiment",
+        validator_path="research_experiments.families.macnet.run.validate:validate_run",
+        summarizer_path="research_experiments.families.macnet.run.report:summarize_run",
+        report_renderer_path="research_experiments.families.macnet.run.report:render_report",
+        cli_main_path="research_experiments.families.macnet.spec:main",
+    ),
     "multi_agent": FamilySpec(
         family_name="multi_agent",
         config_loader_path="research_experiments.families.multi_agent.config:load_experiment_config",

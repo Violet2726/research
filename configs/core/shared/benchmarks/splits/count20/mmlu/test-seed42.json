@@ -1,0 +1,29 @@
+{
+  "dataset": "mmlu",
+  "split_name": "count20_seed42",
+  "source_split": "test",
+  "sample_count": 20,
+  "sample_ids": [
+    "mmlu-10856",
+    "mmlu-10247",
+    "mmlu-07410",
+    "mmlu-03581",
+    "mmlu-13087",
+    "mmlu-03504",
+    "mmlu-02383",
+    "mmlu-11496",
+    "mmlu-01058",
+    "mmlu-06013",
+    "mmlu-12143",
+    "mmlu-10932",
+    "mmlu-05099",
+    "mmlu-12772",
+    "mmlu-08717",
+    "mmlu-04750",
+    "mmlu-09520",
+    "mmlu-05691",
+    "mmlu-00565",
+    "mmlu-11656"
+  ],
+  "random_seed": 42
+}

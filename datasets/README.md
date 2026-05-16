@@ -51,6 +51,18 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 
 ## 主评测源文件
 
+### CommonGen-Hard (`commongen_hard`)
+
+- benchmark 配置：`configs/core/shared/benchmarks/commongen-hard/commongen_hard_nohuman.toml`
+- 数据相对路径：`commongen-hard/commongen_hard_nohuman.json`
+- 本地资产：`local/datasets/commongen-hard/commongen_hard_nohuman.json`
+- 上游来源：Hugging Face dataset，`https://huggingface.co/datasets/allenai/commongen_hard`
+- 上游 split：`test`
+- 样本数：`400`
+- 文件大小：`372.47 KiB`
+- 冻结 split：`count100/commongen-hard/commongen_hard_nohuman-seed42.json`, `count20/commongen-hard/commongen_hard_nohuman-seed42.json`, `count300/commongen-hard/commongen_hard_nohuman-seed42.json`, `full/commongen-hard/commongen_hard_nohuman-seed42.json`
+- 说明：公开 no-human 版本；本地主指标采用稳定的 concept coverage 代理。
+
 ### DoG CWQ (`dog_cwq`)
 
 - benchmark 配置：`configs/core/shared/benchmarks/dog-freebase/cwq.toml`
@@ -193,6 +205,18 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 文件大小：`26.18 MiB`
 - 冻结 split：`count100/hotpotqa/validation_distractor-seed42.json`, `count20/hotpotqa/validation_distractor-seed42.json`, `count300/hotpotqa/validation_distractor-seed42.json`, `count500/hotpotqa/validation_distractor-seed42.json`, `full/hotpotqa/validation_distractor-seed42.json`
 
+### HumanEval (`humaneval`)
+
+- benchmark 配置：`configs/core/shared/benchmarks/humaneval/test.toml`
+- 数据相对路径：`humaneval/test.parquet`
+- 本地资产：`local/datasets/humaneval/test.parquet`
+- 上游来源：Hugging Face dataset，`https://huggingface.co/datasets/openai/openai_humaneval`
+- 上游 split：`test`
+- 样本数：`164`
+- 文件大小：`81.95 KiB`
+- 冻结 split：`count100/humaneval/test-seed42.json`, `count20/humaneval/test-seed42.json`, `count300/humaneval/test-seed42.json`, `full/humaneval/test-seed42.json`
+- 说明：保留 prompt、entry point 与 tests，供 MacNet 本地 pass@1 评测使用。
+
 ### MATH500 (`math500`)
 
 - benchmark 配置：`configs/core/shared/benchmarks/math500/test.toml`
@@ -204,6 +228,18 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 文件大小：`436.10 KiB`
 - 冻结 split：`count100/math500/test-seed42.json`, `count20/math500/test-seed42.json`, `count300/math500/test-seed42.json`, `full/math500/test-seed42.json`
 - 说明：官方公开数据仅提供 test 集。
+
+### MMLU (`mmlu`)
+
+- benchmark 配置：`configs/core/shared/benchmarks/mmlu/test.toml`
+- 数据相对路径：`mmlu/test.parquet`
+- 本地资产：`local/datasets/mmlu/test.parquet`
+- 上游来源：Hugging Face dataset，`https://huggingface.co/datasets/cais/mmlu`
+- 上游 split：`test`
+- 样本数：`14042`
+- 文件大小：`3.34 MiB`
+- 冻结 split：`count100/mmlu/test-seed42.json`, `count20/mmlu/test-seed42.json`, `count300/mmlu/test-seed42.json`, `count500/mmlu/test-seed42.json`, `full/mmlu/test-seed42.json`
+- 说明：使用原始 MMLU all/test 聚合 parquet，避免用 MMLU-Pro 代替 canonical 多选主线。
 
 ### MMLU-Pro (`mmlu_pro`)
 
@@ -265,6 +301,15 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 
 ## 训练集与补充上游 split
 
+### MacNet SRDD Profile / srdd_profile_repo
+
+- 本地资产：`local/datasets/macnet/srdd-profile-repo.zip`
+- 用途：`profile_bank`
+- 上游来源：MacNet official GitHub archive，`https://github.com/OpenBMB/ChatDev/archive/refs/heads/macnet.zip`
+- 上游 split：`shared`
+- 文件大小：`8.62 MiB`
+- 说明：包含官方 SRDD_Profile 目录；MacNet family 会直接从 zip 中读取角色 profile 文本。
+
 ### DoG MetaQA / kb
 
 - 本地资产：`local/datasets/dog-metaqa/kb.txt`
@@ -319,6 +364,15 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 上游 split：`distractor_train`
 - 文件大小：`158.46 MiB`
 - 样本数：`45223`
+
+### MMLU / validation
+
+- 本地资产：`local/datasets/mmlu/validation.parquet`
+- 用途：`validation`
+- 上游来源：Hugging Face dataset，`https://huggingface.co/datasets/cais/mmlu`
+- 上游 split：`all_validation`
+- 文件大小：尚未下载
+- 说明：供 MacNet 的 topic 诊断与离线抽样使用。
 
 ### MMLU-Pro / validation
 

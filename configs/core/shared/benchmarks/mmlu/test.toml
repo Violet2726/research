@@ -1,0 +1,42 @@
+name = "MMLU"
+slug = "mmlu"
+loader = "mmlu_parquet"
+source_path = "mmlu/test.parquet"
+source_split = "test"
+sample_id_prefix = "mmlu"
+question_field = "question"
+answer_field = "answer"
+options_field = "choices"
+answer_index_field = "answer"
+smoke_size = 20
+pilot_size = 100
+main_size = 300
+random_seed = 42
+notes = "使用 cais/mmlu 的 all/test 聚合 parquet，保留原始闭域多选任务口径。"
+
+[[split_presets]]
+name = "count20_seed42"
+strategy = "shuffle"
+size = 20
+
+[[split_presets]]
+name = "count100_seed42"
+strategy = "shuffle"
+size = 100
+
+[[split_presets]]
+name = "count300_seed42"
+strategy = "stratified"
+field = "subject"
+size = 300
+
+[[split_presets]]
+name = "count500_seed42"
+strategy = "stratified"
+field = "subject"
+size = 500
+
+[[split_presets]]
+name = "full14042_seed42"
+strategy = "full"
+size = 14042

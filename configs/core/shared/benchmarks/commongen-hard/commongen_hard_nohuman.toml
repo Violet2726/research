@@ -1,0 +1,33 @@
+name = "CommonGen-Hard"
+slug = "commongen_hard"
+loader = "commongen_hard_json"
+source_path = "commongen-hard/commongen_hard_nohuman.json"
+source_split = "test"
+sample_id_prefix = "commongen_hard"
+question_field = "instruction"
+answer_field = "concept_set"
+smoke_size = 20
+pilot_size = 100
+main_size = 300
+random_seed = 42
+notes = "使用公开 CommonGen-Hard no-human 版本，主指标采用稳定的 concept coverage 代理。"
+
+[[split_presets]]
+name = "count20_seed42"
+strategy = "shuffle"
+size = 20
+
+[[split_presets]]
+name = "count100_seed42"
+strategy = "shuffle"
+size = 100
+
+[[split_presets]]
+name = "count300_seed42"
+strategy = "shuffle"
+size = 300
+
+[[split_presets]]
+name = "full400_seed42"
+strategy = "full"
+size = 400

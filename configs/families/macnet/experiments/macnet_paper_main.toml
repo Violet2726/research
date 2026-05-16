@@ -1,0 +1,76 @@
+name = "macnet_paper_main"
+description = "复现 MacNet 的 DAG 拓扑协作主线，覆盖 MMLU、HumanEval 与 CommonGen-Hard。"
+experiment_kind = "paper"
+benchmark_configs = [
+  "configs/core/shared/benchmarks/mmlu/test.toml",
+  "configs/core/shared/benchmarks/humaneval/test.toml",
+  "configs/core/shared/benchmarks/commongen-hard/commongen_hard_nohuman.toml",
+]
+protocol = "configs/families/macnet/protocols/paper_main.toml"
+global_seed = 42
+prompt_version = "macnet_paper_v1"
+max_concurrent_requests = 80
+requests_per_minute_limit = 95
+tokens_per_minute_limit = 1000000
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+
+[[methods]]
+name = "single_agent_cot"
+mode = "single_agent_cot"
+note = "单智能体强推理基线。"
+
+[[methods]]
+name = "macnet_chain"
+mode = "macnet_topology"
+topology_type = "chain"
+note = "链式 DAG 协作。"
+
+[[methods]]
+name = "macnet_star"
+mode = "macnet_topology"
+topology_type = "star"
+note = "星型 DAG 协作。"
+
+[[methods]]
+name = "macnet_tree"
+mode = "macnet_topology"
+topology_type = "tree"
+note = "树型 DAG 协作。"
+
+[[methods]]
+name = "macnet_mesh"
+mode = "macnet_topology"
+topology_type = "mesh"
+note = "稠密 mesh DAG 协作。"
+
+[[methods]]
+name = "macnet_layer"
+mode = "macnet_topology"
+topology_type = "layer"
+note = "分层 DAG 协作。"
+
+[[methods]]
+name = "macnet_random"
+mode = "macnet_topology"
+topology_type = "random"
+note = "随机 DAG 协作。"
+
+[phases.count20]
+split_suffix = "count20_seed42"
+node_scale = 4
+direction_mode = "divergent"
+
+[phases.count100]
+split_suffix = "count100_seed42"
+node_scale = 16
+direction_mode = "divergent"
+
+[phases.count300]
+split_suffix = "count300_seed42"
+node_scale = 16
+direction_mode = "divergent"
+
+[phases.full]
+split_overrides = { mmlu = "full14042_seed42", humaneval = "full164_seed42", commongen_hard = "full400_seed42" }
+node_scale = 16
+direction_mode = "divergent"

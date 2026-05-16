@@ -1,0 +1,29 @@
+{
+  "dataset": "commongen_hard",
+  "split_name": "count20_seed42",
+  "source_split": "test",
+  "sample_count": 20,
+  "sample_ids": [
+    "a598b910db073a55b152045c56ec5ef5",
+    "646c4782a00eebcf9af81104076af2c6",
+    "2058c92698dae1e2202c6a786d22314c",
+    "bbd1be21e4ec422f37fbffcf4666b998",
+    "841641ef33099c6b1002ab5580fd33d1",
+    "4cf1d25d68b668a9a32314b232fe59e6",
+    "c31cb4d032a1cb59de2d5eb4b1e467b0",
+    "d6473e9159747a4ea2271514cb723b9f",
+    "9d4c0ec9904df07421022430a7482336",
+    "c9bd4e5500532da2f2d086b714485d81",
+    "36bcb7f039d7a921b1a10675cd57bbcb",
+    "c974d8bff4aecf2e91b5b903eca5a004",
+    "473fdd59194cf1f3b83bf3e7e44316c9",
+    "f27aeb61d319b3af559b440848c75c10",
+    "b469fff344e5adc7e423dd5ec66d3271",
+    "071119f9e45ce19481881c2d814f9344",
+    "3e9b4af7e3588fd19f189d446631ceaa",
+    "94390bae6b78409c3035dfd20a4a647c",
+    "949ea99042f84f311cf7cd4bdf41d382",
+    "45020f668c5f2d938f8fecc32f08dd9c"
+  ],
+  "random_seed": 42
+}
