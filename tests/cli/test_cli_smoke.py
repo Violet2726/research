@@ -36,7 +36,7 @@ def test_faithful_matrix_inspect_cli() -> None:
         ],
     )
     assert payload["overrides"]["phase_name"] == "count20"
-    assert payload["counts"]["semantic_unique_targets"] == 16
+    assert payload["counts"]["semantic_unique_targets"] == 17
 
 
 def test_imad_inspect_cli() -> None:
@@ -116,6 +116,22 @@ def test_table_critic_inspect_cli() -> None:
     assert payload["experiment_kind"] == "paper"
     assert payload["protocol"]["max_refine_rounds"] == 2
     assert payload["methods"][-1]["name"] == "table_critic_paper"
+
+
+def test_econ_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "family",
+            "econ",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/econ/experiments/econ_same_context_main.toml",
+        ],
+    )
+    assert payload["name"] == "econ_same_context_main"
+    assert payload["protocol"]["agent_count"] == 3
+    assert payload["methods"][-1]["name"] == "econ_bne_main"
 
 
 def test_faithful_matrix_render_family_landscape_cli(tmp_path: Path) -> None:

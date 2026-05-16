@@ -1,0 +1,54 @@
+# ECON same-context 低通信协调主实验入口。
+name = "econ_same_context_main"
+description = "复现 belief-driven 低通信协调在 same-context 核心基准上的收益与成本权衡。"
+experiment_note = """
+实验定位：ECON 论文复现 family 的正式入口，覆盖 GSM8K、StrategyQA、HotpotQA。
+核心问题：在固定预算 same-context 推理中，belief-driven coordination 是否能优于无通信投票，并以更低成本接近高通信参考线。
+结果用途：作为 faithful matrix 中的 supporting reproduction，用于验证低通信协调而不是自由辩论本身的价值。
+"""
+benchmark_configs = [
+  "configs/core/shared/benchmarks/gsm8k/test.toml",
+  "configs/core/shared/benchmarks/strategyqa/dev.toml",
+  "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
+]
+protocol = "configs/families/econ/protocols/paper_main.toml"
+global_seed = 42
+prompt_version = "econ_bne_v1"
+max_concurrent_requests = 80
+requests_per_minute_limit = 95
+tokens_per_minute_limit = 1000000
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+
+[[methods]]
+name = "single_agent_cot"
+mode = "single_agent_cot"
+note = "单智能体强 CoT 基线。"
+
+[[methods]]
+name = "vote_mv3"
+mode = "vote_mv3"
+note = "三智能体无通信多数投票基线。"
+
+[[methods]]
+name = "econ_full_comm_r1"
+mode = "econ_full_comm_r1"
+note = "一轮显式共享理由的高通信参考线。"
+
+[[methods]]
+name = "econ_bne_main"
+mode = "econ_bne_main"
+matched_controls = ["vote_mv3"]
+note = "belief-driven equilibrium 动作选择主方法。"
+
+[phases.count20]
+split_suffix = "count20_seed42"
+
+[phases.count100]
+split_suffix = "count100_seed42"
+
+[phases.count300]
+split_overrides = { gsm8k = "count300_seed42", strategyqa = "full229_seed42", hotpotqa = "count300_seed42" }
+
+[phases.count500]
+split_overrides = { gsm8k = "count500_seed42", strategyqa = "full229_seed42", hotpotqa = "count500_seed42" }
+

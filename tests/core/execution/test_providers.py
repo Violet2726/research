@@ -195,10 +195,12 @@ def test_provider_rotates_shared_http_client_after_protocol_error(monkeypatch: p
         assert response.http_status == 200
         assert response.finish_reason == "stop"
         assert len(created_clients) == 2
-        assert getattr(created_clients[0], "closed") is True
+        assert getattr(created_clients[0], "closed") is False
     finally:
         if provider is not None:
             provider.close()
+    assert getattr(created_clients[0], "closed") is True
+    assert getattr(created_clients[1], "closed") is True
 
 def test_provider_close_swallows_transport_close_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     class DummyClient:

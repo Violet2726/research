@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 from threading import Lock
 import time
@@ -34,6 +34,7 @@ class _SharedClientHandle:
 
     client: httpx.Client
     refcount: int = 0
+    retired_clients: list[httpx.Client] = field(default_factory=list)
 
 
 class OpenAICompatibleProvider:
@@ -70,6 +71,11 @@ class OpenAICompatibleProvider:
                     except Exception:
                         pass
                     finally:
+                        for retired in handle.retired_clients:
+                            try:
+                                retired.close()
+                            except Exception:
+                                pass
                         self._shared_clients.pop(self._client_key, None)
         self._closed = True
 
@@ -166,16 +172,18 @@ class OpenAICompatibleProvider:
             return handle
 
     def _reset_shared_client(self, failed_client: httpx.Client) -> None:
-        """在协议级断连后轮换共享 client，避免复用坏连接池。"""
+        """在协议级断连后轮换共享 client，避免复用坏连接池。
+
+        这里不能立刻关闭旧 client。
+        高并发下，其他线程可能仍在使用它；若此时直接 close，会把仍在运行的请求一起打断。
+        因此我们只把旧实例挂到 `retired_clients`，等最后一个 provider 释放引用时统一回收。
+        """
 
         with self._shared_clients_lock:
             handle = self._shared_clients.get(self._client_key)
             if handle is None or handle is not self._client_handle or handle.client is not failed_client:
                 return
-            try:
-                failed_client.close()
-            except Exception:
-                pass
+            handle.retired_clients.append(failed_client)
             handle.client = _build_http_client()
 
 

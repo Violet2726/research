@@ -256,7 +256,11 @@ def _run_simple_method_sample(
                 previous_answer=current_answer,
             )
             current_reasoning = str(refined_payload["reasoning"] or "")
-            current_answer = str(refined_payload["final_answer"] or "")
+            current_answer = _stabilize_answer_format_answer(
+                previous_answer=current_answer,
+                refined_answer=str(refined_payload["final_answer"] or ""),
+                judge_payload=final_judge_payload,
+            )
             refinement_round_count = 1
             stopped_reason = "single_refine_round"
             final_score = score_prediction(benchmark_slug, current_answer, sample.reference_answer) if current_answer else 0.0
@@ -543,7 +547,11 @@ def _run_table_critic_sample(
             previous_answer=current_answer,
         )
         refined_reasoning = str(refined_payload["reasoning"] or "")
-        refined_answer = str(refined_payload["final_answer"] or "")
+        refined_answer = _stabilize_answer_format_answer(
+            previous_answer=current_answer,
+            refined_answer=str(refined_payload["final_answer"] or ""),
+            judge_payload=final_judge_payload,
+        )
         refined_score = score_prediction(benchmark_slug, refined_answer, sample.reference_answer) if refined_answer else 0.0
         improved = refined_score > current_score
 
@@ -878,6 +886,25 @@ def _coerce_curator_payload(turn_row: dict[str, Any]) -> dict[str, Any]:
         "reuse_hint": "Recheck the judge-critic mismatch before reusing this template.",
         "template_title": "Generic refinement fallback",
     }
+
+
+def _stabilize_answer_format_answer(
+    *,
+    previous_answer: str,
+    refined_answer: str,
+    judge_payload: dict[str, Any],
+) -> str:
+    """`Answer Format Error` 只允许修正格式，不允许任意改写答案语义。"""
+
+    if str(judge_payload.get("error_step") or "") != "Answer Format Error":
+        return refined_answer
+    normalized_previous = _normalize_trace_text(previous_answer)
+    normalized_refined = _normalize_trace_text(refined_answer)
+    if not normalized_previous:
+        return refined_answer
+    if not normalized_refined or normalized_previous != normalized_refined:
+        return previous_answer
+    return refined_answer
 
 
 def _initial_messages_for_mode(sample: DatasetSample, mode: str) -> list[dict[str, str]]:

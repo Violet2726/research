@@ -1,0 +1,19 @@
+# ECON 低通信协调协议。
+agent_count = 3
+initial_temperature = 0.0
+belief_temperature = 0.0
+top_p = 1.0
+max_output_tokens = 1024
+peer_packet_token_cap = 120
+
+disagreement_weight = 0.30
+confidence_dispersion_weight = 0.20
+rationale_conflict_weight = 0.20
+expected_gain_weight = 0.30
+communication_cost_weight = 0.35
+
+vote_bonus = 0.08
+query_best_peer_bonus = 0.10
+query_two_peers_bonus = 0.05
+communication_cost_divisor = 180.0
+

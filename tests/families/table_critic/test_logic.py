@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.families.table_critic.config import TableCriticMethodSpec, load_experiment_config, load_protocol_config
-from research_experiments.families.table_critic.run.sample import _build_metrics, _seed_template_tree, _update_template_tree
+from research_experiments.families.table_critic.prompts import build_chain_of_table_messages, build_refiner_messages
+from research_experiments.families.table_critic.run.sample import (
+    _build_metrics,
+    _seed_template_tree,
+    _stabilize_answer_format_answer,
+    _update_template_tree,
+)
 
 
 def test_load_table_critic_experiment_config_reads_methods_and_protocol() -> None:
@@ -108,3 +115,50 @@ def test_build_metrics_reports_correction_and_degradation_fields() -> None:
     assert paper_row["gain_over_chain_of_table"] == 1.0
     assert overall_chain["accuracy_mean"] == 0.0
 
+
+def test_build_chain_of_table_messages_adds_compact_guard_for_large_tables() -> None:
+    sample = DatasetSample(
+        dataset="wikitq",
+        sample_id="demo",
+        question="which comet has the longest orbital period?",
+        reference_answer="halley",
+        prompt_context="row\n" * 4000,
+        metadata={"question_type": "lookup"},
+    )
+
+    content = build_chain_of_table_messages(sample)[1]["content"]
+
+    assert "This table is large. Keep the reasoning compact." in content
+    assert "Do not enumerate every row" in content
+
+
+def test_build_refiner_messages_preserves_answer_under_answer_format_error() -> None:
+    sample = DatasetSample(
+        dataset="wikitq",
+        sample_id="demo",
+        question="what language is listed?",
+        reference_answer="hindi",
+        prompt_context="/* demo table */",
+        metadata={"question_type": "lookup"},
+    )
+
+    messages = build_refiner_messages(
+        sample,
+        current_reasoning="The table lists hindi.",
+        current_answer="hindi",
+        judge_payload={"error_step": "Answer Format Error", "rationale": "format only"},
+        critic_payload={"critic_feedback": "Keep the answer but normalize the output.", "conflicting_evidence": [], "repair_hint": "Do not change the answer."},
+        template_hints=[],
+    )
+
+    assert "Preserve the original answer content unless it is empty." in messages[1]["content"]
+
+
+def test_stabilize_answer_format_answer_keeps_previous_semantics() -> None:
+    stabilized = _stabilize_answer_format_answer(
+        previous_answer="hindi",
+        refined_answer="cannot be determined from the table",
+        judge_payload={"error_step": "Answer Format Error"},
+    )
+
+    assert stabilized == "hindi"

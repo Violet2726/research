@@ -15,6 +15,8 @@
 
 - `dog_graph_main`：DoG 原论文高保真复现主线，覆盖 `WebQuestions / GrailQA / WebQSP / CWQ / MetaQA 1-hop / 2-hop / 3-hop`，使用动态图检索、enough-answer 判断、三角色顺序问题简化与 direct fallback；独立运行、独立报告，不并入当前 `faithful_matrix`。
 - `table_critic_main`：Table-Critic 原论文主复现主线，覆盖 `WikiTQ / TabFact`，使用 `Chain-of-Table 初答 -> Judge -> Critic -> Refiner -> Curator` 与 self-evolving template tree；独立运行、独立报告，不并入当前 `faithful_matrix`。
+当前下一篇正式复现主线已切换为：
+- `econ_same_context_main`：ECON 低通信协调复现线，覆盖 `GSM8K / StrategyQA / HotpotQA`，使用 `独立求解 -> belief state -> equilibrium action selection -> 一次受控 belief update`；直接进入 `faithful_matrix` 作为 `same_context / supporting` 条目。
 
 方法本体禁止改动：
 
@@ -43,6 +45,7 @@ Split-context headline：
 Supporting：
 
 - `imad_same_context_main`
+- `econ_same_context_main`
 - `same_context_controlled_debate`
 - `free_mad_lite_mechanism_validation`
 - `local_auditing_ablation`

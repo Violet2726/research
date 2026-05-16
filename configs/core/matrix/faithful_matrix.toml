@@ -21,6 +21,15 @@ best_no_comm_candidates = ["mv_6"]
 full_comm_reference = "mad_fixed_r3"
 
 [[entries]]
+config_path = "configs/families/econ/experiments/econ_same_context_main.toml"
+evaluation_track = "same_context"
+evidence_tier = "supporting"
+primary_method_name = "econ_bne_main"
+best_no_comm_candidates = ["vote_mv3"]
+full_comm_reference = "econ_full_comm_r1"
+token_gate_basis = "communication"
+
+[[entries]]
 config_path = "configs/families/free_mad_lite/experiments/free_mad_lite_mechanism_validation.toml"
 evaluation_track = "same_context"
 evidence_tier = "supporting"

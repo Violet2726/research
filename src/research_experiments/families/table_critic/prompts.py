@@ -128,6 +128,7 @@ def build_few_shot_messages(sample: DatasetSample) -> list[dict[str, str]]:
 
 
 def build_chain_of_table_messages(sample: DatasetSample) -> list[dict[str, str]]:
+    compact_instruction = _compact_chain_of_table_instruction(sample)
     return [
         {"role": "system", "content": "You are a Chain-of-Table style table reasoning assistant."},
         {
@@ -137,6 +138,7 @@ def build_chain_of_table_messages(sample: DatasetSample) -> list[dict[str, str]]
                 f"{sample.prompt_context}\n\n"
                 "Reason with an explicit sub-table style process.\n"
                 "Use short numbered steps such as selecting rows, selecting columns, comparing values, or aggregating values.\n"
+                f"{compact_instruction}"
                 f"{_task_instruction(sample)}\n"
                 "Return a JSON object with keys `reasoning` and `final_answer`."
             ),
@@ -208,6 +210,7 @@ def build_refiner_messages(
 ) -> list[dict[str, str]]:
     template_block = _render_template_block(template_hints)
     evidence = "\n".join(f"- {item}" for item in critic_payload.get("conflicting_evidence", [])) or "- None"
+    answer_format_guard = _answer_format_refiner_instruction(judge_payload)
     return [
         {"role": "system", "content": "You are the refiner in a table reasoning correction pipeline."},
         {
@@ -223,6 +226,7 @@ def build_refiner_messages(
                 f"Critique:\n{critic_payload.get('critic_feedback') or '<empty>'}\n"
                 f"Conflicting evidence:\n{evidence}\n"
                 f"Repair hint:\n{critic_payload.get('repair_hint') or '<empty>'}\n\n"
+                f"{answer_format_guard}"
                 f"{_task_instruction(sample)}\n"
                 "Please reproduce a better explanation and answer.\n"
                 "Use the format:\nExplanation: ...\nAnswer: ..."
@@ -422,6 +426,27 @@ def _render_reasoning_steps(reasoning: str) -> str:
     if len(lines) <= 1:
         return f"Step 1: {text}"
     return "\n".join(f"Step {index}: {line}" for index, line in enumerate(lines, start=1))
+
+
+def _compact_chain_of_table_instruction(sample: DatasetSample) -> str:
+    if len(sample.prompt_context) <= 6000:
+        return ""
+    return (
+        "This table is large. Keep the reasoning compact.\n"
+        "Use at most 6 short numbered steps.\n"
+        "Only cite the few rows or values needed for the decision.\n"
+        "Do not enumerate every row, every candidate, or every numeric value.\n"
+    )
+
+
+def _answer_format_refiner_instruction(judge_payload: dict[str, Any]) -> str:
+    if str(judge_payload.get("error_step") or "") != "Answer Format Error":
+        return ""
+    return (
+        "The judge only flagged an Answer Format Error.\n"
+        "Preserve the original answer content unless it is empty.\n"
+        "Focus on fixing the explanation or the answer format, not on changing the answer semantics.\n\n"
+    )
 
 
 def _decode_json_object(raw_text: str) -> dict[str, Any]:
