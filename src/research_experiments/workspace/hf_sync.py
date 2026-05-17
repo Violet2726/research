@@ -380,7 +380,13 @@ def _looks_like_standard_run(run_root: Path) -> bool:
 
 
 def _looks_like_matrix_run(run_root: Path) -> bool:
-    return (run_root / "state.json").exists() and (run_root / "paper_package.json").exists()
+    if not (run_root / "state.json").exists():
+        return False
+    package_candidates = (
+        run_root / "paper_package.json",
+        run_root / "reproduction_package.json",
+    )
+    return any(path.exists() for path in package_candidates)
 
 
 def _describe_standard_run(run_root: Path) -> dict[str, Any]:

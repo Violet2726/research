@@ -36,6 +36,25 @@ def test_discover_publishable_runs_includes_standard_and_matrix(tmp_path: Path) 
     assert by_root[matrix_root.as_posix()]["publishable"] is True
 
 
+def test_discover_publishable_runs_accepts_reproduction_matrix(tmp_path: Path) -> None:
+    matrix_root = tmp_path / "reproduction_matrix" / "20260516T000100Z-count20-model"
+    write_json(
+        matrix_root / "state.json",
+        {
+            "matrix_id": "reproduction",
+            "counts": {"completed": 2, "semantic_unique_targets": 2},
+            "entries": [{"status": "completed"}, {"status": "completed"}],
+        },
+    )
+    write_json(matrix_root / "reproduction_package.json", {"ok": True})
+
+    rows = discover_publishable_runs(tmp_path)
+    by_root = {row["run_root"]: row for row in rows}
+
+    assert by_root[matrix_root.as_posix()]["run_kind"] == "matrix"
+    assert by_root[matrix_root.as_posix()]["publishable"] is True
+
+
 def test_push_workspace_to_hub_batches_runs_and_cache(monkeypatch, tmp_path: Path) -> None:
     standard_root = tmp_path / "runs" / "single_agent" / "demo" / "count20" / "20260510T000000Z-model"
     write_json(standard_root / "manifest.json", {"run_id": "20260510T000000Z-model"})

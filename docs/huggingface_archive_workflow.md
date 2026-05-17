@@ -76,7 +76,7 @@ uv run research_cli tools hf-sync pull-workspace
 
 说明：
 
-- `push-workspace` 会批量扫描 `local/runs`，只发布验证通过的标准 run，以及已经完整收敛的 `faithful_matrix` 目录
+- `push-workspace` 会批量扫描 `local/runs`，只发布验证通过的标准 run，以及已经完整收敛的矩阵目录（如 `faithful_matrix`、`reproduction_matrix`）
 - 默认会跳过已经写入 `hf_publish.json` 且远端仓库一致的 run；需要重推时可加 `--force-runs`
 - `pull-workspace` 会按远端 `archive_manifest.json` 列表批量回拉 runs，并自动解压归档包
 - 若需要只同步其中一侧，可加 `--skip-runs` 或 `--skip-cache`

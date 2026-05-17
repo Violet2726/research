@@ -10,7 +10,7 @@
    具体实验实现层。每个 family 只依赖共享核心，不互相依赖。
    `src/research_experiments/families/shared/` 只承接 family 侧共享脚手架，不算实验家族。
 3. `configs/core/` 与 `configs/families/`
-   配置层。共享配置放在 `configs/core/shared/`，faithful matrix 规格放在 `configs/core/matrix/`，实验专属配置放在各自 family 目录。
+   配置层。共享配置放在 `configs/core/shared/`，矩阵 profile 放在 `configs/core/matrix/`，实验专属配置放在各自 family 目录。
 4. `datasets/`、`files/`、`local/`
    数据与工作区层。`datasets/` 只保留恢复说明，真实原始数据放在 `local/datasets/`。
 
@@ -40,7 +40,7 @@
 
 ### 其他共享目录
 
-- `src/research_experiments/matrix/`：faithful matrix 编排、分析与验收
+- `src/research_experiments/matrix/`：矩阵内核、faithful/reproduction profile 编排与分析
 - `src/research_experiments/reporting/`：科研报告、图资产、论文包与统计输出
 - `src/research_experiments/workspace/`：工作区布局、归档、HF 同步、数据集资产
 - `src/research_experiments/cli_support/`：命令行输出与 UTF-8 编码支持

@@ -17,7 +17,7 @@
 
 - `runs` 的同步单位是“run 目录”
   - 标准 run：`local/runs/<family>/<experiment>/<phase>/<run_id>/`
-  - matrix run：`local/runs/faithful_matrix/<run_id>/`
+  - matrix run：`local/runs/<matrix_kind>/<run_id>/`
 - `cache` 的同步单位是“分库目录”
   - `local/cache/providers/<provider>/<request_model>/<dataset_path_key>/`
 - `runs` 推送时会自动打包，可浏览外壳文件会单独保留，重型 JSONL / 预测文件会进入：
@@ -141,7 +141,7 @@ uv run research_cli tools hf-sync push-workspace
 
 - 会扫描 `local/runs`
 - 只推送验证通过的标准 run
-- 会推送已经完整收敛的 `faithful_matrix` 目录
+- 会推送已经完整收敛的矩阵目录，例如 `faithful_matrix` 与 `reproduction_matrix`
 - 默认也会同步 `local/cache`
 
 ### 3. 只推送某个或某些具体 run 文件夹
@@ -207,7 +207,7 @@ uv run research_cli tools hf-sync pull-workspace `
 - `--force-runs`
   - 即使本地已有匹配的 `hf_publish.json`，也重新发布
 - `--no-matrix`
-  - 批量扫描时跳过 `faithful_matrix`
+  - 批量扫描时跳过所有矩阵目录，例如 `faithful_matrix` 与 `reproduction_matrix`
 - `--keep-existing-runs`
   - 回拉 runs 时不先删除本地同名目录
 

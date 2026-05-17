@@ -9,7 +9,7 @@
 1. 每个方法到底在“做什么”。
 2. 每个方法的执行流程是怎样展开的。
 3. 不同方法之间哪些地方可以直接比较，哪些地方只能方向性比较。
-4. `faithful_matrix` 是如何把这些方法统一编排到同一套 `count20 / count100` 主矩阵里的。
+4. 主矩阵系统是如何把这些方法统一编排到 `faithful_matrix` 与 `reproduction_matrix` 两套矩阵里的。
 
 本文档主要覆盖当前 authoritative 主线中的 9 个 family：
 
@@ -23,7 +23,7 @@
 - `sparc`
 - `cue`
 
-同时补充说明共享基础设施 `research_experiments.core` 和顶层矩阵编排 `research_cli matrix` 的职责。
+同时补充说明共享基础设施 `research_experiments.core`、主论文矩阵 `faithful_matrix` 与平行复现矩阵 `reproduction_matrix` 的职责。
 
 ## 1.1 当前 authoritative 项目状态
 
@@ -41,7 +41,9 @@
   只保留一个正式实验入口：`configs/families/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml`。
   `count20 / count100 / count500_main` 统一通过 phase 表达，不再拆成多个 experiment。
 - `faithful_matrix`
-  当前 authoritative 主矩阵是 `15` 个语义唯一目标，不再保留任何本地开发专用实验入口。
+  当前 authoritative 主矩阵是 `17` 个语义唯一目标，不再保留任何本地开发专用实验入口。
+- `reproduction_matrix`
+  当前正式收纳平行论文复现支线：`dog_graph_main / dog_graph_static_ablation / table_critic_main / macnet_paper_main / macnet_scaling_study`。
 
 ## 2. 全局设计原则
 
@@ -146,11 +148,18 @@
 - `control`
   与主方法预算匹配的无通信或更简单通信对照组。
 
-## 4. `faithful_matrix` 的角色
+## 4. 矩阵系统的角色
 
-`src/research_experiments/core/matrix/faithful_matrix.py` 不是方法本体，而是**顶层实验编排器**。
+`src/research_experiments/matrix/faithful_matrix.py` 不是方法本体，而是**顶层实验编排器**。
 
-它负责：
+它当前分成两套 profile：
+
+- `faithful_matrix`
+  只服务 same-context / split-context 主论文比较口径。
+- `reproduction_matrix`
+  只服务图推理、表推理、拓扑协作等平行论文复现支线，并且只允许 track 内比较。
+
+通用 orchestrator 负责：
 
 1. 发现当前 phase 下所有有效 experiment。
 2. 读取 `matrix_specs.py`，给每个 experiment 绑定：

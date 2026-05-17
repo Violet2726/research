@@ -39,6 +39,23 @@ def test_faithful_matrix_inspect_cli() -> None:
     assert payload["counts"]["semantic_unique_targets"] == 17
 
 
+def test_reproduction_matrix_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "matrix",
+            "inspect-matrix",
+            "--matrix",
+            "reproduction",
+            "--phase",
+            "count20",
+        ],
+    )
+    assert payload["matrix_id"] == "reproduction"
+    assert payload["matrix_kind"] == "reproduction_matrix"
+    assert payload["counts"]["semantic_unique_targets"] == 5
+
+
 def test_imad_inspect_cli() -> None:
     payload = run_cli_json(
         [

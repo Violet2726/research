@@ -44,6 +44,7 @@ Hugging Face dataset repo
 - 正式图资产只落在 `local/runs/.../figures/`
 - `local/reports/` 是本地发布视图，不是正式长期归档
 - faithful matrix 的发布视图除 `paper_package.md` 外，还会额外发布 `family_landscape.md`
+- reproduction matrix 会发布 `reproduction_package.md` 与 `reproduction_landscape.md`
 - 正式远程归档以 Hugging Face dataset repo 为准
 - `figure_manifest.json` 是 run 级图资产的唯一索引
 - `archive_manifest.json` 是 run 级重型文件归档的唯一索引
@@ -58,6 +59,7 @@ Hugging Face dataset repo
   - 顺序运行 `count20 -> count100 -> count300 -> count500`
   - 每个阶段结束后要求 matrix 全部成功
   - faithful matrix 成功后默认补齐 `faithful_analysis`、`acceptance_summary`、`paper_statistics`、`paper_package`、`family_landscape`
+  - reproduction matrix 成功后默认补齐 `reproduction_analysis`、`reproduction_package`、`reproduction_landscape`
   - 若启用 `RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT=1`，则在四阶段结束后推送 `local/cache` 最新快照
 
 ## 维护建议

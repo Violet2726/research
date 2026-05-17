@@ -30,7 +30,7 @@
 - `reporting/report_pipeline.py`
   统一输出本地报告、图资产与附录报告。
 - `matrix/faithful_matrix.py`
-  统一 faithful matrix 的编排、恢复、分析与矩阵级摘要输出。
+  统一矩阵命令入口；当前同时承接 `faithful_matrix` 与 `reproduction_matrix` 两套 profile 的编排、恢复与矩阵级摘要输出。
 
 ## 维护约定
 

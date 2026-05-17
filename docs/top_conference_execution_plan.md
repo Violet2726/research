@@ -19,6 +19,11 @@
 - `econ_same_context_main`：ECON 低通信协调复现线，覆盖 `GSM8K / StrategyQA / HotpotQA`，使用 `独立求解 -> belief state -> equilibrium action selection -> 一次受控 belief update`；直接进入 `faithful_matrix` 作为 `same_context / supporting` 条目。
 - `macnet_paper_main`：MacNet 拓扑协作复现主线，覆盖 `MMLU / HumanEval / CommonGen-Hard`，使用 `actor 节点 + critic 边 + DAG 拓扑序传播`；独立运行、独立报告，不并入当前 `faithful_matrix`。
 
+当前矩阵系统已分成两套：
+
+- `faithful_matrix`：服务主论文 same-context / split-context 主结论。
+- `reproduction_matrix`：收纳平行论文复现支线，当前包含 `dog_graph_main / dog_graph_static_ablation / table_critic_main / macnet_paper_main / macnet_scaling_study`。
+
 方法本体禁止改动：
 
 - 不新增 early exit。
@@ -82,6 +87,12 @@ Reference：
 
 ```powershell
 uv run research_cli matrix inspect-matrix --phase count300
+```
+
+查看论文复现矩阵：
+
+```powershell
+uv run research_cli matrix inspect-matrix --matrix reproduction --phase count20
 ```
 
 正式运行命令：

@@ -18,7 +18,18 @@ from research_experiments.families.registry import get_family_spec, validator_ma
 from research_experiments.workspace.run_archives import publish_run_if_configured
 from research_experiments.matrix.faithful_acceptance import render_acceptance_summary
 from research_experiments.matrix.faithful_analysis import render_faithful_analysis
-from research_experiments.matrix.matrix_specs import get_experiment_matrix_spec, ordered_matrix_config_paths
+from research_experiments.matrix.matrix_specs import (
+    all_matrix_ids,
+    DEFAULT_MATRIX_ID,
+    MATRIX_ID_FAITHFUL,
+    MATRIX_RUN_KIND_FAITHFUL,
+    get_experiment_matrix_spec,
+    get_matrix_profile,
+    ordered_matrix_config_paths,
+)
+from research_experiments.matrix.reproduction_analysis import render_reproduction_analysis
+from research_experiments.reporting.reproduction_landscape import render_reproduction_landscape
+from research_experiments.reporting.reproduction_package import render_reproduction_package
 from research_experiments.reporting.family_landscape import render_family_landscape
 from research_experiments.reporting.paper_package import render_paper_package
 from research_experiments.reporting.paper_statistics import render_paper_statistics
@@ -30,7 +41,8 @@ DEFAULT_MODEL_REF = "xiaomimimo/mimo-v2.5"
 DEFAULT_MAX_CONCURRENT_REQUESTS = 90
 DEFAULT_REQUESTS_PER_MINUTE = 95
 DEFAULT_TOKENS_PER_MINUTE = 9000000
-MATRIX_EXPERIMENT_KIND = "faithful_matrix"
+MATRIX_EXPERIMENT_KIND = MATRIX_RUN_KIND_FAITHFUL
+REPRODUCTION_MATRIX_EXPERIMENT_KIND = "reproduction_matrix"
 
 EXCLUDED_CONFIGS: dict[str, str] = {}
 
@@ -65,6 +77,12 @@ class MatrixEntry:
     experiment_name: str
     description: str
     phase_name: str
+    track_name: str
+    entry_role: str
+    analysis_mode: str
+    primary_metric_field: str
+    primary_metric_label: str
+    comparison_scope: str
     evaluation_track: str
     evidence_tier: str
     primary_method_name: str
@@ -83,6 +101,8 @@ class MatrixEntry:
 class MatrixBuild:
     """一次矩阵构建的完整结果。"""
 
+    matrix_id: str
+    matrix_kind: str
     overrides: RuntimeOverrides
     entries: list[MatrixEntry]
     semantic_entries: list[MatrixEntry]
@@ -131,6 +151,8 @@ def discover_phase_configs(phase_name: str, config_root: str | Path = "configs/f
 
 def build_run_matrix(
     overrides: RuntimeOverrides,
+    *,
+    matrix_id: str = DEFAULT_MATRIX_ID,
 ) -> MatrixBuild:
     """根据覆盖参数生成可执行矩阵与语义去重后的目标集合。"""
     discovered = discover_phase_configs(overrides.phase_name)
@@ -141,12 +163,15 @@ def build_run_matrix(
 
     entries: list[MatrixEntry] = []
     semantic_entries: list[MatrixEntry] = []
-    allowed_config_paths = set(ordered_matrix_config_paths()) | set(EXCLUDED_CONFIGS)
+    profile = get_matrix_profile(matrix_id)
+    allowed_config_paths = set(ordered_matrix_config_paths(matrix_id))
+    if matrix_id == MATRIX_ID_FAITHFUL:
+        allowed_config_paths |= set(EXCLUDED_CONFIGS)
     for item in discovered:
         if item.config_path not in allowed_config_paths:
             continue
-        if item.config_path in EXCLUDED_CONFIGS:
-            spec = get_experiment_matrix_spec(item.config_path)
+        if matrix_id == MATRIX_ID_FAITHFUL and item.config_path in EXCLUDED_CONFIGS:
+            spec = get_experiment_matrix_spec(item.config_path, matrix_id)
             entries.append(
                 MatrixEntry(
                     family=item.family,
@@ -154,6 +179,12 @@ def build_run_matrix(
                     experiment_name=item.experiment_name,
                     description=item.description,
                     phase_name=overrides.phase_name,
+                    track_name=spec.track_name,
+                    entry_role=spec.entry_role,
+                    analysis_mode=spec.analysis_mode,
+                    primary_metric_field=spec.primary_metric_field,
+                    primary_metric_label=spec.primary_metric_label,
+                    comparison_scope=spec.comparison_scope,
                     evaluation_track=spec.evaluation_track,
                     evidence_tier=spec.evidence_tier,
                     primary_method_name=spec.primary_method_name,
@@ -165,13 +196,19 @@ def build_run_matrix(
                 )
             )
             continue
-        spec = get_experiment_matrix_spec(item.config_path)
+        spec = get_experiment_matrix_spec(item.config_path, matrix_id)
         entry = MatrixEntry(
             family=item.family,
             config_path=item.config_path,
             experiment_name=item.experiment_name,
             description=item.description,
             phase_name=overrides.phase_name,
+            track_name=spec.track_name,
+            entry_role=spec.entry_role,
+            analysis_mode=spec.analysis_mode,
+            primary_metric_field=spec.primary_metric_field,
+            primary_metric_label=spec.primary_metric_label,
+            comparison_scope=spec.comparison_scope,
             evaluation_track=spec.evaluation_track,
             evidence_tier=spec.evidence_tier,
             primary_method_name=spec.primary_method_name,
@@ -191,10 +228,17 @@ def build_run_matrix(
         }
     )
 
-    expected_order = {path: index for index, path in enumerate(ordered_matrix_config_paths())}
+    expected_order = {path: index for index, path in enumerate(ordered_matrix_config_paths(matrix_id))}
     semantic_entries.sort(key=lambda entry: expected_order.get(entry.config_path, 10_000))
     entries.sort(key=lambda entry: expected_order.get(entry.config_path, 10_000))
-    return MatrixBuild(overrides=overrides, entries=entries, semantic_entries=semantic_entries, counts=dict(counts))
+    return MatrixBuild(
+        matrix_id=profile.matrix_id,
+        matrix_kind=profile.matrix_kind,
+        overrides=overrides,
+        entries=entries,
+        semantic_entries=semantic_entries,
+        counts=dict(counts),
+    )
 
 
 def review_run_health(run_dir: str | Path, family: str) -> ReviewResult:
@@ -267,20 +311,22 @@ def assert_matrix_succeeded(state_path_or_root: str | Path) -> None:
     raise RuntimeError(f"faithful_matrix 阶段未完整成功：{preview}")
 
 
-def run_faithful_matrix(
+def run_matrix(
+    matrix_id: str,
     overrides: RuntimeOverrides,
     *,
     state_root: str | Path | None = None,
     reference_state_path_or_root: str | Path | None = None,
 ) -> Path:
-    """执行 faithful 矩阵批跑、写入状态文件，并产出分析报告。"""
-    matrix = build_run_matrix(overrides)
-    paths = _prepare_orchestrator_paths(state_root, overrides)
+    """执行任意已注册矩阵，并产出对应后处理链路。"""
+
+    matrix = build_run_matrix(overrides, matrix_id=matrix_id)
+    paths = _prepare_orchestrator_paths(state_root, overrides, matrix_id=matrix_id)
     family_blocked: set[str] = set()
     _write_matrix_state(paths, matrix)
 
     entries_by_config = {entry.config_path: entry for entry in matrix.semantic_entries}
-    for config_path in ordered_matrix_config_paths():
+    for config_path in ordered_matrix_config_paths(matrix_id):
         entry = entries_by_config.get(config_path)
         if entry is None or entry.status != "pending":
             continue
@@ -308,25 +354,35 @@ def run_faithful_matrix(
         _write_matrix_state(paths, matrix)
 
     _write_matrix_state(paths, matrix)
-    render_faithful_analysis(
-        paths.root,
-        reference_state_path_or_root=reference_state_path_or_root,
-    )
-    render_acceptance_summary(paths.root)
-    render_paper_statistics(paths.root)
-    render_paper_package(paths.root)
-    render_family_landscape(paths.root)
+    _run_postprocess(matrix_id, paths.root, reference_state_path_or_root=reference_state_path_or_root)
     if not collect_blocking_entries(paths.root):
         publish_run_if_configured(paths.root)
     return paths.root
 
 
-def resume_faithful_matrix(
+def run_faithful_matrix(
+    overrides: RuntimeOverrides,
+    *,
+    state_root: str | Path | None = None,
+    reference_state_path_or_root: str | Path | None = None,
+) -> Path:
+    """执行 faithful 主论文矩阵。"""
+
+    return run_matrix(
+        MATRIX_ID_FAITHFUL,
+        overrides,
+        state_root=state_root,
+        reference_state_path_or_root=reference_state_path_or_root,
+    )
+
+
+def resume_matrix(
     state_path_or_root: str | Path,
     *,
     reference_state_path_or_root: str | Path | None = None,
 ) -> Path:
-    """在原目录上恢复一次被中断的 faithful matrix 运行。"""
+    """恢复任意已注册矩阵的一次中断运行。"""
+
     matrix, paths = _load_existing_matrix_state(state_path_or_root)
 
     for entry in matrix.semantic_entries:
@@ -340,7 +396,7 @@ def resume_faithful_matrix(
 
     entries_by_config = {entry.config_path: entry for entry in matrix.semantic_entries}
     resumable_statuses = {"pending", "rerun-needed", "failed", "running"}
-    for config_path in ordered_matrix_config_paths():
+    for config_path in ordered_matrix_config_paths(matrix.matrix_id):
         entry = entries_by_config.get(config_path)
         if entry is None or entry.status not in resumable_statuses:
             continue
@@ -368,17 +424,44 @@ def resume_faithful_matrix(
         _write_matrix_state(paths, matrix)
 
     _write_matrix_state(paths, matrix)
-    render_faithful_analysis(
-        paths.root,
-        reference_state_path_or_root=reference_state_path_or_root,
-    )
-    render_acceptance_summary(paths.root)
-    render_paper_statistics(paths.root)
-    render_paper_package(paths.root)
-    render_family_landscape(paths.root)
+    _run_postprocess(matrix.matrix_id, paths.root, reference_state_path_or_root=reference_state_path_or_root)
     if not collect_blocking_entries(paths.root):
         publish_run_if_configured(paths.root)
     return paths.root
+
+
+def resume_faithful_matrix(
+    state_path_or_root: str | Path,
+    *,
+    reference_state_path_or_root: str | Path | None = None,
+) -> Path:
+    """恢复 faithful 主论文矩阵。"""
+
+    return resume_matrix(
+        state_path_or_root,
+        reference_state_path_or_root=reference_state_path_or_root,
+    )
+
+
+def _run_postprocess(
+    matrix_id: str,
+    state_root: str | Path,
+    *,
+    reference_state_path_or_root: str | Path | None = None,
+) -> None:
+    if matrix_id == MATRIX_ID_FAITHFUL:
+        render_faithful_analysis(
+            state_root,
+            reference_state_path_or_root=reference_state_path_or_root,
+        )
+        render_acceptance_summary(state_root)
+        render_paper_statistics(state_root)
+        render_paper_package(state_root)
+        render_family_landscape(state_root)
+        return
+    render_reproduction_analysis(state_root)
+    render_reproduction_package(state_root)
+    render_reproduction_landscape(state_root)
 
 
 def _execute_entry(entry: MatrixEntry, overrides: RuntimeOverrides) -> Path:
@@ -441,8 +524,14 @@ def _validate_entry(family: str, run_dir: Path) -> dict[str, Any]:
     return payload
 
 
-def _prepare_orchestrator_paths(state_root: str | Path | None, overrides: RuntimeOverrides) -> OrchestratorPaths:
-    root_base = Path(state_root or default_runs_root(MATRIX_EXPERIMENT_KIND))
+def _prepare_orchestrator_paths(
+    state_root: str | Path | None,
+    overrides: RuntimeOverrides,
+    *,
+    matrix_id: str = DEFAULT_MATRIX_ID,
+) -> OrchestratorPaths:
+    profile = get_matrix_profile(matrix_id)
+    root_base = Path(state_root or default_runs_root(profile.matrix_kind))
     model_slug = overrides.model_ref.replace("/", "-")
     run_id = datetime.now(timezone.utc).strftime(f"%Y%m%dT%H%M%SZ-{overrides.phase_name}-{model_slug}")
     root = root_base / run_id
@@ -452,17 +541,18 @@ def _prepare_orchestrator_paths(state_root: str | Path | None, overrides: Runtim
         matrix=root / "matrix.json",
         state=root / "state.json",
         report=root / "matrix_status.md",
-        published_summary=Path(default_reports_root(MATRIX_EXPERIMENT_KIND)) / f"{run_id}.md",
+        published_summary=Path(default_reports_root(profile.default_reports_root_name)) / f"{run_id}.md",
     )
 
 
-def _existing_orchestrator_paths(root: Path) -> OrchestratorPaths:
+def _existing_orchestrator_paths(root: Path, *, matrix_id: str) -> OrchestratorPaths:
+    profile = get_matrix_profile(matrix_id)
     return OrchestratorPaths(
         root=root,
         matrix=root / "matrix.json",
         state=root / "state.json",
         report=root / "matrix_status.md",
-        published_summary=Path(default_reports_root(MATRIX_EXPERIMENT_KIND)) / f"{root.name}.md",
+        published_summary=Path(default_reports_root(profile.default_reports_root_name)) / f"{root.name}.md",
     )
 
 
@@ -471,23 +561,43 @@ def _load_existing_matrix_state(state_path_or_root: str | Path) -> tuple[MatrixB
     if state_path.is_dir():
         state_path = state_path / "state.json"
     payload = json.loads(state_path.read_text(encoding="utf-8"))
+    matrix_id = str(payload.get("matrix_id") or MATRIX_ID_FAITHFUL)
+    profile = get_matrix_profile(matrix_id)
     overrides = RuntimeOverrides(**payload["overrides"])
-    entries = [MatrixEntry(**_normalize_entry_payload(entry)) for entry in payload.get("entries", [])]
-    semantic_entries = [MatrixEntry(**_normalize_entry_payload(entry)) for entry in payload.get("semantic_entries", [])]
+    entries = [MatrixEntry(**_normalize_entry_payload(entry, matrix_id=matrix_id)) for entry in payload.get("entries", [])]
+    semantic_entries = [MatrixEntry(**_normalize_entry_payload(entry, matrix_id=matrix_id)) for entry in payload.get("semantic_entries", [])]
     matrix = MatrixBuild(
+        matrix_id=profile.matrix_id,
+        matrix_kind=profile.matrix_kind,
         overrides=overrides,
         entries=entries,
         semantic_entries=semantic_entries,
         counts=dict(payload.get("counts", {})),
     )
     _synchronize_entries_with_semantic_entries(matrix)
-    return matrix, _existing_orchestrator_paths(state_path.parent)
+    return matrix, _existing_orchestrator_paths(state_path.parent, matrix_id=matrix_id)
 
 
-def _normalize_entry_payload(entry: dict[str, Any]) -> dict[str, Any]:
+def _normalize_entry_payload(entry: dict[str, Any], *, matrix_id: str) -> dict[str, Any]:
     payload = dict(entry)
-    if "evidence_tier" not in payload:
-        payload["evidence_tier"] = get_experiment_matrix_spec(str(payload["config_path"])).evidence_tier
+    spec = get_experiment_matrix_spec(str(payload["config_path"]), matrix_id)
+    payload.setdefault("track_name", spec.track_name)
+    payload.setdefault("entry_role", spec.entry_role)
+    payload.setdefault("analysis_mode", spec.analysis_mode)
+    payload.setdefault("primary_metric_field", spec.primary_metric_field)
+    payload.setdefault("primary_metric_label", spec.primary_metric_label)
+    payload.setdefault("comparison_scope", spec.comparison_scope)
+    payload.setdefault("evaluation_track", spec.evaluation_track)
+    payload.setdefault("evidence_tier", spec.evidence_tier)
+    payload.setdefault("primary_method_name", spec.primary_method_name)
+    payload.setdefault("best_no_comm_candidates", list(spec.best_no_comm_candidates))
+    payload.setdefault("full_comm_reference", spec.full_comm_reference)
+    payload.setdefault("full_context_reference", spec.full_context_reference)
+    payload.setdefault("excluded_reason", None)
+    payload.setdefault("run_dir", None)
+    payload.setdefault("validation_passed", None)
+    payload.setdefault("review_passed", None)
+    payload.setdefault("review_notes", "")
     return payload
 
 
@@ -502,6 +612,8 @@ def _write_matrix_state(paths: OrchestratorPaths, matrix: MatrixBuild) -> None:
     )
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "matrix_id": matrix.matrix_id,
+        "matrix_kind": matrix.matrix_kind,
         "overrides": asdict(matrix.overrides),
         "counts": dict(counts),
         "entries": [asdict(entry) for entry in matrix.entries],
@@ -517,15 +629,16 @@ def _write_matrix_state(paths: OrchestratorPaths, matrix: MatrixBuild) -> None:
 
 def _render_matrix_report(matrix: MatrixBuild, counts: dict[str, int]) -> str:
     lines = [
-        f"# {matrix.overrides.phase_name} faithful matrix",
+        f"# {matrix.overrides.phase_name} {matrix.matrix_kind}",
         "",
         f"- generated_at: `{datetime.now(timezone.utc).isoformat()}`",
+        f"- matrix_id: `{matrix.matrix_id}`",
         f"- model: `{matrix.overrides.model_ref}`",
         f"- rate_limits: `{matrix.overrides.max_concurrent_requests}` / `{matrix.overrides.requests_per_minute_limit}` / `{matrix.overrides.tokens_per_minute_limit}`",
         f"- counts: `{json.dumps(counts, ensure_ascii=False)}`",
         "",
-        "| family | config | evidence_tier | status | run_dir | notes |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| family | config | track | role | status | run_dir | notes |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for entry in matrix.entries:
         lines.append(
@@ -534,7 +647,8 @@ def _render_matrix_report(matrix: MatrixBuild, counts: dict[str, int]) -> str:
                 [
                     entry.family,
                     Path(entry.config_path).name,
-                    entry.evidence_tier,
+                    entry.track_name,
+                    entry.entry_role,
                     entry.status,
                     entry.run_dir or "",
                     entry.review_notes or entry.excluded_reason or "",
@@ -574,37 +688,53 @@ def _safe_load_json(path: str | Path) -> dict[str, Any] | None:
         return None
 
 
+def _resolve_matrix_id_from_state(state_path_or_root: str | Path) -> str:
+    state_path = Path(state_path_or_root)
+    if state_path.is_dir():
+        state_path = state_path / "state.json"
+    payload = _safe_load_json(state_path) or {}
+    return str(payload.get("matrix_id") or MATRIX_ID_FAITHFUL)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    """构建 faithful 矩阵命令行解析器。"""
-    parser = argparse.ArgumentParser(description="Run the unified faithful experiment matrix.")
+    """构建统一矩阵命令行解析器。"""
+    parser = argparse.ArgumentParser(description="Run unified matrix commands.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     inspect_cmd = subparsers.add_parser("inspect-matrix", help="Print the resolved faithful matrix.")
     run_cmd = subparsers.add_parser("run", help="Run the pending faithful matrix entries sequentially.")
     resume_cmd = subparsers.add_parser("resume", help="Resume a faithful-matrix run with pending or rerun-needed entries.")
     analyze_cmd = subparsers.add_parser("analyze-faithful", help="Render faithful analysis for an existing faithful-matrix run.")
+    analyze_matrix_cmd = subparsers.add_parser("analyze-matrix", help="Render matrix analysis for an existing run according to its matrix profile.")
     acceptance_cmd = subparsers.add_parser("evaluate-acceptance", help="Render acceptance summary for an existing faithful-matrix run.")
     statistics_cmd = subparsers.add_parser("render-statistics", help="Render paper-grade statistical artifacts for an existing run.")
     paper_cmd = subparsers.add_parser("render-paper-package", help="Render paper-facing tables and figures for an existing run.")
     landscape_cmd = subparsers.add_parser("render-family-landscape", help="Render the family-level landscape view for an existing run.")
+    package_matrix_cmd = subparsers.add_parser("render-matrix-package", help="Render the matrix package for an existing run according to its matrix profile.")
+    landscape_matrix_cmd = subparsers.add_parser("render-matrix-landscape", help="Render the matrix landscape for an existing run according to its matrix profile.")
 
     for command in (inspect_cmd, run_cmd):
+        command.add_argument("--matrix", default=DEFAULT_MATRIX_ID, choices=list(all_matrix_ids()))
         command.add_argument("--phase", default=DEFAULT_PHASE)
         command.add_argument("--model", default=DEFAULT_MODEL_REF)
         command.add_argument("--max-concurrent-requests", type=int, default=DEFAULT_MAX_CONCURRENT_REQUESTS)
         command.add_argument("--requests-per-minute-limit", type=int, default=DEFAULT_REQUESTS_PER_MINUTE)
         command.add_argument("--tokens-per-minute-limit", type=int, default=DEFAULT_TOKENS_PER_MINUTE)
 
-    run_cmd.add_argument("--state-root", default=default_runs_root(MATRIX_EXPERIMENT_KIND))
+    run_cmd.add_argument("--state-root", default=None)
     run_cmd.add_argument("--reference-state-path")
     resume_cmd.add_argument("--state-path", required=True)
     resume_cmd.add_argument("--reference-state-path")
     analyze_cmd.add_argument("--state-path", required=True)
     analyze_cmd.add_argument("--reference-state-path")
+    analyze_matrix_cmd.add_argument("--state-path", required=True)
+    analyze_matrix_cmd.add_argument("--reference-state-path")
     acceptance_cmd.add_argument("--analysis-path", required=True)
     statistics_cmd.add_argument("--state-path", required=True)
     paper_cmd.add_argument("--state-path", required=True)
     landscape_cmd.add_argument("--state-path", required=True)
+    package_matrix_cmd.add_argument("--state-path", required=True)
+    landscape_matrix_cmd.add_argument("--state-path", required=True)
     return parser
 
 
@@ -622,11 +752,14 @@ def main(argv: list[str] | None = None) -> None:
             requests_per_minute_limit=args.requests_per_minute_limit,
             tokens_per_minute_limit=args.tokens_per_minute_limit,
         )
-        matrix = build_run_matrix(overrides)
+        matrix = build_run_matrix(overrides, matrix_id=args.matrix)
+        profile = get_matrix_profile(args.matrix)
         payload = {
+            "matrix_id": profile.matrix_id,
+            "matrix_kind": profile.matrix_kind,
             "overrides": asdict(overrides),
             "counts": matrix.counts,
-            "workspace_defaults": workspace_defaults(MATRIX_EXPERIMENT_KIND),
+            "workspace_defaults": workspace_defaults(profile.matrix_kind),
             "entries": [asdict(entry) for entry in matrix.entries],
             "semantic_entries": [asdict(entry) for entry in matrix.semantic_entries],
         }
@@ -641,7 +774,8 @@ def main(argv: list[str] | None = None) -> None:
             requests_per_minute_limit=args.requests_per_minute_limit,
             tokens_per_minute_limit=args.tokens_per_minute_limit,
         )
-        run_dir = run_faithful_matrix(
+        run_dir = run_matrix(
+            args.matrix,
             overrides,
             state_root=args.state_root,
             reference_state_path_or_root=args.reference_state_path,
@@ -650,7 +784,7 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.command == "resume":
-        run_dir = resume_faithful_matrix(
+        run_dir = resume_matrix(
             args.state_path,
             reference_state_path_or_root=args.reference_state_path,
         )
@@ -662,6 +796,18 @@ def main(argv: list[str] | None = None) -> None:
             args.state_path,
             reference_state_path_or_root=args.reference_state_path,
         )
+        emit_json(paths)
+        return
+
+    if args.command == "analyze-matrix":
+        matrix_id = _resolve_matrix_id_from_state(args.state_path)
+        if matrix_id == MATRIX_ID_FAITHFUL:
+            paths = render_faithful_analysis(
+                args.state_path,
+                reference_state_path_or_root=args.reference_state_path,
+            )
+        else:
+            paths = render_reproduction_analysis(args.state_path)
         emit_json(paths)
         return
 
@@ -682,6 +828,24 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "render-family-landscape":
         paths = render_family_landscape(args.state_path)
+        emit_json(paths)
+        return
+
+    if args.command == "render-matrix-package":
+        matrix_id = _resolve_matrix_id_from_state(args.state_path)
+        if matrix_id == MATRIX_ID_FAITHFUL:
+            paths = render_paper_package(args.state_path)
+        else:
+            paths = render_reproduction_package(args.state_path)
+        emit_json(paths)
+        return
+
+    if args.command == "render-matrix-landscape":
+        matrix_id = _resolve_matrix_id_from_state(args.state_path)
+        if matrix_id == MATRIX_ID_FAITHFUL:
+            paths = render_family_landscape(args.state_path)
+        else:
+            paths = render_reproduction_landscape(args.state_path)
         emit_json(paths)
         return
 

@@ -1,0 +1,49 @@
+[[entries]]
+config_path = "configs/families/dog_graph/experiments/dog_graph_main.toml"
+track_name = "graph_reasoning"
+entry_role = "canonical"
+analysis_mode = "primary_summary"
+primary_method_name = "dog_graph_paper"
+primary_metric_field = "accuracy_mean"
+primary_metric_label = "accuracy"
+comparison_scope = "within_track_only"
+
+[[entries]]
+config_path = "configs/families/dog_graph/experiments/dog_graph_static_ablation.toml"
+track_name = "graph_reasoning"
+entry_role = "ablation"
+analysis_mode = "primary_summary"
+primary_method_name = "dog_graph_r1"
+primary_metric_field = "accuracy_mean"
+primary_metric_label = "accuracy"
+comparison_scope = "within_track_only"
+
+[[entries]]
+config_path = "configs/families/table_critic/experiments/table_critic_main.toml"
+track_name = "table_reasoning"
+entry_role = "canonical"
+analysis_mode = "primary_summary"
+primary_method_name = "table_critic_paper"
+primary_metric_field = "accuracy_mean"
+primary_metric_label = "accuracy"
+comparison_scope = "within_track_only"
+
+[[entries]]
+config_path = "configs/families/macnet/experiments/macnet_paper_main.toml"
+track_name = "topology_collaboration"
+entry_role = "canonical"
+analysis_mode = "primary_summary"
+primary_method_name = "macnet_random"
+primary_metric_field = "quality_mean"
+primary_metric_label = "quality"
+comparison_scope = "within_track_only"
+
+[[entries]]
+config_path = "configs/families/macnet/experiments/macnet_scaling_study.toml"
+track_name = "topology_collaboration"
+entry_role = "scaling"
+analysis_mode = "scaling_summary"
+primary_method_name = ""
+primary_metric_field = "quality_mean"
+primary_metric_label = "quality"
+comparison_scope = "within_track_only"

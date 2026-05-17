@@ -21,7 +21,7 @@ uv run research_cli family macnet render-report --run-dir local/runs/macnet/macn
 
 - `macnet_paper_main` 是当前项目里的 MacNet 主复现线。
 - `macnet_scaling_study` 用来补拓扑规模曲线与调用数匹配控制，不直接改写主表结论。
-- 这条线是平行复现支线，不进入当前 `faithful_matrix`。
+- 这条线是平行复现支线，当前进入 `reproduction_matrix`，但不进入 `faithful_matrix`。
 - canonical benchmark 当前固定为 `MMLU / HumanEval / CommonGen-Hard`。
 - `SRDD_Profile` 在 v1 中作为官方角色库资产接入，用于 actor / critic profile 选择，而不是单独的 scored benchmark。
 
