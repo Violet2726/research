@@ -13,6 +13,7 @@ TRACK_SPLIT_CONTEXT = "split_context"
 TRACK_GRAPH_REASONING = "graph_reasoning"
 TRACK_TABLE_REASONING = "table_reasoning"
 TRACK_TOPOLOGY_COLLABORATION = "topology_collaboration"
+TRACK_OVERSIGHT_PROTOCOL = "oversight_protocol"
 
 EVIDENCE_HEADLINE = "headline"
 EVIDENCE_SUPPORTING = "supporting"

@@ -1,0 +1,29 @@
+{
+  "dataset": "realmistake_fine_grained_fact_verification",
+  "split_name": "count20_seed42",
+  "source_split": "finegrained_fact_verification",
+  "sample_count": 20,
+  "sample_ids": [
+    "finegrained_fact_verification_wice_test01228_gpt-4-0613",
+    "finegrained_fact_verification_wice_test04328_meta-llama/Llama-2-70b-chat-hf",
+    "finegrained_fact_verification_wice_test01429_gpt-4-0613",
+    "finegrained_fact_verification_wice_test00287_gpt-4-0613",
+    "finegrained_fact_verification_wice_test00515_gpt-4-0613",
+    "finegrained_fact_verification_wice_test00937_meta-llama/Llama-2-70b-chat-hf",
+    "finegrained_fact_verification_wice_test03602_meta-llama/Llama-2-70b-chat-hf",
+    "finegrained_fact_verification_wice_test02130_gpt-4-0613",
+    "finegrained_fact_verification_wice_test03377_gpt-4-0613",
+    "finegrained_fact_verification_wice_test01201_meta-llama/Llama-2-70b-chat-hf",
+    "finegrained_fact_verification_wice_test03432_gpt-4-0613",
+    "finegrained_fact_verification_wice_test02292_meta-llama/Llama-2-70b-chat-hf",
+    "finegrained_fact_verification_wice_test02384_gpt-4-0613",
+    "finegrained_fact_verification_wice_test03771_meta-llama/Llama-2-70b-chat-hf",
+    "finegrained_fact_verification_wice_test00883_meta-llama/Llama-2-70b-chat-hf",
+    "finegrained_fact_verification_wice_test03723_meta-llama/Llama-2-70b-chat-hf",
+    "finegrained_fact_verification_wice_test03749_meta-llama/Llama-2-70b-chat-hf",
+    "finegrained_fact_verification_wice_test02812_gpt-4-0613",
+    "finegrained_fact_verification_wice_test00069_meta-llama/Llama-2-70b-chat-hf",
+    "finegrained_fact_verification_wice_test03809_meta-llama/Llama-2-70b-chat-hf"
+  ],
+  "random_seed": 42
+}

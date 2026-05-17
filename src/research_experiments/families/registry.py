@@ -89,6 +89,16 @@ FAMILY_SPECS: dict[str, FamilySpec] = {
         report_renderer_path="research_experiments.families.comm_necessary.run.report:render_report",
         cli_main_path="research_experiments.families.comm_necessary.spec:main",
     ),
+    "colmad": FamilySpec(
+        family_name="colmad",
+        config_loader_path="research_experiments.families.colmad.config:load_experiment_config",
+        model_resolver_path="research_experiments.families.shared.config_loading:resolve_model",
+        runner_path="research_experiments.families.colmad.run.execute:run_experiment",
+        validator_path="research_experiments.families.colmad.run.validate:validate_run",
+        summarizer_path="research_experiments.families.colmad.run.report:summarize_run",
+        report_renderer_path="research_experiments.families.colmad.run.report:render_report",
+        cli_main_path="research_experiments.families.colmad.spec:main",
+    ),
     "cue": FamilySpec(
         family_name="cue",
         config_loader_path="research_experiments.families.cue.config:load_experiment_config",

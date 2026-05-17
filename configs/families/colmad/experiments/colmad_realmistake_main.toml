@@ -1,0 +1,44 @@
+name = "colmad_realmistake_main"
+description = "复现 ColMAD 的协作监督式多智能体辩论协议，覆盖 ReaLMistake 三类错误检测任务。"
+experiment_kind = "paper"
+benchmark_configs = [
+  "configs/core/shared/benchmarks/realmistake/math_problem_generation.toml",
+  "configs/core/shared/benchmarks/realmistake/fine_grained_fact_verification.toml",
+  "configs/core/shared/benchmarks/realmistake/answerability_classification.toml",
+]
+protocol = "configs/families/colmad/protocols/paper_main.toml"
+global_seed = 42
+prompt_version = "colmad_paper_v1"
+max_concurrent_requests = 80
+requests_per_minute_limit = 95
+tokens_per_minute_limit = 1000000
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+
+[[methods]]
+name = "single_agent_detector"
+mode = "single_agent_detector"
+note = "单智能体错误检测基线。"
+
+[[methods]]
+name = "copmad_competitive"
+mode = "copmad_competitive"
+matched_controls = ["single_agent_detector"]
+note = "竞争式零和多智能体辩论。"
+
+[[methods]]
+name = "colmad_collaborative"
+mode = "colmad_collaborative"
+matched_controls = ["single_agent_detector", "copmad_competitive"]
+note = "协作式非零和多智能体辩论。"
+
+[phases.count20]
+split_suffix = "count20_seed42"
+
+[phases.count100]
+split_suffix = "count100_seed42"
+
+[phases.count300]
+split_suffix = "count300_seed42"
+
+[phases.full]
+split_overrides = { realmistake_math_problem_generation = "full300_seed42", realmistake_fine_grained_fact_verification = "full300_seed42", realmistake_answerability_classification = "full300_seed42" }

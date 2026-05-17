@@ -30,6 +30,12 @@ def normalize_prediction(dataset: str, final_answer: str) -> str:
     if dataset == "commongen_hard":
         return normalize_commongen_sentence(final_answer)
     if dataset in {
+        "realmistake_math_problem_generation",
+        "realmistake_fine_grained_fact_verification",
+        "realmistake_answerability_classification",
+    }:
+        return normalize_error_detection_verdict(final_answer)
+    if dataset in {
         "hotpotqa",
         "webquestions",
         "grailqa",
@@ -86,6 +92,12 @@ def score_prediction(dataset: str, predicted: str, gold: str) -> float:
         return 1.0 if normalize_tabfact_label(predicted) == normalize_tabfact_label(gold) else 0.0
     if dataset == "commongen_hard":
         return score_commongen_hard(predicted, gold)
+    if dataset in {
+        "realmistake_math_problem_generation",
+        "realmistake_fine_grained_fact_verification",
+        "realmistake_answerability_classification",
+    }:
+        return 1.0 if normalize_error_detection_verdict(predicted) == normalize_error_detection_verdict(gold) else 0.0
     if dataset == "humaneval":
         return score_humaneval(predicted, gold)
     if dataset in {
@@ -146,6 +158,36 @@ def normalize_tabfact_label(value: str) -> str:
         return "entailed"
     if lowered in {"refuted", "refute", "false", "no", "unsupported", "incorrect"}:
         return "refuted"
+    return lowered
+
+
+def normalize_error_detection_verdict(value: str) -> str:
+    """把错误检测标签归一成 `contains_error / contains_no_error`。"""
+
+    lowered = normalize_text(value)
+    if lowered in {
+        "error",
+        "contains error",
+        "containserror",
+        "contains an error",
+        "the model response contains an error",
+        "therefore the model response contains an error",
+        "incorrect",
+        "has error",
+    }:
+        return "contains_error"
+    if lowered in {
+        "no error",
+        "noerror",
+        "contains no error",
+        "containsnoerror",
+        "contains no errors",
+        "contains no mistakes",
+        "the model response contains no error",
+        "therefore the model response contains no error",
+        "correct",
+    }:
+        return "contains_no_error"
     return lowered
 
 

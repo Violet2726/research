@@ -8,6 +8,7 @@ import json
 import shutil
 import tomllib
 import urllib.request
+import zipfile
 
 import pyarrow.parquet as pq
 from huggingface_hub import hf_hub_download
@@ -207,6 +208,42 @@ def build_primary_dataset_specs(benchmarks: list[BenchmarkConfig]) -> list[Datas
             repo_type="dataset",
             filename="commongen_hard_nohuman.json",
             notes="公开 no-human 版本；本地主指标采用稳定的 concept coverage 代理。",
+        ),
+        "realmistake_math_problem_generation": DatasetAssetSpec(
+            slug="realmistake_math_problem_generation",
+            dataset_name="ReaLMistake Math Problem Generation",
+            asset_id="evaluation_bundle",
+            purpose="evaluation",
+            relative_path=Path("realmistake/data.zip"),
+            source_kind="http_file",
+            source_label="ReaLMistake official GitHub",
+            source_url="https://raw.githubusercontent.com/psunlpgroup/ReaLMistake/main/data.zip",
+            source_split="task_bundle",
+            notes="官方公开压缩包，密码为 `open-realmistake`；当前 benchmark 会直接从 zip 中读取 math task 的 GPT-4 与 Llama-2 两个 JSONL 分片。",
+        ),
+        "realmistake_fine_grained_fact_verification": DatasetAssetSpec(
+            slug="realmistake_fine_grained_fact_verification",
+            dataset_name="ReaLMistake Fine-grained Fact Verification",
+            asset_id="evaluation_bundle",
+            purpose="evaluation",
+            relative_path=Path("realmistake/data.zip"),
+            source_kind="http_file",
+            source_label="ReaLMistake official GitHub",
+            source_url="https://raw.githubusercontent.com/psunlpgroup/ReaLMistake/main/data.zip",
+            source_split="task_bundle",
+            notes="官方公开压缩包，密码为 `open-realmistake`；当前 benchmark 会直接从 zip 中读取 fact verification task 的 GPT-4 与 Llama-2 两个 JSONL 分片。",
+        ),
+        "realmistake_answerability_classification": DatasetAssetSpec(
+            slug="realmistake_answerability_classification",
+            dataset_name="ReaLMistake Answerability Classification",
+            asset_id="evaluation_bundle",
+            purpose="evaluation",
+            relative_path=Path("realmistake/data.zip"),
+            source_kind="http_file",
+            source_label="ReaLMistake official GitHub",
+            source_url="https://raw.githubusercontent.com/psunlpgroup/ReaLMistake/main/data.zip",
+            source_split="task_bundle",
+            notes="官方公开压缩包，密码为 `open-realmistake`；当前 benchmark 会直接从 zip 中读取 answerability task 的 GPT-4 与 Llama-2 两个 JSONL 分片。",
         ),
         "dog_grailqa": DatasetAssetSpec(
             slug="dog_grailqa",
@@ -974,6 +1011,7 @@ def _download_specs(specs: list[DatasetAssetSpec], *, force: bool) -> list[Datas
         local_path = _resolve_asset_path(spec.relative_path)
         local_path.parent.mkdir(parents=True, exist_ok=True)
         if local_path.exists() and not force:
+            _materialize_special_asset(spec, local_path)
             results.append(
                 DatasetDownloadResult(
                     slug=spec.slug,
@@ -991,6 +1029,7 @@ def _download_specs(specs: list[DatasetAssetSpec], *, force: bool) -> list[Datas
         shutil.copyfile(downloaded, local_path)
         if downloaded != local_path and downloaded.name.startswith(".") and downloaded.suffix == ".download":
             downloaded.unlink(missing_ok=True)
+        _materialize_special_asset(spec, local_path)
         results.append(
             DatasetDownloadResult(
                 slug=spec.slug,
@@ -1043,6 +1082,45 @@ def _describe_asset(spec: DatasetAssetSpec) -> dict[str, object]:
         "sample_count": sample_count,
         "notes": spec.notes,
     }
+
+
+def _materialize_special_asset(spec: DatasetAssetSpec, local_path: Path) -> None:
+    """为少数需要目录化读取的资产补做本地展开。"""
+
+    if local_path.as_posix() != "realmistake/data.zip" and not local_path.as_posix().endswith("/realmistake/data.zip"):
+        return
+    _extract_realmistake_bundle(local_path)
+
+
+def _extract_realmistake_bundle(zip_path: Path) -> None:
+    """把 ReaLMistake 官方压缩包展开成本地 benchmark 使用的任务目录。"""
+
+    if not zip_path.exists():
+        return
+    destination_root = zip_path.parent
+    task_prefixes = (
+        "data/math_word_problem_generation/",
+        "data/finegrained_fact_verification/",
+        "data/answerability_classification/",
+    )
+    task_name_map = {
+        "math_word_problem_generation": "math_problem_generation",
+        "finegrained_fact_verification": "fine_grained_fact_verification",
+        "answerability_classification": "answerability_classification",
+    }
+    with zipfile.ZipFile(zip_path) as archive:
+        for member_name in archive.namelist():
+            if not member_name.endswith(".jsonl"):
+                continue
+            matched_prefix = next((prefix for prefix in task_prefixes if member_name.startswith(prefix)), None)
+            if matched_prefix is None:
+                continue
+            source_task_name = Path(matched_prefix.rstrip("/")).name
+            target_task_name = task_name_map.get(source_task_name, source_task_name)
+            target_path = destination_root / target_task_name / Path(member_name).name
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(member_name, pwd=b"open-realmistake") as handle:
+                target_path.write_bytes(handle.read())
 
 
 def _describe_unavailable_supplementary_assets(benchmarks: list[BenchmarkConfig]) -> list[dict[str, str]]:

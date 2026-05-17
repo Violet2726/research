@@ -29,6 +29,16 @@ primary_metric_label = "accuracy"
 comparison_scope = "within_track_only"
 
 [[entries]]
+config_path = "configs/families/colmad/experiments/colmad_realmistake_main.toml"
+track_name = "oversight_protocol"
+entry_role = "canonical"
+analysis_mode = "primary_summary"
+primary_method_name = "colmad_collaborative"
+primary_metric_field = "accuracy_mean"
+primary_metric_label = "accuracy"
+comparison_scope = "within_track_only"
+
+[[entries]]
 config_path = "configs/families/macnet/experiments/macnet_paper_main.toml"
 track_name = "topology_collaboration"
 entry_role = "canonical"

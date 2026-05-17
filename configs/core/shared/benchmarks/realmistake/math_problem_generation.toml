@@ -1,0 +1,22 @@
+name = "ReaLMistake Math Problem Generation"
+slug = "realmistake_math_problem_generation"
+loader = "realmistake_error_detection_zip"
+source_path = "realmistake/math_problem_generation"
+source_split = "math_word_problem_generation"
+sample_id_prefix = "realmistake_math"
+question_field = "input"
+answer_field = "error_label"
+smoke_size = 20
+pilot_size = 100
+main_size = 300
+random_seed = 42
+notes = "ReaLMistake 官方错误检测任务；当前直接从加密 zip 中读取 GPT-4 与 Llama-2 的 math word problem generation 响应。"
+archive_member = "data/math_word_problem_generation"
+archive_password = "open-realmistake"
+cache_namespace_override = "realmistake/math_problem_generation"
+split_presets = [
+  { name = "count20_seed42", strategy = "shuffle", size = 20 },
+  { name = "count100_seed42", strategy = "shuffle", size = 100 },
+  { name = "count300_seed42", strategy = "shuffle", size = 300 },
+  { name = "full300_seed42", strategy = "full" },
+]

@@ -1,0 +1,9 @@
+protocol_kind = "paper"
+opening_temperature = 0.0
+reply_temperature = 0.0
+judge_temperature = 0.0
+top_p = 1.0
+max_output_tokens = 1024
+max_evidence_points = 4
+max_failure_modes = 3
+max_debate_rounds = 1

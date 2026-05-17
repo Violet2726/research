@@ -94,6 +94,7 @@ class BenchmarkConfig:
     archive_password: str | None = None
     split_presets: list[dict[str, Any]] = field(default_factory=list)
     config_path: str | None = None
+    cache_namespace_override: str | None = None
     cache_namespace: str | None = None
 
 
@@ -159,10 +160,14 @@ def load_benchmark_config(path: str | Path) -> BenchmarkConfig:
         config_path_text = Path(os.path.relpath(config_path, Path.cwd())).as_posix()
     except ValueError:
         config_path_text = config_path.as_posix()
+    payload_copy = dict(payload)
+    cache_namespace_override = _optional_str(payload_copy, "cache_namespace_override")
+    payload_copy.pop("cache_namespace_override", None)
     return BenchmarkConfig(
-        **payload,
+        **payload_copy,
         config_path=config_path_text,
-        cache_namespace=benchmark_cache_namespace(str(payload["source_path"])),
+        cache_namespace_override=cache_namespace_override,
+        cache_namespace=cache_namespace_override or benchmark_cache_namespace(str(payload["source_path"])),
     )
 
 
@@ -258,6 +263,16 @@ def _optional_bool(payload: dict[str, Any], key: str) -> bool | None:
     if value is None:
         return None
     return bool(value)
+
+
+def _optional_str(payload: dict[str, Any], key: str) -> str | None:
+    """读取可选非空字符串字段。"""
+
+    value = payload.get(key)
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
 
 
 def _optional_int(payload: dict[str, Any], key: str) -> int | None:

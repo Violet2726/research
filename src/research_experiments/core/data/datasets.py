@@ -63,6 +63,7 @@ def load_samples(config: BenchmarkConfig) -> list[DatasetSample]:
         "mmlu_pro_parquet": _load_mmlu_pro,
         "gpqa_zip_csv": _load_gpqa_zip_csv,
         "gsm_symbolic_jsonl": _load_gsm_symbolic,
+        "realmistake_error_detection_zip": _load_realmistake_error_detection,
     }
     return loader_map[config.loader](config)
 
@@ -574,6 +575,46 @@ def _load_tabfact(config: BenchmarkConfig) -> list[DatasetSample]:
     return samples
 
 
+def _load_realmistake_error_detection(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载 ReaLMistake 官方压缩包中的某个错误检测任务。"""
+
+    path = resolve_dataset_source_path(config.source_path)
+    archive_member_prefix = (config.archive_member or "").strip().strip("/\\")
+    archive_password = (config.archive_password or "").encode("utf-8") if config.archive_password else None
+    if not archive_member_prefix:
+        raise ValueError(f"ReaLMistake benchmark {config.slug} requires a non-empty archive_member prefix.")
+
+    records = _load_realmistake_records(path, archive_member_prefix=archive_member_prefix, archive_password=archive_password)
+    samples: list[DatasetSample] = []
+    for index, record in enumerate(records):
+        metadata = dict(record.get("metadata") or {})
+        candidate_response = str(record.get("llm_response") or "").strip()
+        verdict = str(record.get("error_label") or record.get("label") or "").strip()
+        sample_id = str(metadata.get("id") or f"{config.sample_id_prefix}-{index:05d}")
+        samples.append(
+            DatasetSample(
+                dataset=config.slug,
+                sample_id=sample_id,
+                question=str(record.get("input") or "").strip(),
+                reference_answer=verdict,
+                prompt_context="",
+                metadata={
+                    "raw_index": index,
+                    "task_name": str(metadata.get("task_name") or config.source_split or config.slug),
+                    "task_source": metadata.get("task_source"),
+                    "difficulty": metadata.get("difficulty"),
+                    "candidate_response": candidate_response,
+                    "candidate_response_model": str(metadata.get("llm_response_model") or "unknown"),
+                    "error_categories": list(record.get("error_categories") or []),
+                    "human_explanation": str(record.get("human_explanation") or "").strip(),
+                    "metadata": metadata,
+                    "source_record": record,
+                },
+            )
+        )
+    return samples
+
+
 def _load_webquestions(config: BenchmarkConfig) -> list[DatasetSample]:
     """加载 WebQuestions，并尽量拼接可用的 Freebase 路径注释为静态候选子图。"""
     path = resolve_dataset_source_path(config.source_path)
@@ -954,6 +995,45 @@ def _load_gsm_symbolic(config: BenchmarkConfig) -> list[DatasetSample]:
                 )
             )
     return samples
+
+
+def _load_realmistake_records(
+    path: Path,
+    *,
+    archive_member_prefix: str,
+    archive_password: bytes | None,
+) -> list[dict[str, Any]]:
+    """从 ReaLMistake 官方压缩包或已解压目录读取指定任务的全部记录。"""
+
+    records: list[dict[str, Any]] = []
+    if path.is_file() and path.suffix.lower() == ".zip":
+        with zipfile.ZipFile(path) as archive:
+            member_names = [
+                name
+                for name in archive.namelist()
+                if name.startswith(f"{archive_member_prefix}/") and name.endswith(".jsonl")
+            ]
+            for member_name in sorted(member_names):
+                with archive.open(member_name, pwd=archive_password) as handle:
+                    for raw_line in handle:
+                        line = raw_line.decode("utf-8").strip()
+                        if line:
+                            records.append(json.loads(line))
+        return records
+
+    task_dir = path
+    if path.is_dir():
+        candidate = path / Path(archive_member_prefix).name
+        if candidate.exists():
+            task_dir = candidate
+    if task_dir.is_file():
+        task_dir = task_dir.parent
+    for member_path in sorted(task_dir.glob("*.jsonl")):
+        with member_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if line.strip():
+                    records.append(json.loads(line))
+    return records
 
 
 def _optional_webquestions_annotation(path: Path) -> dict[str, dict[str, Any]]:

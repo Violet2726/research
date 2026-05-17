@@ -252,6 +252,42 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 文件大小：`3.95 MiB`
 - 冻结 split：`count100/mmlu-pro/test-seed42.json`, `count20/mmlu-pro/test-seed42.json`, `count300/mmlu-pro/test-seed42.json`, `count500/mmlu-pro/test-seed42.json`, `full/mmlu-pro/test-seed42.json`
 
+### ReaLMistake Answerability Classification (`realmistake_answerability_classification`)
+
+- benchmark 配置：`configs/core/shared/benchmarks/realmistake/answerability_classification.toml`
+- 数据相对路径：`realmistake/answerability_classification`
+- 本地资产：`local/datasets/realmistake/answerability_classification`
+- 上游来源：ReaLMistake official GitHub，`https://raw.githubusercontent.com/psunlpgroup/ReaLMistake/main/data.zip`
+- 上游 split：`answerability_classification`
+- 样本数：`300`
+- 文件大小：`0 B`
+- 冻结 split：`count100/realmistake/answerability_classification-seed42.json`, `count20/realmistake/answerability_classification-seed42.json`, `count300/realmistake/answerability_classification-seed42.json`, `full/realmistake/answerability_classification-seed42.json`
+- 说明：官方公开压缩包，密码为 `open-realmistake`；当前 benchmark 会直接从 zip 中读取 answerability task 的 GPT-4 与 Llama-2 两个 JSONL 分片。
+
+### ReaLMistake Fine-grained Fact Verification (`realmistake_fine_grained_fact_verification`)
+
+- benchmark 配置：`configs/core/shared/benchmarks/realmistake/fine_grained_fact_verification.toml`
+- 数据相对路径：`realmistake/fine_grained_fact_verification`
+- 本地资产：`local/datasets/realmistake/fine_grained_fact_verification`
+- 上游来源：ReaLMistake official GitHub，`https://raw.githubusercontent.com/psunlpgroup/ReaLMistake/main/data.zip`
+- 上游 split：`finegrained_fact_verification`
+- 样本数：`300`
+- 文件大小：`0 B`
+- 冻结 split：`count100/realmistake/fine_grained_fact_verification-seed42.json`, `count20/realmistake/fine_grained_fact_verification-seed42.json`, `count300/realmistake/fine_grained_fact_verification-seed42.json`, `full/realmistake/fine_grained_fact_verification-seed42.json`
+- 说明：官方公开压缩包，密码为 `open-realmistake`；当前 benchmark 会直接从 zip 中读取 fact verification task 的 GPT-4 与 Llama-2 两个 JSONL 分片。
+
+### ReaLMistake Math Problem Generation (`realmistake_math_problem_generation`)
+
+- benchmark 配置：`configs/core/shared/benchmarks/realmistake/math_problem_generation.toml`
+- 数据相对路径：`realmistake/math_problem_generation`
+- 本地资产：`local/datasets/realmistake/math_problem_generation`
+- 上游来源：ReaLMistake official GitHub，`https://raw.githubusercontent.com/psunlpgroup/ReaLMistake/main/data.zip`
+- 上游 split：`math_word_problem_generation`
+- 样本数：`300`
+- 文件大小：`0 B`
+- 冻结 split：`count100/realmistake/math_problem_generation-seed42.json`, `count20/realmistake/math_problem_generation-seed42.json`, `count300/realmistake/math_problem_generation-seed42.json`, `full/realmistake/math_problem_generation-seed42.json`
+- 说明：官方公开压缩包，密码为 `open-realmistake`；当前 benchmark 会直接从 zip 中读取 math task 的 GPT-4 与 Llama-2 两个 JSONL 分片。
+
 ### StrategyQA (`strategyqa`)
 
 - benchmark 配置：`configs/core/shared/benchmarks/strategyqa/dev.toml`

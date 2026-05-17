@@ -1,0 +1,22 @@
+name = "ReaLMistake Answerability Classification"
+slug = "realmistake_answerability_classification"
+loader = "realmistake_error_detection_zip"
+source_path = "realmistake/answerability_classification"
+source_split = "answerability_classification"
+sample_id_prefix = "realmistake_answerability"
+question_field = "input"
+answer_field = "error_label"
+smoke_size = 20
+pilot_size = 100
+main_size = 300
+random_seed = 42
+notes = "ReaLMistake 官方错误检测任务；当前直接从加密 zip 中读取 GPT-4 与 Llama-2 的 answerability classification 响应。"
+archive_member = "data/answerability_classification"
+archive_password = "open-realmistake"
+cache_namespace_override = "realmistake/answerability_classification"
+split_presets = [
+  { name = "count20_seed42", strategy = "shuffle", size = 20 },
+  { name = "count100_seed42", strategy = "shuffle", size = 100 },
+  { name = "count300_seed42", strategy = "shuffle", size = 300 },
+  { name = "full300_seed42", strategy = "full" },
+]

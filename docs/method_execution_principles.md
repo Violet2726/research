@@ -43,7 +43,7 @@
 - `faithful_matrix`
   当前 authoritative 主矩阵是 `17` 个语义唯一目标，不再保留任何本地开发专用实验入口。
 - `reproduction_matrix`
-  当前正式收纳平行论文复现支线：`dog_graph_main / dog_graph_static_ablation / table_critic_main / macnet_paper_main / macnet_scaling_study`。
+  当前正式收纳平行论文复现支线：`dog_graph_main / dog_graph_static_ablation / table_critic_main / colmad_realmistake_main / macnet_paper_main / macnet_scaling_study`。
 
 ## 2. 全局设计原则
 

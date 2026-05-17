@@ -53,7 +53,7 @@ def test_reproduction_matrix_inspect_cli() -> None:
     )
     assert payload["matrix_id"] == "reproduction"
     assert payload["matrix_kind"] == "reproduction_matrix"
-    assert payload["counts"]["semantic_unique_targets"] == 5
+    assert payload["counts"]["semantic_unique_targets"] == 6
 
 
 def test_imad_inspect_cli() -> None:
@@ -149,6 +149,22 @@ def test_econ_inspect_cli() -> None:
     assert payload["name"] == "econ_same_context_main"
     assert payload["protocol"]["agent_count"] == 3
     assert payload["methods"][-1]["name"] == "econ_bne_main"
+
+
+def test_colmad_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "family",
+            "colmad",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/colmad/experiments/colmad_realmistake_main.toml",
+        ],
+    )
+    assert payload["name"] == "colmad_realmistake_main"
+    assert payload["protocol"]["max_debate_rounds"] == 1
+    assert payload["methods"][-1]["name"] == "colmad_collaborative"
 
 
 def test_macnet_inspect_cli() -> None:

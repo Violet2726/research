@@ -1,0 +1,29 @@
+{
+  "dataset": "realmistake_answerability_classification",
+  "split_name": "count20_seed42",
+  "source_split": "answerability_classification",
+  "sample_count": 20,
+  "sample_ids": [
+    "answerability_classification_5a7136e25542994082a3e67e_gpt-4-0613",
+    "answerability_classification_5ac471a5554299194317399a_meta-llama/Llama-2-70b-chat-hf",
+    "answerability_classification_5a8f1adc554299458435d577_gpt-4-0613",
+    "answerability_classification_5a84992e5542992a431d1a6d_gpt-4-0613",
+    "answerability_classification_5ae530e355429908b6326561_gpt-4-0613",
+    "answerability_classification_5abe92de5542993f32c2a16b_meta-llama/Llama-2-70b-chat-hf",
+    "answerability_classification_5a8f24cc55429924144829e7_meta-llama/Llama-2-70b-chat-hf",
+    "answerability_classification_5adeb78a554299728e26c77a_gpt-4-0613",
+    "answerability_classification_5a7281075542994cef4bc2e9_gpt-4-0613",
+    "answerability_classification_5ade1f1c55429939a52fe82d_meta-llama/Llama-2-70b-chat-hf",
+    "answerability_classification_5a78db8055429970f5fffdb2_gpt-4-0613",
+    "answerability_classification_5ae7ae9a5542993210983ef2_meta-llama/Llama-2-70b-chat-hf",
+    "answerability_classification_5abda2b755429933744ab80f_gpt-4-0613",
+    "answerability_classification_5a7e49e05542991319bc9463_meta-llama/Llama-2-70b-chat-hf",
+    "answerability_classification_5ab1f13e554299449642c81c_meta-llama/Llama-2-70b-chat-hf",
+    "answerability_classification_5ae479745542996836b02cb1_meta-llama/Llama-2-70b-chat-hf",
+    "answerability_classification_5a8c66db554299585d9e3683_meta-llama/Llama-2-70b-chat-hf",
+    "answerability_classification_5adead1855429939a52fe948_gpt-4-0613",
+    "answerability_classification_5ae780a55542997b22f6a79f_meta-llama/Llama-2-70b-chat-hf",
+    "answerability_classification_5a9042825542990a984935d6_meta-llama/Llama-2-70b-chat-hf"
+  ],
+  "random_seed": 42
+}

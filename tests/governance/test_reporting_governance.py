@@ -8,6 +8,7 @@ from pathlib import Path
 
 from research_experiments.cli import build_parser as build_root_parser
 from research_experiments.families.budget_comm.spec import build_parser as build_budget_parser
+from research_experiments.families.colmad.spec import build_parser as build_colmad_parser
 from research_experiments.families.comm_necessary.spec import build_parser as build_comm_necessary_parser
 from research_experiments.families.cue.spec import build_parser as build_cue_parser
 from research_experiments.families.dog_graph.spec import build_parser as build_dog_graph_parser
@@ -35,6 +36,7 @@ MARKDOWN_DOCS = [
     ROOT / "docs" / "huggingface_archive_workflow.md",
     ROOT / "docs" / "run_report_pipeline.md",
     ROOT / "src" / "research_experiments" / "families" / "budget_comm" / "README.md",
+    ROOT / "src" / "research_experiments" / "families" / "colmad" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "comm_necessary" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "cue" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "dog_graph" / "README.md",
@@ -61,6 +63,7 @@ def test_all_family_clis_expose_render_report() -> None:
         build_selective_parser(),
         build_sparc_parser(),
         build_budget_parser(),
+        build_colmad_parser(),
         build_sid_parser(),
         build_free_mad_parser(),
         build_dog_graph_parser(),
