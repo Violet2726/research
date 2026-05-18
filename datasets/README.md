@@ -260,7 +260,7 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 上游来源：ReaLMistake official GitHub，`https://raw.githubusercontent.com/psunlpgroup/ReaLMistake/main/data.zip`
 - 上游 split：`answerability_classification`
 - 样本数：`300`
-- 文件大小：`0 B`
+- 文件大小：`4.00 KiB`
 - 冻结 split：`count100/realmistake/answerability_classification-seed42.json`, `count20/realmistake/answerability_classification-seed42.json`, `count300/realmistake/answerability_classification-seed42.json`, `full/realmistake/answerability_classification-seed42.json`
 - 说明：官方公开压缩包，密码为 `open-realmistake`；当前 benchmark 会直接从 zip 中读取 answerability task 的 GPT-4 与 Llama-2 两个 JSONL 分片。
 
@@ -272,7 +272,7 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 上游来源：ReaLMistake official GitHub，`https://raw.githubusercontent.com/psunlpgroup/ReaLMistake/main/data.zip`
 - 上游 split：`finegrained_fact_verification`
 - 样本数：`300`
-- 文件大小：`0 B`
+- 文件大小：`4.00 KiB`
 - 冻结 split：`count100/realmistake/fine_grained_fact_verification-seed42.json`, `count20/realmistake/fine_grained_fact_verification-seed42.json`, `count300/realmistake/fine_grained_fact_verification-seed42.json`, `full/realmistake/fine_grained_fact_verification-seed42.json`
 - 说明：官方公开压缩包，密码为 `open-realmistake`；当前 benchmark 会直接从 zip 中读取 fact verification task 的 GPT-4 与 Llama-2 两个 JSONL 分片。
 
@@ -284,7 +284,7 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 上游来源：ReaLMistake official GitHub，`https://raw.githubusercontent.com/psunlpgroup/ReaLMistake/main/data.zip`
 - 上游 split：`math_word_problem_generation`
 - 样本数：`300`
-- 文件大小：`0 B`
+- 文件大小：`4.00 KiB`
 - 冻结 split：`count100/realmistake/math_problem_generation-seed42.json`, `count20/realmistake/math_problem_generation-seed42.json`, `count300/realmistake/math_problem_generation-seed42.json`, `full/realmistake/math_problem_generation-seed42.json`
 - 说明：官方公开压缩包，密码为 `open-realmistake`；当前 benchmark 会直接从 zip 中读取 math task 的 GPT-4 与 Llama-2 两个 JSONL 分片。
 
@@ -361,8 +361,7 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 用途：`train`
 - 上游来源：Hugging Face dataset mirror，`https://huggingface.co/datasets/Hieuman/grail_qa`
 - 上游 split：`train`
-- 文件大小：`22.58 MiB`
-- 样本数：`44337`
+- 文件大小：尚未下载
 
 ### GrailQA / test
 
@@ -370,8 +369,7 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 用途：`test_public`
 - 上游来源：Hugging Face dataset mirror，`https://huggingface.co/datasets/Hieuman/grail_qa`
 - 上游 split：`test`
-- 文件大小：`646.37 KiB`
-- 样本数：`13231`
+- 文件大小：尚未下载
 - 说明：用于额外泛化检查；正式 family v1 默认仍以 validation split 进入 count20/count100/count300。
 
 ### GSM8K / train
