@@ -93,6 +93,7 @@ class BenchmarkConfig:
     archive_member: str | None = None
     archive_password: str | None = None
     split_presets: list[dict[str, Any]] = field(default_factory=list)
+    record_filters: list[dict[str, Any]] = field(default_factory=list)
     config_path: str | None = None
     cache_namespace_override: str | None = None
     cache_namespace: str | None = None

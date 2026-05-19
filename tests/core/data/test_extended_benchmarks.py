@@ -29,6 +29,15 @@ def test_mmlu_pro_loader_renders_options_and_mcq_gold() -> None:
     assert "options" in sample.metadata
 
 
+def test_mmlu_abstract_algebra_benchmark_filters_to_single_subject() -> None:
+    benchmark = load_benchmark_config("configs/core/shared/benchmarks/mmlu/abstract_algebra.toml")
+    samples = load_samples(benchmark)
+    assert samples
+    assert len(samples) == 100
+    assert all(sample.dataset == "mmlu_abstract_algebra" for sample in samples)
+    assert {sample.metadata.get("subject") for sample in samples} == {"abstract_algebra"}
+
+
 def test_gpqa_loader_renders_options_and_mcq_gold() -> None:
     benchmark = load_benchmark_config("configs/core/shared/benchmarks/gpqa/dataset.toml")
     samples = load_samples(benchmark)
@@ -52,5 +61,6 @@ def test_multiple_choice_scoring_accepts_letter_or_option_text() -> None:
     assert score_prediction("gpqa_diamond", "B", gold) == 1.0
     assert score_prediction("gpqa_diamond", "polyA tail", gold) == 1.0
     assert score_prediction("gpqa_diamond", "A", gold) == 0.0
+    assert score_prediction("mmlu_abstract_algebra", "B", gold) == 1.0
 
 

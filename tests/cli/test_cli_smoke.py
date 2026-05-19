@@ -72,6 +72,23 @@ def test_imad_inspect_cli() -> None:
     assert payload["methods"][-1]["name"] == "imad_adaptive"
 
 
+def test_dmad_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "family",
+            "dmad",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/dmad/experiments/dmad_reasoning_main.toml",
+        ],
+    )
+    assert payload["name"] == "dmad_reasoning_main"
+    assert payload["protocol"]["agent_count"] == 3
+    assert payload["methods"][-1]["name"] == "dmad_strategy_diverse_r1"
+    assert payload["methods"][-1]["roster_config"]["diversity_mode"] == "strategy_diverse"
+
+
 def test_dog_graph_inspect_cli() -> None:
     payload = run_cli_json(
         [

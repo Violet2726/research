@@ -1,0 +1,29 @@
+{
+  "dataset": "mmlu_abstract_algebra",
+  "split_name": "count20_seed42",
+  "source_split": "test",
+  "sample_count": 20,
+  "sample_ids": [
+    "mmlu_abstract_algebra-00042",
+    "mmlu_abstract_algebra-00041",
+    "mmlu_abstract_algebra-00091",
+    "mmlu_abstract_algebra-00009",
+    "mmlu_abstract_algebra-00065",
+    "mmlu_abstract_algebra-00050",
+    "mmlu_abstract_algebra-00001",
+    "mmlu_abstract_algebra-00070",
+    "mmlu_abstract_algebra-00015",
+    "mmlu_abstract_algebra-00078",
+    "mmlu_abstract_algebra-00073",
+    "mmlu_abstract_algebra-00010",
+    "mmlu_abstract_algebra-00055",
+    "mmlu_abstract_algebra-00056",
+    "mmlu_abstract_algebra-00072",
+    "mmlu_abstract_algebra-00045",
+    "mmlu_abstract_algebra-00048",
+    "mmlu_abstract_algebra-00092",
+    "mmlu_abstract_algebra-00076",
+    "mmlu_abstract_algebra-00037"
+  ],
+  "random_seed": 42
+}

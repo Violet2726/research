@@ -1,0 +1,22 @@
+diversity_mode = "homogeneous"
+
+[[agents]]
+agent_id = 1
+persona_name = "general_reasoner"
+persona_instruction = "Act as a careful general-purpose reasoning assistant."
+strategy_name = "cot"
+strategy_instruction = "Think step by step and make every inference explicit before committing to the final answer."
+
+[[agents]]
+agent_id = 2
+persona_name = "general_reasoner"
+persona_instruction = "Act as a careful general-purpose reasoning assistant."
+strategy_name = "cot"
+strategy_instruction = "Think step by step and make every inference explicit before committing to the final answer."
+
+[[agents]]
+agent_id = 3
+persona_name = "general_reasoner"
+persona_instruction = "Act as a careful general-purpose reasoning assistant."
+strategy_name = "cot"
+strategy_instruction = "Think step by step and make every inference explicit before committing to the final answer."

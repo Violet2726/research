@@ -5,6 +5,7 @@ from pathlib import Path
 from research_experiments.matrix.reproduction_analysis import build_reproduction_analysis, render_reproduction_analysis
 from research_experiments.reporting.reproduction_landscape import build_reproduction_landscape_payload, render_reproduction_landscape
 from research_experiments.reporting.reproduction_package import build_reproduction_package_payload, render_reproduction_package
+from research_experiments.workspace.layout import default_reports_root
 from testsupport.filesystem import write_json
 
 
@@ -128,7 +129,7 @@ def test_build_reproduction_landscape_payload_groups_only_within_track() -> None
 
 
 def test_render_reproduction_outputs_markdown_and_json(tmp_path: Path) -> None:
-    state_dir = tmp_path / "matrix"
+    state_dir = tmp_path / "matrix_state_demo"
     run_dir = tmp_path / "dog_graph_run"
     run_dir.mkdir(parents=True)
     write_json(
@@ -145,6 +146,13 @@ def test_render_reproduction_outputs_markdown_and_json(tmp_path: Path) -> None:
                     "experiment_name": "dog_graph_main",
                     "status": "completed",
                     "run_dir": run_dir.as_posix(),
+                },
+                {
+                    "family": "macnet",
+                    "config_path": "configs/families/macnet/experiments/macnet_scaling_study.toml",
+                    "experiment_name": "macnet_scaling_study",
+                    "status": "running",
+                    "run_dir": None,
                 }
             ],
             "entries": [
@@ -154,6 +162,13 @@ def test_render_reproduction_outputs_markdown_and_json(tmp_path: Path) -> None:
                     "experiment_name": "dog_graph_main",
                     "status": "completed",
                     "run_dir": run_dir.as_posix(),
+                },
+                {
+                    "family": "macnet",
+                    "config_path": "configs/families/macnet/experiments/macnet_scaling_study.toml",
+                    "experiment_name": "macnet_scaling_study",
+                    "status": "running",
+                    "run_dir": None,
                 }
             ],
         },
@@ -179,10 +194,27 @@ def test_render_reproduction_outputs_markdown_and_json(tmp_path: Path) -> None:
     )
     write_json(run_dir / "scaling_summary.json", {"series": []})
 
-    analysis_paths = render_reproduction_analysis(state_dir)
-    package_paths = render_reproduction_package(state_dir)
-    landscape_paths = render_reproduction_landscape(state_dir)
+    published_analysis = tmp_path / "published" / "analysis.md"
+    published_package = tmp_path / "published" / "package.md"
+    published_landscape = tmp_path / "published" / "landscape.md"
+    default_analysis_path = Path(default_reports_root("reproduction_matrix")) / f"{state_dir.name}-reproduction.md"
+    default_package_path = Path(default_reports_root("reproduction_matrix")) / f"{state_dir.name}-reproduction_package.md"
+    default_landscape_path = Path(default_reports_root("reproduction_matrix")) / f"{state_dir.name}-reproduction_landscape.md"
+
+    assert not default_analysis_path.exists()
+    assert not default_package_path.exists()
+    assert not default_landscape_path.exists()
+
+    analysis_paths = render_reproduction_analysis(state_dir, output_root=state_dir, published_path=published_analysis)
+    package_paths = render_reproduction_package(state_dir, output_root=state_dir, published_path=published_package)
+    landscape_paths = render_reproduction_landscape(state_dir, output_root=state_dir, published_path=published_landscape)
 
     assert Path(analysis_paths["json_path"]).exists()
     assert Path(package_paths["package_json"]).exists()
     assert Path(landscape_paths["json_path"]).exists()
+    assert (state_dir / "reproduction_analysis.json").exists()
+    assert (state_dir / "reproduction_package.json").exists()
+    assert (state_dir / "reproduction_landscape.json").exists()
+    assert not default_analysis_path.exists()
+    assert not default_package_path.exists()
+    assert not default_landscape_path.exists()

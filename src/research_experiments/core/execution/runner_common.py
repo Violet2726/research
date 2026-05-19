@@ -172,17 +172,22 @@ def execute_cached_turn(
                     provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
                 )
             output_status = "ok"
-            # 只有结构化成功的响应才进入缓存，避免把坏输出固化成后续缓存命中。
-            if not cache_hit:
+        except Exception:
+            validated_output = {}
+            output_status = "schema_fail"
+        # 只有结构化成功的响应才进入缓存，避免把坏输出固化成后续缓存命中。
+        # 缓存写入异常不应回溯性改写成 schema_fail；否则会把工程侧缓存问题误判成模型输出问题。
+        if output_status == "ok" and not cache_hit:
+            try:
                 cache_successful_response(
                     cache,
                     cache_key=cache_key,
                     payload=payload,
                     response_payload=response_payload,
                 )
-        except Exception:
-            validated_output = {}
-            output_status = "schema_fail"
+            except Exception:
+                response_payload = dict(response_payload)
+                response_payload["cache_write_error"] = True
 
     usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
     return CachedTurnResult(

@@ -11,6 +11,8 @@ from research_experiments.families.comm_necessary.run.report import summarize_ru
 from research_experiments.families.comm_necessary.run.validate import validate_run as validate_comm_necessary
 from research_experiments.families.cue.run.report import summarize_run as summarize_cue
 from research_experiments.families.cue.run.validate import validate_run as validate_cue
+from research_experiments.families.dmad.run.report import summarize_run as summarize_dmad
+from research_experiments.families.dmad.run.validate import validate_run as validate_dmad
 from research_experiments.families.free_mad_lite.run.report import summarize_run as summarize_free_mad
 from research_experiments.families.free_mad_lite.run.validate import validate_run as validate_free_mad
 from research_experiments.families.multi_agent.run.report import summarize_run as summarize_multi_agent
@@ -104,6 +106,19 @@ def test_multi_agent_validation_contract(tmp_path: Path) -> None:
     touch_figure_contract(tmp_path)
     assert summarize_multi_agent(tmp_path)["row_count"] == 1
     assert validate_multi_agent(tmp_path)["passed"] is True
+
+
+def test_dmad_validation_contract(tmp_path: Path) -> None:
+    write_json(tmp_path / "manifest.json", {})
+    write_jsonl(tmp_path / "agent_turns.jsonl", [{"output_status": "ok"}])
+    write_jsonl(tmp_path / "debate_messages.jsonl", [{"x": 1}])
+    write_jsonl(tmp_path / "final_predictions.jsonl", [{"method_name": "dmad_strategy_diverse_r1"}])
+    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "math500"}]})
+    write_json(tmp_path / "strategy_diagnostics.json", {"rows": [{"dataset": "overall"}]})
+    write_json(tmp_path / "cost_breakdown.json", {"rows": []})
+    touch_figure_contract(tmp_path)
+    assert summarize_dmad(tmp_path)["row_count"] == 1
+    assert validate_dmad(tmp_path)["passed"] is True
 
 
 def test_selective_comm_validation_contract(tmp_path: Path) -> None:

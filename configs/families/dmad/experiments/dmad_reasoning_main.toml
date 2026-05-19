@@ -1,0 +1,63 @@
+# DMAD 高难推理主复现实验入口。
+name = "dmad_reasoning_main"
+description = "复现 Diverse Multi-Agent Debate 的文本推理主线，覆盖 MATH500、MMLU Abstract Algebra、GPQA Diamond、StrategyQA 与 HotpotQA。"
+benchmark_configs = [
+  "configs/core/shared/benchmarks/math500/test.toml",
+  "configs/core/shared/benchmarks/mmlu/abstract_algebra.toml",
+  "configs/core/shared/benchmarks/gpqa/dataset.toml",
+  "configs/core/shared/benchmarks/strategyqa/dev.toml",
+  "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
+]
+protocol = "configs/families/dmad/protocols/dmad_3a_r1.toml"
+control_catalog = "configs/core/shared/controls/no_comm_equal_budget.toml"
+global_seed = 42
+prompt_version = "dmad_v1_json"
+max_concurrent_requests = 80
+requests_per_minute_limit = 95
+tokens_per_minute_limit = 1000000
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+
+[[methods]]
+name = "single_agent_cot"
+mode = "single_agent_cot"
+note = "单智能体直接求解基线。"
+
+[[methods]]
+name = "single_agent_reflection_r1"
+mode = "single_agent_reflection_r1"
+note = "单智能体一次自我复审基线。"
+
+[[methods]]
+name = "mv_6"
+mode = "mv_6"
+note = "六次独立求解的无通信多数投票基线。"
+
+[[methods]]
+name = "vanilla_mad_r1"
+mode = "vanilla_mad_r1"
+roster = "configs/families/dmad/rosters/homogeneous_3agent.toml"
+matched_controls = ["mv_6"]
+note = "标准同质三智能体单轮 debate 基线。"
+
+[[methods]]
+name = "persona_diverse_mad_r1"
+mode = "persona_diverse_mad_r1"
+roster = "configs/families/dmad/rosters/persona_diverse_3agent.toml"
+matched_controls = ["vanilla_mad_r1"]
+note = "只改变 persona 的单轮 debate 变体。"
+
+[[methods]]
+name = "dmad_strategy_diverse_r1"
+mode = "dmad_strategy_diverse_r1"
+roster = "configs/families/dmad/rosters/strategy_diverse_3agent.toml"
+matched_controls = ["vanilla_mad_r1", "persona_diverse_mad_r1"]
+note = "固定三种深层求解策略的 DMAD 主方法。"
+
+[phases.count20]
+split_overrides = { math500 = "count20_seed42", mmlu_abstract_algebra = "count20_seed42", gpqa_diamond = "count20_seed42", strategyqa = "count20_seed42", hotpotqa = "count20_seed42" }
+
+[phases.count100]
+split_overrides = { math500 = "count100_seed42", mmlu_abstract_algebra = "count100_seed42", gpqa_diamond = "count100_seed42", strategyqa = "count100_seed42", hotpotqa = "count100_seed42" }
+
+[phases.count300]
+split_overrides = { math500 = "count300_seed42", mmlu_abstract_algebra = "count300_seed42", gpqa_diamond = "full198_seed42", strategyqa = "full229_seed42", hotpotqa = "count300_seed42" }

@@ -119,6 +119,16 @@ FAMILY_SPECS: dict[str, FamilySpec] = {
         report_renderer_path="research_experiments.families.dog_graph.run.report:render_report",
         cli_main_path="research_experiments.families.dog_graph.spec:main",
     ),
+    "dmad": FamilySpec(
+        family_name="dmad",
+        config_loader_path="research_experiments.families.dmad.config:load_experiment_config",
+        model_resolver_path="research_experiments.families.shared.config_loading:resolve_model",
+        runner_path="research_experiments.families.dmad.run.execute:run_experiment",
+        validator_path="research_experiments.families.dmad.run.validate:validate_run",
+        summarizer_path="research_experiments.families.dmad.run.report:summarize_run",
+        report_renderer_path="research_experiments.families.dmad.run.report:render_report",
+        cli_main_path="research_experiments.families.dmad.spec:main",
+    ),
     "econ": FamilySpec(
         family_name="econ",
         config_loader_path="research_experiments.families.econ.config:load_experiment_config",

@@ -49,7 +49,7 @@ def normalize_prediction(dataset: str, final_answer: str) -> str:
         "metaqa_3hop",
     }:
         return normalize_text(final_answer)
-    if dataset in {"mmlu_pro", "gpqa_diamond"}:
+    if dataset in {"mmlu_pro", "gpqa_diamond", "mmlu_abstract_algebra"}:
         return normalize_multiple_choice(final_answer)
     if dataset == "mmlu":
         return normalize_multiple_choice(final_answer)
@@ -82,7 +82,7 @@ def score_prediction(dataset: str, predicted: str, gold: str) -> float:
 
     当前仓库统一采用精确匹配：归一化后完全一致记为 `1.0`，否则记为 `0.0`。
     """
-    if dataset in {"mmlu_pro", "gpqa_diamond"}:
+    if dataset in {"mmlu_pro", "gpqa_diamond", "mmlu_abstract_algebra"}:
         return score_multiple_choice(predicted, gold)
     if dataset in {"webquestions", "grailqa", "grailqa_test"}:
         return score_text_answer_set(predicted, gold)

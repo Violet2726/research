@@ -73,7 +73,7 @@ def dataset_instruction(
             "The final_answer must be the shortest judgeable entity span or literal answer. "
             "Do not add category words, explanations, or extra qualifiers."
         )
-    if dataset in {"mmlu_pro", "gpqa_diamond"}:
+    if dataset in {"mmlu_pro", "gpqa_diamond", "mmlu_abstract_algebra"}:
         if multiple_choice_scope == "visible":
             return (
                 "Choose the single best option using only the context visible to you. "

@@ -1,4 +1,8 @@
-﻿$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Stop"
+
+$ReproMaxConcurrentRequests = 80
+$ReproRequestsPerMinuteLimit = 95
+$ReproTokensPerMinuteLimit = 1000000
 
 function Import-DotEnvLocal {
     param(
@@ -38,6 +42,9 @@ function Invoke-ReproductionPhase {
     )
 
     $env:REPRO_PHASE = $Phase
+    $env:REPRO_MAX_CONCURRENT_REQUESTS = "$ReproMaxConcurrentRequests"
+    $env:REPRO_REQUESTS_PER_MINUTE_LIMIT = "$ReproRequestsPerMinuteLimit"
+    $env:REPRO_TOKENS_PER_MINUTE_LIMIT = "$ReproTokensPerMinuteLimit"
     if ($ReferenceStatePath) {
         $env:REPRO_REFERENCE_STATE = $ReferenceStatePath
     } else {
@@ -56,7 +63,12 @@ if reference_state:
 
 run_dir = run_matrix(
     "reproduction",
-    RuntimeOverrides(phase_name=os.environ["REPRO_PHASE"]),
+    RuntimeOverrides(
+        phase_name=os.environ["REPRO_PHASE"],
+        max_concurrent_requests=int(os.environ["REPRO_MAX_CONCURRENT_REQUESTS"]),
+        requests_per_minute_limit=int(os.environ["REPRO_REQUESTS_PER_MINUTE_LIMIT"]),
+        tokens_per_minute_limit=int(os.environ["REPRO_TOKENS_PER_MINUTE_LIMIT"]),
+    ),
     **kwargs,
 )
 assert_matrix_succeeded(run_dir)
@@ -72,7 +84,8 @@ print(run_dir.as_posix())
 
 Import-DotEnvLocal
 
-Write-Host "开始运行 reproduction_matrix 四个阶段..."
+Write-Host "开始运行 reproduction_matrix 三个阶段..."
+Write-Host "使用限流: max_concurrent_requests=$ReproMaxConcurrentRequests, requests_per_minute_limit=$ReproRequestsPerMinuteLimit, tokens_per_minute_limit=$ReproTokensPerMinuteLimit"
 
 Write-Host "[$(Get-Date -Format s)] 开始运行 count20 阶段..."
 $count20Dir = Invoke-ReproductionPhase -Phase "count20"
@@ -85,10 +98,6 @@ Write-Host "[$(Get-Date -Format s)] count100 阶段完成: $count100Dir"
 Write-Host "[$(Get-Date -Format s)] 开始运行 count300 阶段..."
 $count300Dir = Invoke-ReproductionPhase -Phase "count300" -ReferenceStatePath $count100Dir
 Write-Host "[$(Get-Date -Format s)] count300 阶段完成: $count300Dir"
-
-Write-Host "[$(Get-Date -Format s)] 开始运行 count500 阶段..."
-$count500Dir = Invoke-ReproductionPhase -Phase "count500" -ReferenceStatePath $count300Dir
-Write-Host "[$(Get-Date -Format s)] count500 阶段完成: $count500Dir"
 
 $autoPushCache = if ([string]::IsNullOrWhiteSpace($env:RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT)) { "" } else { $env:RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT.ToLowerInvariant() }
 if (

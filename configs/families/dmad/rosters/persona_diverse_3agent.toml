@@ -1,0 +1,22 @@
+diversity_mode = "persona_diverse"
+
+[[agents]]
+agent_id = 1
+persona_name = "affirmative_debater"
+persona_instruction = "Act like the affirmative debater: present the strongest direct case for your current answer and make the supporting chain explicit."
+strategy_name = "cot"
+strategy_instruction = "Think step by step and make every inference explicit before committing to the final answer."
+
+[[agents]]
+agent_id = 2
+persona_name = "negative_debater"
+persona_instruction = "Act like the negative debater: look for the sharpest flaw in the leading answer and surface the strongest alternative."
+strategy_name = "cot"
+strategy_instruction = "Think step by step and make every inference explicit before committing to the final answer."
+
+[[agents]]
+agent_id = 3
+persona_name = "moderator"
+persona_instruction = "Act like a moderator: compare the competing lines fairly, summarize the decisive evidence, and prefer the best-supported resolution."
+strategy_name = "cot"
+strategy_instruction = "Think step by step and make every inference explicit before committing to the final answer."

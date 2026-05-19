@@ -2,6 +2,10 @@
 
 set -euo pipefail
 
+REPRO_MAX_CONCURRENT_REQUESTS=80
+REPRO_REQUESTS_PER_MINUTE_LIMIT=95
+REPRO_TOKENS_PER_MINUTE_LIMIT=1000000
+
 if [[ -f .env.local ]]; then
   set -a
   source .env.local
@@ -12,6 +16,9 @@ run_phase() {
   local phase="$1"
   local reference_state="${2-}"
   export REPRO_PHASE="$phase"
+  export REPRO_MAX_CONCURRENT_REQUESTS
+  export REPRO_REQUESTS_PER_MINUTE_LIMIT
+  export REPRO_TOKENS_PER_MINUTE_LIMIT
   if [[ -n "$reference_state" ]]; then
     export REPRO_REFERENCE_STATE="$reference_state"
   else
@@ -29,7 +36,12 @@ if reference_state:
 
 run_dir = run_matrix(
     "reproduction",
-    RuntimeOverrides(phase_name=os.environ["REPRO_PHASE"]),
+    RuntimeOverrides(
+        phase_name=os.environ["REPRO_PHASE"],
+        max_concurrent_requests=int(os.environ["REPRO_MAX_CONCURRENT_REQUESTS"]),
+        requests_per_minute_limit=int(os.environ["REPRO_REQUESTS_PER_MINUTE_LIMIT"]),
+        tokens_per_minute_limit=int(os.environ["REPRO_TOKENS_PER_MINUTE_LIMIT"]),
+    ),
     **kwargs,
 )
 assert_matrix_succeeded(run_dir)
@@ -37,7 +49,8 @@ print(run_dir.as_posix())
 PY
 }
 
-echo "开始运行 reproduction_matrix 四个阶段..."
+echo "开始运行 reproduction_matrix 三个阶段..."
+echo "使用限流: max_concurrent_requests=$REPRO_MAX_CONCURRENT_REQUESTS, requests_per_minute_limit=$REPRO_REQUESTS_PER_MINUTE_LIMIT, tokens_per_minute_limit=$REPRO_TOKENS_PER_MINUTE_LIMIT"
 
 echo "[$(date)] 开始运行 count20 阶段..."
 COUNT20_DIR="$(run_phase count20)"
@@ -50,10 +63,6 @@ echo "[$(date)] count100 阶段完成: $COUNT100_DIR"
 echo "[$(date)] 开始运行 count300 阶段..."
 COUNT300_DIR="$(run_phase count300 "$COUNT100_DIR")"
 echo "[$(date)] count300 阶段完成: $COUNT300_DIR"
-
-echo "[$(date)] 开始运行 count500 阶段..."
-COUNT500_DIR="$(run_phase count500 "$COUNT300_DIR")"
-echo "[$(date)] count500 阶段完成: $COUNT500_DIR"
 
 auto_push_flag="${RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT:-}"
 if [[ -n "${RESEARCH_CACHE_HF_REPO:-}" ]] && [[ "${auto_push_flag,,}" =~ ^(1|true|yes|on)$ ]]; then

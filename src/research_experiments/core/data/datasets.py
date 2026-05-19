@@ -65,7 +65,31 @@ def load_samples(config: BenchmarkConfig) -> list[DatasetSample]:
         "gsm_symbolic_jsonl": _load_gsm_symbolic,
         "realmistake_error_detection_zip": _load_realmistake_error_detection,
     }
-    return loader_map[config.loader](config)
+    return _apply_record_filters(loader_map[config.loader](config), config.record_filters)
+
+
+def _apply_record_filters(samples: list[DatasetSample], record_filters: list[dict[str, Any]]) -> list[DatasetSample]:
+    if not record_filters:
+        return samples
+    filtered = samples
+    for spec in record_filters:
+        field_name = str(spec.get("field") or "").strip()
+        operator = str(spec.get("operator") or "eq").strip()
+        if not field_name:
+            raise ValueError("record_filters entries require a non-empty field.")
+        if operator == "eq":
+            target = spec.get("value")
+            filtered = [sample for sample in filtered if sample.metadata.get(field_name) == target]
+            continue
+        if operator == "in":
+            values = spec.get("values")
+            if not isinstance(values, list):
+                raise ValueError("record_filters with operator 'in' require a list-valued 'values' field.")
+            value_set = set(values)
+            filtered = [sample for sample in filtered if sample.metadata.get(field_name) in value_set]
+            continue
+        raise ValueError(f"Unsupported record_filters operator: {operator}")
+    return filtered
 
 
 def generate_split_manifests(

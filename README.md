@@ -6,6 +6,7 @@
 
 - `single_agent`：单智能体 `CoT / Self-Consistency` 基线
 - `multi_agent`：标准多智能体 `debate vs vote`
+- `dmad`：策略异质化多智能体辩论复现
 - `selective_comm`：trigger / early-exit 选择性通信
 - `sparc`：内容压缩、局部审计与联合消融
 - `budget_comm`：预算约束通信与分配策略
