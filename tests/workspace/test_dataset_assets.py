@@ -228,15 +228,15 @@ def test_build_runtime_support_dataset_specs_includes_public_runtime_assets_and_
         ),
         encoding="utf-8",
     )
-    (benchmark_dir / "dog_metaqa_1hop.toml").write_text(
+    (benchmark_dir / "metaqa_1hop.toml").write_text(
         "\n".join(
             [
-                'name = "DoG MetaQA 1-hop"',
-                'slug = "dog_metaqa_1hop"',
-                'loader = "dog_metaqa_txt"',
-                'source_path = "dog-metaqa/1-hop/qa_test.txt"',
+                'name = "MetaQA 1-hop"',
+                'slug = "metaqa_1hop"',
+                'loader = "metaqa_txt"',
+                'source_path = "metaqa/1-hop/test.txt"',
                 'source_split = "test"',
-                'sample_id_prefix = "dog_metaqa_1hop"',
+                'sample_id_prefix = "metaqa1"',
                 'question_field = "question"',
                 'answer_field = "answer"',
                 "smoke_size = 20",
@@ -248,15 +248,15 @@ def test_build_runtime_support_dataset_specs_includes_public_runtime_assets_and_
         ),
         encoding="utf-8",
     )
-    (benchmark_dir / "dog_metaqa_3hop.toml").write_text(
+    (benchmark_dir / "metaqa_3hop.toml").write_text(
         "\n".join(
             [
-                'name = "DoG MetaQA 3-hop"',
-                'slug = "dog_metaqa_3hop"',
-                'loader = "dog_metaqa_txt"',
-                'source_path = "dog-metaqa/3-hop/qa_test.txt"',
+                'name = "MetaQA 3-hop"',
+                'slug = "metaqa_3hop"',
+                'loader = "metaqa_txt"',
+                'source_path = "metaqa/3-hop/test.txt"',
                 'source_split = "test"',
-                'sample_id_prefix = "dog_metaqa_3hop"',
+                'sample_id_prefix = "metaqa3"',
                 'question_field = "question"',
                 'answer_field = "answer"',
                 "smoke_size = 20",
@@ -271,8 +271,8 @@ def test_build_runtime_support_dataset_specs_includes_public_runtime_assets_and_
 
     benchmarks = [
         load_benchmark_config(benchmark_dir / "webquestions.toml"),
-        load_benchmark_config(benchmark_dir / "dog_metaqa_1hop.toml"),
-        load_benchmark_config(benchmark_dir / "dog_metaqa_3hop.toml"),
+        load_benchmark_config(benchmark_dir / "metaqa_1hop.toml"),
+        load_benchmark_config(benchmark_dir / "metaqa_3hop.toml"),
     ]
 
     specs = build_runtime_support_dataset_specs(benchmarks)
@@ -286,6 +286,6 @@ def test_build_runtime_support_dataset_specs_includes_public_runtime_assets_and_
         "entities_test",
         "kb",
     }
-    assert sum(1 for spec in specs if spec.relative_path.as_posix() == "dog-metaqa/kb.txt") == 1
+    assert sum(1 for spec in specs if spec.relative_path.as_posix() == "metaqa/kb.txt") == 1
     assert all(spec.runtime_required for spec in specs)
 

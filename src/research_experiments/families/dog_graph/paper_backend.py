@@ -288,7 +288,7 @@ class LocalReducedFreebaseBackend:
         self._webquestions_index: dict[str, dict[str, Any]] | None = None
 
     def validate(self, dataset_slug: str) -> BackendCheckResult:
-        if dataset_slug == "dog_webquestions":
+        if dataset_slug == "webquestions_paper_test":
             dataset_root = resolve_dataset_source_path("webquestions")
             required = [
                 dataset_root / "test.json",
@@ -303,11 +303,11 @@ class LocalReducedFreebaseBackend:
 
     def for_sample(self, sample) -> LocalReducedFreebaseSession:
         topic_entities = _sample_topic_entities(sample)
-        if sample.dataset == "dog_webquestions":
+        if sample.dataset == "webquestions_paper_test":
             session = self._build_webquestions_session(sample, topic_entities)
-        elif sample.dataset in {"dog_webqsp", "dog_cwq"}:
+        elif sample.dataset in {"webqsp", "cwq"}:
             session = self._build_sparql_session(sample, topic_entities)
-        elif sample.dataset == "dog_grailqa":
+        elif sample.dataset == "grailqa_test":
             session = self._build_grailqa_session(sample, topic_entities)
         else:
             session = LocalReducedFreebaseSession(
@@ -351,7 +351,7 @@ class LocalReducedFreebaseBackend:
     def _build_sparql_session(self, sample, topic_entities: list[EntityRef]) -> LocalReducedFreebaseSession:
         source_record = sample.metadata.get("source_record", {}) or {}
         query = str(source_record.get("sparql") or source_record.get("Sparql") or "").strip()
-        if not query and sample.dataset == "dog_webqsp":
+        if not query and sample.dataset == "webqsp":
             parses = list(source_record.get("Parses") or [])
             if parses and isinstance(parses[0], dict):
                 query = str(parses[0].get("Sparql") or "").strip()
@@ -424,8 +424,8 @@ def build_backend_for_benchmark(
 ) -> FreebaseSparqlBackend | MetaqaGraphBackend | LocalReducedFreebaseBackend:
     """按 benchmark slug 构造对应的论文级图后端。"""
 
-    if benchmark.slug.startswith("dog_metaqa_"):
-        kb_path = resolve_dataset_source_path("dog-metaqa/kb.txt")
+    if benchmark.slug.startswith("metaqa_"):
+        kb_path = resolve_dataset_source_path("metaqa/kb.txt")
         return MetaqaGraphBackend(kb_path)
     if str(freebase_backend_mode).strip().lower() == "virtuoso":
         return FreebaseSparqlBackend(os.getenv("RESEARCH_FREEBASE_SPARQL_URL", freebase_sparql_url))

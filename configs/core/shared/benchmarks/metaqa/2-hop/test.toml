@@ -1,0 +1,19 @@
+name = "MetaQA 2-hop"
+slug = "metaqa_2hop"
+loader = "metaqa_txt"
+source_path = "metaqa/2-hop/test.txt"
+source_split = "test"
+sample_id_prefix = "metaqa2"
+question_field = "question"
+answer_field = "answers"
+smoke_size = 20
+pilot_size = 100
+main_size = 300
+random_seed = 42
+notes = "DoG 论文复现使用的 MetaQA 2-hop 测试集。运行时需要共享的 `metaqa/kb.txt` 图后端。"
+split_presets = [
+  { name = "count20_seed42", strategy = "shuffle", size = 20 },
+  { name = "count100_seed42", strategy = "shuffle", size = 100 },
+  { name = "count300_seed42", strategy = "shuffle", size = 300 },
+  { name = "full_seed42", strategy = "full" },
+]

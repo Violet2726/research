@@ -34,7 +34,7 @@ uv run research_cli family dog_graph render-report --run-dir local/runs/dog_grap
 - `dog_graph_main` 是项目内唯一 canonical DoG 主线，但当前仍应解释为“流程高保真、本机近似后端”的复现线，不应直接包装成论文数值级严格复现。
 - 当前主对照只有两条：`tog_iterative_baseline` 与 `dog_graph_paper`。
 - `tog_iterative_baseline` 是项目内结构消融基线：保留动态检索与逐跳回答，但不使用三角色顺序问题简化；它不是官方仓中原始 ToG 的一比一实现。
-- Freebase 任务当前默认走 `local_reduced` 局部 KG 后端；MetaQA 任务走 `dog-metaqa/kb.txt` 轻量图后端。
+- Freebase 任务当前默认走 `local_reduced` 局部 KG 后端；MetaQA 任务走 `metaqa/kb.txt` 轻量图后端。
 - 如果需要更接近论文原始实验口径，Freebase 任务仍应优先切回本地 Virtuoso / SPARQL 后端。
 
 ## 当前结果判断

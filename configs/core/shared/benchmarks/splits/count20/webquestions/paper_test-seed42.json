@@ -1,0 +1,29 @@
+{
+  "dataset": "webquestions_paper_test",
+  "split_name": "count20_seed42",
+  "source_split": "test",
+  "sample_count": 20,
+  "sample_ids": [
+    "webquestions-paper-01581",
+    "webquestions-paper-01544",
+    "webquestions-paper-01676",
+    "webquestions-paper-01684",
+    "webquestions-paper-00297",
+    "webquestions-paper-01804",
+    "webquestions-paper-01279",
+    "webquestions-paper-01031",
+    "webquestions-paper-00276",
+    "webquestions-paper-01744",
+    "webquestions-paper-01246",
+    "webquestions-paper-01540",
+    "webquestions-paper-00280",
+    "webquestions-paper-01250",
+    "webquestions-paper-00196",
+    "webquestions-paper-00933",
+    "webquestions-paper-01515",
+    "webquestions-paper-01983",
+    "webquestions-paper-00091",
+    "webquestions-paper-01207"
+  ],
+  "random_seed": 42
+}

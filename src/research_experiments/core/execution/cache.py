@@ -238,6 +238,8 @@ def build_request_cache_key(
     payload: dict[str, Any],
 ) -> str:
     """基于真实请求身份构造缓存键。"""
+    # cache_key 只绑定 provider、request_model 和真实请求 payload。
+    # 因此迁移 cache 分库目录层级时，无需同步改写 SQLite 行内的键值。
     fingerprint = {
         "provider": provider,
         "request_model": request_model,

@@ -59,6 +59,7 @@
 层级约束：
 
 - `configs/core/shared/benchmarks/` 下的 benchmark 配置必须镜像 `local/datasets/` 的相对路径层级，并使用“去掉数据文件扩展名后的路径”作为配置路径。
+- benchmark 层级命名必须优先使用官方数据集名与官方 split/变体名，不得把论文名、family 名或方法前缀写进数据集路径。
 - cache 分库路径必须复用同一套层级键，避免把方法名或实验线名写成 dataset shard 名。
 
 ### 环境变量覆盖

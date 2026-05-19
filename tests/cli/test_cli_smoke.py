@@ -97,7 +97,7 @@ def test_dog_graph_validate_backend_cli(monkeypatch) -> None:
             "checks": [
                 {
                     "backend_name": "local_reduced_freebase",
-                    "dataset_slug": "dog_webquestions",
+                    "dataset_slug": "webquestions_paper_test",
                     "ok": True,
                     "detail": freebase_backend_mode,
                 }

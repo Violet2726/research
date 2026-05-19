@@ -1,0 +1,29 @@
+{
+  "dataset": "cwq",
+  "split_name": "count20_seed42",
+  "source_split": "test",
+  "sample_count": 20,
+  "sample_ids": [
+    "WebQTest-537_b7771109a84a9b56518460dc9e8878ff",
+    "WebQTest-1012_749d8328c06ef81956af35997f705cfb",
+    "WebQTrn-60_8b2e8f4e23e7af4e77ae1535c753ef6b",
+    "WebQTest-743_0a8cdba29cf260283b7c890b3609c0b9",
+    "WebQTest-1168_1591d6a0e6cef93c6863edb2eb0e198f",
+    "WebQTrn-124_33b7d857b3156faee9cb6c16741d8b6a",
+    "WebQTrn-372_28ef3ad60c7a9592a24dc4c25f56c769",
+    "WebQTest-1705_701858265dc8d32eee3d5fadd974a9f1",
+    "WebQTrn-1557_a0f8cf85ceda55ae609c4d003f57b690",
+    "WebQTrn-14_473e9780c8c1154fb41e04b907a64778",
+    "WebQTest-1379_295e56c042fadb701e0904084e4698b4",
+    "WebQTrn-3673_2f6a04c6623502941438b16fb5f9a6ed",
+    "WebQTest-61_f3518e7c28ab856cf7e4795c229cc993",
+    "WebQTest-918_030834eb2597f0f2e2ad6712a6154451",
+    "WebQTest-837_d95da5fb8a16d81fe56cd4ce00843254",
+    "WebQTest-719_2c9888f591cdea04f631b1f473bf1578",
+    "WebQTrn-1053_1d93ad4e3448e762133bda682c0693a2",
+    "WebQTrn-2335_eaa7a9f669e0d6d5caf732fd225ff411",
+    "WebQTest-538_ebdaf3c91b43a826ed6ecc1221fd9af5",
+    "WebQTrn-2256_399c19436cbc08af46c892b88346ab2b"
+  ],
+  "random_seed": 42
+}

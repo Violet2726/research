@@ -53,9 +53,9 @@ def test_cache_dataset_key_uses_real_dataset_name_for_paper_line() -> None:
     paper_benchmarks = load_benchmarks(paper_experiment)
     static_benchmarks = load_benchmarks(static_experiment)
 
-    assert _cache_dataset_key("paper", next(item for item in paper_benchmarks if item.slug == "dog_webquestions")) == "dog-freebase/WebQuestions"
-    assert _cache_dataset_key("paper", next(item for item in paper_benchmarks if item.slug == "dog_grailqa")) == "dog-freebase/grailqa"
-    assert _cache_dataset_key("paper", next(item for item in paper_benchmarks if item.slug == "dog_metaqa_3hop")) == "dog-metaqa/3-hop/qa_test"
+    assert _cache_dataset_key("paper", next(item for item in paper_benchmarks if item.slug == "webquestions_paper_test")) == "webquestions/paper_test"
+    assert _cache_dataset_key("paper", next(item for item in paper_benchmarks if item.slug == "grailqa_test")) == "grailqa/test"
+    assert _cache_dataset_key("paper", next(item for item in paper_benchmarks if item.slug == "metaqa_3hop")) == "metaqa/3-hop/test"
     assert _cache_dataset_key("static", next(item for item in static_benchmarks if item.slug == "webquestions")) == "webquestions/test"
 
 
@@ -200,7 +200,7 @@ def test_build_paper_metrics_reports_process_fields() -> None:
     metrics = _build_paper_metrics(
         [
             {
-                "dataset": "dog_webquestions",
+                "dataset": "webquestions_paper_test",
                 "model_name": "xiaomimimo/mimo-v2.5",
                 "method_name": "tog_iterative_baseline",
                 "score": 0.0,
@@ -218,7 +218,7 @@ def test_build_paper_metrics_reports_process_fields() -> None:
                 "enough_answer_decision": "no",
             },
             {
-                "dataset": "dog_webquestions",
+                "dataset": "webquestions_paper_test",
                 "model_name": "xiaomimimo/mimo-v2.5",
                 "method_name": "dog_graph_paper",
                 "score": 1.0,

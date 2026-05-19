@@ -55,11 +55,11 @@ def load_samples(config: BenchmarkConfig) -> list[DatasetSample]:
         "tabfact_jsonl": _load_tabfact,
         "webquestions_json": _load_webquestions,
         "grailqa_parquet": _load_grailqa,
-        "dog_webquestions_json": _load_dog_webquestions,
-        "dog_grailqa_json": _load_dog_grailqa,
-        "dog_webqsp_json": _load_dog_webqsp,
-        "dog_cwq_json": _load_dog_cwq,
-        "dog_metaqa_txt": _load_dog_metaqa,
+        "webquestions_paper_json": _load_webquestions_paper,
+        "grailqa_test_json": _load_grailqa_test,
+        "webqsp_json": _load_webqsp,
+        "cwq_json": _load_cwq,
+        "metaqa_txt": _load_metaqa,
         "mmlu_pro_parquet": _load_mmlu_pro,
         "gpqa_zip_csv": _load_gpqa_zip_csv,
         "gsm_symbolic_jsonl": _load_gsm_symbolic,
@@ -699,7 +699,7 @@ def _load_grailqa(config: BenchmarkConfig) -> list[DatasetSample]:
     return samples
 
 
-def _load_dog_webquestions(config: BenchmarkConfig) -> list[DatasetSample]:
+def _load_webquestions_paper(config: BenchmarkConfig) -> list[DatasetSample]:
     """加载官方 DoG 仓的 WebQuestions JSON。"""
 
     payload = json.loads(resolve_dataset_source_path(config.source_path).read_text(encoding="utf-8"))
@@ -718,7 +718,7 @@ def _load_dog_webquestions(config: BenchmarkConfig) -> list[DatasetSample]:
                 metadata={
                     "raw_index": index,
                     "paper_dataset_name": "WebQuestions",
-                    "dog_task_family": "freebase",
+                    "graph_task_family": "freebase",
                     "topic_entity": dict(record.get("topic_entity") or {}),
                     "topic_entity_id": topic_entity_id,
                     "topic_entity_name": topic_entity_name,
@@ -731,7 +731,7 @@ def _load_dog_webquestions(config: BenchmarkConfig) -> list[DatasetSample]:
     return samples
 
 
-def _load_dog_grailqa(config: BenchmarkConfig) -> list[DatasetSample]:
+def _load_grailqa_test(config: BenchmarkConfig) -> list[DatasetSample]:
     """加载官方 DoG 仓的 GrailQA JSON。"""
 
     payload = json.loads(resolve_dataset_source_path(config.source_path).read_text(encoding="utf-8"))
@@ -755,7 +755,7 @@ def _load_dog_grailqa(config: BenchmarkConfig) -> list[DatasetSample]:
                 metadata={
                     "raw_index": index,
                     "paper_dataset_name": "GrailQA",
-                    "dog_task_family": "freebase",
+                    "graph_task_family": "freebase",
                     "topic_entity": dict(record.get("topic_entity") or {}),
                     "topic_entity_id": topic_entity_id,
                     "topic_entity_name": topic_entity_name,
@@ -772,7 +772,7 @@ def _load_dog_grailqa(config: BenchmarkConfig) -> list[DatasetSample]:
     return samples
 
 
-def _load_dog_webqsp(config: BenchmarkConfig) -> list[DatasetSample]:
+def _load_webqsp(config: BenchmarkConfig) -> list[DatasetSample]:
     """加载官方 DoG 仓的 WebQSP JSON。"""
 
     payload = json.loads(resolve_dataset_source_path(config.source_path).read_text(encoding="utf-8"))
@@ -801,7 +801,7 @@ def _load_dog_webqsp(config: BenchmarkConfig) -> list[DatasetSample]:
                 metadata={
                     "raw_index": index,
                     "paper_dataset_name": "WebQSP",
-                    "dog_task_family": "freebase",
+                    "graph_task_family": "freebase",
                     "topic_entity": dict(record.get("topic_entity") or {}),
                     "topic_entity_id": topic_entity_id,
                     "topic_entity_name": topic_entity_name,
@@ -815,7 +815,7 @@ def _load_dog_webqsp(config: BenchmarkConfig) -> list[DatasetSample]:
     return samples
 
 
-def _load_dog_cwq(config: BenchmarkConfig) -> list[DatasetSample]:
+def _load_cwq(config: BenchmarkConfig) -> list[DatasetSample]:
     """加载官方 DoG 仓的 CWQ JSON。"""
 
     payload = json.loads(resolve_dataset_source_path(config.source_path).read_text(encoding="utf-8"))
@@ -839,7 +839,7 @@ def _load_dog_cwq(config: BenchmarkConfig) -> list[DatasetSample]:
                 metadata={
                     "raw_index": index,
                     "paper_dataset_name": "CWQ",
-                    "dog_task_family": "freebase",
+                    "graph_task_family": "freebase",
                     "topic_entity": dict(record.get("topic_entity") or {}),
                     "topic_entity_id": topic_entity_id,
                     "topic_entity_name": topic_entity_name,
@@ -852,7 +852,7 @@ def _load_dog_cwq(config: BenchmarkConfig) -> list[DatasetSample]:
     return samples
 
 
-def _load_dog_metaqa(config: BenchmarkConfig) -> list[DatasetSample]:
+def _load_metaqa(config: BenchmarkConfig) -> list[DatasetSample]:
     """加载官方 DoG 仓的 MetaQA 测试文件。"""
 
     path = resolve_dataset_source_path(config.source_path)
@@ -876,7 +876,7 @@ def _load_dog_metaqa(config: BenchmarkConfig) -> list[DatasetSample]:
                     metadata={
                         "raw_index": index,
                         "paper_dataset_name": f"MetaQA {hop_count}-hop",
-                        "dog_task_family": "metaqa",
+                        "graph_task_family": "metaqa",
                         "topic_entity": {topic_entity_name: topic_entity_name} if topic_entity_name else {},
                         "topic_entity_id": topic_entity_name,
                         "topic_entity_name": topic_entity_name,

@@ -52,7 +52,7 @@ def test_dog_graph_render_report_outputs_paper_markdown_and_figures(tmp_path: Pa
                     "gain_over_baseline": 0.13,
                 },
                 {
-                    "dataset": "dog_webquestions",
+                    "dataset": "webquestions_paper_test",
                     "method_name": "dog_graph_paper",
                     "accuracy_mean": 0.5,
                     "gain_over_baseline": 0.1,
@@ -110,11 +110,11 @@ def test_dog_graph_validate_run_accepts_complete_paper_artifacts(tmp_path: Path)
     )
     write_jsonl(
         tmp_path / "agent_turns.jsonl",
-        [{"dataset": "dog_webquestions", "sample_id": "wq-1", "method_name": "dog_graph_paper", "output_status": "ok"}],
+        [{"dataset": "webquestions_paper_test", "sample_id": "wq-1", "method_name": "dog_graph_paper", "output_status": "ok"}],
     )
     write_jsonl(
         tmp_path / "debate_messages.jsonl",
-        [{"dataset": "dog_webquestions", "sample_id": "wq-1", "method_name": "dog_graph_paper"}],
+        [{"dataset": "webquestions_paper_test", "sample_id": "wq-1", "method_name": "dog_graph_paper"}],
     )
     write_jsonl(
         tmp_path / "graph_trace.jsonl",
@@ -190,8 +190,8 @@ def test_dog_graph_validate_run_accepts_complete_paper_artifacts(tmp_path: Path)
             }
         ],
     )
-    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "dog_webquestions"}]})
-    write_json(tmp_path / "graph_diagnostics.json", {"summary_rows": [{"dataset": "dog_webquestions"}]})
+    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "webquestions_paper_test"}]})
+    write_json(tmp_path / "graph_diagnostics.json", {"summary_rows": [{"dataset": "webquestions_paper_test"}]})
     touch_figure_contract(tmp_path)
 
     payload = validate_run(tmp_path)
@@ -213,8 +213,8 @@ def test_dog_graph_validate_run_rejects_missing_paper_trace_fields(tmp_path: Pat
     write_jsonl(tmp_path / "simplification_trace.jsonl", [{"original_question": "q"}])
     write_jsonl(tmp_path / "answer_attempt_trace.jsonl", [{"attempt_kind": "enough_answer"}])
     write_jsonl(tmp_path / "final_predictions.jsonl", [{"topic_entity_id": "m.1"}])
-    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "dog_webquestions"}]})
-    write_json(tmp_path / "graph_diagnostics.json", {"summary_rows": [{"dataset": "dog_webquestions"}]})
+    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "webquestions_paper_test"}]})
+    write_json(tmp_path / "graph_diagnostics.json", {"summary_rows": [{"dataset": "webquestions_paper_test"}]})
     touch_figure_contract(tmp_path)
 
     payload = validate_run(tmp_path)
@@ -226,7 +226,7 @@ def test_dog_graph_validate_run_rejects_missing_paper_trace_fields(tmp_path: Pat
 
 def test_dog_graph_run_experiment_executes_minimal_paper_metaqa_flow(monkeypatch, tmp_path: Path) -> None:
     datasets_root = tmp_path / "datasets"
-    kb_root = datasets_root / "dog-metaqa"
+    kb_root = datasets_root / "metaqa"
     (kb_root / "2-hop").mkdir(parents=True)
     (kb_root / "kb.txt").write_text(
         "\n".join(
@@ -238,21 +238,21 @@ def test_dog_graph_run_experiment_executes_minimal_paper_metaqa_flow(monkeypatch
         + "\n",
         encoding="utf-8",
     )
-    (kb_root / "2-hop" / "qa_test.txt").write_text(
+    (kb_root / "2-hop" / "test.txt").write_text(
         "what city was the director of [Kismet] born in\tBerlin\n",
         encoding="utf-8",
     )
 
-    benchmark_path = tmp_path / "dog_metaqa_2hop.toml"
+    benchmark_path = tmp_path / "metaqa_2hop.toml"
     benchmark_path.write_text(
         "\n".join(
             [
                 'name = "DoG MetaQA 2-hop"',
-                'slug = "dog_metaqa_2hop"',
-                'loader = "dog_metaqa_txt"',
-                'source_path = "dog-metaqa/2-hop/qa_test.txt"',
+                'slug = "metaqa_2hop"',
+                'loader = "metaqa_txt"',
+                'source_path = "metaqa/2-hop/test.txt"',
                 'source_split = "test"',
-                'sample_id_prefix = "dog-metaqa2"',
+                'sample_id_prefix = "metaqa2"',
                 'question_field = "question"',
                 'answer_field = "answers"',
                 "smoke_size = 1",

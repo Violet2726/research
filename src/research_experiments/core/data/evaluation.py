@@ -40,13 +40,13 @@ def normalize_prediction(dataset: str, final_answer: str) -> str:
         "webquestions",
         "grailqa",
         "wikitq",
-        "dog_webquestions",
-        "dog_grailqa",
-        "dog_webqsp",
-        "dog_cwq",
-        "dog_metaqa_1hop",
-        "dog_metaqa_2hop",
-        "dog_metaqa_3hop",
+        "webquestions_paper_test",
+        "grailqa_test",
+        "webqsp",
+        "cwq",
+        "metaqa_1hop",
+        "metaqa_2hop",
+        "metaqa_3hop",
     }:
         return normalize_text(final_answer)
     if dataset in {"mmlu_pro", "gpqa_diamond"}:
@@ -64,13 +64,13 @@ def normalize_gold(dataset: str, answer: str) -> str:
         "webquestions",
         "grailqa",
         "wikitq",
-        "dog_webquestions",
-        "dog_grailqa",
-        "dog_webqsp",
-        "dog_cwq",
-        "dog_metaqa_1hop",
-        "dog_metaqa_2hop",
-        "dog_metaqa_3hop",
+        "webquestions_paper_test",
+        "grailqa_test",
+        "webqsp",
+        "cwq",
+        "metaqa_1hop",
+        "metaqa_2hop",
+        "metaqa_3hop",
     }:
         answers = _decode_text_answer_set_gold(answer)
         return normalize_text(answers[0]) if answers else ""
@@ -84,7 +84,7 @@ def score_prediction(dataset: str, predicted: str, gold: str) -> float:
     """
     if dataset in {"mmlu_pro", "gpqa_diamond"}:
         return score_multiple_choice(predicted, gold)
-    if dataset in {"webquestions", "grailqa"}:
+    if dataset in {"webquestions", "grailqa", "grailqa_test"}:
         return score_text_answer_set(predicted, gold)
     if dataset == "wikitq":
         return score_wikitq_answer_set(predicted, gold)
@@ -101,13 +101,12 @@ def score_prediction(dataset: str, predicted: str, gold: str) -> float:
     if dataset == "humaneval":
         return score_humaneval(predicted, gold)
     if dataset in {
-        "dog_webquestions",
-        "dog_grailqa",
-        "dog_webqsp",
-        "dog_cwq",
-        "dog_metaqa_1hop",
-        "dog_metaqa_2hop",
-        "dog_metaqa_3hop",
+        "webquestions_paper_test",
+        "webqsp",
+        "cwq",
+        "metaqa_1hop",
+        "metaqa_2hop",
+        "metaqa_3hop",
     }:
         return score_text_answer_alias_exact(predicted, gold)
     if dataset == "mmlu":

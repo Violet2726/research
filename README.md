@@ -54,6 +54,7 @@ tests/                自动化测试
   - `local/reports/<family>/`
   - `local/cache/providers/<provider>/<request_model>/<dataset_path_key>/requests.sqlite`
   - `local/datasets/<dataset_path>/...`
+- cache 分库目录名必须跟随 benchmark `source_path` 的官方数据集层级同步；如果只迁移分库目录层级，不需要重写 SQLite 行内的 `cache_key`，因为它只由 `provider + request_model + payload` 哈希得到。
 - 每个 run 的正式图资产统一固化在 `local/runs/.../figures/`，并通过 `figure_manifest.json` 编目
 - 正式远程归档统一使用 Hugging Face dataset repo
 - 项目文本文件统一使用 UTF-8
@@ -139,7 +140,7 @@ uv run research_cli tools dataset-assets prepare-all-sources
 
 - `configs/core/shared/benchmarks/` 下的 benchmark 配置路径必须镜像 `local/datasets/` 的相对路径层级，并使用“去掉数据文件扩展名后的路径”作为配置路径。
 - `local/cache/providers/<provider>/<request_model>/...` 下的数据集 cache 分库必须沿用同一套层级键。
-- 示例：`local/datasets/dog-freebase/cwq.json` 对应 `configs/core/shared/benchmarks/dog-freebase/cwq.toml` 与 `local/cache/providers/xiaomimimo/mimo-v2-5/dog-freebase/cwq/requests.sqlite`。
+- 示例：`local/datasets/cwq/test.json` 对应 `configs/core/shared/benchmarks/cwq/test.toml` 与 `local/cache/providers/xiaomimimo/mimo-v2-5/cwq/test/requests.sqlite`。
 
 ## Hugging Face 归档
 

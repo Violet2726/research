@@ -124,13 +124,13 @@ def test_resolve_cache_shard_path_preserves_dataset_hierarchy(tmp_path: Path) ->
         tmp_path,
         provider="xiaomimimo",
         request_model="mimo-v2.5",
-        dataset="dog-freebase/cwq",
+        dataset="cwq/test",
     )
 
-    assert resolved.as_posix().endswith("providers/xiaomimimo/mimo-v2-5/dog-freebase/cwq/requests.sqlite")
+    assert resolved.as_posix().endswith("providers/xiaomimimo/mimo-v2-5/cwq/test/requests.sqlite")
 
     shard = inspect_cache_shard(resolved, tmp_path)
-    assert shard.dataset == "dog-freebase/cwq"
+    assert shard.dataset == "cwq/test"
 
 def test_summarize_cache_root_collects_provider_stats(tmp_path: Path) -> None:
     router = RequestCacheRouter(tmp_path)

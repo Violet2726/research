@@ -30,3 +30,14 @@ def test_split_manifest_path_mirrors_benchmark_dataset_hierarchy() -> None:
             assert "/" not in relative
             continue
         assert relative.startswith(expected + "/"), f"{resolved} should mirror split hierarchy {expected}"
+
+
+def test_benchmark_paths_and_cache_namespaces_use_official_dataset_names() -> None:
+    for path in BENCHMARKS_ROOT.rglob("*.toml"):
+        benchmark = load_benchmark_config(path)
+        config_relative = path.relative_to(BENCHMARKS_ROOT).as_posix().lower()
+        cache_namespace = str(benchmark.cache_namespace or benchmark.slug).replace("\\", "/").lower()
+        assert "dog-" not in config_relative
+        assert not any(part.startswith("dog_") for part in Path(config_relative).parts)
+        assert "dog-" not in cache_namespace
+        assert not any(part.startswith("dog_") for part in Path(cache_namespace).parts)

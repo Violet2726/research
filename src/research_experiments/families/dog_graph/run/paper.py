@@ -45,7 +45,7 @@ def _load_selected_samples(benchmark, split_name: str) -> list[DatasetSample]:
 
 
 def _planned_calls_per_sample(method: GraphMethodSpec, sample: DatasetSample, protocol: PaperProtocolConfig) -> int:
-    task_family = str(sample.metadata.get("dog_task_family") or "freebase")
+    task_family = str(sample.metadata.get("graph_task_family") or "freebase")
     if task_family == "metaqa":
         hop_limit = int(sample.metadata.get("hop_count") or protocol.max_hops)
         simplifier_calls = max(0, hop_limit - 1) * 3 if method.mode == "paper_dog" else 0
@@ -277,7 +277,7 @@ def _run_method_sample(
             }
         )
 
-        if str(sample.metadata.get("dog_task_family") or "freebase") == "metaqa":
+        if str(sample.metadata.get("graph_task_family") or "freebase") == "metaqa":
             final_prediction = " | ".join(entity.label for entity in tail_entities)
             if hop_index < hop_limit and method.mode == "paper_dog":
                 simplification_payload = _run_simplification_team(

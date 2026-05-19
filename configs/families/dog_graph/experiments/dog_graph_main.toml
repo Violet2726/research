@@ -3,13 +3,13 @@ name = "dog_graph_main"
 description = "按官方论文与官方仓流程复现 DoG：动态图检索、enough-answer 判断、三角色顺序问题简化与 direct fallback。"
 experiment_kind = "paper"
 benchmark_configs = [
-  "configs/core/shared/benchmarks/dog-freebase/WebQuestions.toml",
-  "configs/core/shared/benchmarks/dog-freebase/grailqa.toml",
-  "configs/core/shared/benchmarks/dog-freebase/WebQSP.toml",
-  "configs/core/shared/benchmarks/dog-freebase/cwq.toml",
-  "configs/core/shared/benchmarks/dog-metaqa/1-hop/qa_test.toml",
-  "configs/core/shared/benchmarks/dog-metaqa/2-hop/qa_test.toml",
-  "configs/core/shared/benchmarks/dog-metaqa/3-hop/qa_test.toml",
+  "configs/core/shared/benchmarks/webquestions/paper_test.toml",
+  "configs/core/shared/benchmarks/grailqa/test.toml",
+  "configs/core/shared/benchmarks/webqsp/test.toml",
+  "configs/core/shared/benchmarks/cwq/test.toml",
+  "configs/core/shared/benchmarks/metaqa/1-hop/test.toml",
+  "configs/core/shared/benchmarks/metaqa/2-hop/test.toml",
+  "configs/core/shared/benchmarks/metaqa/3-hop/test.toml",
 ]
 protocol = "configs/families/dog_graph/protocols/dog_graph_paper.toml"
 global_seed = 42

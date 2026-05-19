@@ -1,0 +1,19 @@
+name = "CWQ"
+slug = "cwq"
+loader = "cwq_json"
+source_path = "cwq/test.json"
+source_split = "test"
+sample_id_prefix = "cwq"
+question_field = "question"
+answer_field = "answer"
+smoke_size = 20
+pilot_size = 100
+main_size = 300
+random_seed = 42
+notes = "DoG 论文复现使用的 CWQ test JSON。运行时仍需要本地 Freebase/Virtuoso 后端。"
+split_presets = [
+  { name = "count20_seed42", strategy = "shuffle", size = 20 },
+  { name = "count100_seed42", strategy = "shuffle", size = 100 },
+  { name = "count300_seed42", strategy = "shuffle", size = 300 },
+  { name = "full_seed42", strategy = "full" },
+]

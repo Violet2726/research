@@ -180,10 +180,10 @@ def test_graph_qa_scoring_accepts_multiple_gold_aliases() -> None:
     assert score_prediction("grailqa", "set designer", json.dumps(["Set Designer"], ensure_ascii=False)) == 1.0
 
 
-def test_dog_webquestions_loader_reads_official_topic_entity(tmp_path: Path) -> None:
-    dataset_root = tmp_path / "local" / "datasets" / "dog-freebase"
+def test_webquestions_paper_loader_reads_official_topic_entity(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "local" / "datasets" / "webquestions"
     dataset_root.mkdir(parents=True)
-    (dataset_root / "WebQuestions.json").write_text(
+    (dataset_root / "paper_test.json").write_text(
         json.dumps(
             [
                 {
@@ -198,16 +198,16 @@ def test_dog_webquestions_loader_reads_official_topic_entity(tmp_path: Path) -> 
         ),
         encoding="utf-8",
     )
-    benchmark_path = tmp_path / "dog_webquestions.toml"
+    benchmark_path = tmp_path / "webquestions_paper_test.toml"
     benchmark_path.write_text(
         "\n".join(
             [
-                'name = "DoG WebQuestions"',
-                'slug = "dog_webquestions"',
-                'loader = "dog_webquestions_json"',
-                f'source_path = "{(dataset_root / "WebQuestions.json").as_posix()}"',
+                'name = "WebQuestions Paper Test"',
+                'slug = "webquestions_paper_test"',
+                'loader = "webquestions_paper_json"',
+                f'source_path = "{(dataset_root / "paper_test.json").as_posix()}"',
                 'source_split = "test"',
-                'sample_id_prefix = "dog-wq"',
+                'sample_id_prefix = "webquestions-paper"',
                 'question_field = "question"',
                 'answer_field = "answers"',
                 "smoke_size = 20",
@@ -221,29 +221,29 @@ def test_dog_webquestions_loader_reads_official_topic_entity(tmp_path: Path) -> 
     )
     sample = load_samples(load_benchmark_config(benchmark_path))[0]
 
-    assert sample.dataset == "dog_webquestions"
+    assert sample.dataset == "webquestions_paper_test"
     assert sample.metadata["paper_dataset_name"] == "WebQuestions"
     assert sample.metadata["topic_entity_id"] == "m.03_r3"
     assert json.loads(sample.reference_answer) == ["Jamaican English", "Jamaican Creole English Language"]
 
 
-def test_dog_metaqa_loader_extracts_topic_entity_and_answers(tmp_path: Path) -> None:
-    dataset_root = tmp_path / "local" / "datasets" / "dog-metaqa" / "2-hop"
+def test_metaqa_loader_extracts_topic_entity_and_answers(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "local" / "datasets" / "metaqa" / "2-hop"
     dataset_root.mkdir(parents=True)
-    (dataset_root / "qa_test.txt").write_text(
+    (dataset_root / "test.txt").write_text(
         "what films did [Michelle Trachtenberg] star in\tInspector Gadget|Ice Princess\n",
         encoding="utf-8",
     )
-    benchmark_path = tmp_path / "dog_metaqa.toml"
+    benchmark_path = tmp_path / "metaqa.toml"
     benchmark_path.write_text(
         "\n".join(
             [
-                'name = "DoG MetaQA 2-hop"',
-                'slug = "dog_metaqa_2hop"',
-                'loader = "dog_metaqa_txt"',
-                f'source_path = "{(dataset_root / "qa_test.txt").as_posix()}"',
+                'name = "MetaQA 2-hop"',
+                'slug = "metaqa_2hop"',
+                'loader = "metaqa_txt"',
+                f'source_path = "{(dataset_root / "test.txt").as_posix()}"',
                 'source_split = "test"',
-                'sample_id_prefix = "dog-metaqa2"',
+                'sample_id_prefix = "metaqa2"',
                 'question_field = "question"',
                 'answer_field = "answers"',
                 "smoke_size = 20",
@@ -257,8 +257,8 @@ def test_dog_metaqa_loader_extracts_topic_entity_and_answers(tmp_path: Path) -> 
     )
     sample = load_samples(load_benchmark_config(benchmark_path))[0]
 
-    assert sample.dataset == "dog_metaqa_2hop"
-    assert sample.metadata["dog_task_family"] == "metaqa"
+    assert sample.dataset == "metaqa_2hop"
+    assert sample.metadata["graph_task_family"] == "metaqa"
     assert sample.metadata["hop_count"] == 2
     assert sample.metadata["topic_entity_name"] == "Michelle Trachtenberg"
     assert json.loads(sample.reference_answer) == ["Inspector Gadget", "Ice Princess"]
@@ -266,5 +266,5 @@ def test_dog_metaqa_loader_extracts_topic_entity_and_answers(tmp_path: Path) -> 
 
 def test_dog_paper_scoring_uses_alias_exact_match() -> None:
     gold = json.dumps(["Belmont University"], ensure_ascii=False)
-    assert score_prediction("dog_webqsp", "The answer is Belmont University.", gold) == 1.0
-    assert score_prediction("dog_webqsp", "Belmont", gold) == 0.0
+    assert score_prediction("webqsp", "The answer is Belmont University.", gold) == 1.0
+    assert score_prediction("webqsp", "Belmont", gold) == 0.0

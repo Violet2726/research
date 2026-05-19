@@ -1,0 +1,29 @@
+{
+  "dataset": "metaqa_2hop",
+  "split_name": "count20_seed42",
+  "source_split": "test",
+  "sample_count": 20,
+  "sample_ids": [
+    "metaqa2-07748",
+    "metaqa2-01306",
+    "metaqa2-09471",
+    "metaqa2-12578",
+    "metaqa2-01968",
+    "metaqa2-08392",
+    "metaqa2-11958",
+    "metaqa2-03156",
+    "metaqa2-10793",
+    "metaqa2-00288",
+    "metaqa2-09545",
+    "metaqa2-02105",
+    "metaqa2-03865",
+    "metaqa2-12800",
+    "metaqa2-13365",
+    "metaqa2-05725",
+    "metaqa2-12819",
+    "metaqa2-00122",
+    "metaqa2-03431",
+    "metaqa2-12202"
+  ],
+  "random_seed": 42
+}
