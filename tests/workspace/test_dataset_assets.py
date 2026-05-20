@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import zipfile
+
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from research_experiments.core.config import load_benchmark_config
 from research_experiments.workspace.dataset_assets import (
+    _download_source_file,
     build_supplementary_dataset_specs,
     build_runtime_support_dataset_specs,
     discover_used_benchmark_config_paths,
+    build_primary_dataset_specs,
     write_dataset_inventory_files,
 )
 from research_experiments.core.data.datasets import DatasetSample
@@ -288,4 +294,57 @@ def test_build_runtime_support_dataset_specs_includes_public_runtime_assets_and_
     }
     assert sum(1 for spec in specs if spec.relative_path.as_posix() == "metaqa/kb.txt") == 1
     assert all(spec.runtime_required for spec in specs)
+
+
+def test_download_source_file_falls_back_to_hf_parquet_for_competition_math(tmp_path: Path, monkeypatch) -> None:
+    benchmark_path = tmp_path / "competition_math.toml"
+    benchmark_path.write_text(
+        "\n".join(
+            [
+                'name = "MATH"',
+                'slug = "competition_math"',
+                'loader = "competition_math_zip"',
+                'source_path = "competition_math/MATH.zip"',
+                'source_split = "test"',
+                'sample_id_prefix = "competition_math"',
+                'question_field = "problem"',
+                'answer_field = "answer"',
+                "smoke_size = 20",
+                "pilot_size = 100",
+                "main_size = 5000",
+                "random_seed = 0",
+                'notes = ""',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    benchmark = load_benchmark_config(benchmark_path)
+    spec = next(item for item in build_primary_dataset_specs([benchmark]) if item.slug == "competition_math")
+
+    fallback_parquet = tmp_path / "fallback.parquet"
+    table = pa.table(
+        {
+            "problem": ["1+1"],
+            "level": ["Level 1"],
+            "type": ["Algebra"],
+            "solution": ["The answer is $\\boxed{2}$."],
+        }
+    )
+    pq.write_table(table, fallback_parquet)
+
+    def _fake_hf_hub_download(*, repo_id: str, **_: object) -> str:
+        if repo_id == "hendrycks/competition_math":
+            raise RuntimeError("hf disabled")
+        if repo_id == "ck46/hendrycks_math":
+            return fallback_parquet.as_posix()
+        raise AssertionError(f"Unexpected repo_id: {repo_id}")
+
+    monkeypatch.setattr("research_experiments.workspace.dataset_assets.hf_hub_download", _fake_hf_hub_download)
+
+    packaged_path = _download_source_file(spec, tmp_path / "MATH.zip")
+
+    with zipfile.ZipFile(packaged_path) as archive:
+        assert archive.namelist() == ["MATH/test/algebra/1.json"]
+        payload = json.loads(archive.read("MATH/test/algebra/1.json").decode("utf-8"))
+        assert payload["answer"] == "2"
 

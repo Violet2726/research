@@ -27,6 +27,7 @@ from research_experiments.families.dmad.run.sample import (
     _active_methods,
     _build_cost_breakdown,
     _build_metrics,
+    _build_paper_tables,
     _build_strategy_diagnostics,
     _estimate_work,
     _load_selected_samples,
@@ -44,6 +45,7 @@ def run_experiment(
     backbone,
     run_root: str | Path | None = None,
     cache_root: str | Path | None = None,
+    splits_root: str | Path = "configs/core/shared/benchmarks/splits",
 ) -> Path:
     """Run one DMAD phase and write a complete run directory."""
 
@@ -67,7 +69,16 @@ def run_experiment(
     )
     run_id = build_run_id(backbone.name)
     run_paths = _prepare_run_paths(run_root, experiment.name, phase_name, run_id)
-    total_calls, total_predictions = _estimate_work(experiment, phase_name, benchmarks, protocol, methods, rosters, controls)
+    total_calls, total_predictions = _estimate_work(
+        experiment,
+        phase_name,
+        benchmarks,
+        protocol,
+        methods,
+        rosters,
+        controls,
+        splits_root,
+    )
     progress = RunProgressTracker(run_paths.progress, total_calls, total_predictions)
 
     manifest = {
@@ -80,6 +91,8 @@ def run_experiment(
         "resolved_model": asdict(backbone),
         "experiment": experiment.name,
         "description": experiment.description,
+        "evaluation_scope": experiment.evaluation_scope,
+        "paper_alignment_version": experiment.paper_alignment_version,
         "phase": phase_name,
         "phase_metadata": dict(experiment.raw["phases"][phase_name]),
         "prompt_version": experiment.prompt_version,
@@ -121,7 +134,7 @@ def run_experiment(
                 dataset=benchmark.cache_namespace or benchmark.slug,
             )
             split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
-            samples = _load_selected_samples(benchmark, split_name)
+            samples = _load_selected_samples(benchmark, split_name, splits_root)
             sample_results = _run_sample_batch(
                 run_id=run_id,
                 benchmark_slug=benchmark.slug,
@@ -150,12 +163,14 @@ def run_experiment(
             )
 
     metrics = _build_metrics(final_predictions, model_name=backbone.name)
-    diagnostics = _build_strategy_diagnostics(final_predictions)
+    diagnostics = _build_strategy_diagnostics(final_predictions, evaluation_scope=experiment.evaluation_scope)
     cost_breakdown = _build_cost_breakdown(all_turns)
+    paper_tables = _build_paper_tables(final_predictions, evaluation_scope=experiment.evaluation_scope)
 
     run_paths.metrics.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
     run_paths.strategy_diagnostics.write_text(json.dumps(diagnostics, ensure_ascii=False, indent=2), encoding="utf-8")
     run_paths.cost_breakdown.write_text(json.dumps(cost_breakdown, ensure_ascii=False, indent=2), encoding="utf-8")
+    run_paths.paper_tables.write_text(json.dumps(paper_tables, ensure_ascii=False, indent=2), encoding="utf-8")
     run_paths.run_summary.write_text(json.dumps(summarize_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
     render_report(run_paths.root)
     finalize_run_outputs(

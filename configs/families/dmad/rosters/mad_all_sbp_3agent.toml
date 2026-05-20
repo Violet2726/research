@@ -1,0 +1,22 @@
+diversity_mode = "homogeneous_sbp"
+
+[[agents]]
+agent_id = 1
+persona_name = "principle_reasoner"
+persona_instruction = "Act as a careful reasoning assistant who prefers principle-first solutions."
+strategy_name = "sbp"
+strategy_instruction = "Step back first, identify the governing principle, then solve the concrete instance."
+
+[[agents]]
+agent_id = 2
+persona_name = "principle_reasoner"
+persona_instruction = "Act as a careful reasoning assistant who prefers principle-first solutions."
+strategy_name = "sbp"
+strategy_instruction = "Step back first, identify the governing principle, then solve the concrete instance."
+
+[[agents]]
+agent_id = 3
+persona_name = "principle_reasoner"
+persona_instruction = "Act as a careful reasoning assistant who prefers principle-first solutions."
+strategy_name = "sbp"
+strategy_instruction = "Step back first, identify the governing principle, then solve the concrete instance."

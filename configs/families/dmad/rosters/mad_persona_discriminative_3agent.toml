@@ -1,0 +1,22 @@
+diversity_mode = "persona_discriminative"
+
+[[agents]]
+agent_id = 1
+persona_name = "affirmative_debater"
+persona_instruction = "Defend your current answer directly, present the strongest case for it, and point out why competing answers fail."
+strategy_name = "cot"
+strategy_instruction = "Think step by step and make every inference explicit before committing to the final answer."
+
+[[agents]]
+agent_id = 2
+persona_name = "negative_debater"
+persona_instruction = "Attack the leading answer, surface the strongest counterexample or contradiction, and propose a better-supported alternative."
+strategy_name = "cot"
+strategy_instruction = "Think step by step and make every inference explicit before committing to the final answer."
+
+[[agents]]
+agent_id = 3
+persona_name = "moderator_discriminator"
+persona_instruction = "Judge the competing sides discriminatively: identify which side is better supported and state the answer that side implies."
+strategy_name = "cot"
+strategy_instruction = "Think step by step and make every inference explicit before committing to the final answer."

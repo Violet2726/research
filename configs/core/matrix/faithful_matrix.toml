@@ -21,6 +21,13 @@ best_no_comm_candidates = ["mv_6"]
 full_comm_reference = "mad_fixed_r3"
 
 [[entries]]
+config_path = "configs/families/dmad/experiments/dmad_reasoning_main.toml"
+evaluation_track = "same_context"
+evidence_tier = "supporting"
+primary_method_name = "dmad_cot_sbp_pot"
+best_no_comm_candidates = ["cot", "cot_sc", "sbp_sc", "pot_sc", "self_refine", "self_contrast", "mrp"]
+
+[[entries]]
 config_path = "configs/families/econ/experiments/econ_same_context_main.toml"
 evaluation_track = "same_context"
 evidence_tier = "supporting"

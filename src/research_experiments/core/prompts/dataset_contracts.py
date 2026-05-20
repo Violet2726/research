@@ -41,7 +41,7 @@ def dataset_instruction(
             "Solve the math problem carefully. "
             "The final_answer must be only the final numeric answer without commas or units."
         )
-    if dataset == "math500":
+    if dataset in {"math500", "competition_math"}:
         return (
             "Solve the math problem carefully. "
             "The final_answer must be only the final mathematical expression, with no explanation."

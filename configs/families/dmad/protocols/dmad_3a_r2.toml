@@ -1,4 +1,3 @@
-# DMAD text-reasoning canonical protocol aligned to the paper's LLM setting.
 agent_count = 3
 debate_rounds = 2
 initial_temperature = 0.3

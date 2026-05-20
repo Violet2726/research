@@ -5,6 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 import json
 
+from research_experiments.core.execution.rate_limits import (
+    STANDARD_REQUESTS_PER_MINUTE_LIMIT,
+    STANDARD_TOKENS_PER_MINUTE_LIMIT,
+)
 from research_experiments.families.budget_comm.run.report import summarize_run as summarize_budget
 from research_experiments.families.budget_comm.run.validate import validate_run as validate_budget
 from research_experiments.families.comm_necessary.run.report import summarize_run as summarize_comm_necessary
@@ -112,10 +116,11 @@ def test_dmad_validation_contract(tmp_path: Path) -> None:
     write_json(tmp_path / "manifest.json", {})
     write_jsonl(tmp_path / "agent_turns.jsonl", [{"output_status": "ok"}])
     write_jsonl(tmp_path / "debate_messages.jsonl", [{"x": 1}])
-    write_jsonl(tmp_path / "final_predictions.jsonl", [{"method_name": "dmad_strategy_diverse_r1"}])
-    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "math500"}]})
+    write_jsonl(tmp_path / "final_predictions.jsonl", [{"method_name": "dmad_cot_sbp_pot"}])
+    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "competition_math"}]})
     write_json(tmp_path / "strategy_diagnostics.json", {"rows": [{"dataset": "overall"}]})
     write_json(tmp_path / "cost_breakdown.json", {"rows": []})
+    write_json(tmp_path / "paper_tables.json", {"overall_rows": []})
     touch_figure_contract(tmp_path)
     assert summarize_dmad(tmp_path)["row_count"] == 1
     assert validate_dmad(tmp_path)["passed"] is True
@@ -649,8 +654,8 @@ def test_comm_necessary_validation_contract(tmp_path: Path) -> None:
         tmp_path / "manifest.json",
         {
             "methods": methods,
-            "requests_per_minute_limit": 60,
-            "tokens_per_minute_limit": 2000000,
+            "requests_per_minute_limit": STANDARD_REQUESTS_PER_MINUTE_LIMIT,
+            "tokens_per_minute_limit": STANDARD_TOKENS_PER_MINUTE_LIMIT,
         },
     )
     write_jsonl(

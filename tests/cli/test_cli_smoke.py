@@ -47,7 +47,7 @@ def test_faithful_matrix_inspect_cli() -> None:
         ],
     )
     assert payload["overrides"]["phase_name"] == "count20"
-    assert payload["counts"]["semantic_unique_targets"] == 17
+    assert payload["counts"]["semantic_unique_targets"] == 18
 
 
 def test_reproduction_matrix_inspect_cli() -> None:
@@ -64,7 +64,7 @@ def test_reproduction_matrix_inspect_cli() -> None:
     )
     assert payload["matrix_id"] == "reproduction"
     assert payload["matrix_kind"] == "reproduction_matrix"
-    assert payload["counts"]["semantic_unique_targets"] == 6
+    assert payload["counts"]["semantic_unique_targets"] == 7
 
 
 def test_imad_inspect_cli() -> None:
@@ -95,8 +95,9 @@ def test_dmad_inspect_cli() -> None:
         ],
     )
     assert payload["name"] == "dmad_reasoning_main"
+    assert payload["evaluation_scope"] == "paper_main"
     assert payload["protocol"]["agent_count"] == 3
-    assert payload["methods"][-1]["name"] == "dmad_strategy_diverse_r1"
+    assert payload["methods"][-1]["name"] == "dmad_cot_sbp_pot"
     assert payload["methods"][-1]["roster_config"]["diversity_mode"] == "strategy_diverse"
 
 

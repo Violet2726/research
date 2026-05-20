@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import math
 import subprocess
@@ -21,7 +22,7 @@ def normalize_prediction(dataset: str, final_answer: str) -> str:
     """按数据集类型把模型答案归一化为可比较的形式。"""
     if dataset in {"gsm8k", "gsm_symbolic"}:
         return normalize_number(final_answer)
-    if dataset == "math500":
+    if dataset in {"math500", "competition_math"}:
         return normalize_math_expression(final_answer)
     if dataset == "strategyqa":
         return normalize_yes_no(final_answer)
@@ -226,14 +227,181 @@ def normalize_code_completion(value: str) -> str:
 
 def normalize_math_expression(value: str) -> str:
     """对短数学表达式做轻量归一化，尽量保留判题所需语义。"""
-    normalized = value.strip().lower()
+    normalized = str(value or "").strip().lower()
     normalized = normalized.replace("$", "")
     normalized = normalized.replace("\\left", "").replace("\\right", "")
     normalized = normalized.replace("\\!", "")
-    normalized = normalized.replace(" ", "")
-    normalized = normalized.replace("{", "").replace("}", "")
+    normalized = re.sub(r"(?<=\d),(?=\d{3}(?:\D|$))", "", normalized)
     normalized = normalized.rstrip(".")
-    return normalized
+
+    top_level_parts = _split_math_top_level(normalized)
+    if len(top_level_parts) > 1:
+        canonical_parts = sorted(_normalize_math_atom(part) for part in top_level_parts)
+        return ",".join(canonical_parts)
+
+    return _normalize_math_atom(normalized)
+
+
+def _normalize_math_atom(value: str) -> str:
+    trimmed = value.strip()
+    if not trimmed:
+        return ""
+
+    wrapped_sequence = _normalize_wrapped_math_sequence(trimmed)
+    if wrapped_sequence is not None:
+        return wrapped_sequence
+
+    prepared = _prepare_math_expression(trimmed)
+    numeric_value = _safe_numeric_evaluate(prepared)
+    if numeric_value is not None:
+        return _format_numeric_math_value(numeric_value)
+    return prepared
+
+
+def _normalize_wrapped_math_sequence(value: str) -> str | None:
+    if len(value) < 2:
+        return None
+    wrapper_map = {"(": ")", "[": "]", "{": "}"}
+    opener = value[0]
+    closer = wrapper_map.get(opener)
+    if closer is None or value[-1] != closer:
+        return None
+    inner = value[1:-1]
+    parts = _split_math_top_level(inner)
+    if len(parts) <= 1:
+        return None
+    normalized_parts = [_normalize_math_atom(part) for part in parts]
+    return opener + ",".join(normalized_parts) + closer
+
+
+def _split_math_top_level(value: str) -> list[str]:
+    parts: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for character in value:
+        if character in "([{":
+            depth += 1
+        elif character in ")]}":
+            depth = max(0, depth - 1)
+        if character == "," and depth == 0:
+            part = "".join(current).strip()
+            if part:
+                parts.append(part)
+            current = []
+            continue
+        current.append(character)
+    tail = "".join(current).strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def _prepare_math_expression(value: str) -> str:
+    compact = value.replace(" ", "")
+    compact = compact.replace("\\cdot", "*").replace("\\times", "*")
+    compact = compact.replace("\\pi", "pi")
+    compact = compact.replace("^{\\circ}", "").replace("^\\circ", "")
+    compact = _replace_latex_command(compact, command="frac", binary=True)
+    compact = _replace_latex_command(compact, command="sqrt", binary=False)
+    compact = compact.replace("{", "(").replace("}", ")")
+    compact = compact.replace("^", "**")
+    return compact
+
+
+def _replace_latex_command(value: str, *, command: str, binary: bool) -> str:
+    token = f"\\{command}"
+    pieces: list[str] = []
+    cursor = 0
+    while cursor < len(value):
+        start = value.find(token, cursor)
+        if start < 0:
+            pieces.append(value[cursor:])
+            break
+        pieces.append(value[cursor:start])
+        cursor = start + len(token)
+        first_argument, cursor = _read_latex_argument(value, cursor)
+        if binary:
+            second_argument, cursor = _read_latex_argument(value, cursor)
+            pieces.append(f"(({first_argument})/({second_argument}))")
+            continue
+        pieces.append(f"sqrt({first_argument})")
+    return "".join(pieces)
+
+
+def _read_latex_argument(value: str, cursor: int) -> tuple[str, int]:
+    if cursor >= len(value):
+        return "", cursor
+    if value[cursor] == "{":
+        depth = 1
+        index = cursor + 1
+        collected: list[str] = []
+        while index < len(value):
+            character = value[index]
+            if character == "{":
+                depth += 1
+                collected.append(character)
+            elif character == "}":
+                depth -= 1
+                if depth == 0:
+                    return "".join(collected), index + 1
+                collected.append(character)
+            else:
+                collected.append(character)
+            index += 1
+        return "".join(collected), index
+    token_end = cursor + 1
+    if value[cursor] == "\\":
+        while token_end < len(value) and value[token_end].isalpha():
+            token_end += 1
+        return value[cursor:token_end], token_end
+    while token_end < len(value) and value[token_end].isalnum():
+        token_end += 1
+    return value[cursor:token_end], token_end
+
+
+def _safe_numeric_evaluate(expression: str) -> float | None:
+    if not expression:
+        return None
+    try:
+        node = ast.parse(expression, mode="eval")
+        value = _eval_math_ast(node.body)
+    except Exception:
+        return None
+    if not math.isfinite(value):
+        return None
+    return value
+
+
+def _eval_math_ast(node: ast.AST) -> float:
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+        return float(node.value)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+        operand = _eval_math_ast(node.operand)
+        return operand if isinstance(node.op, ast.UAdd) else -operand
+    if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow)):
+        left = _eval_math_ast(node.left)
+        right = _eval_math_ast(node.right)
+        if isinstance(node.op, ast.Add):
+            return left + right
+        if isinstance(node.op, ast.Sub):
+            return left - right
+        if isinstance(node.op, ast.Mult):
+            return left * right
+        if isinstance(node.op, ast.Div):
+            return left / right
+        return left**right
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "sqrt" and len(node.args) == 1:
+        return math.sqrt(_eval_math_ast(node.args[0]))
+    if isinstance(node, ast.Name) and node.id == "pi":
+        return math.pi
+    raise ValueError(f"Unsupported math expression AST: {ast.dump(node)}")
+
+
+def _format_numeric_math_value(value: float) -> str:
+    rounded = round(value, 12)
+    if abs(rounded) < 1e-12:
+        rounded = 0.0
+    return f"{rounded:.12g}"
 
 
 def score_multiple_choice(predicted: str, gold: str) -> float:

@@ -19,6 +19,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "metrics.json",
         "strategy_diagnostics.json",
         "cost_breakdown.json",
+        "paper_tables.json",
         "report.md",
         "figure_manifest.json",
         "archive_manifest.json",

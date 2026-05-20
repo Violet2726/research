@@ -15,12 +15,21 @@ from research_experiments.families.dmad.config import DmadExperimentConfig, Dmad
 from research_experiments.families.dmad.prompts import (
     build_answer_stage_messages,
     build_initial_messages,
+    build_mrp_method_selection_messages,
+    build_mrp_solution_messages,
     build_reasoning_stage_messages,
     build_reflection_feedback_messages,
     build_reflection_revision_messages,
-    build_solution_selector_messages,
+    build_self_contrast_checklist_messages,
+    build_self_contrast_revision_messages,
 )
 from research_experiments.families.shared.common import resolve_phase_split_name, safe_mean, safe_ratio
+from research_experiments.families.shared.pot_execution import (
+    build_pot_answer_artifact,
+    build_pot_process_artifact,
+    is_pot_reasoning,
+)
+from research_experiments.families.shared.reasoning_methods import normalize_reasoning_method_name
 
 
 @dataclass(frozen=True)
@@ -53,6 +62,11 @@ class AgentTurnRecord:
     assistant_text: str
     provider_reasoning_text: str
     validated_output: dict[str, Any]
+    program_text: str | None = None
+    execution_result: str | None = None
+    execution_status: str | None = None
+    execution_resolution: str | None = None
+    execution_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -86,6 +100,8 @@ class FinalPredictionRecord:
     method_type: str
     diversity_mode: str
     strategy_names: list[str]
+    configured_strategy_names: list[str]
+    effective_strategy_names: list[str]
     persona_names: list[str]
     model_name: str
     prediction: str
@@ -134,15 +150,53 @@ class RoundAgentState:
     answer_row: dict[str, Any]
     solving_process: str
     final_answer: str
+    execution_result: str | None = None
 
 
-@dataclass(frozen=True)
-class SelectionDecision:
-    final_answer: str
-    selected_agent_id: int | None
-    rationale: str
-    fallback_used: bool
-    fallback_reason: str | None
+def _resolved_strategy_name(dataset: str, strategy_name: str) -> str:
+    return normalize_reasoning_method_name(dataset, strategy_name)
+
+
+def _configured_strategy_name(strategy_name: str) -> str:
+    normalized = str(strategy_name or "").strip().lower()
+    if normalized == "pot_l2m":
+        return "pot"
+    if normalized.endswith("_sc"):
+        return _configured_strategy_name(normalized[: -len("_sc")])
+    return normalized
+
+
+def _configured_strategy_names(strategy_names: list[str]) -> list[str]:
+    return [_configured_strategy_name(item) for item in strategy_names]
+
+
+def _turn_artifact_fields(validated_output: dict[str, Any]) -> dict[str, Any]:
+    fields = {
+        "program_text": _nullable_string(validated_output.get("program_text")),
+        "execution_result": _nullable_string(validated_output.get("execution_result")),
+        "execution_status": _nullable_string(validated_output.get("execution_status")),
+        "execution_resolution": _nullable_string(validated_output.get("execution_resolution")),
+        "execution_error": _nullable_string(validated_output.get("execution_error")),
+    }
+    return {key: value for key, value in fields.items() if value is not None}
+
+
+def _serialize_turn_record(record: AgentTurnRecord, *, normalized_answer: str) -> dict[str, Any]:
+    payload = asdict(record)
+    payload["validated_output"] = _compact_validated_output(payload.get("validated_output") or {})
+    for key in ["program_text", "execution_result", "execution_status", "execution_resolution", "execution_error"]:
+        if payload.get(key) is None:
+            payload.pop(key, None)
+    return payload | {"normalized_answer": normalized_answer, "artifact_version": ARTIFACT_VERSION}
+
+
+def _compact_validated_output(validated_output: dict[str, Any]) -> dict[str, Any]:
+    keys_to_drop = ["program_text", "execution_result", "execution_status", "execution_resolution", "execution_error"]
+    payload = dict(validated_output)
+    for key in keys_to_drop:
+        if payload.get(key) is None:
+            payload.pop(key, None)
+    return payload
 
 
 def _active_methods(experiment: DmadExperimentConfig) -> list[DmadMethodSpec]:
@@ -157,12 +211,13 @@ def _estimate_work(
     methods: list[DmadMethodSpec],
     rosters: dict[str, RosterConfig],
     controls: dict[str, Any],
+    splits_root,
 ) -> tuple[int, int]:
     total_calls = 0
     total_predictions = 0
     for benchmark in benchmarks:
         split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
-        sample_count = len(load_split_ids(benchmark.cache_namespace or benchmark.slug, split_name))
+        sample_count = len(load_split_ids(benchmark.cache_namespace or benchmark.slug, split_name, splits_root=splits_root))
         total_predictions += sample_count * len(methods)
         for method in methods:
             total_calls += sample_count * _calls_per_question(method, protocol, rosters.get(method.name), controls)
@@ -173,8 +228,8 @@ def _resolve_split_name(experiment: DmadExperimentConfig, phase_name: str, bench
     return resolve_phase_split_name(experiment, phase_name, benchmark_slug)
 
 
-def _load_selected_samples(benchmark, split_name: str) -> list[DatasetSample]:
-    return select_samples(benchmark, split_name)
+def _load_selected_samples(benchmark, split_name: str, splits_root) -> list[DatasetSample]:
+    return select_samples(benchmark, split_name, splits_root=splits_root)
 
 
 def _run_sample_batch(
@@ -265,8 +320,8 @@ def _run_sample(
     prediction_rows: list[dict[str, Any]] = []
     for method_index, method in enumerate(methods):
         roster = rosters.get(method.name)
-        if method.mode == "single_agent_cot":
-            method_turns, method_prediction = _run_single_agent_cot(
+        if method.mode in {"single_cot", "single_sbp", "single_pot", "single_l2m"}:
+            method_turns, method_prediction = _run_single_reasoning(
                 sample=sample,
                 run_id=run_id,
                 benchmark_slug=benchmark_slug,
@@ -276,7 +331,6 @@ def _run_sample(
                 provider=provider,
                 cache=cache,
                 limiter=limiter,
-                cot_method=_require_control_method(controls, "cot_1"),
                 experiment=experiment,
                 protocol=protocol,
                 seed_offset=method_index * 10_000,
@@ -284,7 +338,25 @@ def _run_sample(
             turn_rows.extend(method_turns)
             prediction_rows.append(method_prediction)
             continue
-        if method.mode == "single_agent_reflection_r1":
+        if method.mode in {"single_cot_sc", "single_sbp_sc", "single_pot_sc", "single_l2m_sc"}:
+            method_turns, method_prediction = _run_self_consistency(
+                sample=sample,
+                run_id=run_id,
+                benchmark_slug=benchmark_slug,
+                split_name=split_name,
+                method=method,
+                backbone=backbone,
+                provider=provider,
+                cache=cache,
+                limiter=limiter,
+                experiment=experiment,
+                protocol=protocol,
+                seed_offset=method_index * 10_000,
+            )
+            turn_rows.extend(method_turns)
+            prediction_rows.append(method_prediction)
+            continue
+        if method.mode == "self_refine_cot":
             method_turns, method_prediction = _run_single_agent_reflection(
                 sample=sample,
                 run_id=run_id,
@@ -295,7 +367,6 @@ def _run_sample(
                 provider=provider,
                 cache=cache,
                 limiter=limiter,
-                cot_method=_require_control_method(controls, "cot_1"),
                 experiment=experiment,
                 protocol=protocol,
                 seed_offset=method_index * 10_000,
@@ -303,8 +374,8 @@ def _run_sample(
             turn_rows.extend(method_turns)
             prediction_rows.append(method_prediction)
             continue
-        if method.mode == "mv_6":
-            method_turns, method_prediction = _run_vote_control(
+        if method.mode in {"self_contrast_cot_sbp_pot", "self_contrast_cot_sbp_l2m"}:
+            method_turns, method_prediction = _run_self_contrast(
                 sample=sample,
                 run_id=run_id,
                 benchmark_slug=benchmark_slug,
@@ -314,7 +385,24 @@ def _run_sample(
                 provider=provider,
                 cache=cache,
                 limiter=limiter,
-                vote_method=_require_control_method(controls, "mv_6"),
+                experiment=experiment,
+                protocol=protocol,
+                seed_offset=method_index * 10_000,
+            )
+            turn_rows.extend(method_turns)
+            prediction_rows.append(method_prediction)
+            continue
+        if method.mode in {"mrp_cot_sbp_pot", "mrp_cot_sbp_l2m"}:
+            method_turns, method_prediction = _run_mrp(
+                sample=sample,
+                run_id=run_id,
+                benchmark_slug=benchmark_slug,
+                split_name=split_name,
+                method=method,
+                backbone=backbone,
+                provider=provider,
+                cache=cache,
+                limiter=limiter,
                 experiment=experiment,
                 protocol=protocol,
                 seed_offset=method_index * 10_000,
@@ -343,7 +431,7 @@ def _run_sample(
     return turn_rows, debate_rows, prediction_rows
 
 
-def _run_single_agent_cot(
+def _run_single_reasoning(
     *,
     sample: DatasetSample,
     run_id: str,
@@ -354,13 +442,13 @@ def _run_single_agent_cot(
     provider,
     cache,
     limiter,
-    cot_method,
     experiment: DmadExperimentConfig,
     protocol: ProtocolConfig,
     seed_offset: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    profile = _default_profile(agent_id=1)
-    turn = _execute_turn(
+    del protocol
+    profile = _profile_for_method(agent_id=1, strategy_name=_mode_to_reasoning_method(method.mode))
+    turn = _execute_reasoning_answer_turn(
         run_id=run_id,
         dataset=benchmark_slug,
         split_name=split_name,
@@ -372,15 +460,15 @@ def _run_single_agent_cot(
         role="initial",
         visible_peer_count=0,
         persona_name=profile.persona_name,
-        strategy_name=profile.strategy_name,
+        strategy_name=_resolved_strategy_name(sample.dataset, profile.strategy_name),
         messages=build_initial_messages(sample, profile, prompt_version=experiment.prompt_version),
         backbone=backbone,
         provider=provider,
         cache=cache,
         limiter=limiter,
-        temperature=float(cot_method.temperature),
-        top_p=float(cot_method.top_p),
-        max_output_tokens=int(cot_method.max_output_tokens),
+        temperature=0.0,
+        top_p=1.0,
+        max_output_tokens=256,
         seed=experiment.global_seed + seed_offset,
         agent_id=profile.agent_id,
     )
@@ -397,7 +485,8 @@ def _run_single_agent_cot(
         initial_rows=[turn],
         final_rows=[turn],
         debate_rows=[],
-        strategy_names=[profile.strategy_name],
+        configured_strategy_names=[_configured_strategy_name(profile.strategy_name)],
+        effective_strategy_names=[_resolved_strategy_name(sample.dataset, profile.strategy_name)],
         persona_names=[profile.persona_name],
         calls_per_question=1,
         debate_rounds=0,
@@ -417,12 +506,12 @@ def _run_single_agent_reflection(
     provider,
     cache,
     limiter,
-    cot_method,
     experiment: DmadExperimentConfig,
     protocol: ProtocolConfig,
     seed_offset: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    profile = _default_profile(agent_id=1)
+    del protocol
+    profile = _profile_for_method(agent_id=1, strategy_name="cot")
     initial_turn = _execute_turn(
         run_id=run_id,
         dataset=benchmark_slug,
@@ -435,15 +524,15 @@ def _run_single_agent_reflection(
         role="initial",
         visible_peer_count=0,
         persona_name=profile.persona_name,
-        strategy_name=profile.strategy_name,
+        strategy_name=_resolved_strategy_name(sample.dataset, profile.strategy_name),
         messages=build_initial_messages(sample, profile, prompt_version=experiment.prompt_version),
         backbone=backbone,
         provider=provider,
         cache=cache,
         limiter=limiter,
-        temperature=float(cot_method.temperature),
-        top_p=float(cot_method.top_p),
-        max_output_tokens=int(cot_method.max_output_tokens),
+        temperature=0.0,
+        top_p=1.0,
+        max_output_tokens=256,
         seed=experiment.global_seed + seed_offset,
         agent_id=profile.agent_id,
     )
@@ -459,7 +548,7 @@ def _run_single_agent_reflection(
         role="feedback",
         visible_peer_count=0,
         persona_name=profile.persona_name,
-        strategy_name=profile.strategy_name,
+        strategy_name=_resolved_strategy_name(sample.dataset, profile.strategy_name),
         messages=build_reflection_feedback_messages(
             sample,
             previous_reasoning=str(initial_turn["validated_output"].get("reasoning", "")),
@@ -470,9 +559,9 @@ def _run_single_agent_reflection(
         provider=provider,
         cache=cache,
         limiter=limiter,
-        temperature=float(cot_method.temperature),
-        top_p=float(cot_method.top_p),
-        max_output_tokens=min(160, int(cot_method.max_output_tokens)),
+        temperature=0.0,
+        top_p=1.0,
+        max_output_tokens=160,
         seed=experiment.global_seed + seed_offset + 1,
         agent_id=profile.agent_id,
     )
@@ -488,7 +577,7 @@ def _run_single_agent_reflection(
         role="reflection",
         visible_peer_count=0,
         persona_name=profile.persona_name,
-        strategy_name=profile.strategy_name,
+        strategy_name=_resolved_strategy_name(sample.dataset, profile.strategy_name),
         messages=build_reflection_revision_messages(
             sample,
             previous_reasoning=str(initial_turn["validated_output"].get("reasoning", "")),
@@ -500,9 +589,9 @@ def _run_single_agent_reflection(
         provider=provider,
         cache=cache,
         limiter=limiter,
-        temperature=float(cot_method.temperature),
-        top_p=float(cot_method.top_p),
-        max_output_tokens=int(cot_method.max_output_tokens),
+        temperature=0.0,
+        top_p=1.0,
+        max_output_tokens=256,
         seed=experiment.global_seed + seed_offset + 2,
         agent_id=profile.agent_id,
     )
@@ -519,7 +608,8 @@ def _run_single_agent_reflection(
         initial_rows=[initial_turn],
         final_rows=[reflection_turn],
         debate_rows=[],
-        strategy_names=[profile.strategy_name],
+        configured_strategy_names=[_configured_strategy_name(profile.strategy_name)],
+        effective_strategy_names=[_resolved_strategy_name(sample.dataset, profile.strategy_name)],
         persona_names=[profile.persona_name],
         calls_per_question=3,
         debate_rounds=0,
@@ -528,7 +618,7 @@ def _run_single_agent_reflection(
     return [initial_turn, feedback_turn, reflection_turn], prediction
 
 
-def _run_vote_control(
+def _run_self_consistency(
     *,
     sample: DatasetSample,
     run_id: str,
@@ -539,37 +629,38 @@ def _run_vote_control(
     provider,
     cache,
     limiter,
-    vote_method,
     experiment: DmadExperimentConfig,
     protocol: ProtocolConfig,
     seed_offset: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    profiles = [_default_profile(agent_id=index + 1) for index in range(6)]
+    del protocol
+    strategy_name = _mode_to_reasoning_method(method.mode)
     turns: list[dict[str, Any]] = []
-    for index, profile in enumerate(profiles):
+    for replicate_index in range(3):
+        profile = _profile_for_method(agent_id=replicate_index + 1, strategy_name=strategy_name)
         turns.append(
-            _execute_turn(
+            _execute_reasoning_answer_turn(
                 run_id=run_id,
                 dataset=benchmark_slug,
                 split_name=split_name,
                 sample=sample,
                 method_name=method.name,
-                method_type="vote",
-                diversity_mode="vote",
+                method_type="single_agent",
+                diversity_mode="self_consistency",
                 round_index=0,
-                role="control",
+                role="sample",
                 visible_peer_count=0,
                 persona_name=profile.persona_name,
-                strategy_name=profile.strategy_name,
+                strategy_name=_resolved_strategy_name(sample.dataset, profile.strategy_name),
                 messages=build_initial_messages(sample, profile, prompt_version=experiment.prompt_version),
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
                 limiter=limiter,
-                temperature=float(vote_method.temperature),
-                top_p=float(vote_method.top_p),
-                max_output_tokens=int(vote_method.max_output_tokens),
-                seed=experiment.global_seed + seed_offset + index,
+                temperature=0.7,
+                top_p=1.0,
+                max_output_tokens=256,
+                seed=experiment.global_seed + seed_offset + replicate_index,
                 agent_id=profile.agent_id,
             )
         )
@@ -579,20 +670,232 @@ def _run_vote_control(
         split_name=split_name,
         sample=sample,
         method_name=method.name,
-        method_type="vote",
-        diversity_mode="vote",
+        method_type="single_agent",
+        diversity_mode="self_consistency",
         model_name=backbone.name,
         all_turns=turns,
         initial_rows=turns,
         final_rows=turns,
         debate_rows=[],
-        strategy_names=[profile.strategy_name for profile in profiles],
-        persona_names=[profile.persona_name for profile in profiles],
-        calls_per_question=6,
+        configured_strategy_names=[_configured_strategy_name(strategy_name)],
+        effective_strategy_names=[_resolved_strategy_name(sample.dataset, strategy_name)],
+        persona_names=["general_reasoner"],
+        calls_per_question=3,
         debate_rounds=0,
-        agent_count=6,
+        agent_count=1,
     )
     return turns, prediction
+
+
+def _run_self_contrast(
+    *,
+    sample: DatasetSample,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    method: DmadMethodSpec,
+    backbone,
+    provider,
+    cache,
+    limiter,
+    experiment: DmadExperimentConfig,
+    protocol: ProtocolConfig,
+    seed_offset: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    del protocol
+    strategy_names = _contrast_reasoning_methods(method.mode)
+    candidate_turns: list[dict[str, Any]] = []
+    candidate_rows: list[dict[str, str]] = []
+    for index, strategy_name in enumerate(strategy_names):
+        profile = _profile_for_method(agent_id=index + 1, strategy_name=strategy_name)
+        turn = _execute_reasoning_answer_turn(
+            run_id=run_id,
+            dataset=benchmark_slug,
+            split_name=split_name,
+            sample=sample,
+            method_name=method.name,
+            method_type="self_contrast",
+            diversity_mode="contrastive",
+            round_index=0,
+            role="candidate",
+            visible_peer_count=0,
+            persona_name=profile.persona_name,
+            strategy_name=_resolved_strategy_name(sample.dataset, profile.strategy_name),
+            messages=build_initial_messages(sample, profile, prompt_version=experiment.prompt_version),
+            backbone=backbone,
+            provider=provider,
+            cache=cache,
+            limiter=limiter,
+            temperature=0.0,
+            top_p=1.0,
+            max_output_tokens=256,
+            seed=experiment.global_seed + seed_offset + index,
+            agent_id=profile.agent_id,
+        )
+        candidate_turns.append(turn)
+        candidate_rows.append(
+            {
+                "strategy_name": _resolved_strategy_name(sample.dataset, strategy_name),
+                "reasoning": str(turn.get("validated_output", {}).get("reasoning") or ""),
+                "answer": str(turn.get("validated_output", {}).get("final_answer") or ""),
+            }
+        )
+    checklist_turn = _execute_feedback_turn(
+        run_id=run_id,
+        dataset=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        method_name=method.name,
+        method_type="self_contrast",
+        diversity_mode="contrastive",
+        round_index=1,
+        role="contrast_checklist",
+        visible_peer_count=len(candidate_rows),
+        persona_name="contrast_reviewer",
+        strategy_name="contrastive_review",
+        messages=build_self_contrast_checklist_messages(sample, candidate_rows, prompt_version=experiment.prompt_version),
+        backbone=backbone,
+        provider=provider,
+        cache=cache,
+        limiter=limiter,
+        temperature=0.0,
+        top_p=1.0,
+        max_output_tokens=256,
+        seed=experiment.global_seed + seed_offset + 100,
+        agent_id=0,
+    )
+    final_turn = _execute_turn(
+        run_id=run_id,
+        dataset=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        method_name=method.name,
+        method_type="self_contrast",
+        diversity_mode="contrastive",
+        round_index=2,
+        role="contrast_revision",
+        visible_peer_count=len(candidate_rows),
+        persona_name="contrast_solver",
+        strategy_name="contrastive_revision",
+        messages=build_self_contrast_revision_messages(
+            sample,
+            candidate_rows,
+            checklist=str(checklist_turn.get("validated_output", {}).get("feedback") or ""),
+            prompt_version=experiment.prompt_version,
+        ),
+        backbone=backbone,
+        provider=provider,
+        cache=cache,
+        limiter=limiter,
+        temperature=0.0,
+        top_p=1.0,
+        max_output_tokens=256,
+        seed=experiment.global_seed + seed_offset + 101,
+        agent_id=0,
+    )
+    all_turns = candidate_turns + [checklist_turn, final_turn]
+    prediction = _build_final_prediction(
+        run_id=run_id,
+        dataset=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        method_name=method.name,
+        method_type="self_contrast",
+        diversity_mode="contrastive",
+        model_name=backbone.name,
+        all_turns=all_turns,
+        initial_rows=candidate_turns,
+        final_rows=[final_turn],
+        debate_rows=[],
+        configured_strategy_names=_configured_strategy_names(strategy_names),
+        effective_strategy_names=[_resolved_strategy_name(sample.dataset, item) for item in strategy_names],
+        persona_names=["general_reasoner"],
+        calls_per_question=len(all_turns),
+        debate_rounds=0,
+        agent_count=1,
+    )
+    return all_turns, prediction
+
+
+def _run_mrp(
+    *,
+    sample: DatasetSample,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    method: DmadMethodSpec,
+    backbone,
+    provider,
+    cache,
+    limiter,
+    experiment: DmadExperimentConfig,
+    protocol: ProtocolConfig,
+    seed_offset: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    del protocol
+    strategy_names = _contrast_reasoning_methods(method.mode)
+    selection_turn = _execute_method_selection_turn(
+        run_id=run_id,
+        dataset=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        method_name=method.name,
+        candidate_methods=strategy_names,
+        backbone=backbone,
+        provider=provider,
+        cache=cache,
+        limiter=limiter,
+        seed=experiment.global_seed + seed_offset,
+        prompt_version=experiment.prompt_version,
+    )
+    selected_method = str(selection_turn.get("validated_output", {}).get("selected_method") or strategy_names[0])
+    solve_profile = _profile_for_method(agent_id=1, strategy_name=selected_method)
+    final_turn = _execute_reasoning_answer_turn(
+        run_id=run_id,
+        dataset=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        method_name=method.name,
+        method_type="mrp",
+        diversity_mode="dynamic_reasoning",
+        round_index=1,
+        role="mrp_solution",
+        visible_peer_count=0,
+        persona_name=solve_profile.persona_name,
+        strategy_name=solve_profile.strategy_name,
+        messages=build_mrp_solution_messages(sample, selected_method, prompt_version=experiment.prompt_version),
+        backbone=backbone,
+        provider=provider,
+        cache=cache,
+        limiter=limiter,
+        temperature=0.0,
+        top_p=1.0,
+        max_output_tokens=256,
+        seed=experiment.global_seed + seed_offset + 1,
+        agent_id=solve_profile.agent_id,
+    )
+    all_turns = [selection_turn, final_turn]
+    prediction = _build_final_prediction(
+        run_id=run_id,
+        dataset=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        method_name=method.name,
+        method_type="mrp",
+        diversity_mode="dynamic_reasoning",
+        model_name=backbone.name,
+        all_turns=all_turns,
+        initial_rows=[final_turn],
+        final_rows=[final_turn],
+        debate_rows=[],
+        configured_strategy_names=[_configured_strategy_name(selected_method)],
+        effective_strategy_names=[_resolved_strategy_name(sample.dataset, selected_method)],
+        persona_names=[solve_profile.persona_name],
+        calls_per_question=len(all_turns),
+        debate_rounds=0,
+        agent_count=1,
+    )
+    return all_turns, prediction
 
 
 def _run_mad_method(
@@ -661,7 +964,7 @@ def _run_mad_method(
                 role=process_role,
                 visible_peer_count=visible_peer_count,
                 persona_name=profile.persona_name,
-                strategy_name=profile.strategy_name,
+                strategy_name=_resolved_strategy_name(sample.dataset, profile.strategy_name),
                 messages=build_reasoning_stage_messages(
                     sample,
                     profile,
@@ -680,6 +983,9 @@ def _run_mad_method(
                 agent_id=profile.agent_id,
             )
             solving_process = str(process_row["validated_output"].get("reasoning", "")).strip()
+            execution_result = _nullable_string(process_row["validated_output"].get("execution_result"))
+            execution_status = _nullable_string(process_row["validated_output"].get("execution_status"))
+            execution_error = _nullable_string(process_row["validated_output"].get("execution_error"))
             answer_row = _execute_turn(
                 run_id=run_id,
                 dataset=benchmark_slug,
@@ -692,12 +998,15 @@ def _run_mad_method(
                 role=answer_role,
                 visible_peer_count=visible_peer_count,
                 persona_name=profile.persona_name,
-                strategy_name=profile.strategy_name,
+                strategy_name=_resolved_strategy_name(sample.dataset, profile.strategy_name),
                 messages=build_answer_stage_messages(
                     sample,
                     profile,
                     round_index=round_index,
                     solving_process=solving_process,
+                    execution_result=execution_result,
+                    execution_status=execution_status,
+                    execution_error=execution_error,
                     prior_rounds=prior_rounds,
                     prompt_version=experiment.prompt_version,
                 ),
@@ -716,13 +1025,16 @@ def _run_mad_method(
                     round_index=round_index,
                     agent_id=profile.agent_id,
                     persona_name=profile.persona_name,
-                    strategy_name=profile.strategy_name,
+                    strategy_name=_resolved_strategy_name(sample.dataset, profile.strategy_name),
                     process_row=process_row,
                     answer_row=answer_row,
                     solving_process=solving_process,
                     final_answer=str(answer_row["validated_output"].get("final_answer", "")).strip(),
+                    execution_result=execution_result,
                 )
             )
+            if _should_backfill_execution_from_answer(process_row, answer_row):
+                _backfill_execution_from_answer(process_row, answer_row)
             all_turns.extend([process_row, answer_row])
 
         round_records = [
@@ -733,6 +1045,7 @@ def _run_mad_method(
                 "strategy_name": state.strategy_name,
                 "reasoning": state.solving_process,
                 "answer": state.final_answer,
+                "execution_result": state.execution_result,
             }
             for state in current_round
         ]
@@ -742,47 +1055,6 @@ def _run_mad_method(
             initial_turns = answer_rows
         final_turns = answer_rows
         final_states = current_round
-
-    selector_turn = _execute_selector_turn(
-        run_id=run_id,
-        dataset=benchmark_slug,
-        split_name=split_name,
-        sample=sample,
-        method_name=method.name,
-        method_type="mad",
-        diversity_mode=roster.diversity_mode,
-        round_index=protocol.debate_rounds + 1,
-        role="selector",
-        visible_peer_count=roster.agent_count,
-        persona_name="solution_selector",
-        strategy_name="best_solution_selection",
-        messages=build_solution_selector_messages(
-            sample,
-            [
-                {
-                    "agent_id": state.agent_id,
-                    "persona_name": state.persona_name,
-                    "strategy_name": state.strategy_name,
-                    "reasoning": state.solving_process,
-                    "answer": state.final_answer,
-                }
-                for state in final_states
-            ],
-            prompt_version=experiment.prompt_version,
-        ),
-        candidate_answers={state.agent_id: state.final_answer for state in final_states},
-        backbone=backbone,
-        provider=provider,
-        cache=cache,
-        limiter=limiter,
-        temperature=0.0,
-        top_p=protocol.top_p,
-        max_output_tokens=min(192, protocol.max_output_tokens),
-        seed=experiment.global_seed + seed_offset + 9_999,
-        agent_id=0,
-    )
-    all_turns.append(selector_turn)
-    selection = _build_selection_decision(selector_turn, final_turns)
     prediction = _build_final_prediction(
         run_id=run_id,
         dataset=benchmark_slug,
@@ -796,16 +1068,12 @@ def _run_mad_method(
         initial_rows=initial_turns,
         final_rows=final_turns,
         debate_rows=[row for row in all_turns if str(row["role"]).startswith("debate_")],
-        strategy_names=[profile.strategy_name for profile in roster.agents],
+        configured_strategy_names=_configured_strategy_names([profile.strategy_name for profile in roster.agents]),
+        effective_strategy_names=[_resolved_strategy_name(sample.dataset, profile.strategy_name) for profile in roster.agents],
         persona_names=[profile.persona_name for profile in roster.agents],
-        calls_per_question=len(roster.agents) * protocol.debate_rounds * 2 + 1,
+        calls_per_question=len(roster.agents) * protocol.debate_rounds * 2,
         debate_rounds=protocol.debate_rounds,
         agent_count=roster.agent_count,
-        selected_prediction=selection.final_answer,
-        selected_agent_id=selection.selected_agent_id,
-        selection_rationale=selection.rationale,
-        selection_fallback_used=selection.fallback_used,
-        selection_fallback_reason=selection.fallback_reason,
     )
     return all_turns, debate_rows, prediction
 
@@ -824,16 +1092,12 @@ def _build_final_prediction(
     initial_rows: list[dict[str, Any]],
     final_rows: list[dict[str, Any]],
     debate_rows: list[dict[str, Any]],
-    strategy_names: list[str],
+    configured_strategy_names: list[str],
+    effective_strategy_names: list[str],
     persona_names: list[str],
     calls_per_question: int,
     debate_rounds: int,
     agent_count: int,
-    selected_prediction: str | None = None,
-    selected_agent_id: int | None = None,
-    selection_rationale: str = "",
-    selection_fallback_used: bool = False,
-    selection_fallback_reason: str | None = None,
 ) -> dict[str, Any]:
     initial_answers = [str(row["normalized_answer"]) for row in initial_rows]
     final_answers = [str(row["normalized_answer"]) for row in final_rows]
@@ -841,7 +1105,7 @@ def _build_final_prediction(
     final_vote, final_vote_counts = aggregate_majority(final_answers)
     initial_vote_score = float(score_prediction(dataset, initial_vote, sample.reference_answer))
     final_vote_score = float(score_prediction(dataset, final_vote, sample.reference_answer))
-    resolved_prediction = selected_prediction or final_vote
+    resolved_prediction = final_vote
     resolved_score = float(score_prediction(dataset, resolved_prediction, sample.reference_answer))
     initial_consensus = len(set(initial_answers)) == 1
     final_consensus = len(set(final_answers)) == 1
@@ -871,7 +1135,9 @@ def _build_final_prediction(
             method_name=method_name,
             method_type=method_type,
             diversity_mode=diversity_mode,
-            strategy_names=list(strategy_names),
+            strategy_names=list(effective_strategy_names),
+            configured_strategy_names=list(configured_strategy_names),
+            effective_strategy_names=list(effective_strategy_names),
             persona_names=list(persona_names),
             model_name=model_name,
             prediction=resolved_prediction,
@@ -910,12 +1176,10 @@ def _build_final_prediction(
             agent_count=agent_count,
         )
     )
-    payload["selection_mode"] = "best_solution_selector" if selected_prediction is not None else "final_majority_vote"
-    payload["selector_selected_agent_id"] = selected_agent_id
-    payload["selector_rationale"] = selection_rationale
-    payload["selector_fallback_used"] = selection_fallback_used
-    payload["selector_fallback_reason"] = selection_fallback_reason
-    payload["selected_answer_matches_final_vote"] = resolved_prediction == final_vote
+    payload["selection_mode"] = "self_consistency"
+    payload["selected_answer_matches_final_vote"] = True
+    payload["paper_subject"] = str(sample.metadata.get("subject") or "")
+    payload["paper_domain"] = str(sample.metadata.get("high_level_domain") or "")
     return payload
 
 
@@ -932,7 +1196,42 @@ def _build_metrics(prediction_rows: list[dict[str, Any]], model_name: str) -> di
     return {"summary": summary, "prediction_count": len(prediction_rows)}
 
 
-def _build_strategy_diagnostics(prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _build_paper_tables(
+    prediction_rows: list[dict[str, Any]],
+    *,
+    evaluation_scope: str,
+) -> dict[str, Any]:
+    math_rows = [row for row in prediction_rows if str(row.get("dataset")) == "competition_math"]
+    gpqa_rows = [row for row in prediction_rows if str(row.get("dataset")) == "gpqa_diamond"]
+    appendix_rows = [row for row in prediction_rows if str(row.get("dataset")) == "mmlu_abstract_algebra"]
+    extended_rows = [
+        row
+        for row in prediction_rows
+        if str(row.get("dataset")) in {"strategyqa", "hotpotqa"}
+    ]
+
+    if evaluation_scope == "paper_main":
+        overall_source = [row for row in prediction_rows if str(row.get("dataset")) in {"competition_math", "gpqa_diamond"}]
+    elif evaluation_scope == "paper_appendix":
+        overall_source = appendix_rows
+    else:
+        overall_source = prediction_rows
+
+    return {
+        "evaluation_scope": evaluation_scope,
+        "overall_rows": _group_accuracy_rows(overall_source, field_name=None),
+        "math_subject_rows": _group_accuracy_rows(math_rows, field_name="paper_subject"),
+        "gpqa_domain_rows": _group_accuracy_rows(gpqa_rows, field_name="paper_domain"),
+        "appendix_rows": _group_accuracy_rows(appendix_rows, field_name=None),
+        "extended_dataset_rows": _group_accuracy_rows(extended_rows, field_name="dataset"),
+    }
+
+
+def _build_strategy_diagnostics(
+    prediction_rows: list[dict[str, Any]],
+    *,
+    evaluation_scope: str,
+) -> dict[str, Any]:
     grouped = _group_prediction_rows(prediction_rows)
     rows: list[dict[str, Any]] = []
     for key, grouped_rows in sorted(grouped.items()):
@@ -943,23 +1242,28 @@ def _build_strategy_diagnostics(prediction_rows: list[dict[str, Any]]) -> dict[s
     )
     _annotate_gain_rows(rows)
     overall_lookup = {(str(row["dataset"]), str(row["method_name"])): row for row in rows}
-    dmad_row = overall_lookup.get(("overall", "dmad_strategy_diverse_r1"))
-    vanilla_row = overall_lookup.get(("overall", "vanilla_mad_r1"))
+    dmad_row = overall_lookup.get(("overall", "dmad_cot_sbp_pot")) or overall_lookup.get(("overall", "dmad_cot_sbp_l2m"))
+    fixed_rows = [
+        row
+        for key, row in overall_lookup.items()
+        if key[0] == "overall" and key[1] in {"mad_all_cot", "mad_all_sbp", "mad_all_pot", "mad_all_l2m"}
+    ]
+    best_fixed_row = max(fixed_rows, key=lambda item: float(item.get("accuracy_mean") or 0.0)) if fixed_rows else None
     gate_passed = bool(
         dmad_row
-        and vanilla_row
-        and float(dmad_row.get("accuracy_mean") or 0.0) >= float(vanilla_row.get("accuracy_mean") or 0.0)
-        and float(dmad_row.get("calls_per_question_mean") or 0.0) <= float(vanilla_row.get("calls_per_question_mean") or 0.0)
+        and best_fixed_row
+        and float(dmad_row.get("accuracy_mean") or 0.0) >= float(best_fixed_row.get("accuracy_mean") or 0.0)
     )
     return {
         "rows": rows,
         "gate_summary": {
-            "count100_upgrade_gate_passed": gate_passed,
+            "paper_main_gate_passed": gate_passed,
             "dmad_accuracy_mean": None if dmad_row is None else float(dmad_row.get("accuracy_mean") or 0.0),
-            "vanilla_accuracy_mean": None if vanilla_row is None else float(vanilla_row.get("accuracy_mean") or 0.0),
+            "best_fixed_mad_accuracy_mean": None if best_fixed_row is None else float(best_fixed_row.get("accuracy_mean") or 0.0),
             "dmad_calls_per_question_mean": None if dmad_row is None else float(dmad_row.get("calls_per_question_mean") or 0.0),
-            "vanilla_calls_per_question_mean": None if vanilla_row is None else float(vanilla_row.get("calls_per_question_mean") or 0.0),
+            "best_fixed_mad_method_name": None if best_fixed_row is None else str(best_fixed_row.get("method_name") or ""),
         },
+        "paper_main_gap_rows": _build_paper_main_gap_rows(prediction_rows, evaluation_scope=evaluation_scope),
     }
 
 
@@ -980,7 +1284,8 @@ def _build_cost_breakdown(turn_rows: list[dict[str, Any]]) -> dict[str, Any]:
                 "initial_tokens": 0.0,
                 "debate_tokens": 0.0,
                 "reflection_tokens": 0.0,
-                "selector_tokens": 0.0,
+                "contrast_tokens": 0.0,
+                "mrp_tokens": 0.0,
                 "control_tokens": 0.0,
             },
         )
@@ -997,8 +1302,10 @@ def _build_cost_breakdown(turn_rows: list[dict[str, Any]]) -> dict[str, Any]:
             bucket["debate_tokens"] = float(bucket["debate_tokens"]) + total_tokens
         elif role == "reflection":
             bucket["reflection_tokens"] = float(bucket["reflection_tokens"]) + total_tokens
-        elif role == "selector":
-            bucket["selector_tokens"] = float(bucket["selector_tokens"]) + total_tokens
+        elif role.startswith("contrast_") or role == "candidate":
+            bucket["contrast_tokens"] = float(bucket["contrast_tokens"]) + total_tokens
+        elif role.startswith("mrp_"):
+            bucket["mrp_tokens"] = float(bucket["mrp_tokens"]) + total_tokens
         else:
             bucket["control_tokens"] = float(bucket["control_tokens"]) + total_tokens
     return {"rows": list(grouped.values())}
@@ -1019,9 +1326,27 @@ def _group_overall_rows(prediction_rows: list[dict[str, Any]]) -> dict[str, list
     return grouped
 
 
+def _group_accuracy_rows(rows: list[dict[str, Any]], *, field_name: str | None) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in rows:
+        group_name = "overall" if field_name is None else str(row.get(field_name) or "unknown")
+        grouped.setdefault((str(row["method_name"]), group_name), []).append(row)
+    return [
+        {
+            "method_name": method_name,
+            "group_name": group_name,
+            "question_count": len(group_rows),
+            "accuracy_mean": safe_mean(float(item["score"]) for item in group_rows),
+        }
+        for (method_name, group_name), group_rows in sorted(grouped.items())
+    ]
+
+
 def _build_summary_row(*, dataset: str, method_name: str, rows: list[dict[str, Any]], model_name: str) -> dict[str, Any]:
     accuracy_mean = safe_mean(float(row["score"]) for row in rows)
     total_tokens_mean = safe_mean(float(row["total_tokens_per_question"]) for row in rows)
+    configured_strategy_name = _joined_unique_labels(rows, "configured_strategy_names")
+    effective_strategy_name = _effective_strategy_label(dataset=dataset, rows=rows)
     return {
         "dataset": dataset,
         "method_name": method_name,
@@ -1037,23 +1362,30 @@ def _build_summary_row(*, dataset: str, method_name: str, rows: list[dict[str, A
         "latency_ms_mean": safe_mean(float(row["latency_ms_per_question"]) for row in rows),
         "accuracy_per_1k_tokens": round((accuracy_mean / total_tokens_mean) * 1000, 6) if total_tokens_mean else 0.0,
         "diversity_mode": rows[0]["diversity_mode"],
-        "strategy_name": _joined_unique_labels(rows, "strategy_names"),
+        "strategy_name": configured_strategy_name,
+        "configured_strategy_name": configured_strategy_name,
+        "effective_strategy_name": effective_strategy_name,
         "initial_disagreement_rate": safe_ratio(sum(1 for row in rows if row["initial_disagreement"]), len(rows)),
         "final_consensus_rate": safe_ratio(sum(1 for row in rows if row["final_consensus"]), len(rows)),
         "changed_after_debate_rate": safe_ratio(sum(1 for row in rows if row["changed_after_debate"]), len(rows)),
         "correction_rate": safe_ratio(sum(1 for row in rows if row["corrected_by_debate"]), len(rows)),
         "degradation_rate": safe_ratio(sum(1 for row in rows if row["harmed_by_debate"]), len(rows)),
-        "gain_over_vanilla_mad": None,
-        "gain_over_persona_diverse": None,
+        "gain_over_best_fixed_mad": None,
+        "gain_over_mad_persona_d": None,
+        "gain_over_mad_persona_e": None,
     }
 
 
 def _build_strategy_row(*, dataset: str, method_name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    configured_strategy_name = _joined_unique_labels(rows, "configured_strategy_names")
+    effective_strategy_name = _effective_strategy_label(dataset=dataset, rows=rows)
     return {
         "dataset": dataset,
         "method_name": method_name,
         "diversity_mode": rows[0]["diversity_mode"],
-        "strategy_name": _joined_unique_labels(rows, "strategy_names"),
+        "strategy_name": configured_strategy_name,
+        "configured_strategy_name": configured_strategy_name,
+        "effective_strategy_name": effective_strategy_name,
         "question_count": len(rows),
         "initial_disagreement_rate": safe_ratio(sum(1 for row in rows if row["initial_disagreement"]), len(rows)),
         "final_consensus_rate": safe_ratio(sum(1 for row in rows if row["final_consensus"]), len(rows)),
@@ -1062,8 +1394,9 @@ def _build_strategy_row(*, dataset: str, method_name: str, rows: list[dict[str, 
         "degradation_rate": safe_ratio(sum(1 for row in rows if row["harmed_by_debate"]), len(rows)),
         "accuracy_mean": safe_mean(float(row["score"]) for row in rows),
         "calls_per_question_mean": safe_mean(float(row["calls_per_question"]) for row in rows),
-        "gain_over_vanilla_mad": None,
-        "gain_over_persona_diverse": None,
+        "gain_over_best_fixed_mad": None,
+        "gain_over_mad_persona_d": None,
+        "gain_over_mad_persona_e": None,
     }
 
 
@@ -1071,16 +1404,27 @@ def _annotate_gain_rows(rows: list[dict[str, Any]]) -> None:
     lookup = {(str(row["dataset"]), str(row["method_name"])): row for row in rows}
     for row in rows:
         dataset = str(row["dataset"])
-        vanilla = lookup.get((dataset, "vanilla_mad_r1"))
-        persona = lookup.get((dataset, "persona_diverse_mad_r1"))
-        row["gain_over_vanilla_mad"] = (
-            round(float(row["accuracy_mean"]) - float(vanilla["accuracy_mean"]), 6)
-            if vanilla is not None and str(row["method_name"]) != "vanilla_mad_r1"
+        fixed_candidates = [
+            lookup.get((dataset, name))
+            for name in ("mad_all_cot", "mad_all_sbp", "mad_all_pot", "mad_all_l2m")
+        ]
+        fixed_rows = [item for item in fixed_candidates if item is not None]
+        best_fixed = max(fixed_rows, key=lambda item: float(item.get("accuracy_mean") or 0.0)) if fixed_rows else None
+        persona_d = lookup.get((dataset, "mad_persona_d"))
+        persona_e = lookup.get((dataset, "mad_persona_e"))
+        row["gain_over_best_fixed_mad"] = (
+            round(float(row["accuracy_mean"]) - float(best_fixed["accuracy_mean"]), 6)
+            if best_fixed is not None and str(row["method_name"]) != str(best_fixed["method_name"])
             else None
         )
-        row["gain_over_persona_diverse"] = (
-            round(float(row["accuracy_mean"]) - float(persona["accuracy_mean"]), 6)
-            if persona is not None and str(row["method_name"]) != "persona_diverse_mad_r1"
+        row["gain_over_mad_persona_d"] = (
+            round(float(row["accuracy_mean"]) - float(persona_d["accuracy_mean"]), 6)
+            if persona_d is not None and str(row["method_name"]) != "mad_persona_d"
+            else None
+        )
+        row["gain_over_mad_persona_e"] = (
+            round(float(row["accuracy_mean"]) - float(persona_e["accuracy_mean"]), 6)
+            if persona_e is not None and str(row["method_name"]) != "mad_persona_e"
             else None
         )
 
@@ -1090,16 +1434,140 @@ def _joined_unique_labels(rows: list[dict[str, Any]], key: str) -> str:
     return ", ".join(labels)
 
 
-def _default_profile(agent_id: int):
+def _nullable_string(value: object) -> str | None:
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    return cleaned or None
+
+
+def _should_backfill_execution_from_answer(process_row: dict[str, Any], answer_row: dict[str, Any]) -> bool:
+    process_status = str(process_row.get("execution_status") or "")
+    if not process_status or process_status == "ok":
+        return False
+    final_answer = str(answer_row.get("validated_output", {}).get("final_answer") or "").strip()
+    return bool(final_answer)
+
+
+def _backfill_execution_from_answer(process_row: dict[str, Any], answer_row: dict[str, Any]) -> None:
+    final_answer = str(answer_row.get("validated_output", {}).get("final_answer") or "").strip()
+    if not final_answer:
+        return
+    process_row["execution_result"] = final_answer
+    process_row["execution_status"] = "ok"
+    process_row["execution_resolution"] = "paired_answer"
+    process_row.pop("execution_error", None)
+    validated_output = dict(process_row.get("validated_output") or {})
+    validated_output["execution_result"] = final_answer
+    validated_output["execution_status"] = "ok"
+    validated_output["execution_resolution"] = "paired_answer"
+    validated_output.pop("execution_error", None)
+    process_row["validated_output"] = _compact_validated_output(validated_output)
+
+
+def _effective_strategy_label(*, dataset: str, rows: list[dict[str, Any]]) -> str:
+    if dataset != "overall":
+        return _joined_unique_labels(rows, "effective_strategy_names")
+    grouped_by_dataset: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped_by_dataset.setdefault(str(row.get("dataset") or "unknown"), []).append(row)
+    return "; ".join(
+        f"{dataset_name}={_joined_unique_labels(group_rows, 'effective_strategy_names')}"
+        for dataset_name, group_rows in sorted(grouped_by_dataset.items())
+    )
+
+
+def _build_paper_main_gap_rows(
+    prediction_rows: list[dict[str, Any]],
+    *,
+    evaluation_scope: str,
+) -> list[dict[str, Any]]:
+    if evaluation_scope != "paper_main":
+        return []
+    grouped: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
+    for row in prediction_rows:
+        dataset = str(row.get("dataset") or "")
+        if dataset not in {"competition_math", "gpqa_diamond"}:
+            continue
+        sample_id = str(row.get("sample_id") or "")
+        grouped.setdefault((dataset, sample_id), {})[str(row.get("method_name") or "")] = row
+    gap_rows: list[dict[str, Any]] = []
+    for (dataset, sample_id), method_rows in sorted(grouped.items()):
+        dmad_row = method_rows.get("dmad_cot_sbp_pot")
+        persona_row = method_rows.get("mad_persona_d")
+        fixed_candidates = [
+            method_rows.get("mad_all_cot"),
+            method_rows.get("mad_all_sbp"),
+            method_rows.get("mad_all_pot"),
+            method_rows.get("mad_all_l2m"),
+        ]
+        fixed_rows = [row for row in fixed_candidates if row is not None]
+        best_fixed_row = max(fixed_rows, key=lambda item: float(item.get("score") or 0.0)) if fixed_rows else None
+        if dmad_row is None:
+            continue
+        lags_fixed = bool(best_fixed_row and float(dmad_row.get("score") or 0.0) < float(best_fixed_row.get("score") or 0.0))
+        lags_persona = bool(persona_row and float(dmad_row.get("score") or 0.0) < float(persona_row.get("score") or 0.0))
+        if not lags_fixed and not lags_persona:
+            continue
+        gap_rows.append(
+            {
+                "dataset": dataset,
+                "sample_id": sample_id,
+                "gold": str(dmad_row.get("gold") or ""),
+                "dmad_prediction": str(dmad_row.get("prediction") or ""),
+                "dmad_score": float(dmad_row.get("score") or 0.0),
+                "best_fixed_method_name": None if best_fixed_row is None else str(best_fixed_row.get("method_name") or ""),
+                "best_fixed_prediction": None if best_fixed_row is None else str(best_fixed_row.get("prediction") or ""),
+                "best_fixed_score": None if best_fixed_row is None else float(best_fixed_row.get("score") or 0.0),
+                "persona_d_prediction": None if persona_row is None else str(persona_row.get("prediction") or ""),
+                "persona_d_score": None if persona_row is None else float(persona_row.get("score") or 0.0),
+                "lags_best_fixed_mad": lags_fixed,
+                "lags_mad_persona_d": lags_persona,
+            }
+        )
+    return gap_rows
+
+
+def _profile_for_method(agent_id: int, strategy_name: str):
     from research_experiments.families.dmad.config import AgentProfile
 
     return AgentProfile(
         agent_id=agent_id,
         persona_name="general_reasoner",
         persona_instruction="Act as a careful general-purpose reasoning assistant.",
-        strategy_name="cot",
+        strategy_name=strategy_name,
         strategy_instruction="Think step by step and make every inference explicit before committing to the final answer.",
     )
+
+
+def _mode_to_reasoning_method(mode: str) -> str:
+    mapping = {
+        "single_cot": "cot",
+        "single_sbp": "sbp",
+        "single_pot": "pot",
+        "single_l2m": "l2m",
+        "single_cot_sc": "cot",
+        "single_sbp_sc": "sbp",
+        "single_pot_sc": "pot",
+        "single_l2m_sc": "l2m",
+    }
+    try:
+        return mapping[mode]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported single reasoning mode: {mode}") from exc
+
+
+def _contrast_reasoning_methods(mode: str) -> list[str]:
+    mapping = {
+        "self_contrast_cot_sbp_pot": ["cot", "sbp", "pot"],
+        "self_contrast_cot_sbp_l2m": ["cot", "sbp", "l2m"],
+        "mrp_cot_sbp_pot": ["cot", "sbp", "pot"],
+        "mrp_cot_sbp_l2m": ["cot", "sbp", "l2m"],
+    }
+    try:
+        return list(mapping[mode])
+    except KeyError as exc:
+        raise ValueError(f"Unsupported contrastive reasoning mode: {mode}") from exc
 
 
 def _calls_per_question(
@@ -1108,22 +1576,20 @@ def _calls_per_question(
     roster: RosterConfig | None,
     controls: dict[str, Any],
 ) -> int:
-    if method.mode == "single_agent_cot":
-        return int(_require_control_method(controls, "cot_1").budget_calls)
-    if method.mode == "single_agent_reflection_r1":
+    del controls
+    if method.mode in {"single_cot", "single_sbp", "single_pot", "single_l2m"}:
+        return 1
+    if method.mode in {"single_cot_sc", "single_sbp_sc", "single_pot_sc", "single_l2m_sc"}:
         return 3
-    if method.mode == "mv_6":
-        return int(_require_control_method(controls, "mv_6").budget_calls)
+    if method.mode == "self_refine_cot":
+        return 3
+    if method.mode in {"self_contrast_cot_sbp_pot", "self_contrast_cot_sbp_l2m"}:
+        return 5
+    if method.mode in {"mrp_cot_sbp_pot", "mrp_cot_sbp_l2m"}:
+        return 2
     if roster is None:
         raise RuntimeError(f"DMAD method {method.name} is missing roster metadata.")
-    return roster.agent_count * protocol.debate_rounds * 2 + 1
-
-
-def _require_control_method(controls: dict[str, Any], name: str):
-    method = controls.get(name)
-    if method is None:
-        raise RuntimeError(f"DMAD baseline requires control method `{name}` to be defined in control_catalog.")
-    return method
+    return roster.agent_count * protocol.debate_rounds * 2
 
 
 def _execute_process_turn(
@@ -1151,6 +1617,13 @@ def _execute_process_turn(
     max_output_tokens: int,
     seed: int,
 ) -> dict[str, Any]:
+    validator = (
+        lambda assistant_text, provider_reasoning_text: asdict(
+            build_pot_process_artifact(assistant_text, provider_reasoning_text)
+        )
+        if is_pot_reasoning(dataset, strategy_name)
+        else _validate_reasoning_process_output(assistant_text, provider_reasoning_text)
+    )
     result = execute_cached_turn(
         backbone=backbone,
         provider=provider,
@@ -1161,12 +1634,14 @@ def _execute_process_turn(
         top_p=top_p,
         max_output_tokens=max_output_tokens,
         seed=seed,
-        validator=_validate_reasoning_process_output,
+        validator=validator,
         dataset=dataset,
         use_response_format=False,
     )
-    reasoning_text = str(result.validated_output.get("reasoning") or "")
-    return asdict(
+    validated_output = dict(result.validated_output)
+    reasoning_text = str(validated_output.get("reasoning") or "")
+    validated_output.setdefault("reasoning", reasoning_text)
+    return _serialize_turn_record(
         AgentTurnRecord(
             run_id=run_id,
             dataset=dataset,
@@ -1193,9 +1668,11 @@ def _execute_process_turn(
             payload=result.payload,
             assistant_text=str(result.response_payload.get("assistant_text") or ""),
             provider_reasoning_text=str(result.response_payload.get("provider_reasoning_text") or ""),
-            validated_output={"reasoning": reasoning_text},
-        )
-    ) | {"normalized_answer": "", "artifact_version": ARTIFACT_VERSION}
+            validated_output=validated_output,
+            **_turn_artifact_fields(validated_output),
+        ),
+        normalized_answer="",
+    )
 
 
 def _execute_feedback_turn(
@@ -1238,7 +1715,7 @@ def _execute_feedback_turn(
         use_response_format=False,
     )
     feedback_text = str(result.validated_output.get("feedback") or "")
-    return asdict(
+    return _serialize_turn_record(
         AgentTurnRecord(
             run_id=run_id,
             dataset=dataset,
@@ -1266,11 +1743,12 @@ def _execute_feedback_turn(
             assistant_text=str(result.response_payload.get("assistant_text") or ""),
             provider_reasoning_text=str(result.response_payload.get("provider_reasoning_text") or ""),
             validated_output={"feedback": feedback_text},
-        )
-    ) | {"normalized_answer": "", "artifact_version": ARTIFACT_VERSION}
+        ),
+        normalized_answer="",
+    )
 
 
-def _execute_selector_turn(
+def _execute_reasoning_answer_turn(
     *,
     run_id: str,
     dataset: str,
@@ -1286,7 +1764,6 @@ def _execute_selector_turn(
     persona_name: str,
     strategy_name: str,
     messages: list[dict[str, str]],
-    candidate_answers: dict[int, str],
     backbone,
     provider,
     cache,
@@ -1296,6 +1773,31 @@ def _execute_selector_turn(
     max_output_tokens: int,
     seed: int,
 ) -> dict[str, Any]:
+    if not is_pot_reasoning(dataset, strategy_name):
+        return _execute_turn(
+            run_id=run_id,
+            dataset=dataset,
+            split_name=split_name,
+            sample=sample,
+            method_name=method_name,
+            method_type=method_type,
+            diversity_mode=diversity_mode,
+            round_index=round_index,
+            agent_id=agent_id,
+            role=role,
+            visible_peer_count=visible_peer_count,
+            persona_name=persona_name,
+            strategy_name=strategy_name,
+            messages=messages,
+            backbone=backbone,
+            provider=provider,
+            cache=cache,
+            limiter=limiter,
+            temperature=temperature,
+            top_p=top_p,
+            max_output_tokens=max_output_tokens,
+            seed=seed,
+        )
     result = execute_cached_turn(
         backbone=backbone,
         provider=provider,
@@ -1306,16 +1808,19 @@ def _execute_selector_turn(
         top_p=top_p,
         max_output_tokens=max_output_tokens,
         seed=seed,
-        validator=lambda assistant_text, provider_reasoning_text: _validate_selection_output(
-            assistant_text,
-            provider_reasoning_text,
-            candidate_answers=candidate_answers,
+        validator=lambda assistant_text, provider_reasoning_text: asdict(
+            build_pot_answer_artifact(
+                assistant_text,
+                provider_reasoning_text,
+                dataset=dataset,
+            )
         ),
         dataset=dataset,
     )
-    final_answer = str(result.validated_output.get("final_answer") or "")
+    artifact = result.validated_output
+    final_answer = str(artifact.get("final_answer") or "")
     normalized = normalize_prediction(dataset, final_answer) if final_answer else ""
-    return asdict(
+    return _serialize_turn_record(
         AgentTurnRecord(
             run_id=run_id,
             dataset=dataset,
@@ -1342,9 +1847,80 @@ def _execute_selector_turn(
             payload=result.payload,
             assistant_text=str(result.response_payload.get("assistant_text") or ""),
             provider_reasoning_text=str(result.response_payload.get("provider_reasoning_text") or ""),
+            validated_output=dict(artifact),
+            **_turn_artifact_fields(artifact),
+        ),
+        normalized_answer=normalized,
+    )
+
+
+def _execute_method_selection_turn(
+    *,
+    run_id: str,
+    dataset: str,
+    split_name: str,
+    sample: DatasetSample,
+    method_name: str,
+    candidate_methods: list[str],
+    backbone,
+    provider,
+    cache,
+    limiter,
+    seed: int,
+    prompt_version: str,
+) -> dict[str, Any]:
+    result = execute_cached_turn(
+        backbone=backbone,
+        provider=provider,
+        cache=cache,
+        limiter=limiter,
+        messages=build_mrp_method_selection_messages(
+            sample,
+            candidate_methods,
+            prompt_version=prompt_version,
+        ),
+        temperature=0.0,
+        top_p=1.0,
+        max_output_tokens=192,
+        seed=seed,
+        validator=lambda assistant_text, provider_reasoning_text: _validate_method_selection_output(
+            assistant_text,
+            provider_reasoning_text,
+            candidate_methods=candidate_methods,
+        ),
+        dataset=dataset,
+    )
+    return _serialize_turn_record(
+        AgentTurnRecord(
+            run_id=run_id,
+            dataset=dataset,
+            split=split_name,
+            sample_id=sample.sample_id,
+            method_name=method_name,
+            method_type="mrp",
+            diversity_mode="dynamic_reasoning",
+            round_index=0,
+            agent_id=0,
+            role="mrp_method_selection",
+            persona_name="method_router",
+            strategy_name="mrp_router",
+            prompt_hash=result.prompt_hash,
+            prediction="",
+            output_status=result.output_status,
+            prompt_tokens=float(result.usage.get("prompt_tokens") or 0.0),
+            completion_tokens=float(result.usage.get("completion_tokens") or 0.0),
+            total_tokens=float(result.usage.get("total_tokens") or 0.0),
+            latency_ms=float(result.response_payload.get("latency_ms") or 0.0),
+            cache_hit=result.cache_hit,
+            request_error=result.request_error,
+            visible_peer_count=0,
+            payload=result.payload,
+            assistant_text=str(result.response_payload.get("assistant_text") or ""),
+            provider_reasoning_text=str(result.response_payload.get("provider_reasoning_text") or ""),
             validated_output=result.validated_output,
-        )
-    ) | {"normalized_answer": normalized, "artifact_version": ARTIFACT_VERSION}
+        ),
+        normalized_answer="",
+    )
 
 
 def _execute_turn(
@@ -1387,7 +1963,8 @@ def _execute_turn(
     )
     final_answer = str(result.validated_output.get("final_answer") or "")
     normalized = normalize_prediction(dataset, final_answer) if final_answer else ""
-    return asdict(
+    validated_output = dict(result.validated_output)
+    return _serialize_turn_record(
         AgentTurnRecord(
             run_id=run_id,
             dataset=dataset,
@@ -1414,9 +1991,11 @@ def _execute_turn(
             payload=result.payload,
             assistant_text=str(result.response_payload.get("assistant_text") or ""),
             provider_reasoning_text=str(result.response_payload.get("provider_reasoning_text") or ""),
-            validated_output=result.validated_output,
-        )
-    ) | {"normalized_answer": normalized, "artifact_version": ARTIFACT_VERSION}
+            validated_output=validated_output,
+            **_turn_artifact_fields(validated_output),
+        ),
+        normalized_answer=normalized,
+    )
 
 
 def _validate_reasoning_process_output(assistant_text: str, provider_reasoning_text: str) -> dict[str, Any]:
@@ -1433,15 +2012,15 @@ def _validate_feedback_output(assistant_text: str, provider_reasoning_text: str)
     return {"feedback": text}
 
 
-def _validate_selection_output(
+def _validate_method_selection_output(
     assistant_text: str,
     provider_reasoning_text: str,
     *,
-    candidate_answers: dict[int, str],
+    candidate_methods: list[str],
 ) -> dict[str, Any]:
     text = str(assistant_text or "").strip() or str(provider_reasoning_text or "").strip()
     if not text:
-        raise ValueError("Selection output is empty.")
+        raise ValueError("Method selection output is empty.")
     payload: dict[str, Any] = {}
     try:
         maybe_json = json.loads(text)
@@ -1449,69 +2028,15 @@ def _validate_selection_output(
             payload = maybe_json
     except Exception:
         payload = {}
-    selected_agent_id_raw = (
-        payload.get("selected_agent_id")
-        or payload.get("best_agent_id")
-        or payload.get("Index")
-        or payload.get("index")
-    )
-    selected_agent_id: int | None
-    try:
-        selected_agent_id = int(str(selected_agent_id_raw).strip()) if selected_agent_id_raw is not None else None
-    except Exception:
-        selected_agent_id = None
-    final_answer = str(
-        payload.get("final_answer")
-        or payload.get("answer")
-        or ""
-    ).strip()
-    if not final_answer and selected_agent_id in candidate_answers:
-        final_answer = str(candidate_answers[selected_agent_id]).strip()
-    if not final_answer and selected_agent_id == 4:
-        return {
-            "selected_agent_id": 4,
-            "final_answer": "",
-            "rationale": str(payload.get("rationale") or payload.get("Reason") or "selector_abstained"),
-        }
-    if not final_answer:
-        for agent_id, answer in candidate_answers.items():
-            if answer and answer in text:
-                selected_agent_id = agent_id
-                final_answer = answer
+    selected_method = str(payload.get("selected_method") or payload.get("method") or "").strip().lower()
+    if selected_method not in candidate_methods:
+        for method_name in candidate_methods:
+            if method_name in text.lower():
+                selected_method = method_name
                 break
-    if not final_answer:
-        raise ValueError("Selection output did not identify a supported final answer.")
+    if selected_method not in candidate_methods:
+        raise ValueError("Method selection output did not identify a supported reasoning method.")
     return {
-        "selected_agent_id": selected_agent_id,
-        "final_answer": final_answer,
-        "rationale": str(payload.get("rationale") or payload.get("Reason") or "").strip(),
+        "selected_method": selected_method,
+        "reasoning": str(payload.get("reasoning") or payload.get("rationale") or "").strip(),
     }
-
-
-def _build_selection_decision(selector_turn: dict[str, Any], final_rows: list[dict[str, Any]]) -> SelectionDecision:
-    final_answers = [str(row["normalized_answer"]) for row in final_rows]
-    final_vote, _ = aggregate_majority(final_answers)
-    selected_agent_id = selector_turn.get("validated_output", {}).get("selected_agent_id")
-    final_answer = str(selector_turn.get("validated_output", {}).get("final_answer") or "").strip()
-    if selector_turn.get("output_status") != "ok" or not final_answer or int(selected_agent_id or 0) == 4:
-        return SelectionDecision(
-            final_answer=final_vote,
-            selected_agent_id=_first_agent_with_answer(final_rows, final_vote),
-            rationale="fallback_to_final_majority",
-            fallback_used=True,
-            fallback_reason="selector_unavailable_or_abstained",
-        )
-    return SelectionDecision(
-        final_answer=final_answer,
-        selected_agent_id=int(selected_agent_id) if selected_agent_id is not None else None,
-        rationale=str(selector_turn.get("validated_output", {}).get("rationale") or "").strip(),
-        fallback_used=False,
-        fallback_reason=None,
-    )
-
-
-def _first_agent_with_answer(rows: list[dict[str, Any]], answer: str) -> int | None:
-    for row in rows:
-        if str(row.get("normalized_answer") or "") == answer:
-            return int(row["agent_id"])
-    return None

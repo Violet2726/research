@@ -1,0 +1,22 @@
+diversity_mode = "homogeneous_l2m"
+
+[[agents]]
+agent_id = 1
+persona_name = "decomposition_reasoner"
+persona_instruction = "Act as a careful reasoning assistant who prefers decomposition into smaller subquestions."
+strategy_name = "l2m"
+strategy_instruction = "Break the task into smaller subquestions and solve them in dependency order."
+
+[[agents]]
+agent_id = 2
+persona_name = "decomposition_reasoner"
+persona_instruction = "Act as a careful reasoning assistant who prefers decomposition into smaller subquestions."
+strategy_name = "l2m"
+strategy_instruction = "Break the task into smaller subquestions and solve them in dependency order."
+
+[[agents]]
+agent_id = 3
+persona_name = "decomposition_reasoner"
+persona_instruction = "Act as a careful reasoning assistant who prefers decomposition into smaller subquestions."
+strategy_name = "l2m"
+strategy_instruction = "Break the task into smaller subquestions and solve them in dependency order."

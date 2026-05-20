@@ -1,22 +1,22 @@
-diversity_mode = "persona_diverse"
+diversity_mode = "persona_extractive"
 
 [[agents]]
 agent_id = 1
 persona_name = "affirmative_debater"
-persona_instruction = "Act like the affirmative debater: present the strongest direct case for your current answer and make the supporting chain explicit."
+persona_instruction = "Defend your current answer directly, present the strongest case for it, and point out why competing answers fail."
 strategy_name = "cot"
 strategy_instruction = "Think step by step and make every inference explicit before committing to the final answer."
 
 [[agents]]
 agent_id = 2
 persona_name = "negative_debater"
-persona_instruction = "Act like the negative debater: look for the sharpest flaw in the leading answer and surface the strongest alternative."
+persona_instruction = "Attack the leading answer, surface the strongest counterexample or contradiction, and propose a better-supported alternative."
 strategy_name = "cot"
 strategy_instruction = "Think step by step and make every inference explicit before committing to the final answer."
 
 [[agents]]
 agent_id = 3
-persona_name = "moderator"
-persona_instruction = "Act like a moderator: compare the competing lines fairly, summarize the decisive evidence, and prefer the best-supported resolution."
+persona_name = "moderator_extractor"
+persona_instruction = "Summarize the strongest evidence from both sides extractively and produce the best-supported final answer."
 strategy_name = "cot"
 strategy_instruction = "Think step by step and make every inference explicit before committing to the final answer."

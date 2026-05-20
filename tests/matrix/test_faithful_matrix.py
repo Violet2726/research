@@ -30,10 +30,10 @@ def test_build_run_matrix_counts_expected() -> None:
     semantic_counts = Counter(entry.status for entry in matrix.semantic_entries)
     entry_counts = Counter(entry.status for entry in matrix.entries)
 
-    assert len(matrix.semantic_entries) == 17
-    assert semantic_counts["pending"] == 17
+    assert len(matrix.semantic_entries) == 18
+    assert semantic_counts["pending"] == 18
     assert entry_counts["excluded"] == 0
-    assert matrix.counts["semantic_unique_targets"] == 17
+    assert matrix.counts["semantic_unique_targets"] == 18
     cue_entry = next(entry for entry in matrix.semantic_entries if entry.experiment_name == "cue_black_box_utility_main")
     assert cue_entry.evaluation_track == "same_context"
     assert cue_entry.evidence_tier == "diagnostic"
@@ -49,6 +49,9 @@ def test_build_run_matrix_counts_expected() -> None:
     assert econ_entry.evidence_tier == "supporting"
     assert econ_entry.primary_method_name == "econ_bne_main"
     assert econ_entry.best_no_comm_candidates == ["vote_mv3"]
+    dmad_entry = next(entry for entry in matrix.semantic_entries if entry.experiment_name == "dmad_reasoning_main")
+    assert dmad_entry.primary_method_name == "dmad_cot_sbp_pot"
+    assert "cot" in dmad_entry.best_no_comm_candidates
 
 
 def test_build_run_matrix_counts_expected_for_count100() -> None:
@@ -57,10 +60,10 @@ def test_build_run_matrix_counts_expected_for_count100() -> None:
     semantic_counts = Counter(entry.status for entry in matrix.semantic_entries)
     entry_counts = Counter(entry.status for entry in matrix.entries)
 
-    assert len(matrix.semantic_entries) == 17
-    assert semantic_counts["pending"] == 17
+    assert len(matrix.semantic_entries) == 18
+    assert semantic_counts["pending"] == 18
     assert entry_counts["excluded"] == 0
-    assert matrix.counts["semantic_unique_targets"] == 17
+    assert matrix.counts["semantic_unique_targets"] == 18
     split_entry = next(
         entry
         for entry in matrix.semantic_entries
@@ -77,10 +80,10 @@ def test_build_run_matrix_counts_expected_for_count300() -> None:
     semantic_counts = Counter(entry.status for entry in matrix.semantic_entries)
     entry_counts = Counter(entry.status for entry in matrix.entries)
 
-    assert len(matrix.semantic_entries) == 17
-    assert semantic_counts["pending"] == 17
+    assert len(matrix.semantic_entries) == 18
+    assert semantic_counts["pending"] == 18
     assert entry_counts["excluded"] == 0
-    assert matrix.counts["semantic_unique_targets"] == 17
+    assert matrix.counts["semantic_unique_targets"] == 18
     headline_names = {
         entry.experiment_name
         for entry in matrix.semantic_entries

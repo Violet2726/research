@@ -22,7 +22,7 @@ SPEC = get_family_spec("dmad")
 def build_parser() -> argparse.ArgumentParser:
     return build_standard_family_parser(
         family_name=SPEC.family_name,
-        description="DMAD strategy-diverse debate experiment runner.",
+        description="DMAD 论文主线高保真复现实验 runner。",
         inspect_help="Show the resolved DMAD experiment configuration.",
         run_help="Execute one configured DMAD experiment phase.",
         summarize_help="Print a concise DMAD run summary.",
@@ -52,6 +52,8 @@ def _build_inspect_payload(experiment_path: str, model_override: str | None) -> 
     return {
         "name": experiment.name,
         "description": experiment.description,
+        "evaluation_scope": experiment.evaluation_scope,
+        "paper_alignment_version": experiment.paper_alignment_version,
         "benchmark_configs": [str(path) for path in experiment.benchmark_configs],
         "benchmarks": [benchmark.slug for benchmark in benchmarks],
         "protocol": asdict(protocol),

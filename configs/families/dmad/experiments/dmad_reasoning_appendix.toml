@@ -1,10 +1,9 @@
-name = "dmad_reasoning_main"
-description = "DMAD 论文正文 LLM 主线复现实验，只包含 MATH 与 GPQA。"
-evaluation_scope = "paper_main"
+name = "dmad_reasoning_appendix"
+description = "DMAD 论文附录 abstract_algebra 复现实验。"
+evaluation_scope = "paper_appendix"
 paper_alignment_version = "dmad_iclr2025_llm_text_v1"
 benchmark_configs = [
-  "configs/core/shared/benchmarks/competition_math/MATH.toml",
-  "configs/core/shared/benchmarks/gpqa/dataset.toml",
+  "configs/core/shared/benchmarks/mmlu/abstract_algebra.toml",
 ]
 protocol = "configs/families/dmad/protocols/dmad_3a_r2.toml"
 global_seed = 42
@@ -23,8 +22,8 @@ name = "sbp"
 mode = "single_sbp"
 
 [[methods]]
-name = "pot"
-mode = "single_pot"
+name = "l2m"
+mode = "single_l2m"
 
 [[methods]]
 name = "cot_sc"
@@ -35,8 +34,8 @@ name = "sbp_sc"
 mode = "single_sbp_sc"
 
 [[methods]]
-name = "pot_sc"
-mode = "single_pot_sc"
+name = "l2m_sc"
+mode = "single_l2m_sc"
 
 [[methods]]
 name = "self_refine"
@@ -44,11 +43,11 @@ mode = "self_refine_cot"
 
 [[methods]]
 name = "self_contrast"
-mode = "self_contrast_cot_sbp_pot"
+mode = "self_contrast_cot_sbp_l2m"
 
 [[methods]]
 name = "mrp"
-mode = "mrp_cot_sbp_pot"
+mode = "mrp_cot_sbp_l2m"
 
 [[methods]]
 name = "mad_persona_d"
@@ -71,20 +70,20 @@ mode = "mad_all_sbp"
 roster = "configs/families/dmad/rosters/mad_all_sbp_3agent.toml"
 
 [[methods]]
-name = "mad_all_pot"
-mode = "mad_all_pot"
-roster = "configs/families/dmad/rosters/mad_all_pot_3agent.toml"
+name = "mad_all_l2m"
+mode = "mad_all_l2m"
+roster = "configs/families/dmad/rosters/mad_all_l2m_3agent.toml"
 
 [[methods]]
-name = "dmad_cot_sbp_pot"
-mode = "dmad_cot_sbp_pot"
-roster = "configs/families/dmad/rosters/dmad_cot_sbp_pot_3agent.toml"
+name = "dmad_cot_sbp_l2m"
+mode = "dmad_cot_sbp_l2m"
+roster = "configs/families/dmad/rosters/dmad_cot_sbp_l2m_3agent.toml"
 
 [phases.count20]
-split_overrides = { competition_math = "count20_seed0", gpqa_diamond = "count20_seed42" }
+split_overrides = { mmlu_abstract_algebra = "count20_seed42" }
 
 [phases.count100]
-split_overrides = { competition_math = "count100_seed0", gpqa_diamond = "count100_seed42" }
+split_overrides = { mmlu_abstract_algebra = "count100_seed42" }
 
 [phases.count300]
-split_overrides = { competition_math = "count100_seed0", gpqa_diamond = "full198_seed42" }
+split_overrides = { mmlu_abstract_algebra = "count300_seed42" }

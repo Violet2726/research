@@ -1,13 +1,31 @@
 # dmad
 
-`dmad` 用于运行 Diverse Multi-Agent Debate 的论文对齐复现实验。
+`dmad` 用于复现 ICLR 2025 论文《Breaking Mental Set to Improve Reasoning through Diverse Multi-Agent Debate》的文本 LLM 主线。
 
 ## 入口
 
-- CLI: `research_cli family dmad`
-- 配置: `configs/families/dmad/`
-- 默认运行目录: `local/runs/dmad/<experiment>/<phase>/<run_id>/`
-- 默认报告目录: `local/reports/dmad/`
+- CLI：`research_cli family dmad`
+- 配置：`configs/families/dmad/`
+- 默认运行目录：`local/runs/dmad/<experiment>/<phase>/<run_id>/`
+
+## 当前口径
+
+- `dmad_reasoning_main`：论文正文主结果，只包含 `MATH` 与 `GPQA`
+- `dmad_reasoning_appendix`：论文附录 `MMLU abstract_algebra`
+- `dmad_reasoning_extended`：扩展验证集 `StrategyQA / HotpotQA`
+- 所有主线 MAD/DMAD 方法统一使用 `3 agents + 2 rounds`
+- 主线聚合器统一为最终轮自洽投票，不再保留 selector 双轨逻辑
+
+## 论文主表方法
+
+- 单智能体：`cot`、`sbp`、`pot/l2m`
+- 自洽：`cot_sc`、`sbp_sc`、`pot_sc/l2m_sc`
+- 自反思：`self_refine`
+- 对比式自纠错：`self_contrast`
+- 动态方法选择：`mrp`
+- 固定-MAD：`mad_all_cot`、`mad_all_sbp`、`mad_all_pot/l2m`
+- persona-MAD：`mad_persona_d`、`mad_persona_e`
+- DMAD：`dmad_cot_sbp_pot` 或 `dmad_cot_sbp_l2m`
 
 ## 常用命令
 
@@ -16,21 +34,3 @@ uv run research_cli family dmad inspect-experiment --experiment configs/families
 uv run research_cli family dmad run --experiment configs/families/dmad/experiments/dmad_reasoning_main.toml --phase count20 --model xiaomimimo/mimo-v2.5
 uv run research_cli family dmad render-report --run-dir local/runs/dmad/dmad_reasoning_main/count20/<run_id>
 ```
-
-## 当前口径
-
-- `dmad_reasoning_main` 是当前项目中的 DMAD 正式复现主线。
-- 当前 benchmark 覆盖 `MATH500 / MMLU Abstract Algebra / GPQA Diamond / StrategyQA / HotpotQA`。
-- 当前 canonical 方法固定为 `single_agent_cot / single_agent_reflection_r1 / mv_6 / vanilla_mad_r1 / persona_diverse_mad_r1 / dmad_strategy_diverse_r1`。
-- `single_agent_cot` 与 `mv_6` 复用仓内共享 control catalog 的正式参数口径，而不是在 DMAD family 内部重新定义。
-
-## 论文对齐
-
-- `single_agent_reflection_r1` 按论文图示走三步式 `draft -> feedback -> revise`，不再把 reflection 简化成一次自查。
-- `persona_diverse_mad_r1` 保持 `CoT` 求解策略不变，但 persona 角色改成更接近论文示意图的 affirmative / negative / moderator 分工。
-- `vanilla_mad_r1 / persona_diverse_mad_r1 / dmad_strategy_diverse_r1` 统一使用 best-solution selector 作为最终聚合器，以对齐作者公开代码里“在候选解之间选择最佳解”的逻辑，而不是只做多数投票。
-- `dmad_strategy_diverse_r1` 对齐论文里的 prompting-family 思路:
-  `math500 / gsm8k` 使用 `CoT / SBP / PoT`
-  其余文本推理任务使用 `CoT / SBP / L2M`
-- 当前文本推理 canonical 协议是 `3 agents + 2 debate rounds`。
-- 主叙事是“策略异质化是否优于表面 persona 多样化”，而不是简单宣称多智能体一定更强。

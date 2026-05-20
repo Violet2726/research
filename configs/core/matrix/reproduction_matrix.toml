@@ -39,6 +39,16 @@ primary_metric_label = "accuracy"
 comparison_scope = "within_track_only"
 
 [[entries]]
+config_path = "configs/families/dmad/experiments/dmad_reasoning_main.toml"
+track_name = "same_context"
+entry_role = "canonical"
+analysis_mode = "primary_summary"
+primary_method_name = "dmad_cot_sbp_pot"
+primary_metric_field = "accuracy_mean"
+primary_metric_label = "accuracy"
+comparison_scope = "within_track_only"
+
+[[entries]]
 config_path = "configs/families/macnet/experiments/macnet_paper_main.toml"
 track_name = "topology_collaboration"
 entry_role = "canonical"

@@ -69,6 +69,8 @@ class DmadExperimentConfig:
 
     name: str
     description: str
+    evaluation_scope: str
+    paper_alignment_version: str
     benchmark_configs: list[Path]
     protocol: Path
     control_catalog: Path | None
@@ -140,6 +142,8 @@ def load_experiment_config(path: str | Path) -> DmadExperimentConfig:
     return DmadExperimentConfig(
         name=str(payload["name"]),
         description=str(payload["description"]),
+        evaluation_scope=str(payload.get("evaluation_scope") or "paper_main"),
+        paper_alignment_version=str(payload.get("paper_alignment_version") or "dmad_iclr2025_llm_text_v1"),
         benchmark_configs=[Path(item) for item in payload["benchmark_configs"]],
         protocol=Path(payload["protocol"]),
         control_catalog=Path(payload["control_catalog"]) if payload.get("control_catalog") else None,

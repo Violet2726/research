@@ -1,10 +1,11 @@
-"""Prompt builders for the DMAD family."""
+"""DMAD family 的提示词构造。"""
 
 from __future__ import annotations
 
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.prompts.dataset_contracts import build_json_system_prompt, dataset_instruction_for_sample
 from research_experiments.families.dmad.config import AgentProfile
+from research_experiments.families.shared.reasoning_methods import resolve_reasoning_method
 
 
 DEFAULT_PROMPT_VERSION = "dmad_v1_json"
@@ -18,20 +19,11 @@ def build_reasoning_stage_messages(
     prior_rounds: list[list[dict[str, str]]] | None = None,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
-    """Build the paper-aligned solving-process prompt for one agent and one round."""
-
     _assert_prompt_version(prompt_version)
-    strategy = _strategy_spec(sample, agent_profile.strategy_name)
+    method_spec = resolve_reasoning_method(sample.dataset, agent_profile.strategy_name)
     history_block = _render_prior_rounds(agent_profile.agent_id, prior_rounds or [])
-    guardrails = _multiple_choice_debate_guardrails(sample)
     user_prompt = (
-        f"You are agent_{agent_profile.agent_id} in round {round_index} of a Diverse Multi-Agent Debate experiment.\n"
-        f"Persona: {agent_profile.persona_name}\n"
-        f"Persona guidance: {agent_profile.persona_instruction}\n"
-        f"Reasoning method: {strategy['label']}\n"
-        f"Method summary: {strategy['summary']}\n"
-        f"Method guidance: {strategy['guidance']}\n"
-        f"Method checklist: {strategy['checklist']}\n"
+        f"{_agent_header(agent_profile, method_spec)}"
         f"{_dataset_instruction(sample)}\n"
         f"Question:\n{sample.question.strip()}\n\n"
     )
@@ -40,15 +32,31 @@ def build_reasoning_stage_messages(
     if history_block:
         user_prompt += f"Debate history so far:\n{history_block}\n\n"
     user_prompt += (
-        "Produce only your solving process for this round. "
-        "Keep using your assigned reasoning method. "
-        "If you revise, explain only the decisive corrected path rather than restarting from scratch multiple times. "
-        "Do not output JSON and do not output the final answer line separately."
+        f"You are now in round {round_index} of the debate.\n"
+        "Write only the solving process for this round.\n"
+        "Keep using your assigned reasoning method.\n"
+        "First audit your own previous solution, then compare it against peer solutions.\n"
+        "Change your path only when you can name one concrete flaw in your previous attempt and one concrete reason the revision is better supported.\n"
+        f"When peer solutions disagree, {method_spec.debate_action}.\n"
+        "Do not output JSON and do not output a separate final-answer line.\n"
     )
+    if sample.dataset in {"mmlu_pro", "gpqa_diamond", "mmlu_abstract_algebra"}:
+        user_prompt += "Keep the solving process under 180 words and focus only on the decisive option-by-option checks.\n"
+    if method_spec.label == "PoT":
+        user_prompt += (
+            "Output only executable Python code for the decisive computation.\n"
+            "Do not explain the code and do not add markdown fences.\n"
+            'The program must store the final computed result in a variable named "ans".\n'
+            "If you revise the code, repair the concrete bug directly in the program.\n"
+        )
+    counting_hint = _counting_probability_guardrails(sample)
+    if counting_hint:
+        user_prompt += f"\nMath verification hint: {counting_hint}"
+    guardrails = _multiple_choice_guardrails(sample)
     if guardrails:
         user_prompt += f"\nFor answer-format safety: {guardrails}"
     return [
-        {"role": "system", "content": _plain_text_system_prompt()},
+        {"role": "system", "content": _pot_process_system_prompt() if method_spec.label == "PoT" else _plain_text_system_prompt()},
         {"role": "user", "content": user_prompt},
     ]
 
@@ -59,18 +67,18 @@ def build_answer_stage_messages(
     *,
     round_index: int,
     solving_process: str,
+    execution_result: str | None = None,
+    execution_status: str | None = None,
+    execution_error: str | None = None,
     prior_rounds: list[list[dict[str, str]]] | None = None,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
-    """Build the paper-aligned final-answer extraction prompt for one agent and one round."""
-
     _assert_prompt_version(prompt_version)
-    strategy = _strategy_spec(sample, agent_profile.strategy_name)
+    method_spec = resolve_reasoning_method(sample.dataset, agent_profile.strategy_name)
     history_block = _render_prior_rounds(agent_profile.agent_id, prior_rounds or [])
-    guardrails = _multiple_choice_debate_guardrails(sample)
     user_prompt = (
         f"You are agent_{agent_profile.agent_id} in round {round_index} of a Diverse Multi-Agent Debate experiment.\n"
-        f"Reasoning method: {strategy['label']}\n"
+        f"Reasoning method: {method_spec.label}\n"
         f"{_dataset_instruction(sample)}\n"
         f"Question:\n{sample.question.strip()}\n\n"
     )
@@ -78,12 +86,34 @@ def build_answer_stage_messages(
         user_prompt += f"Context:\n{sample.prompt_context}\n\n"
     if history_block:
         user_prompt += f"Debate history so far:\n{history_block}\n\n"
+    user_prompt += f"Your current solving process:\n{solving_process.strip()}\n\n"
+    if method_spec.label == "PoT":
+        if execution_status == "ok" and execution_result:
+            user_prompt += (
+                f'Program execution result from variable "ans": {execution_result}\n'
+                "Treat this execution result as authoritative unless you can point to a concrete code bug.\n\n"
+            )
+        elif execution_result:
+            user_prompt += (
+                f'Program execution result recovered from the code: {execution_result}\n'
+                f"Program execution note: {_execution_note(execution_status)}\n"
+                "Treat this recovered result as authoritative unless you can point to a concrete code bug.\n\n"
+            )
+        elif execution_status and execution_status != "ok":
+            user_prompt += (
+                f"Program execution note: {_execution_note(execution_status)}\n"
+                f"Program execution detail: {_execution_detail(execution_error)}\n"
+                "If the code failed, repair the answer only when you can identify the concrete bug.\n\n"
+            )
     user_prompt += (
-        f"Your current solving process:\n{solving_process.strip()}\n\n"
-        "Based only on the solving process above, return the final answer. "
-        'Return exactly one JSON object with key "final_answer". '
-        "Do not include a long reasoning field. Return JSON only."
+        "Return exactly one JSON object with key \"final_answer\".\n"
+        "Do not include a reasoning field.\n"
+        "Do not add any extra text.\n"
     )
+    counting_hint = _counting_probability_guardrails(sample)
+    if counting_hint:
+        user_prompt += f"\nMath verification hint: {counting_hint}"
+    guardrails = _multiple_choice_guardrails(sample)
     if guardrails:
         user_prompt += f"\nFor answer-format safety: {guardrails}"
     return [
@@ -98,36 +128,37 @@ def build_initial_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
-    """Build the initial independent-solving prompt."""
-
     _assert_prompt_version(prompt_version)
-    strategy = _strategy_spec(sample, agent_profile.strategy_name)
-    guardrails = _multiple_choice_debate_guardrails(sample)
+    method_spec = resolve_reasoning_method(sample.dataset, agent_profile.strategy_name)
     user_prompt = (
-        f"You are agent_{agent_profile.agent_id} in a Diverse Multi-Agent Debate experiment.\n"
-        f"Persona: {agent_profile.persona_name}\n"
-        f"Persona guidance: {agent_profile.persona_instruction}\n"
-        f"Reasoning method: {strategy['label']}\n"
-        f"Method summary: {strategy['summary']}\n"
-    )
-    user_prompt += f"Method guidance: {strategy['guidance']}\n"
-    user_prompt += (
-        f"Method checklist: {strategy['checklist']}\n"
+        f"{_agent_header(agent_profile, method_spec)}"
         f"{_dataset_instruction(sample)}\n"
         f"Question:\n{sample.question.strip()}\n\n"
     )
     if sample.prompt_context:
         user_prompt += f"Context:\n{sample.prompt_context}\n\n"
-    user_prompt += (
-        "Solve independently with your assigned reasoning method. "
-        "Produce a compact but complete solving process, then state the final answer. "
-        "Do not wander through multiple dead-end approaches or repeat the same derivation in different forms. "
-        "Stop once you have a decisive verification. "
-        "For multiple-choice or symbolic tasks, final_answer must be only the shortest answer string. "
-        "Return exactly one JSON object with keys \"final_answer\" and \"reasoning\". "
-        "Keep the reasoning under 160 words and make it detailed enough for peer inspection in the next debate round. "
-        "Return JSON only."
-    )
+    if method_spec.label == "PoT":
+        user_prompt += (
+            "Solve independently with your assigned reasoning method.\n"
+            "Return exactly one JSON object with keys \"final_answer\", \"reasoning\", and \"python_program\".\n"
+            'The field "python_program" must be the shortest executable Python code, without comments or markdown fences, and it must store the final computed result in a variable named "ans".\n'
+            "Keep the reasoning concise but inspection-ready.\n"
+            "Make final_answer consistent with the program result.\n"
+            "Do not add any extra text.\n"
+        )
+    else:
+        user_prompt += (
+            "Solve independently with your assigned reasoning method.\n"
+            "Return exactly one JSON object with keys \"final_answer\" and \"reasoning\".\n"
+            "Keep the reasoning concise but inspection-ready.\n"
+            "Do not add any extra text.\n"
+        )
+    if sample.dataset in {"mmlu_pro", "gpqa_diamond", "mmlu_abstract_algebra"}:
+        user_prompt += "Keep the reasoning under 180 words and focus only on the decisive option-by-option checks.\n"
+    counting_hint = _counting_probability_guardrails(sample)
+    if counting_hint:
+        user_prompt += f"\nMath verification hint: {counting_hint}"
+    guardrails = _multiple_choice_guardrails(sample)
     if guardrails:
         user_prompt += f"\nFor answer-format safety: {guardrails}"
     return [
@@ -143,8 +174,6 @@ def build_reflection_feedback_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
-    """Build the critique stage for the single-agent reflection baseline."""
-
     _assert_prompt_version(prompt_version)
     user_prompt = (
         "You are the critique stage of a reflective single-agent baseline.\n"
@@ -156,9 +185,10 @@ def build_reflection_feedback_messages(
     user_prompt += (
         f"Previous reasoning:\n{previous_reasoning}\n\n"
         f"Previous final_answer: {previous_answer}\n\n"
-        "Review the draft once. Identify the most concrete mistake, missing evidence, or unsupported jump if one exists. "
-        "If the draft already looks sound, say that it is supported and name the strongest supporting check. "
-        "Return plain text feedback only. Keep it under 120 words."
+        "Review the draft once.\n"
+        "Name the most concrete mistake, missing evidence, or unsupported jump if one exists.\n"
+        "If the draft already looks sound, say that it is supported and name the strongest supporting check.\n"
+        "Return plain text only and keep it under 120 words.\n"
     )
     return [
         {"role": "system", "content": _reflection_feedback_system_prompt()},
@@ -174,10 +204,7 @@ def build_reflection_revision_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
-    """Build the revise stage for the single-agent reflection baseline."""
-
     _assert_prompt_version(prompt_version)
-    guardrails = _multiple_choice_debate_guardrails(sample)
     user_prompt = (
         "You are the revise stage of a reflective single-agent baseline.\n"
         f"{_dataset_instruction(sample)}\n"
@@ -189,12 +216,11 @@ def build_reflection_revision_messages(
         f"Previous reasoning:\n{previous_reasoning}\n\n"
         f"Previous final_answer: {previous_answer}\n\n"
         f"Reviewer feedback:\n{feedback.strip()}\n\n"
-        "Revise only if the feedback identifies a concrete issue. "
-        "If the feedback confirms the draft, keep the answer and tighten the justification. "
-        "Return exactly one JSON object with keys \"final_answer\" and \"reasoning\". "
-        "Keep the reasoning under 160 words and focus only on the decisive correction or confirmation. "
-        "Return JSON only."
+        "Revise only if the feedback identifies a concrete issue.\n"
+        "Return exactly one JSON object with keys \"final_answer\" and \"reasoning\".\n"
+        "Keep the reasoning focused on the decisive correction or confirmation.\n"
     )
+    guardrails = _multiple_choice_guardrails(sample)
     if guardrails:
         user_prompt += f"\nFor answer-format safety: {guardrails}"
     return [
@@ -203,57 +229,151 @@ def build_reflection_revision_messages(
     ]
 
 
-def build_solution_selector_messages(
+def build_self_contrast_checklist_messages(
     sample: DatasetSample,
-    candidate_solutions: list[dict[str, str | int]],
+    candidate_solutions: list[dict[str, str]],
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
-    """Build the shared best-solution selector for MAD-like methods."""
-
     _assert_prompt_version(prompt_version)
-    candidate_block = "\n\n".join(
-        "\n".join(
-            [
-                f"Candidate {item['agent_id']}:",
-                f"- persona: {item['persona_name']}",
-                f"- reasoning_method: {item['strategy_name']}",
-                f"- solving_process: {str(item['reasoning']).strip()}",
-                f"- final_answer: {str(item['answer']).strip()}",
-            ]
-        )
-        for item in candidate_solutions
-    )
+    candidates_block = _render_candidate_solutions(candidate_solutions)
     user_prompt = (
-        "Choose the best final answer by comparing the candidate solutions and their solving processes.\n"
+        "You are constructing a contrastive checklist for a Self-Contrast baseline.\n"
         f"{_dataset_instruction(sample)}\n"
         f"Question:\n{sample.question.strip()}\n\n"
     )
     if sample.prompt_context:
         user_prompt += f"Context:\n{sample.prompt_context}\n\n"
     user_prompt += (
-        f"Candidate solutions:\n{candidate_block}\n\n"
-        "Prefer the candidate with the strongest evidence, most coherent reasoning chain, and best match to the required answer format. "
-        "Do not invent a new answer that no candidate supported. "
-        "If every candidate is weak, pick the least flawed supported answer or abstain with selected_agent_id 4.\n"
-        "Return exactly one JSON object with keys \"selected_agent_id\", \"final_answer\", and \"rationale\". "
-        "selected_agent_id must be 1, 2, 3, or 4. Return JSON only."
+        f"Candidate solutions:\n{candidates_block}\n\n"
+        "Compare the candidates.\n"
+        "List the concrete disagreements, likely failure points, and the checks a final solver must satisfy.\n"
+        "Return plain text only.\n"
     )
     return [
-        {"role": "system", "content": _selector_system_prompt()},
+        {"role": "system", "content": _plain_text_system_prompt()},
         {"role": "user", "content": user_prompt},
     ]
 
 
+def build_self_contrast_revision_messages(
+    sample: DatasetSample,
+    candidate_solutions: list[dict[str, str]],
+    checklist: str,
+    *,
+    prompt_version: str = DEFAULT_PROMPT_VERSION,
+) -> list[dict[str, str]]:
+    _assert_prompt_version(prompt_version)
+    candidates_block = _render_candidate_solutions(candidate_solutions)
+    user_prompt = (
+        "You are the final revision stage of a Self-Contrast baseline.\n"
+        f"{_dataset_instruction(sample)}\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+    )
+    if sample.prompt_context:
+        user_prompt += f"Context:\n{sample.prompt_context}\n\n"
+    user_prompt += (
+        f"Candidate solutions:\n{candidates_block}\n\n"
+        f"Contrastive checklist:\n{checklist.strip()}\n\n"
+        "Use the checklist to synthesize the strongest supported answer.\n"
+        "Return exactly one JSON object with keys \"final_answer\" and \"reasoning\".\n"
+        "Do not add any extra text.\n"
+    )
+    guardrails = _multiple_choice_guardrails(sample)
+    if guardrails:
+        user_prompt += f"\nFor answer-format safety: {guardrails}"
+    return [
+        {"role": "system", "content": _system_prompt()},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_mrp_method_selection_messages(
+    sample: DatasetSample,
+    candidate_methods: list[str],
+    *,
+    prompt_version: str = DEFAULT_PROMPT_VERSION,
+) -> list[dict[str, str]]:
+    _assert_prompt_version(prompt_version)
+    rendered_methods = []
+    for method_name in candidate_methods:
+        method_spec = resolve_reasoning_method(sample.dataset, method_name)
+        rendered_methods.append(f"- {normalize_reasoning_method_label(sample.dataset, method_name)}: {method_spec.summary}")
+    user_prompt = (
+        "You are the routing stage of a Meta-Reasoning Prompting baseline.\n"
+        f"{_dataset_instruction(sample)}\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+    )
+    if sample.prompt_context:
+        user_prompt += f"Context:\n{sample.prompt_context}\n\n"
+    user_prompt += (
+        "Candidate reasoning methods:\n"
+        + "\n".join(rendered_methods)
+        + "\n\nChoose the single most suitable reasoning method for this question.\n"
+        "Return exactly one JSON object with keys \"selected_method\" and \"reasoning\".\n"
+        "selected_method must be one of the provided method names in lowercase.\n"
+    )
+    return [
+        {"role": "system", "content": _system_prompt()},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_mrp_solution_messages(
+    sample: DatasetSample,
+    method_name: str,
+    *,
+    prompt_version: str = DEFAULT_PROMPT_VERSION,
+) -> list[dict[str, str]]:
+    _assert_prompt_version(prompt_version)
+    agent_profile = AgentProfile(
+        agent_id=1,
+        persona_name="general_reasoner",
+        persona_instruction="Act as a careful general-purpose reasoning assistant.",
+        strategy_name=method_name,
+        strategy_instruction="",
+    )
+    return build_initial_messages(sample, agent_profile, prompt_version=prompt_version)
+
+
+def normalize_reasoning_method_label(dataset: str, method_name: str) -> str:
+    return resolve_reasoning_method(dataset, method_name).label.lower()
+
+
+def _agent_header(agent_profile: AgentProfile, method_spec) -> str:
+    return (
+        f"You are agent_{agent_profile.agent_id} in a Diverse Multi-Agent Debate experiment.\n"
+        f"Persona: {agent_profile.persona_name}\n"
+        f"Persona guidance: {agent_profile.persona_instruction}\n"
+        f"Reasoning method: {method_spec.label}\n"
+        f"Method summary: {method_spec.summary}\n"
+        f"Method guidance: {method_spec.guidance}\n"
+        f"Method checklist: {method_spec.checklist}\n"
+    )
+
+
+def _render_candidate_solutions(candidate_solutions: list[dict[str, str]]) -> str:
+    return "\n\n".join(
+        "\n".join(
+            [
+                f"Candidate {index + 1}:",
+                f"- method: {item['strategy_name']}",
+                f"- reasoning: {item['reasoning'].strip()}",
+                f"- final_answer: {item['answer'].strip()}",
+            ]
+        )
+        for index, item in enumerate(candidate_solutions)
+    )
+
+
 def _system_prompt() -> str:
     return build_json_system_prompt(
-        "You are one reasoning agent in a Diverse Multi-Agent Debate experiment.",
+        "You are one reasoning agent in a controlled DMAD reproduction experiment.",
         extra_rules=[
             "Solve the task carefully using only the provided question and context.",
-            "Respect your assigned persona and reasoning-method constraints.",
-            "Make the reasoning field concise, decisive, and still substantive enough for peer review in later rounds.",
-            "Prefer one clean derivation over multiple speculative branches.",
-            "Do not add natural-language text before or after the JSON object.",
+            "Respect the assigned reasoning method.",
+            "Keep the reasoning field concise but substantive.",
+            "Do not add text before or after the JSON object.",
         ],
     )
 
@@ -261,23 +381,33 @@ def _system_prompt() -> str:
 def _plain_text_system_prompt() -> str:
     return "\n".join(
         [
-            "You are one reasoning agent in a Diverse Multi-Agent Debate experiment.",
+            "You are one reasoning agent in a controlled DMAD reproduction experiment.",
             "Return plain text only.",
             "Do not use markdown fences.",
-            "Solve the task carefully using only the provided question, context, and debate history.",
-            "Respect your assigned persona and reasoning-method constraints.",
-            "Write one coherent solving process rather than several speculative branches.",
+            "Solve the task carefully using only the provided context.",
+        ]
+    )
+
+
+def _pot_process_system_prompt() -> str:
+    return "\n".join(
+        [
+            "You are one reasoning agent in a controlled DMAD reproduction experiment.",
+            "Return plain Python code only.",
+            "Do not explain the code.",
+            "Do not use markdown fences.",
+            'The code must store the final computed result in a variable named "ans".',
         ]
     )
 
 
 def _answer_only_system_prompt() -> str:
     return build_json_system_prompt(
-        "You are one reasoning agent in a Diverse Multi-Agent Debate experiment.",
+        "You are one reasoning agent in a controlled DMAD reproduction experiment.",
         extra_rules=[
             'Return exactly one JSON object with key "final_answer".',
             "Do not add a reasoning field unless explicitly requested.",
-            "Do not add natural-language text before or after the JSON object.",
+            "Do not add text before or after the JSON object.",
         ],
     )
 
@@ -293,17 +423,6 @@ def _reflection_feedback_system_prompt() -> str:
     )
 
 
-def _selector_system_prompt() -> str:
-    return build_json_system_prompt(
-        "You are the final solution selector for a controlled Diverse Multi-Agent Debate experiment.",
-        extra_rules=[
-            "Choose among the provided candidates instead of inventing a new solution.",
-            "Use selected_agent_id 4 only when none of the candidates is supportable enough to endorse directly.",
-            "Do not add natural-language text before or after the JSON object.",
-        ],
-    )
-
-
 def _dataset_instruction(sample: DatasetSample) -> str:
     if sample.dataset == "hotpotqa":
         return dataset_instruction_for_sample(sample, hotpot_style="shortest_span_copy")
@@ -315,72 +434,46 @@ def _assert_prompt_version(prompt_version: str) -> None:
         raise ValueError(f"Unsupported DMAD prompt_version: {prompt_version}")
 
 
-def _strategy_spec(sample: DatasetSample, strategy_name: str) -> dict[str, str]:
-    if strategy_name == "cot":
-        return {
-            "label": "CoT",
-            "summary": "Chain-of-Thought prompting: solve the problem step by step.",
-            "guidance": "Use one clean derivation, avoid unsupported recall, and end by checking that the chosen answer exactly matches the conclusion.",
-            "checklist": (
-                "write the intermediate reasoning in order, justify key transformations, "
-                "and verify that the final answer matches the original question"
-            ),
-            "debate_action": (
-                "compare the exact inference chain against the peers' chains and repair the first unsupported or inconsistent step"
-            ),
-        }
-    if strategy_name == "sbp":
-        return {
-            "label": "SBP",
-            "summary": "Step-Back Prompting: step back first, derive the governing concepts or principles, then solve the specific instance.",
-            "guidance": "State the governing principle first, apply it to the options or equations, and prefer principle-based elimination over unsupported memory.",
-            "checklist": (
-                "identify the high-level principle first, map the question to that principle, "
-                "and only then instantiate the concrete reasoning steps"
-            ),
-            "debate_action": (
-                "use peer solutions to check whether your chosen principles are complete and whether a more suitable abstraction resolves the disagreement"
-            ),
-        }
-    if strategy_name == "pot_l2m":
-        if sample.dataset in {"math500", "gsm8k"}:
-            return {
-                "label": "PoT",
-                "summary": "Program-of-Thoughts prompting: express the calculation as a concise Python-style program or symbolic procedure and use it to solve the problem.",
-                "guidance": "Write a compact program-like calculation or symbolic procedure, compute the target quantity, and ensure the final answer is the computed result.",
-                "checklist": (
-                    "translate the calculation into explicit symbolic or Python-style steps, keep the program logic consistent, "
-                    "and ensure the computed result corresponds exactly to the asked quantity"
-                ),
-                "debate_action": (
-                    "inspect whether a peer reveals a missing variable, case split, or computational branch, then revise the program-like procedure accordingly"
-                ),
-            }
-        return {
-            "label": "L2M",
-            "summary": "Least-to-Most prompting: decompose the problem into simpler subquestions and solve them in sequence.",
-            "guidance": "Break the task into short subquestions, answer them in order, and use the subanswers to eliminate options without leaning on unsupported background claims.",
-            "checklist": (
-                "break the task into smaller subquestions, answer them in dependency order, "
-                "and ensure the final answer follows from the accumulated sub-results"
-            ),
-            "debate_action": (
-                "check whether peer solutions expose a missing subquestion or a wrong dependency between substeps, then rebuild the decomposition"
-            ),
-        }
-    raise ValueError(f"Unsupported DMAD strategy: {strategy_name}")
-
-
-def _multiple_choice_debate_guardrails(sample: DatasetSample) -> str:
-    if sample.dataset not in {"mmlu_pro", "mmlu_abstract_algebra", "gpqa_diamond"}:
+def _multiple_choice_guardrails(sample: DatasetSample) -> str:
+    if sample.dataset not in {"mmlu_pro", "gpqa_diamond", "mmlu_abstract_algebra"}:
         return ""
     return (
         "do not switch options just because two peers agree; "
-        "switch only if you can name one concrete flaw in your previous option and one concrete reason the new option is better supported; "
-        "if a minority answer is the only one backed by an explicit calculation or option-by-option comparison, prefer the better-supported minority over unsupported consensus; "
-        "if you compute a numeric result, map it to the matching option letter before returning; "
+        "switch only when you can name one concrete flaw in the previous option and one concrete reason the new option is better supported; "
+        "if a minority answer is the only one backed by explicit calculation or option-by-option elimination, prefer the better-supported minority; "
+        "before returning, compare your option against each distinct peer option and keep it only if it wins on explicit evidence; "
+        "if you compute a content answer, map it back to the matching option letter before returning; "
+        "if the task depends on structure, stereochemistry, or named positions, verify each named feature against the chosen option before returning; "
         'end the reasoning by explicitly stating "Best option: <LETTER>" and make final_answer match that letter exactly'
     )
+
+
+def _counting_probability_guardrails(sample: DatasetSample) -> str:
+    if sample.dataset != "competition_math":
+        return ""
+    subject = str(sample.metadata.get("subject") or "").strip().lower()
+    if subject not in {"counting_and_probability", "counting & probability"}:
+        return ""
+    return (
+        "for counting or probability problems, verify the result with at least one of: a complement count, a disjoint case split, or a reverse sanity check; if letters repeat or objects are indistinguishable, explicitly check for overcounting; do not use Cartesian-product-with-replacement counting unless replacement is explicitly allowed by the problem"
+    )
+
+
+def _execution_note(status: str | None) -> str:
+    mapping = {
+        "missing_program": "the previous code block was incomplete",
+        "missing_result": "the previous code did not expose a final result",
+        "runtime_error": "the previous code raised a runtime issue",
+        "unsafe_program": "the previous code used unsupported constructs",
+    }
+    return mapping.get(str(status or "").strip(), "the previous code did not complete successfully")
+
+
+def _execution_detail(error: str | None) -> str:
+    cleaned = str(error or "").strip()
+    if not cleaned:
+        return "unknown"
+    return cleaned[:180]
 
 
 def _render_prior_rounds(agent_id: int, prior_rounds: list[list[dict[str, str]]]) -> str:
@@ -396,16 +489,15 @@ def _render_prior_rounds(agent_id: int, prior_rounds: list[list[dict[str, str]]]
         blocks.append(f"Round {round_number}:")
         if own_rows:
             own = own_rows[0]
-            blocks.append(
-                "\n".join(
-                    [
-                        "Your previous record:",
-                        f"- method: {own.get('strategy_name', '')}",
-                        f"- solving process: {str(own.get('reasoning') or '').strip()}",
-                        f"- final answer: {str(own.get('answer') or '').strip()}",
-                    ]
-                )
-            )
+            own_lines = [
+                "Your previous record:",
+                f"- method: {own.get('strategy_name', '')}",
+                f"- solving process: {str(own.get('reasoning') or '').strip()}",
+                f"- final answer: {str(own.get('answer') or '').strip()}",
+            ]
+            if str(own.get("execution_result") or "").strip():
+                own_lines.append(f"- execution result: {str(own.get('execution_result') or '').strip()}")
+            blocks.append("\n".join(own_lines))
         if peer_rows:
             peer_lines = ["Other agents' records:"]
             for peer in peer_rows:
@@ -416,5 +508,7 @@ def _render_prior_rounds(agent_id: int, prior_rounds: list[list[dict[str, str]]]
                         f"  final answer: {str(peer.get('answer') or '').strip()}",
                     ]
                 )
+                if str(peer.get("execution_result") or "").strip():
+                    peer_lines.append(f"  execution result: {str(peer.get('execution_result') or '').strip()}")
             blocks.append("\n".join(peer_lines))
     return "\n\n".join(blocks)

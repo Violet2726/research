@@ -44,6 +44,12 @@ class DatasetAssetSpec:
     revision: str = "main"
     notes: str = ""
     runtime_required: bool = False
+    fallback_source_kind: str | None = None
+    fallback_source_url: str | None = None
+    fallback_archive_subtree: str | None = None
+    fallback_repo_id: str | None = None
+    fallback_repo_type: str | None = None
+    fallback_filename: str | None = None
 
 
 @dataclass(frozen=True)
@@ -256,6 +262,26 @@ def build_primary_dataset_specs(benchmarks: list[BenchmarkConfig]) -> list[Datas
             source_url="https://raw.githubusercontent.com/mira-ai-lab/DoG/main/KBQA_TASK/freebase/dataset/grailqa.json",
             source_split="test",
             notes="DoG 官方仓提供的 GrailQA 论文复现 JSON；真正运行仍需本地 Freebase/Virtuoso。",
+        ),
+        "competition_math": DatasetAssetSpec(
+            slug="competition_math",
+            dataset_name="MATH",
+            asset_id="evaluation",
+            purpose="evaluation",
+            relative_path=Path("competition_math/MATH.zip"),
+            source_kind="hf_file",
+            source_label="Hugging Face dataset",
+            source_url="https://huggingface.co/datasets/hendrycks/competition_math",
+            source_split="test",
+            repo_id="hendrycks/competition_math",
+            repo_type="dataset",
+            filename="data/MATH.zip",
+            fallback_source_kind="hf_parquet_competition_math_zip",
+            fallback_source_url="https://huggingface.co/datasets/ck46/hendrycks_math",
+            fallback_repo_id="ck46/hendrycks_math",
+            fallback_repo_type="dataset",
+            fallback_filename="data/test-00000-of-00001-d51699a6fddbb23e.parquet",
+            notes="与 Hendrycks MATH 论文主结果口径对齐的官方压缩包；运行时按 `MATH/test/<subject>/*.json` 读取。",
         ),
         "math500": DatasetAssetSpec(
             slug="math500",
@@ -1064,20 +1090,155 @@ def _download_source_file(spec: DatasetAssetSpec, local_path: Path) -> Path:
     if spec.source_kind == "hf_file":
         if spec.repo_id is None or spec.repo_type is None or spec.filename is None:
             raise ValueError(f"Incomplete Hugging Face download spec for {spec.slug}:{spec.asset_id}.")
-        return Path(
+        try:
+            return Path(
+                hf_hub_download(
+                    repo_id=spec.repo_id,
+                    repo_type=spec.repo_type,
+                    filename=spec.filename,
+                    revision=spec.revision,
+                )
+            )
+        except Exception:
+            if spec.fallback_source_kind is None or spec.fallback_source_url is None:
+                raise
+            return _download_fallback_source_file(spec, local_path)
+    if spec.source_kind == "http_file":
+        temporary_path = local_path.parent / f".{local_path.name}.download"
+        return _download_http_file(spec.source_url, temporary_path)
+    raise ValueError(f"Unsupported source kind: {spec.source_kind}")
+
+
+def _download_fallback_source_file(spec: DatasetAssetSpec, local_path: Path) -> Path:
+    if spec.fallback_source_kind == "hf_parquet_competition_math_zip":
+        if spec.fallback_repo_id is None or spec.fallback_repo_type is None or spec.fallback_filename is None:
+            raise ValueError(f"Incomplete fallback Hugging Face spec for {spec.slug}:{spec.asset_id}.")
+        parquet_path = Path(
             hf_hub_download(
-                repo_id=spec.repo_id,
-                repo_type=spec.repo_type,
-                filename=spec.filename,
+                repo_id=spec.fallback_repo_id,
+                repo_type=spec.fallback_repo_type,
+                filename=spec.fallback_filename,
                 revision=spec.revision,
             )
         )
-    if spec.source_kind == "http_file":
-        temporary_path = local_path.parent / f".{local_path.name}.download"
-        with urllib.request.urlopen(spec.source_url, timeout=300) as response:
-            temporary_path.write_bytes(response.read())
-        return temporary_path
-    raise ValueError(f"Unsupported source kind: {spec.source_kind}")
+        packaged_path = local_path.parent / f".{local_path.name}.download"
+        _materialize_competition_math_zip_from_parquet(parquet_path, packaged_path)
+        return packaged_path
+    if spec.fallback_source_kind == "github_repo_archive":
+        archive_path = local_path.parent / f".{local_path.stem}.repo.zip"
+        packaged_path = local_path.parent / f".{local_path.name}.download"
+        _download_http_file(spec.fallback_source_url, archive_path)
+        try:
+            _repackage_archive_subtree(
+                archive_path,
+                output_path=packaged_path,
+                subtree=str(spec.fallback_archive_subtree or "").strip(),
+            )
+        finally:
+            archive_path.unlink(missing_ok=True)
+        return packaged_path
+    raise ValueError(f"Unsupported fallback source kind: {spec.fallback_source_kind}")
+
+
+def _download_http_file(url: str, destination: Path) -> Path:
+    with urllib.request.urlopen(url, timeout=300) as response:
+        destination.write_bytes(response.read())
+    return destination
+
+
+def _repackage_archive_subtree(archive_path: Path, *, output_path: Path, subtree: str) -> None:
+    normalized_subtree = subtree.strip().strip("/")
+    if not normalized_subtree:
+        raise ValueError("Archive subtree cannot be empty when repackaging a repository archive.")
+    marker = f"/{normalized_subtree}/"
+    matched = False
+    with zipfile.ZipFile(archive_path) as source_archive, zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as target_archive:
+        for info in source_archive.infolist():
+            member_name = info.filename.replace("\\", "/")
+            prefix_index = member_name.find(marker)
+            if prefix_index < 0:
+                continue
+            relative_name = member_name[prefix_index + 1 :]
+            if relative_name.endswith("/"):
+                continue
+            matched = True
+            target_archive.writestr(relative_name, source_archive.read(info))
+    if not matched:
+        output_path.unlink(missing_ok=True)
+        raise ValueError(f"Could not find subtree {normalized_subtree!r} inside repository archive: {archive_path}")
+
+
+def _materialize_competition_math_zip_from_parquet(parquet_path: Path, output_path: Path) -> None:
+    records = pq.read_table(parquet_path).to_pylist()
+    subject_counts: dict[str, int] = {}
+    with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for record in records:
+            subject_name = str(record.get("type") or "").strip()
+            subject_slug = _normalize_competition_math_subject(subject_name)
+            subject_index = subject_counts.get(subject_slug, 0) + 1
+            subject_counts[subject_slug] = subject_index
+            unique_id = f"test/{subject_slug}/{subject_index}.json"
+            answer = _extract_competition_math_answer(record)
+            payload = {
+                "problem": str(record.get("problem") or "").strip(),
+                "solution": str(record.get("solution") or "").strip(),
+                "answer": answer,
+                "level": record.get("level"),
+                "type": subject_name,
+                "unique_id": unique_id,
+            }
+            archive.writestr(
+                f"MATH/{unique_id}",
+                json.dumps(payload, ensure_ascii=False, indent=2),
+            )
+
+
+def _normalize_competition_math_subject(subject_name: str) -> str:
+    normalized = subject_name.strip().lower()
+    subject_map = {
+        "algebra": "algebra",
+        "counting & probability": "counting_and_probability",
+        "counting and probability": "counting_and_probability",
+        "geometry": "geometry",
+        "intermediate algebra": "intermediate_algebra",
+        "number theory": "number_theory",
+        "prealgebra": "prealgebra",
+        "precalculus": "precalculus",
+    }
+    if normalized in subject_map:
+        return subject_map[normalized]
+    compact = "".join(character if character.isalnum() else "_" for character in normalized)
+    while "__" in compact:
+        compact = compact.replace("__", "_")
+    return compact.strip("_") or "unknown"
+
+
+def _extract_competition_math_answer(record: dict[str, object]) -> str:
+    solution = str(record.get("solution") or "")
+    marker = r"\boxed{"
+    start = solution.rfind(marker)
+    if start < 0:
+        raise ValueError(f"Competition MATH solution is missing a boxed final answer: {solution[:160]!r}")
+    cursor = start + len(marker)
+    depth = 1
+    collected: list[str] = []
+    while cursor < len(solution):
+        character = solution[cursor]
+        if character == "{":
+            depth += 1
+            collected.append(character)
+        elif character == "}":
+            depth -= 1
+            if depth == 0:
+                answer = "".join(collected).strip()
+                if answer:
+                    return answer
+                break
+            collected.append(character)
+        else:
+            collected.append(character)
+        cursor += 1
+    raise ValueError(f"Competition MATH solution has an empty or malformed boxed answer: {solution[:160]!r}")
 
 
 def _describe_asset(spec: DatasetAssetSpec) -> dict[str, object]:

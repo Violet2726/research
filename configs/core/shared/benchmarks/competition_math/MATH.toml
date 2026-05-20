@@ -1,0 +1,30 @@
+name = "MATH"
+slug = "competition_math"
+loader = "competition_math_zip"
+source_path = "competition_math/MATH.zip"
+source_split = "test"
+sample_id_prefix = "competition_math"
+question_field = "problem"
+answer_field = "answer"
+smoke_size = 20
+pilot_size = 700
+main_size = 700
+random_seed = 0
+notes = "Paper-aligned Hendrycks MATH benchmark for DMAD main-text reproduction. The count100 split means 100 samples per subject, i.e. 700 questions total."
+
+[[split_presets]]
+name = "count20_seed0"
+strategy = "stratified"
+field = "subject"
+size = 20
+
+[[split_presets]]
+name = "count100_seed0"
+strategy = "stratified"
+field = "subject"
+size = 700
+
+[[split_presets]]
+name = "full_seed0"
+strategy = "full"
+size = 0

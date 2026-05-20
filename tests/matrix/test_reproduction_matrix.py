@@ -12,10 +12,11 @@ def test_build_run_matrix_counts_expected_for_reproduction() -> None:
 
     assert matrix.matrix_id == "reproduction"
     assert matrix.matrix_kind == "reproduction_matrix"
-    assert len(matrix.semantic_entries) == 6
-    assert semantic_counts["pending"] == 6
-    assert matrix.counts["semantic_unique_targets"] == 6
+    assert len(matrix.semantic_entries) == 7
+    assert semantic_counts["pending"] == 7
+    assert matrix.counts["semantic_unique_targets"] == 7
     track_names = {entry.experiment_name: entry.track_name for entry in matrix.semantic_entries}
+    assert track_names["dmad_reasoning_main"] == "same_context"
     assert track_names["dog_graph_main"] == "graph_reasoning"
     assert track_names["table_critic_main"] == "table_reasoning"
     assert track_names["colmad_realmistake_main"] == "oversight_protocol"

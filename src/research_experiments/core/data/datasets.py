@@ -45,6 +45,7 @@ def load_samples(config: BenchmarkConfig) -> list[DatasetSample]:
     """按 `loader` 类型读取 benchmark 的全量样本。"""
     loader_map = {
         "commongen_hard_json": _load_commongen_hard,
+        "competition_math_zip": _load_competition_math,
         "humaneval_parquet": _load_humaneval,
         "gsm8k_jsonl": _load_gsm8k,
         "math500_jsonl": _load_math500,
@@ -284,6 +285,14 @@ def select_samples(
     splits_root: str | Path = "configs/core/shared/benchmarks/splits",
 ) -> list[DatasetSample]:
     """按冻结 split 从全量 benchmark 中选出本轮样本。"""
+    manifest_path = resolve_split_manifest_path(
+        benchmark.cache_namespace or benchmark.slug,
+        split_name,
+        splits_root=splits_root,
+        random_seed=benchmark.random_seed,
+    )
+    if not manifest_path.exists():
+        generate_split_manifests([benchmark], splits_root)
     split_ids = load_split_ids(
         benchmark.cache_namespace or benchmark.slug,
         split_name,
@@ -382,6 +391,49 @@ def _load_math500(config: BenchmarkConfig) -> list[DatasetSample]:
                     },
                 )
             )
+    return samples
+
+
+def _load_competition_math(config: BenchmarkConfig) -> list[DatasetSample]:
+    path = resolve_dataset_source_path(config.source_path)
+    records: list[tuple[str, dict[str, Any]]] = []
+    if path.is_file() and path.suffix.lower() == ".zip":
+        with zipfile.ZipFile(path) as archive:
+            member_names = [
+                name
+                for name in archive.namelist()
+                if name.startswith("MATH/test/") and name.endswith(".json")
+            ]
+            for member_name in sorted(member_names):
+                with archive.open(member_name) as handle:
+                    records.append((member_name, json.loads(handle.read().decode("utf-8"))))
+    else:
+        test_root = path / "MATH" / "test" if path.is_dir() and (path / "MATH" / "test").exists() else path / "test"
+        for member_path in sorted(test_root.rglob("*.json")):
+            records.append((member_path.relative_to(test_root.parent).as_posix(), json.loads(member_path.read_text(encoding="utf-8"))))
+
+    samples: list[DatasetSample] = []
+    for index, (member_name, record) in enumerate(records):
+        member_parts = Path(member_name).parts
+        subject = str(record.get("type") or (member_parts[2] if len(member_parts) >= 3 else "")).strip()
+        sample_id = str(record.get("unique_id") or Path(member_name).with_suffix("").as_posix())
+        samples.append(
+            DatasetSample(
+                dataset=config.slug,
+                sample_id=sample_id,
+                question=str(record.get("problem") or "").strip(),
+                reference_answer=str(record.get("answer") or "").strip(),
+                prompt_context="",
+                metadata={
+                    "raw_index": index,
+                    "subject": subject,
+                    "level": record.get("level"),
+                    "unique_id": sample_id,
+                    "solution": record.get("solution"),
+                    "source_member": member_name,
+                },
+            )
+        )
     return samples
 
 

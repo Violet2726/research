@@ -20,6 +20,7 @@ class RunPaths:
     metrics: Path
     strategy_diagnostics: Path
     cost_breakdown: Path
+    paper_tables: Path
     run_summary: Path
     run_validation: Path
     progress: Path
@@ -36,6 +37,7 @@ def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: s
         metrics=root / "metrics.json",
         strategy_diagnostics=root / "strategy_diagnostics.json",
         cost_breakdown=root / "cost_breakdown.json",
+        paper_tables=root / "paper_tables.json",
         run_summary=root / "run_summary.json",
         run_validation=root / "run_validation.json",
         progress=root / "progress.json",

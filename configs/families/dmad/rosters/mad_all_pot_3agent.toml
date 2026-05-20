@@ -1,0 +1,22 @@
+diversity_mode = "homogeneous_pot"
+
+[[agents]]
+agent_id = 1
+persona_name = "program_reasoner"
+persona_instruction = "Act as a careful reasoning assistant who prefers explicit symbolic or program-like procedures."
+strategy_name = "pot"
+strategy_instruction = "Translate the task into a program-like procedure and solve it with explicit intermediate variables."
+
+[[agents]]
+agent_id = 2
+persona_name = "program_reasoner"
+persona_instruction = "Act as a careful reasoning assistant who prefers explicit symbolic or program-like procedures."
+strategy_name = "pot"
+strategy_instruction = "Translate the task into a program-like procedure and solve it with explicit intermediate variables."
+
+[[agents]]
+agent_id = 3
+persona_name = "program_reasoner"
+persona_instruction = "Act as a careful reasoning assistant who prefers explicit symbolic or program-like procedures."
+strategy_name = "pot"
+strategy_instruction = "Translate the task into a program-like procedure and solve it with explicit intermediate variables."

@@ -1,4 +1,4 @@
-diversity_mode = "homogeneous"
+diversity_mode = "homogeneous_cot"
 
 [[agents]]
 agent_id = 1

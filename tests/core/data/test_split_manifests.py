@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import zipfile
 
 import pytest
 
@@ -105,4 +106,60 @@ def test_select_samples_raises_on_missing_manifest_sample_ids(tmp_path: Path) ->
 
     with pytest.raises(KeyError, match="missing sample_id"):
         select_samples(benchmark, "count20_seed42", tmp_path / "splits")
+
+
+def test_generate_stratified_split_manifest_for_competition_math(tmp_path: Path) -> None:
+    zip_path = tmp_path / "MATH.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        for subject, index in [("algebra", 1), ("geometry", 2)]:
+            archive.writestr(
+                f"MATH/test/{subject}/{index}.json",
+                json.dumps(
+                    {
+                        "problem": f"{subject} problem",
+                        "answer": str(index),
+                        "solution": str(index),
+                        "level": "Level 1",
+                        "type": subject,
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+    benchmark_path = tmp_path / "competition_math.toml"
+    benchmark_path.write_text(
+        "\n".join(
+            [
+                'name = "MATH"',
+                'slug = "competition_math"',
+                'loader = "competition_math_zip"',
+                f'source_path = "{zip_path.as_posix()}"',
+                'source_split = "test"',
+                'sample_id_prefix = "competition_math"',
+                'question_field = "problem"',
+                'answer_field = "answer"',
+                "smoke_size = 2",
+                "pilot_size = 2",
+                "main_size = 2",
+                "random_seed = 0",
+                'notes = ""',
+                "",
+                "[[split_presets]]",
+                'name = "count20_seed0"',
+                'strategy = "stratified"',
+                'field = "subject"',
+                "size = 2",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    benchmark = load_benchmark_config(benchmark_path)
+
+    generate_split_manifests([benchmark], tmp_path / "splits")
+    sample_ids = load_split_ids(benchmark.cache_namespace or benchmark.slug, "count20_seed0", tmp_path / "splits", random_seed=0)
+    samples = select_samples(benchmark, "count20_seed0", tmp_path / "splits")
+
+    assert len(sample_ids) == 2
+    assert len(samples) == 2
+    assert {sample.metadata["subject"] for sample in samples} == {"algebra", "geometry"}
 

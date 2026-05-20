@@ -1,0 +1,22 @@
+diversity_mode = "strategy_diverse"
+
+[[agents]]
+agent_id = 1
+persona_name = "general_reasoner"
+persona_instruction = "Act as a careful general-purpose reasoning assistant."
+strategy_name = "cot"
+strategy_instruction = "Solve the problem step by step and keep the intermediate reasoning explicit."
+
+[[agents]]
+agent_id = 2
+persona_name = "general_reasoner"
+persona_instruction = "Act as a careful general-purpose reasoning assistant."
+strategy_name = "sbp"
+strategy_instruction = "Step back first, identify the governing concepts or principles, then use them to solve the problem."
+
+[[agents]]
+agent_id = 3
+persona_name = "general_reasoner"
+persona_instruction = "Act as a careful general-purpose reasoning assistant."
+strategy_name = "l2m"
+strategy_instruction = "Break the task into simpler subquestions and solve them in dependency order."
