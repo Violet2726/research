@@ -252,15 +252,30 @@ def load_split_ids(
     random_seed: int = 42,
 ) -> list[str]:
     """读取某个冻结 split 中的样本 ID 列表。"""
-    payload = json.loads(
-        resolve_split_manifest_path(
-            dataset_slug,
-            split_name,
-            splits_root=splits_root,
-            random_seed=random_seed,
-        ).read_text(encoding="utf-8")
+    manifest_path = resolve_split_manifest_path(
+        dataset_slug,
+        split_name,
+        splits_root=splits_root,
+        random_seed=random_seed,
     )
-    return payload["sample_ids"]
+    if not manifest_path.exists():
+        raise FileNotFoundError(
+            f"Split manifest not found for dataset={dataset_slug!r}, split={split_name!r}. "
+            f"Expected path: {manifest_path}"
+        )
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    sample_ids = payload.get("sample_ids")
+    if not isinstance(sample_ids, list):
+        raise ValueError(
+            f"Split manifest for dataset={dataset_slug!r}, split={split_name!r} is missing a valid sample_ids list: "
+            f"{manifest_path}"
+        )
+    if not all(isinstance(item, str) for item in sample_ids):
+        raise ValueError(
+            f"Split manifest for dataset={dataset_slug!r}, split={split_name!r} contains non-string sample_ids: "
+            f"{manifest_path}"
+        )
+    return sample_ids
 
 
 def select_samples(
@@ -276,7 +291,16 @@ def select_samples(
         random_seed=benchmark.random_seed,
     )
     sample_map = {sample.sample_id: sample for sample in load_samples(benchmark)}
-    return [sample_map[sample_id] for sample_id in split_ids if sample_id in sample_map]
+    missing_ids = [sample_id for sample_id in split_ids if sample_id not in sample_map]
+    if missing_ids:
+        preview = ", ".join(repr(sample_id) for sample_id in missing_ids[:5])
+        if len(missing_ids) > 5:
+            preview += ", ..."
+        raise KeyError(
+            f"Split selection for benchmark={benchmark.slug!r}, split={split_name!r} references "
+            f"{len(missing_ids)} missing sample_id(s): {preview}"
+        )
+    return [sample_map[sample_id] for sample_id in split_ids]
 
 
 def resolve_split_manifest_path(

@@ -5,11 +5,12 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import time
 
 import pytest
 
 from research_experiments.core.execution.artifacts import BufferedJsonlWriter
-from research_experiments.core.execution.runtime import finalize_run_outputs
+from research_experiments.core.execution.runtime import RunProgressTracker, finalize_run_outputs
 
 
 def test_buffered_jsonl_writer_writes_rows(tmp_path: Path) -> None:
@@ -40,4 +41,24 @@ def test_finalize_run_outputs_attaches_hf_publish_result(tmp_path: Path, monkeyp
     assert payload["hf_publish"]["published"] is True
     validation_payload = json.loads((tmp_path / "run_validation.json").read_text(encoding="utf-8"))
     assert validation_payload["hf_publish"]["remote_repo"] == "owner/research-runs"
+
+
+def test_run_progress_tracker_heartbeat_refreshes_snapshot(tmp_path: Path) -> None:
+    progress_path = tmp_path / "progress.json"
+    tracker = RunProgressTracker(
+        progress_path,
+        total_planned_calls=100,
+        total_planned_predictions=10,
+        write_interval_seconds=0.01,
+        heartbeat_interval_seconds=0.05,
+    )
+    initial = json.loads(progress_path.read_text(encoding="utf-8"))
+    time.sleep(0.12)
+    updated = json.loads(progress_path.read_text(encoding="utf-8"))
+    tracker.mark_completed()
+
+    assert initial["last_write_reason"] == "startup"
+    assert updated["last_write_reason"] == "heartbeat"
+    assert updated["last_updated_at"] != initial["last_updated_at"]
+    assert "seconds_since_last_progress_event" in updated
 
