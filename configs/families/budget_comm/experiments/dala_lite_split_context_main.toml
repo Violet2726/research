@@ -16,9 +16,9 @@ context_view = "configs/families/budget_comm/views/split_context_v1.toml"
 global_seed = 42
 prompt_version = "budget_comm_dala_lite_v1"
 calibration_sample_size = 5
-max_concurrent_requests = 40
-requests_per_minute_limit = 50
-tokens_per_minute_limit = 1000000
+max_concurrent_requests = 90
+requests_per_minute_limit = 95
+tokens_per_minute_limit = 9000000
 primary_model_ref = "deepseek/deepseek-v4-flash"
 
 [phases.count20]

@@ -6,6 +6,11 @@ from collections import Counter
 import json
 from pathlib import Path
 
+from research_experiments.core.execution.rate_limits import (
+    STANDARD_MAX_CONCURRENT_REQUESTS,
+    STANDARD_REQUESTS_PER_MINUTE_LIMIT,
+    STANDARD_TOKENS_PER_MINUTE_LIMIT,
+)
 from research_experiments.families.budget_comm.config import load_experiment_config as load_budget_experiment_config
 from research_experiments.matrix.faithful_matrix import (
     MATRIX_EXPERIMENT_KIND,
@@ -118,9 +123,9 @@ def test_apply_runtime_overrides_clears_single_agent_count20_tag_constraints() -
 
     assert required_model_tags(experiment, "count20") == ["provider_zhipu"]
     assert required_model_tags(overridden, "count20") == []
-    assert overridden.max_concurrent_requests == 90
-    assert overridden.requests_per_minute_limit == 95
-    assert overridden.tokens_per_minute_limit == 9000000
+    assert overridden.max_concurrent_requests == STANDARD_MAX_CONCURRENT_REQUESTS
+    assert overridden.requests_per_minute_limit == STANDARD_REQUESTS_PER_MINUTE_LIMIT
+    assert overridden.tokens_per_minute_limit == STANDARD_TOKENS_PER_MINUTE_LIMIT
 
 
 def test_apply_runtime_overrides_updates_backbone_without_mutating_source_config() -> None:
@@ -131,9 +136,9 @@ def test_apply_runtime_overrides_updates_backbone_without_mutating_source_config
 
     assert experiment.primary_model_ref == "deepseek/deepseek-v4-flash"
     assert overridden.primary_model_ref == "xiaomimimo/mimo-v2.5"
-    assert overridden.max_concurrent_requests == 90
-    assert overridden.requests_per_minute_limit == 95
-    assert overridden.tokens_per_minute_limit == 9000000
+    assert overridden.max_concurrent_requests == STANDARD_MAX_CONCURRENT_REQUESTS
+    assert overridden.requests_per_minute_limit == STANDARD_REQUESTS_PER_MINUTE_LIMIT
+    assert overridden.tokens_per_minute_limit == STANDARD_TOKENS_PER_MINUTE_LIMIT
 
 
 def test_prepare_orchestrator_paths_uses_resolved_model_slug(tmp_path: Path) -> None:
@@ -156,9 +161,9 @@ def test_resume_faithful_matrix_continues_rerun_needed_and_pending_entries(
         "overrides": {
             "phase_name": "count100",
             "model_ref": "xiaomimimo/mimo-v2.5",
-            "max_concurrent_requests": 60,
-            "requests_per_minute_limit": 90,
-            "tokens_per_minute_limit": 9000000,
+            "max_concurrent_requests": STANDARD_MAX_CONCURRENT_REQUESTS,
+            "requests_per_minute_limit": STANDARD_REQUESTS_PER_MINUTE_LIMIT,
+            "tokens_per_minute_limit": STANDARD_TOKENS_PER_MINUTE_LIMIT,
         },
         "counts": {
             "completed": 0,

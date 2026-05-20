@@ -1,8 +1,24 @@
 $ErrorActionPreference = "Stop"
 
-$ReproMaxConcurrentRequests = 80
-$ReproRequestsPerMinuteLimit = 95
-$ReproTokensPerMinuteLimit = 1000000
+function Get-StandardRuntimeLimits {
+    $pythonScript = @'
+import json
+
+from research_experiments.core.execution.rate_limits import standard_runtime_limits
+
+print(json.dumps(standard_runtime_limits(), ensure_ascii=False))
+'@
+    $output = @($pythonScript | uv run python -)
+    if (-not $output) {
+        throw "未能读取共享限流配置。"
+    }
+    return (($output | Select-Object -Last 1) | ConvertFrom-Json)
+}
+
+$RuntimeLimits = Get-StandardRuntimeLimits
+$ReproMaxConcurrentRequests = [int]$RuntimeLimits.max_concurrent_requests
+$ReproRequestsPerMinuteLimit = [int]$RuntimeLimits.requests_per_minute_limit
+$ReproTokensPerMinuteLimit = [int]$RuntimeLimits.tokens_per_minute_limit
 
 function Import-DotEnvLocal {
     param(

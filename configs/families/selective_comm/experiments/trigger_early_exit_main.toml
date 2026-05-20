@@ -21,9 +21,9 @@ policy_configs = [
 control_catalog = "configs/families/selective_comm/controls/trigger_equal_budget.toml"
 global_seed = 42
 prompt_version = "selective_comm_trigger_json"
-max_concurrent_requests = 5
-requests_per_minute_limit = 50
-tokens_per_minute_limit = 1000000
+max_concurrent_requests = 90
+requests_per_minute_limit = 95
+tokens_per_minute_limit = 9000000
 primary_model_ref = "deepseek/deepseek-v4-flash"
 
 [phases.count20]

@@ -6,6 +6,11 @@ from pathlib import Path
 import subprocess
 import tomllib
 
+from research_experiments.core.execution.rate_limits import (
+    STANDARD_MAX_CONCURRENT_REQUESTS,
+    STANDARD_REQUESTS_PER_MINUTE_LIMIT,
+    STANDARD_TOKENS_PER_MINUTE_LIMIT,
+)
 from research_experiments.families.registry import registered_family_names, validator_map
 from research_experiments.tools.artifact_cleanup import RUN_VALIDATORS
 
@@ -49,6 +54,25 @@ def test_family_registry_matches_source_tree_and_cli_scripts() -> None:
 
 def test_artifact_cleanup_validator_registry_stays_in_sync() -> None:
     assert RUN_VALIDATORS == validator_map()
+
+
+def test_family_experiment_configs_use_standard_runtime_limits() -> None:
+    expected = {
+        "max_concurrent_requests": STANDARD_MAX_CONCURRENT_REQUESTS,
+        "requests_per_minute_limit": STANDARD_REQUESTS_PER_MINUTE_LIMIT,
+        "tokens_per_minute_limit": STANDARD_TOKENS_PER_MINUTE_LIMIT,
+    }
+    mismatches: list[str] = []
+    for path in sorted((ROOT / "configs" / "families").rglob("*.toml")):
+        if "experiments" not in path.parts:
+            continue
+        payload = tomllib.loads(path.read_text(encoding="utf-8"))
+        actual = {key: payload.get(key) for key in expected}
+        if actual != expected:
+            rel_path = path.relative_to(ROOT).as_posix()
+            mismatches.append(f"{rel_path}: {actual}")
+
+    assert not mismatches, mismatches
 
 
 def test_tracked_text_files_are_utf8_and_only_powershell_keeps_bom() -> None:

@@ -2,9 +2,16 @@
 
 set -euo pipefail
 
-REPRO_MAX_CONCURRENT_REQUESTS=80
-REPRO_REQUESTS_PER_MINUTE_LIMIT=95
-REPRO_TOKENS_PER_MINUTE_LIMIT=1000000
+eval "$(
+  uv run python - <<'PY'
+from research_experiments.core.execution.rate_limits import standard_runtime_limits
+
+limits = standard_runtime_limits()
+print(f"REPRO_MAX_CONCURRENT_REQUESTS={limits['max_concurrent_requests']}")
+print(f"REPRO_REQUESTS_PER_MINUTE_LIMIT={limits['requests_per_minute_limit']}")
+print(f"REPRO_TOKENS_PER_MINUTE_LIMIT={limits['tokens_per_minute_limit']}")
+PY
+)"
 
 if [[ -f .env.local ]]; then
   set -a

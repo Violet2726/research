@@ -6,8 +6,19 @@ import json
 from pathlib import Path
 
 from research_experiments.core.execution.cache import CachedResponse, RequestCacheRouter, json_dump
+from research_experiments.core.execution.rate_limits import (
+    STANDARD_MAX_CONCURRENT_REQUESTS,
+    STANDARD_REQUESTS_PER_MINUTE_LIMIT,
+    STANDARD_TOKENS_PER_MINUTE_LIMIT,
+)
 from testsupport.cli import run_cli_json
 from testsupport.filesystem import write_json
+
+
+def _assert_standard_runtime_limits(payload: dict[str, object]) -> None:
+    assert payload["max_concurrent_requests"] == STANDARD_MAX_CONCURRENT_REQUESTS
+    assert payload["requests_per_minute_limit"] == STANDARD_REQUESTS_PER_MINUTE_LIMIT
+    assert payload["tokens_per_minute_limit"] == STANDARD_TOKENS_PER_MINUTE_LIMIT
 
 
 def test_single_agent_inspect_cli() -> None:
@@ -320,9 +331,7 @@ def test_sparc_local_auditing_inspect_cli() -> None:
     )
     assert payload["name"] == "local_auditing_ablation"
     assert payload["resolved_model"]["name"] == "deepseek/deepseek-v4-flash"
-    assert payload["max_concurrent_requests"] == 5
-    assert payload["requests_per_minute_limit"] == 50
-    assert payload["tokens_per_minute_limit"] == 1000000
+    _assert_standard_runtime_limits(payload)
     assert payload["aggregation_methods"] == [
         "majority_vote",
         "weighted_vote_fallback",
@@ -361,9 +370,7 @@ def test_sid_lite_inspect_cli() -> None:
     )
     assert payload["name"] == "sid_lite_mechanism_validation"
     assert payload["methods"] == ["mv_3", "always_full", "compression_only", "sid_lite"]
-    assert payload["max_concurrent_requests"] == 5
-    assert payload["requests_per_minute_limit"] == 50
-    assert payload["tokens_per_minute_limit"] == 1000000
+    _assert_standard_runtime_limits(payload)
 
 
 def test_free_mad_lite_inspect_cli() -> None:
@@ -407,9 +414,7 @@ def test_comm_necessary_inspect_cli() -> None:
         "evidence_exchange",
         "full_packet_exchange",
     ]
-    assert payload["max_concurrent_requests"] == 5
-    assert payload["requests_per_minute_limit"] == 50
-    assert payload["tokens_per_minute_limit"] == 1000000
+    _assert_standard_runtime_limits(payload)
 
 
 def test_cue_inspect_cli() -> None:

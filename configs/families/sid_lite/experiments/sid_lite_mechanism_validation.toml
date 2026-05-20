@@ -15,9 +15,9 @@ protocol = "configs/families/sid_lite/protocols/shared_3a_r1.toml"
 methods = ["mv_3", "always_full", "compression_only", "sid_lite"]
 global_seed = 42
 prompt_version = "sid_lite_v1_json"
-max_concurrent_requests = 5
-requests_per_minute_limit = 50
-tokens_per_minute_limit = 1000000
+max_concurrent_requests = 90
+requests_per_minute_limit = 95
+tokens_per_minute_limit = 9000000
 primary_model_ref = "deepseek/deepseek-v4-flash"
 
 [phases.count20]

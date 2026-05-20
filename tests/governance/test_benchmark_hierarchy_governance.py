@@ -12,10 +12,18 @@ ROOT = Path(__file__).resolve().parents[2]
 BENCHMARKS_ROOT = ROOT / "configs" / "core" / "shared" / "benchmarks"
 
 
+def _expected_benchmark_config_relative_path(benchmark) -> str:
+    """派生子集 benchmark 按自身命名空间对齐，其余 benchmark 继续按源数据路径对齐。"""
+    if benchmark.record_filters or benchmark.cache_namespace_override:
+        benchmark_key = str(benchmark.cache_namespace or benchmark.slug).replace("\\", "/")
+        return Path(benchmark_key).with_suffix(".toml").as_posix()
+    return Path(str(benchmark.source_path).replace("\\", "/")).with_suffix(".toml").as_posix()
+
+
 def test_shared_benchmark_configs_mirror_dataset_asset_hierarchy() -> None:
     for path in BENCHMARKS_ROOT.rglob("*.toml"):
         benchmark = load_benchmark_config(path)
-        expected = Path(str(benchmark.source_path).replace("\\", "/")).with_suffix(".toml").as_posix()
+        expected = _expected_benchmark_config_relative_path(benchmark)
         actual = path.relative_to(BENCHMARKS_ROOT).as_posix()
         assert actual == expected, f"{path} should mirror source_path hierarchy {expected}"
 

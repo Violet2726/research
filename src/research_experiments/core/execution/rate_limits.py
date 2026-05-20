@@ -7,6 +7,19 @@ from dataclasses import dataclass
 import threading
 import time
 
+STANDARD_MAX_CONCURRENT_REQUESTS = 90
+STANDARD_REQUESTS_PER_MINUTE_LIMIT = 95
+STANDARD_TOKENS_PER_MINUTE_LIMIT = 9000000
+
+
+def standard_runtime_limits() -> dict[str, int]:
+    """返回项目统一执行限流基线。"""
+    return {
+        "max_concurrent_requests": STANDARD_MAX_CONCURRENT_REQUESTS,
+        "requests_per_minute_limit": STANDARD_REQUESTS_PER_MINUTE_LIMIT,
+        "tokens_per_minute_limit": STANDARD_TOKENS_PER_MINUTE_LIMIT,
+    }
+
 
 @dataclass
 class _TokenEvent:

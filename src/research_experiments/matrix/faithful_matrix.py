@@ -14,6 +14,11 @@ from typing import Any
 
 from research_experiments.core.config import load_benchmark_config, resolve_model_ref
 from research_experiments.cli_support.output import configure_utf8_stdio, emit_json
+from research_experiments.core.execution.rate_limits import (
+    STANDARD_MAX_CONCURRENT_REQUESTS,
+    STANDARD_REQUESTS_PER_MINUTE_LIMIT,
+    STANDARD_TOKENS_PER_MINUTE_LIMIT,
+)
 from research_experiments.families.registry import get_family_spec, validator_map
 from research_experiments.workspace.run_archives import publish_run_if_configured
 from research_experiments.matrix.faithful_acceptance import render_acceptance_summary
@@ -38,9 +43,9 @@ from research_experiments.workspace.layout import default_reports_root, default_
 
 DEFAULT_PHASE = "count20"
 DEFAULT_MODEL_REF = "xiaomimimo/mimo-v2.5"
-DEFAULT_MAX_CONCURRENT_REQUESTS = 90
-DEFAULT_REQUESTS_PER_MINUTE = 95
-DEFAULT_TOKENS_PER_MINUTE = 9000000
+DEFAULT_MAX_CONCURRENT_REQUESTS = STANDARD_MAX_CONCURRENT_REQUESTS
+DEFAULT_REQUESTS_PER_MINUTE = STANDARD_REQUESTS_PER_MINUTE_LIMIT
+DEFAULT_TOKENS_PER_MINUTE = STANDARD_TOKENS_PER_MINUTE_LIMIT
 MATRIX_EXPERIMENT_KIND = MATRIX_RUN_KIND_FAITHFUL
 REPRODUCTION_MATRIX_EXPERIMENT_KIND = "reproduction_matrix"
 

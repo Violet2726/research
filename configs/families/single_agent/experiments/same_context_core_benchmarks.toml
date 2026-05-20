@@ -15,9 +15,9 @@ benchmark_configs = [
 global_seed = 42
 reruns_per_method = 3
 prompt_version = "single_agent_reasoning_json_v1"
-max_concurrent_requests = 5
-requests_per_minute_limit = 50
-tokens_per_minute_limit = 1000000
+max_concurrent_requests = 90
+requests_per_minute_limit = 95
+tokens_per_minute_limit = 9000000
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 
 [phases.count20]
