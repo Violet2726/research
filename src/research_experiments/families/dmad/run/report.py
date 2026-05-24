@@ -67,12 +67,13 @@ def _render_report_markdown(
 ) -> str:
     overall_rows = {str(row["method_name"]): row for row in summary_rows if str(row.get("dataset")) == "overall"}
     evaluation_scope = str(manifest.get("evaluation_scope") or "paper_main")
-    primary_method_name = "dmad_cot_sbp_pot" if evaluation_scope == "paper_main" else "dmad_cot_sbp_l2m"
-    primary_row = overall_rows.get(primary_method_name)
+    dmad_candidates = [row for name, row in overall_rows.items() if name.startswith("dmad")]
+    primary_row = max(dmad_candidates, key=lambda item: float(item.get("accuracy_mean") or 0.0)) if dmad_candidates else None
+    primary_method_name = "" if primary_row is None else str(primary_row.get("method_name") or "")
     fixed_rows = [
         row
         for row in overall_rows.values()
-        if str(row.get("method_name")) in {"mad_all_cot", "mad_all_sbp", "mad_all_pot", "mad_all_l2m"}
+        if str(row.get("method_name") or "").startswith("mad_all_")
     ]
     best_fixed_row = max(fixed_rows, key=lambda item: float(item.get("accuracy_mean") or 0.0)) if fixed_rows else None
 

@@ -15,6 +15,7 @@ from research_experiments.families.dmad.config import DmadExperimentConfig, Dmad
 from research_experiments.families.dmad.prompts import (
     build_answer_stage_messages,
     build_initial_messages,
+    build_joint_round_messages,
     build_mrp_method_selection_messages,
     build_mrp_solution_messages,
     build_reasoning_stage_messages,
@@ -916,12 +917,12 @@ def _run_mad_method(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     if roster is None:
         raise RuntimeError(f"DMAD method {method.name} requires a roster.")
+    joint_calls = _is_joint_debate_call_style(method)
     debate_rows: list[dict[str, Any]] = []
     all_turns: list[dict[str, Any]] = []
     prior_rounds: list[list[dict[str, str]]] = []
     initial_turns: list[dict[str, Any]] = []
     final_turns: list[dict[str, Any]] = []
-    final_states: list[RoundAgentState] = []
 
     for round_index in range(1, protocol.debate_rounds + 1):
         current_round: list[RoundAgentState] = []
@@ -950,92 +951,142 @@ def _run_mad_method(
                             )
                         )
                     )
-            process_role = "initial_process" if round_index == 1 else "debate_process"
-            answer_role = "initial_answer" if round_index == 1 else "debate_answer"
-            process_row = _execute_process_turn(
-                run_id=run_id,
-                dataset=benchmark_slug,
-                split_name=split_name,
-                sample=sample,
-                method_name=method.name,
-                method_type="mad",
-                diversity_mode=roster.diversity_mode,
-                round_index=round_index,
-                role=process_role,
-                visible_peer_count=visible_peer_count,
-                persona_name=profile.persona_name,
-                strategy_name=_resolved_strategy_name(sample.dataset, profile.strategy_name),
-                messages=build_reasoning_stage_messages(
-                    sample,
-                    profile,
+            strategy_name = _resolved_strategy_name(sample.dataset, profile.strategy_name)
+            if joint_calls:
+                joint_role = "initial_joint" if round_index == 1 else "debate_joint"
+                joint_row = _execute_reasoning_answer_turn(
+                    run_id=run_id,
+                    dataset=benchmark_slug,
+                    split_name=split_name,
+                    sample=sample,
+                    method_name=method.name,
+                    method_type="mad",
+                    diversity_mode=roster.diversity_mode,
                     round_index=round_index,
-                    prior_rounds=prior_rounds,
-                    prompt_version=experiment.prompt_version,
-                ),
-                backbone=backbone,
-                provider=provider,
-                cache=cache,
-                limiter=limiter,
-                temperature=protocol.initial_temperature if round_index == 1 else protocol.debate_temperature,
-                top_p=protocol.top_p,
-                max_output_tokens=protocol.max_output_tokens,
-                seed=experiment.global_seed + seed_offset + round_index * 100 + index * 2,
-                agent_id=profile.agent_id,
-            )
-            solving_process = str(process_row["validated_output"].get("reasoning", "")).strip()
-            execution_result = _nullable_string(process_row["validated_output"].get("execution_result"))
-            execution_status = _nullable_string(process_row["validated_output"].get("execution_status"))
-            execution_error = _nullable_string(process_row["validated_output"].get("execution_error"))
-            answer_row = _execute_turn(
-                run_id=run_id,
-                dataset=benchmark_slug,
-                split_name=split_name,
-                sample=sample,
-                method_name=method.name,
-                method_type="mad",
-                diversity_mode=roster.diversity_mode,
-                round_index=round_index,
-                role=answer_role,
-                visible_peer_count=visible_peer_count,
-                persona_name=profile.persona_name,
-                strategy_name=_resolved_strategy_name(sample.dataset, profile.strategy_name),
-                messages=build_answer_stage_messages(
-                    sample,
-                    profile,
-                    round_index=round_index,
-                    solving_process=solving_process,
-                    execution_result=execution_result,
-                    execution_status=execution_status,
-                    execution_error=execution_error,
-                    prior_rounds=prior_rounds,
-                    prompt_version=experiment.prompt_version,
-                ),
-                backbone=backbone,
-                provider=provider,
-                cache=cache,
-                limiter=limiter,
-                temperature=0.0,
-                top_p=protocol.top_p,
-                max_output_tokens=min(128, protocol.max_output_tokens),
-                seed=experiment.global_seed + seed_offset + round_index * 100 + index * 2 + 1,
-                agent_id=profile.agent_id,
-            )
-            current_round.append(
-                RoundAgentState(
-                    round_index=round_index,
-                    agent_id=profile.agent_id,
+                    role=joint_role,
+                    visible_peer_count=visible_peer_count,
                     persona_name=profile.persona_name,
-                    strategy_name=_resolved_strategy_name(sample.dataset, profile.strategy_name),
-                    process_row=process_row,
-                    answer_row=answer_row,
-                    solving_process=solving_process,
-                    final_answer=str(answer_row["validated_output"].get("final_answer", "")).strip(),
-                    execution_result=execution_result,
+                    strategy_name=strategy_name,
+                    messages=build_joint_round_messages(
+                        sample,
+                        profile,
+                        round_index=round_index,
+                        prior_rounds=prior_rounds,
+                        prompt_version=experiment.prompt_version,
+                    ),
+                    backbone=backbone,
+                    provider=provider,
+                    cache=cache,
+                    limiter=limiter,
+                    temperature=_joint_round_temperature(protocol, round_index=round_index),
+                    top_p=protocol.top_p,
+                    max_output_tokens=_joint_round_max_output_tokens(protocol),
+                    seed=experiment.global_seed + seed_offset + round_index * 100 + index,
+                    agent_id=profile.agent_id,
                 )
-            )
-            if _should_backfill_execution_from_answer(process_row, answer_row):
-                _backfill_execution_from_answer(process_row, answer_row)
-            all_turns.extend([process_row, answer_row])
+                solving_process = str(joint_row["validated_output"].get("reasoning", "")).strip()
+                execution_result = _nullable_string(joint_row["validated_output"].get("execution_result"))
+                current_round.append(
+                    RoundAgentState(
+                        round_index=round_index,
+                        agent_id=profile.agent_id,
+                        persona_name=profile.persona_name,
+                        strategy_name=strategy_name,
+                        process_row=joint_row,
+                        answer_row=joint_row,
+                        solving_process=solving_process,
+                        final_answer=str(joint_row["validated_output"].get("final_answer", "")).strip(),
+                        execution_result=execution_result,
+                    )
+                )
+                all_turns.append(joint_row)
+            else:
+                process_role = "initial_process" if round_index == 1 else "debate_process"
+                answer_role = "initial_answer" if round_index == 1 else "debate_answer"
+                process_row = _execute_process_turn(
+                    run_id=run_id,
+                    dataset=benchmark_slug,
+                    split_name=split_name,
+                    sample=sample,
+                    method_name=method.name,
+                    method_type="mad",
+                    diversity_mode=roster.diversity_mode,
+                    round_index=round_index,
+                    role=process_role,
+                    visible_peer_count=visible_peer_count,
+                    persona_name=profile.persona_name,
+                    strategy_name=strategy_name,
+                    messages=build_reasoning_stage_messages(
+                        sample,
+                        profile,
+                        round_index=round_index,
+                        prior_rounds=prior_rounds,
+                        prompt_version=experiment.prompt_version,
+                    ),
+                    backbone=backbone,
+                    provider=provider,
+                    cache=cache,
+                    limiter=limiter,
+                    temperature=protocol.initial_temperature if round_index == 1 else protocol.debate_temperature,
+                    top_p=protocol.top_p,
+                    max_output_tokens=protocol.max_output_tokens,
+                    seed=experiment.global_seed + seed_offset + round_index * 100 + index * 2,
+                    agent_id=profile.agent_id,
+                )
+                solving_process = str(process_row["validated_output"].get("reasoning", "")).strip()
+                execution_result = _nullable_string(process_row["validated_output"].get("execution_result"))
+                execution_status = _nullable_string(process_row["validated_output"].get("execution_status"))
+                execution_error = _nullable_string(process_row["validated_output"].get("execution_error"))
+                answer_row = _execute_turn(
+                    run_id=run_id,
+                    dataset=benchmark_slug,
+                    split_name=split_name,
+                    sample=sample,
+                    method_name=method.name,
+                    method_type="mad",
+                    diversity_mode=roster.diversity_mode,
+                    round_index=round_index,
+                    role=answer_role,
+                    visible_peer_count=visible_peer_count,
+                    persona_name=profile.persona_name,
+                    strategy_name=strategy_name,
+                    messages=build_answer_stage_messages(
+                        sample,
+                        profile,
+                        round_index=round_index,
+                        solving_process=solving_process,
+                        execution_result=execution_result,
+                        execution_status=execution_status,
+                        execution_error=execution_error,
+                        prior_rounds=prior_rounds,
+                        prompt_version=experiment.prompt_version,
+                    ),
+                    backbone=backbone,
+                    provider=provider,
+                    cache=cache,
+                    limiter=limiter,
+                    temperature=0.0,
+                    top_p=protocol.top_p,
+                    max_output_tokens=min(128, protocol.max_output_tokens),
+                    seed=experiment.global_seed + seed_offset + round_index * 100 + index * 2 + 1,
+                    agent_id=profile.agent_id,
+                )
+                current_round.append(
+                    RoundAgentState(
+                        round_index=round_index,
+                        agent_id=profile.agent_id,
+                        persona_name=profile.persona_name,
+                        strategy_name=strategy_name,
+                        process_row=process_row,
+                        answer_row=answer_row,
+                        solving_process=solving_process,
+                        final_answer=str(answer_row["validated_output"].get("final_answer", "")).strip(),
+                        execution_result=execution_result,
+                    )
+                )
+                if _should_backfill_execution_from_answer(process_row, answer_row):
+                    _backfill_execution_from_answer(process_row, answer_row)
+                all_turns.extend([process_row, answer_row])
 
         round_records = [
             {
@@ -1054,7 +1105,6 @@ def _run_mad_method(
         if round_index == 1:
             initial_turns = answer_rows
         final_turns = answer_rows
-        final_states = current_round
     prediction = _build_final_prediction(
         run_id=run_id,
         dataset=benchmark_slug,
@@ -1071,7 +1121,7 @@ def _run_mad_method(
         configured_strategy_names=_configured_strategy_names([profile.strategy_name for profile in roster.agents]),
         effective_strategy_names=[_resolved_strategy_name(sample.dataset, profile.strategy_name) for profile in roster.agents],
         persona_names=[profile.persona_name for profile in roster.agents],
-        calls_per_question=len(roster.agents) * protocol.debate_rounds * 2,
+        calls_per_question=_calls_per_question(method, protocol, roster, controls={}),
         debate_rounds=protocol.debate_rounds,
         agent_count=roster.agent_count,
     )
@@ -1224,6 +1274,7 @@ def _build_paper_tables(
         "gpqa_domain_rows": _group_accuracy_rows(gpqa_rows, field_name="paper_domain"),
         "appendix_rows": _group_accuracy_rows(appendix_rows, field_name=None),
         "extended_dataset_rows": _group_accuracy_rows(extended_rows, field_name="dataset"),
+        "generic_dataset_rows": _group_accuracy_rows(prediction_rows, field_name="dataset"),
     }
 
 
@@ -1242,11 +1293,16 @@ def _build_strategy_diagnostics(
     )
     _annotate_gain_rows(rows)
     overall_lookup = {(str(row["dataset"]), str(row["method_name"])): row for row in rows}
-    dmad_row = overall_lookup.get(("overall", "dmad_cot_sbp_pot")) or overall_lookup.get(("overall", "dmad_cot_sbp_l2m"))
+    dmad_candidates = [
+        row
+        for key, row in overall_lookup.items()
+        if key[0] == "overall" and str(key[1]).startswith("dmad")
+    ]
+    dmad_row = max(dmad_candidates, key=lambda item: float(item.get("accuracy_mean") or 0.0)) if dmad_candidates else None
     fixed_rows = [
         row
         for key, row in overall_lookup.items()
-        if key[0] == "overall" and key[1] in {"mad_all_cot", "mad_all_sbp", "mad_all_pot", "mad_all_l2m"}
+        if key[0] == "overall" and str(key[1]).startswith("mad_all_")
     ]
     best_fixed_row = max(fixed_rows, key=lambda item: float(item.get("accuracy_mean") or 0.0)) if fixed_rows else None
     gate_passed = bool(
@@ -1570,6 +1626,22 @@ def _contrast_reasoning_methods(mode: str) -> list[str]:
         raise ValueError(f"Unsupported contrastive reasoning mode: {mode}") from exc
 
 
+def _is_joint_debate_call_style(method: DmadMethodSpec) -> bool:
+    normalized = str(method.debate_call_style or "split_process_answer").strip().lower()
+    if normalized not in {"split_process_answer", "joint_reasoning_answer"}:
+        raise ValueError(f"Unsupported debate_call_style for {method.name}: {method.debate_call_style}")
+    return normalized == "joint_reasoning_answer"
+
+
+def _joint_round_max_output_tokens(protocol: ProtocolConfig) -> int:
+    return int(protocol.max_output_tokens) + min(128, int(protocol.max_output_tokens))
+
+
+def _joint_round_temperature(protocol: ProtocolConfig, *, round_index: int) -> float:
+    base = protocol.initial_temperature if round_index == 1 else protocol.debate_temperature
+    return min(float(base), 0.15)
+
+
 def _calls_per_question(
     method: DmadMethodSpec,
     protocol: ProtocolConfig,
@@ -1589,7 +1661,8 @@ def _calls_per_question(
         return 2
     if roster is None:
         raise RuntimeError(f"DMAD method {method.name} is missing roster metadata.")
-    return roster.agent_count * protocol.debate_rounds * 2
+    per_round_calls = 1 if _is_joint_debate_call_style(method) else 2
+    return roster.agent_count * protocol.debate_rounds * per_round_calls
 
 
 def _execute_process_turn(

@@ -122,6 +122,59 @@ def build_answer_stage_messages(
     ]
 
 
+def build_joint_round_messages(
+    sample: DatasetSample,
+    agent_profile: AgentProfile,
+    *,
+    round_index: int,
+    prior_rounds: list[list[dict[str, str]]] | None = None,
+    prompt_version: str = DEFAULT_PROMPT_VERSION,
+) -> list[dict[str, str]]:
+    _assert_prompt_version(prompt_version)
+    method_spec = resolve_reasoning_method(sample.dataset, agent_profile.strategy_name)
+    history_block = _render_prior_rounds(agent_profile.agent_id, prior_rounds or [])
+    user_prompt = (
+        f"{_agent_header(agent_profile, method_spec)}"
+        f"{_dataset_instruction(sample)}\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+    )
+    if sample.prompt_context:
+        user_prompt += f"Context:\n{sample.prompt_context}\n\n"
+    if history_block:
+        user_prompt += f"Debate history so far:\n{history_block}\n\n"
+    user_prompt += (
+        f"You are now in round {round_index} of the debate.\n"
+        "Review your own prior attempt first, then compare it against peer solutions.\n"
+        "Revise only when you can name one concrete flaw in the previous attempt and one concrete reason the new answer is better supported.\n"
+        f"When peer solutions disagree, {method_spec.debate_action}.\n"
+    )
+    if method_spec.label == "PoT":
+        user_prompt += (
+            "Return exactly one JSON object with keys \"final_answer\", \"reasoning\", and \"python_program\".\n"
+            'The field "python_program" must be executable Python without markdown fences and must store the final result in a variable named "ans".\n'
+            "Keep the reasoning concise but inspection-ready and make final_answer consistent with the executed program result.\n"
+            "Do not add any extra text.\n"
+        )
+    else:
+        user_prompt += (
+            "Return exactly one JSON object with keys \"final_answer\" and \"reasoning\".\n"
+            "Keep the reasoning concise but inspection-ready.\n"
+            "Do not add any extra text.\n"
+        )
+    if sample.dataset in {"mmlu_pro", "gpqa_diamond", "mmlu_abstract_algebra"}:
+        user_prompt += "Keep the reasoning under 180 words and focus only on the decisive option-by-option checks.\n"
+    counting_hint = _counting_probability_guardrails(sample)
+    if counting_hint:
+        user_prompt += f"\nMath verification hint: {counting_hint}"
+    guardrails = _multiple_choice_guardrails(sample)
+    if guardrails:
+        user_prompt += f"\nFor answer-format safety: {guardrails}"
+    return [
+        {"role": "system", "content": _system_prompt()},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
 def build_initial_messages(
     sample: DatasetSample,
     agent_profile: AgentProfile,

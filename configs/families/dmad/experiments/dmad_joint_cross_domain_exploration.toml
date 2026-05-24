@@ -1,0 +1,57 @@
+name = "dmad_joint_cross_domain_exploration"
+description = "Exploratory cross-domain DMAD study comparing split process+answer calls against single-call joint reasoning+answer outputs on representative benchmarks."
+evaluation_scope = "exploratory_cross_domain"
+paper_alignment_version = "dmad_iclr2025_llm_text_v1+joint_call_explore_v1"
+benchmark_configs = [
+  "configs/core/shared/benchmarks/competition_math/MATH.toml",
+  "configs/core/shared/benchmarks/gpqa/dataset.toml",
+  "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
+]
+protocol = "configs/families/dmad/protocols/dmad_3a_r2.toml"
+global_seed = 42
+prompt_version = "dmad_v1_json"
+max_concurrent_requests = 90
+requests_per_minute_limit = 95
+tokens_per_minute_limit = 9000000
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+
+[[methods]]
+name = "cot"
+mode = "single_cot"
+note = "Single-agent lower bound."
+
+[[methods]]
+name = "mrp"
+mode = "mrp_cot_sbp_pot"
+note = "Single-model dynamic method routing baseline."
+
+[[methods]]
+name = "mad_all_cot_split"
+mode = "mad_all_cot"
+roster = "configs/families/dmad/rosters/mad_all_cot_3agent.toml"
+debate_call_style = "split_process_answer"
+note = "Homogeneous MAD with separate process and answer calls."
+
+[[methods]]
+name = "mad_all_cot_joint"
+mode = "mad_all_cot"
+roster = "configs/families/dmad/rosters/mad_all_cot_3agent.toml"
+debate_call_style = "joint_reasoning_answer"
+note = "Homogeneous MAD with one joint reasoning+answer call per round."
+
+[[methods]]
+name = "dmad_cot_sbp_pot_split"
+mode = "dmad_cot_sbp_pot"
+roster = "configs/families/dmad/rosters/dmad_cot_sbp_pot_3agent.toml"
+debate_call_style = "split_process_answer"
+note = "Reference DMAD reproduction with separate process and answer calls."
+
+[[methods]]
+name = "dmad_cot_sbp_pot_joint"
+mode = "dmad_cot_sbp_pot"
+roster = "configs/families/dmad/rosters/dmad_cot_sbp_pot_3agent.toml"
+debate_call_style = "joint_reasoning_answer"
+note = "Proposed joint-output DMAD variant."
+
+[phases.count20]
+split_overrides = { competition_math = "count20_seed0", gpqa_diamond = "count20_seed42", hotpotqa = "count20_seed42" }

@@ -59,6 +59,7 @@ class DmadMethodSpec:
     name: str
     mode: str
     roster: Path | None = None
+    debate_call_style: str = "split_process_answer"
     note: str = ""
     matched_controls: list[str] = field(default_factory=list)
 
@@ -134,6 +135,7 @@ def load_experiment_config(path: str | Path) -> DmadExperimentConfig:
             name=str(item["name"]),
             mode=str(item["mode"]),
             roster=Path(item["roster"]) if item.get("roster") else None,
+            debate_call_style=str(item.get("debate_call_style") or "split_process_answer"),
             note=str(item.get("note") or "").strip(),
             matched_controls=[str(name) for name in item.get("matched_controls", [])],
         )

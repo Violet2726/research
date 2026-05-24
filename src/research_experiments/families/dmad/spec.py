@@ -64,6 +64,7 @@ def _build_inspect_payload(experiment_path: str, model_override: str | None) -> 
                 "name": method.name,
                 "mode": method.mode,
                 "roster": None if method.roster is None else method.roster.as_posix(),
+                "debate_call_style": method.debate_call_style,
                 "note": method.note,
                 "matched_controls": list(method.matched_controls),
                 "roster_config": None if method.roster is None else asdict(load_roster_config(method.roster)),
