@@ -55,3 +55,6 @@ note = "Proposed joint-output DMAD variant."
 
 [phases.count20]
 split_overrides = { competition_math = "count20_seed0", gpqa_diamond = "count20_seed42", hotpotqa = "count20_seed42" }
+
+[phases.count100]
+split_overrides = { competition_math = "count100_seed0", gpqa_diamond = "count100_seed42", hotpotqa = "count100_seed42" }
