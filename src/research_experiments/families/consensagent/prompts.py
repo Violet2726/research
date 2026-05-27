@@ -50,28 +50,6 @@ Clearly explain what you agree with and disagree with.
 # ── 论文 Phase 3：Prompt 优化（in-context learning 替代微调）───────────
 # 基于论文 Figure 4 / Appendix B 的优化示例
 _DATASET_OPTIMIZATION_EXAMPLES: dict[str, dict[str, str]] = {
-    "kitab": {
-        "original": "Name the books by {author} that satisfy the given constraints.",
-        "refined": (
-            "Name the books that fit the criteria below. "
-            "Think step by step, consider each constraint carefully, "
-            "and list all matching book titles. Do NOT agree with other agents without reason. "
-            "Criterion: {constraints}"
-        ),
-        "reasoning": "Added step-by-step instruction and anti-sycophancy warning. Made constraints explicit.",
-    },
-    "clutrr": {
-        "original": "{story}\n\nHow is {person1} related to {person2}?",
-        "refined": (
-            "How is {person1} related to {person2}? To find the relationship, follow these steps:\n"
-            "1. Review each fact in the story carefully.\n"
-            "2. Map indirect relationships step by step through the family tree.\n"
-            "3. Determine how {person1} is connected to {person2} through the described relationships.\n"
-            "4. Answer using one precise family term (e.g., grandfather, aunt, cousin).\n"
-            "Respond clearly and concisely. Do not agree with other agents without evidence."
-        ),
-        "reasoning": "Removed irrelevant story context, added multi-step reasoning guidance, and specified output format.",
-    },
     "hotpotqa": {
         "original": "{question}\n\nContext: {context}",
         "refined": (
@@ -81,19 +59,6 @@ _DATASET_OPTIMIZATION_EXAMPLES: dict[str, dict[str, str]] = {
             "Output only the final answer, no extra text."
         ),
         "reasoning": "Clarified multi-hop instruction order, added anti-sycophancy warning, specified concise output.",
-    },
-    "ethics": {
-        "original": "{scenario}\n\nIs this action reasonable or unreasonable?",
-        "refined": (
-            "Evaluate the ethical scenario below.\n"
-            "Guiding Steps:\n"
-            "1. Consider the fairness and impact of the action on all parties involved.\n"
-            "2. Ask: Does this action respect others' rights and dignity?\n"
-            "3. Evaluate whether the action serves justice, fairness, or loyalty.\n"
-            "4. Consider what a reasonable person would do in this situation.\n"
-            "Answer with exactly 'reasonable' or 'unreasonable'."
-        ),
-        "reasoning": "Added structured ethical reasoning steps and clarified binary output format.",
     },
     "gsm8k": {
         "original": "{question}",
@@ -106,16 +71,6 @@ _DATASET_OPTIMIZATION_EXAMPLES: dict[str, dict[str, str]] = {
             "Do NOT agree with other agents without verifying their calculations."
         ),
         "reasoning": "Added structured computational steps, verification instruction, and anti-sycophancy warning.",
-    },
-    "triviaqa": {
-        "original": "{question}",
-        "refined": (
-            "Answer the following trivia question.\n"
-            "Think step by step using your knowledge. "
-            "Answer in one word or a short phrase.\n"
-            "Do NOT just agree with other agents. Provide the most accurate answer you know."
-        ),
-        "reasoning": "Specified concise output format, added anti-sycophancy warning, requested knowledge-based reasoning.",
     },
 }
 

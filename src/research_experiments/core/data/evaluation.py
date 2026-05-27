@@ -56,14 +56,6 @@ def normalize_prediction(dataset: str, final_answer: str) -> str:
         return normalize_multiple_choice(final_answer)
     if dataset == "humaneval":
         return normalize_code_completion(final_answer)
-    if dataset == "kitab":
-        return normalize_kitab_answer(final_answer)
-    if dataset == "clutrr":
-        return normalize_clutrr_label(final_answer)
-    if dataset == "ethics":
-        return normalize_ethics_label(final_answer)
-    if dataset == "triviaqa":
-        return normalize_text(final_answer)
     raise ValueError(f"Unsupported dataset {dataset}")
 
 
@@ -120,8 +112,6 @@ def score_prediction(dataset: str, predicted: str, gold: str) -> float:
         return score_text_answer_alias_exact(predicted, gold)
     if dataset == "mmlu":
         return score_multiple_choice(predicted, gold)
-    if dataset == "kitab":
-        return score_kitab(predicted, gold)
     return 1.0 if normalize_prediction(dataset, predicted) == normalize_gold(dataset, gold) else 0.0
 
 
@@ -599,151 +589,3 @@ def _strip_code_fences(value: str) -> str:
     if fence_match:
         return fence_match.group(1).strip("\r\n")
     return text.strip("\r\n")
-
-
-def normalize_clutrr_label(value: str) -> str:
-    """归一化 CLUTRR 亲属关系标签。
-
-    模型可能输出完整句子如 "Gabrielle is Jeffrey's grandmother"，
-    需要提取关系词。金标可能是数字编码或文本。
-    """
-    text = str(value or "").strip().lower()
-    if not text:
-        return ""
-
-    # 如果是纯数字（旧版金标），直接返回
-    if text.isdigit():
-        return text
-
-    # 标准关系词列表
-    relations = [
-        "daughter-in-law", "son-in-law", "father-in-law", "mother-in-law",
-        "granddaughter", "grandfather", "grandmother", "grandson",
-        "daughter", "son", "mother", "father", "sister", "brother",
-        "aunt", "uncle", "nephew", "niece", "cousin", "wife", "husband",
-        "stepdaughter", "stepson", "stepmother", "stepfather",
-    ]
-
-    # 先检查文本是否本身就是关系词
-    for rel in relations:
-        if text == rel:
-            return rel
-
-    # 从句子中提取关系词（如 "X is Y's grandmother" → "grandmother"）
-    for rel in sorted(relations, key=len, reverse=True):  # 先匹配长词
-        if rel in text:
-            return rel
-
-    return text
-
-
-def normalize_ethics_label(value: str) -> str:
-    """归一化 Ethics 标签为 reasonable / unreasonable。"""
-    text = str(value or "").strip().lower()
-    if text in {"reasonable", "1", "yes", "ethical", "morally acceptable"}:
-        return "reasonable"
-    if text in {"unreasonable", "0", "no", "unethical", "not reasonable", "morally unacceptable"}:
-        return "unreasonable"
-    # fallback: check keyword presence
-    if "reasonable" in text and "unreasonable" not in text:
-        return "reasonable"
-    if "unreasonable" in text:
-        return "unreasonable"
-    return text
-
-
-def normalize_kitab_answer(value: str) -> str:
-    """归一化 KITAB 答案。提取书名列表并排序比较。"""
-    titles = _extract_kitab_titles(value)
-    return ", ".join(sorted(titles))
-
-
-def _extract_kitab_titles(value: str) -> list[str]:
-    """从各种格式中提取 KITAB 书名列表。"""
-    text = str(value or "").strip()
-    if not text:
-        return []
-
-    # 尝试解析 Python list 格式: "['title1', 'title2']"
-    if text.startswith("["):
-        try:
-            import ast
-            parsed = ast.literal_eval(text)
-            if isinstance(parsed, list):
-                return [normalize_text(str(t).strip()) for t in parsed if str(t).strip()]
-        except (ValueError, SyntaxError):
-            pass
-
-    titles = []
-
-    # 处理 markdown 格式: "- *Title*\n- *Title*"
-    lines = text.split("\n")
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        # 去除 markdown 列表标记和斜体
-        line = re.sub(r"^[-*•]\s*", "", line)
-        line = re.sub(r"\*([^*]+)\*", r"\1", line)
-        line = re.sub(r"_([^_]+)_", r"\1", line)
-        # 去除年份和括号
-        line = re.sub(r"\s*\(\d{4}\)\s*", "", line)
-        line = line.strip().strip(",").strip()
-        if line and line.lower() not in ("none", "n/a", ""):
-            # 检查是否包含逗号分隔的多个书名
-            if "," in line:
-                parts = [t.strip() for t in line.split(",") if t.strip()]
-                for part in parts:
-                    part = part.strip().strip(",").strip()
-                    if part and part.lower() not in ("none", "n/a", ""):
-                        titles.append(normalize_text(part))
-            else:
-                titles.append(normalize_text(line))
-
-    if titles:
-        return titles
-
-    # 逗号分隔格式（fallback）
-    if "," in text:
-        parts = [t.strip() for t in text.split(",") if t.strip()]
-        return [normalize_text(t) for t in parts if t.lower() not in ("none", "n/a")]
-
-    # 单个书名
-    if text and text.lower() not in ("none", "n/a"):
-        return [normalize_text(text)]
-
-    return []
-
-
-def score_kitab(predicted: str, gold: str) -> float:
-    """KITAB 打分：计算预测书名集合与金标书名集合的 F1 分数。"""
-    pred_titles = set(_extract_kitab_titles(predicted))
-    gold_titles = set(_extract_kitab_titles(gold))
-
-    if not gold_titles:
-        return 0.0
-    if not pred_titles:
-        return 0.0
-
-    # 归一化所有书名
-    pred_normalized = {normalize_text(t) for t in pred_titles}
-    gold_normalized = {normalize_text(t) for t in gold_titles}
-
-    # 移除空字符串
-    pred_normalized.discard("")
-    gold_normalized.discard("")
-
-    if not gold_normalized:
-        return 0.0
-    if not pred_normalized:
-        return 0.0
-
-    # 计算 F1
-    common = pred_normalized & gold_normalized
-    if not common:
-        return 0.0
-
-    precision = len(common) / len(pred_normalized)
-    recall = len(common) / len(gold_normalized)
-    f1 = 2 * precision * recall / (precision + recall)
-    return round(f1, 6)

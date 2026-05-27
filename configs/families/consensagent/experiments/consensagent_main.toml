@@ -1,18 +1,14 @@
-# CONSENSAGENT 主实验配置（对齐论文 6 数据集）
+# CONSENSAGENT 主实验配置
 name = "consensagent_main"
 description = "CONSENSAGENT: 基于触发机制的多智能体辩论，通过检测谄媚行为提升共识质量。含 CoT 和 MAD 对比基线。"
 experiment_note = """
-实验定位：CONSENSAGENT 框架论文复现实验，覆盖论文全部 6 个数据集。
+实验定位：CONSENSAGENT 框架论文复现实验。
 Phase 3 使用 LLM in-context learning（1 个 few-shot 示例）替代微调 GPT-4o。
 对比方法：CoT（单智能体）、MAD（标准多智能体辩论）
 """
 benchmark_configs = [
-  "configs/core/shared/benchmarks/kitab/test.toml",
-  "configs/core/shared/benchmarks/clutrr/test.toml",
   "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
-  "configs/core/shared/benchmarks/ethics/test.toml",
   "configs/core/shared/benchmarks/gsm8k/test.toml",
-  "configs/core/shared/benchmarks/triviaqa/validation.toml",
 ]
 control_catalog = "configs/core/shared/controls/no_comm_equal_budget.toml"
 global_seed = 42
@@ -55,5 +51,5 @@ split_suffix = "count100_seed42"
 setups = ["consensagent_3a"]
 
 [phases.count300]
-split_overrides = { kitab = "full300_seed42", clutrr = "full300_seed42", ethics = "full300_seed42", triviaqa = "full300_seed42", gsm8k = "count300_seed42", hotpotqa = "count300_seed42" }
+split_overrides = { gsm8k = "count300_seed42", hotpotqa = "count300_seed42" }
 setups = ["consensagent_3a"]
