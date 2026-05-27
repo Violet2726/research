@@ -7,9 +7,10 @@ from testsupport.cli import run_cli_json
 
 def test_dataset_assets_list_used_cli() -> None:
     payload = run_cli_json(["research_cli", "tools", "dataset-assets", "list-used"])
-    assert payload["benchmark_count"] == 25
+    assert payload["benchmark_count"] == 26
     assert {item["slug"] for item in payload["benchmarks"]} == {
         "commongen_hard",
+        "competition_math",
         "cwq",
         "grailqa_test",
         "metaqa_1hop",
