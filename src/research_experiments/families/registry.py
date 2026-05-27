@@ -69,6 +69,16 @@ class FamilySpec:
 
 
 FAMILY_SPECS: dict[str, FamilySpec] = {
+    "consensagent": FamilySpec(
+        family_name="consensagent",
+        config_loader_path="research_experiments.families.consensagent.config:load_experiment_config",
+        model_resolver_path="research_experiments.families.shared.config_loading:resolve_model",
+        runner_path="research_experiments.families.consensagent.run.execute:run_experiment",
+        validator_path="research_experiments.families.consensagent.run.validate:validate_run",
+        summarizer_path="research_experiments.families.consensagent.run.report:summarize_run",
+        report_renderer_path="research_experiments.families.consensagent.run.report:render_report",
+        cli_main_path="research_experiments.families.consensagent.spec:main",
+    ),
     "budget_comm": FamilySpec(
         family_name="budget_comm",
         config_loader_path="research_experiments.families.budget_comm.config:load_experiment_config",
