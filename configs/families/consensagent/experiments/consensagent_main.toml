@@ -9,6 +9,7 @@ Phase 3 使用 LLM in-context learning（1 个 few-shot 示例）替代微调 GP
 benchmark_configs = [
   "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
   "configs/core/shared/benchmarks/gsm8k/test.toml",
+  "configs/core/shared/benchmarks/strategyqa/dev.toml",
 ]
 control_catalog = "configs/core/shared/controls/no_comm_equal_budget.toml"
 global_seed = 42
