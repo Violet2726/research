@@ -1,0 +1,29 @@
+{
+  "dataset": "kitab",
+  "split_name": "count20_seed42",
+  "source_split": "test",
+  "sample_count": 20,
+  "sample_ids": [
+    "kitab-00106",
+    "kitab-00239",
+    "kitab-00037",
+    "kitab-00089",
+    "kitab-00032",
+    "kitab-00250",
+    "kitab-00192",
+    "kitab-00120",
+    "kitab-00019",
+    "kitab-00225",
+    "kitab-00024",
+    "kitab-00295",
+    "kitab-00103",
+    "kitab-00220",
+    "kitab-00205",
+    "kitab-00297",
+    "kitab-00291",
+    "kitab-00038",
+    "kitab-00158",
+    "kitab-00173"
+  ],
+  "random_seed": 42
+}

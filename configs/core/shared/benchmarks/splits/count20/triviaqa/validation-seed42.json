@@ -1,0 +1,29 @@
+{
+  "dataset": "triviaqa",
+  "split_name": "count20_seed42",
+  "source_split": "validation",
+  "sample_count": 20,
+  "sample_ids": [
+    "triviaqa-07261",
+    "triviaqa-14502",
+    "triviaqa-02538",
+    "triviaqa-06260",
+    "triviaqa-02332",
+    "triviaqa-15128",
+    "triviaqa-11467",
+    "triviaqa-07908",
+    "triviaqa-01491",
+    "triviaqa-13813",
+    "triviaqa-01786",
+    "triviaqa-17675",
+    "triviaqa-07142",
+    "triviaqa-13624",
+    "triviaqa-12464",
+    "triviaqa-17780",
+    "triviaqa-17502",
+    "triviaqa-02640",
+    "triviaqa-09543",
+    "triviaqa-10222"
+  ],
+  "random_seed": 42
+}

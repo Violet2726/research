@@ -1,0 +1,29 @@
+# CLUTRR: 归纳推理数据集（论文 Table 2）
+name = "CLUTRR"
+slug = "clutrr"
+loader = "clutrr_jsonl"
+source_path = "clutrr/test.jsonl"
+source_split = "test"
+sample_id_prefix = "clutrr"
+question_field = "story"
+answer_field = "target"
+smoke_size = 20
+pilot_size = 100
+main_size = 300
+random_seed = 42
+notes = "CLUTRR inductive reasoning benchmark. Family relationship inference from text."
+
+[[split_presets]]
+name = "count20_seed42"
+strategy = "shuffle"
+size = 20
+
+[[split_presets]]
+name = "count100_seed42"
+strategy = "shuffle"
+size = 100
+
+[[split_presets]]
+name = "full300_seed42"
+strategy = "shuffle"
+size = 300

@@ -1,0 +1,29 @@
+# TriviaQA: 开放域问答数据集（论文 Table 2）
+name = "TriviaQA"
+slug = "triviaqa"
+loader = "triviaqa_jsonl"
+source_path = "triviaqa/validation.jsonl"
+source_split = "validation"
+sample_id_prefix = "triviaqa"
+question_field = "question"
+answer_field = "normalized_answer"
+smoke_size = 20
+pilot_size = 100
+main_size = 300
+random_seed = 42
+notes = "TriviaQA open-domain QA benchmark. No-context validation split."
+
+[[split_presets]]
+name = "count20_seed42"
+strategy = "shuffle"
+size = 20
+
+[[split_presets]]
+name = "count100_seed42"
+strategy = "shuffle"
+size = 100
+
+[[split_presets]]
+name = "full300_seed42"
+strategy = "shuffle"
+size = 300
