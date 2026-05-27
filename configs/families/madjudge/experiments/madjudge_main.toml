@@ -1,0 +1,41 @@
+# MADJudge 主实验配置
+# 复现论文 "Multi-Agent Debate for LLM Judges with Adaptive Stability Detection" (arXiv:2510.12697)
+name = "madjudge_main"
+description = "MADJudge: 基于 Beta-Binomial 混合模型和 KS 检验的自适应多智能体辩论框架。"
+experiment_note = """
+实验定位：MADJudge 论文复现实验。
+核心创新：使用时变 Beta-Binomial 混合模型跟踪 judges 共识动态，通过 KS 检验自适应停止辩论。
+论文推荐配置：7 agents, 10 rounds max, temperature 1.0, KS threshold 0.05.
+"""
+benchmark_configs = [
+  "configs/core/shared/benchmarks/gsm8k/test.toml",
+  "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
+  "configs/core/shared/benchmarks/strategyqa/dev.toml",
+  "configs/core/shared/benchmarks/math500/test.toml",
+  "configs/core/shared/benchmarks/mmlu-pro/test.toml",
+  "configs/core/shared/benchmarks/gpqa/dataset.toml",
+  "configs/core/shared/benchmarks/webquestions/test.toml",
+]
+control_catalog = "configs/core/shared/controls/no_comm_equal_budget.toml"
+global_seed = 42
+prompt_version = "madjudge_v1"
+max_concurrent_requests = 200
+requests_per_minute_limit = 300
+tokens_per_minute_limit = 30000000
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+
+[[setups]]
+name = "madjudge_7a"
+protocol = "configs/families/madjudge/protocols/default.toml"
+roster = "configs/families/madjudge/rosters/homogeneous_7agent.toml"
+matched_controls = ["cot_1", "mv_7"]
+
+[[setups]]
+name = "madjudge_5a"
+protocol = "configs/families/madjudge/protocols/default_5agents.toml"
+roster = "configs/families/madjudge/rosters/homogeneous_5agent.toml"
+matched_controls = ["cot_1", "mv_5"]
+
+[phases.count20]
+split_suffix = "count20_seed42"
+setups = ["madjudge_7a"]

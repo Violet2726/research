@@ -1,0 +1,35 @@
+# MADJudge 同构 7 智能体 roster
+[[agents]]
+agent_id = 1
+persona_name = "judge_1"
+persona_instruction = ""
+
+[[agents]]
+agent_id = 2
+persona_name = "judge_2"
+persona_instruction = ""
+
+[[agents]]
+agent_id = 3
+persona_name = "judge_3"
+persona_instruction = ""
+
+[[agents]]
+agent_id = 4
+persona_name = "judge_4"
+persona_instruction = ""
+
+[[agents]]
+agent_id = 5
+persona_name = "judge_5"
+persona_instruction = ""
+
+[[agents]]
+agent_id = 6
+persona_name = "judge_6"
+persona_instruction = ""
+
+[[agents]]
+agent_id = 7
+persona_name = "judge_7"
+persona_instruction = ""

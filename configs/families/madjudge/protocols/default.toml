@@ -1,0 +1,14 @@
+# MADJudge 协议配置（论文 Section 3 + Section 5）
+# 论文推荐：7 agents, 10 rounds max, temperature 1.0
+agent_count = 7
+max_debate_rounds = 10
+temperature = 1.0
+top_p = 1.0
+max_output_tokens = 512
+method_type = "madjudge"
+
+[stability]
+# 论文 Section 5.3：KS 统计量阈值
+ks_threshold = 0.05
+# 论文：需要连续 2 轮稳定才停止
+consecutive_stable_required = 2
