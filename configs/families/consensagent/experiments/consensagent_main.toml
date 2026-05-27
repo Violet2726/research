@@ -1,9 +1,10 @@
 # CONSENSAGENT 主实验配置（对齐论文 6 数据集）
 name = "consensagent_main"
-description = "CONSENSAGENT: 基于触发机制的多智能体辩论，通过检测谄媚行为提升共识质量。"
+description = "CONSENSAGENT: 基于触发机制的多智能体辩论，通过检测谄媚行为提升共识质量。含 CoT 和 MAD 对比基线。"
 experiment_note = """
 实验定位：CONSENSAGENT 框架论文复现实验，覆盖论文全部 6 个数据集。
 Phase 3 使用 LLM in-context learning（1 个 few-shot 示例）替代微调 GPT-4o。
+对比方法：CoT（单智能体）、MAD（标准多智能体辩论）
 """
 benchmark_configs = [
   "configs/core/shared/benchmarks/kitab/test.toml",
@@ -25,17 +26,29 @@ primary_model_ref = "xiaomimimo/mimo-v2.5"
 name = "consensagent_3a"
 protocol = "configs/families/consensagent/protocols/default.toml"
 roster = "configs/families/consensagent/rosters/homogeneous_3agent.toml"
-matched_controls = ["mv_6"]
+matched_controls = ["cot_1", "mv_6"]
 
 [[setups]]
 name = "consensagent_3a_hetero"
 protocol = "configs/families/consensagent/protocols/default.toml"
 roster = "configs/families/consensagent/rosters/heterogeneous_3agent.toml"
-matched_controls = ["mv_6"]
+matched_controls = ["cot_1", "mv_6"]
+
+[[setups]]
+name = "mad_3a_r1"
+protocol = "configs/families/consensagent/protocols/mad_r1.toml"
+roster = "configs/families/consensagent/rosters/homogeneous_3agent.toml"
+matched_controls = ["cot_1", "mv_6"]
+
+[[setups]]
+name = "mad_3a_r2"
+protocol = "configs/families/consensagent/protocols/mad_r2.toml"
+roster = "configs/families/consensagent/rosters/homogeneous_3agent.toml"
+matched_controls = ["cot_1", "mv_6"]
 
 [phases.count20]
 split_suffix = "count20_seed42"
-setups = ["consensagent_3a"]
+setups = ["consensagent_3a", "mad_3a_r1", "mad_3a_r2"]
 
 [phases.count100]
 split_suffix = "count100_seed42"

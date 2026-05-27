@@ -1,0 +1,18 @@
+# Vanilla MAD 两轮辩论协议（无触发机制、无 Phase 3）
+method_type = "mad"
+agent_count = 3
+max_debate_rounds = 2
+initial_temperature = 0.7
+debate_temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256
+
+[trigger]
+# 禁用触发机制：设置极大阈值使其永不触发
+stagnation_threshold = 999
+sycophancy_consistency_threshold = 1.0
+check_sycophancy_on_consensus = false
+
+[phase3_optimizer]
+# 禁用 Phase 3
+enabled = false

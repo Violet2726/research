@@ -61,6 +61,7 @@ class ProtocolConfig:
     max_output_tokens: int
     trigger: TriggerConfig
     phase3: Phase3Config = field(default_factory=Phase3Config)
+    method_type: str = "consensagent"
 
 
 @dataclass(frozen=True)
@@ -135,6 +136,7 @@ def load_protocol_config(path: str | Path) -> ProtocolConfig:
         max_output_tokens=int(payload["max_output_tokens"]),
         trigger=load_trigger_config(payload),
         phase3=load_phase3_config(payload),
+        method_type=str(payload.get("method_type", "consensagent")),
     )
 
 

@@ -161,6 +161,7 @@ def _run_consensagent_sample(
     """运行单个样本上的 CONSENSAGENT 协议。"""
     turn_rows: list[dict[str, Any]] = []
     debate_rows: list[dict[str, Any]] = []
+    method_type = protocol.method_type
 
     # 构建 agent_id → profile 查找表
     profile_by_id: dict[int, Any] = {p.agent_id: p for p in roster.agents}
@@ -185,7 +186,7 @@ def _run_consensagent_sample(
                 split_name=split_name,
                 sample=sample,
                 method_name=setup.name,
-                method_type="consensagent",
+                method_type=method_type,
                 round_index=0,
                 agent_id=agent_id,
                 role="initial",
@@ -276,7 +277,7 @@ def _run_consensagent_sample(
                     split_name=split_name,
                     sample=sample,
                     method_name=setup.name,
-                    method_type="consensagent",
+                    method_type=method_type,
                     round_index=round_index,
                     agent_id=recipient_id,
                     role="debate",
@@ -360,7 +361,7 @@ def _run_consensagent_sample(
             split_name=split_name,
             sample=sample,
             method_name=setup.name,
-            method_type="consensagent",
+            method_type=method_type,
             round_index=-1,  # optimizer round
             agent_id=0,
             role="optimizer",
@@ -424,7 +425,7 @@ def _run_consensagent_sample(
                         split_name=split_name,
                         sample=sample,
                         method_name=setup.name,
-                        method_type="consensagent",
+                        method_type=method_type,
                         round_index=actual_debate_rounds + 1,
                         agent_id=recipient_id,
                         role="debate_optimized",
@@ -517,7 +518,7 @@ def _run_consensagent_sample(
         split=split_name,
         sample_id=sample.sample_id,
         method_name=setup.name,
-        method_type="consensagent",
+        method_type=method_type,
         model_name=backbone.name,
         prediction=weighted_prediction,
         gold=sample.reference_answer,
@@ -676,7 +677,7 @@ def _build_metrics(
 
     by_lookup = {(row["dataset"], row["model_name"], row["method_name"]): row for row in summary}
     for row in summary:
-        if row["method_type"] != "consensagent":
+        if row["method_type"] not in ("consensagent", "mad"):
             continue
         vote_name = row.get("matched_vote_control")
         vote_row = by_lookup.get((row["dataset"], row["model_name"], vote_name)) if vote_name else None
@@ -730,7 +731,7 @@ def _build_debate_diagnostics(prediction_rows: list[dict[str, Any]]) -> dict[str
     """构建 debate 诊断指标。"""
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for row in prediction_rows:
-        if row["method_type"] != "consensagent":
+        if row["method_type"] not in ("consensagent", "mad"):
             continue
         grouped.setdefault((row["dataset"], row["method_name"]), []).append(row)
 
