@@ -239,6 +239,16 @@ FAMILY_SPECS: dict[str, FamilySpec] = {
         report_renderer_path="research_experiments.families.sparc.run.report:render_report",
         cli_main_path="research_experiments.families.sparc.spec:main",
     ),
+    "madjudge": FamilySpec(
+        family_name="madjudge",
+        config_loader_path="research_experiments.families.madjudge.config:load_experiment_config",
+        model_resolver_path="research_experiments.families.shared.config_loading:resolve_model",
+        runner_path="research_experiments.families.madjudge.run.execute:run_experiment",
+        validator_path="research_experiments.families.madjudge.run.validate:validate_run",
+        summarizer_path="research_experiments.families.madjudge.run.report:summarize_run",
+        report_renderer_path="research_experiments.families.madjudge.run.report:render_report",
+        cli_main_path="research_experiments.families.madjudge.spec:main",
+    ),
 }
 
 
