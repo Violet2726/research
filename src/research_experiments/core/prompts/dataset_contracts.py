@@ -83,6 +83,36 @@ def dataset_instruction(
             "Choose the single best option. "
             'The final_answer must be only the option letter, such as "A" or "B".'
         )
+    if dataset == "kitab":
+        return (
+            "Find books matching the given constraints. "
+            "The final_answer must be a comma-separated list of all matching book titles."
+        )
+    if dataset == "clutrr":
+        return (
+            "Determine the family relationship between two people based on the story. "
+            "The final_answer must be a single precise family term (e.g., grandfather, aunt, cousin)."
+        )
+    if dataset == "ethics":
+        return (
+            "Evaluate whether the described action is reasonable or unreasonable. "
+            'The final_answer must be exactly "reasonable" or "unreasonable".'
+        )
+    if dataset == "triviaqa":
+        return (
+            "Answer the trivia question concisely. "
+            "The final_answer must be a short entity name or phrase."
+        )
+    if dataset == "mmlu":
+        if multiple_choice_scope == "visible":
+            return (
+                "Choose the single best option using only the context visible to you. "
+                'The final_answer must be only the option letter, such as "A" or "B".'
+            )
+        return (
+            "Choose the single best option. "
+            'The final_answer must be only the option letter, such as "A" or "B".'
+        )
     raise ValueError(f"Unsupported dataset: {dataset}")
 
 

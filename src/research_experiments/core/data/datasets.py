@@ -65,6 +65,10 @@ def load_samples(config: BenchmarkConfig) -> list[DatasetSample]:
         "gpqa_zip_csv": _load_gpqa_zip_csv,
         "gsm_symbolic_jsonl": _load_gsm_symbolic,
         "realmistake_error_detection_zip": _load_realmistake_error_detection,
+        "kitab_jsonl": _load_kitab,
+        "clutrr_jsonl": _load_clutrr,
+        "ethics_jsonl": _load_ethics,
+        "triviaqa_jsonl": _load_triviaqa,
     }
     return _apply_record_filters(loader_map[config.loader](config), config.record_filters)
 
@@ -1092,6 +1096,127 @@ def _load_gsm_symbolic(config: BenchmarkConfig) -> list[DatasetSample]:
                         "instance": record.get("instance"),
                         "original_id": record.get("original_id"),
                     },
+                )
+            )
+    return samples
+
+
+# ── CONSENSAGENT 论文数据集 ────────────────────────────────────────────────
+
+
+def _load_kitab(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载 KITAB 约束满足数据集（论文 Table 2）。"""
+    path = resolve_dataset_source_path(config.source_path)
+    samples: list[DatasetSample] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for index, line in enumerate(handle):
+            record = json.loads(line)
+            question = (
+                f"Author: {record['author']} (born {record['birth_year']})\n"
+                f"{record['constraints']}\n"
+                "List all book titles that match the criteria."
+            )
+            answer_books = record.get("answer_books", [])
+            if isinstance(answer_books, list):
+                reference_answer = ", ".join(answer_books)
+            else:
+                reference_answer = str(answer_books)
+            samples.append(
+                DatasetSample(
+                    dataset=config.slug,
+                    sample_id=str(record.get("id", f"{config.sample_id_prefix}-{index:05d}")),
+                    question=question,
+                    reference_answer=reference_answer,
+                    prompt_context="",
+                    metadata={"raw_index": index, "author": record["author"], "constraint_type": record.get("constraint_type", "")},
+                )
+            )
+    return samples
+
+
+def _load_clutrr(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载 CLUTRR 归纳推理数据集（论文 Table 2）。
+
+    query 格式: ('person1', 'person2')
+    target_text: person2 相对于 person1 的关系
+    问题格式: "How is {person2} related to {person1}?"
+    """
+    import ast
+    path = resolve_dataset_source_path(config.source_path)
+    samples: list[DatasetSample] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for index, line in enumerate(handle):
+            record = json.loads(line)
+            story = str(record.get("story", ""))
+            query_raw = str(record.get("query", ""))
+
+            # 解析 query tuple 以明确方向
+            try:
+                query_tuple = ast.literal_eval(query_raw)
+                person1, person2 = query_tuple[0], query_tuple[1]
+                question = f"{story}\n\nHow is {person2} related to {person1}?"
+            except (ValueError, SyntaxError):
+                question = f"{story}\n\n{query_raw}"
+
+            samples.append(
+                DatasetSample(
+                    dataset=config.slug,
+                    sample_id=str(record.get("id", f"{config.sample_id_prefix}-{index:05d}")),
+                    question=question,
+                    reference_answer=str(record.get("target_text", record.get("target", ""))).strip(),
+                    prompt_context="",
+                    metadata={"raw_index": index},
+                )
+            )
+    return samples
+
+
+def _load_ethics(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载 Ethics 常识伦理数据集（论文 Table 2）。"""
+    path = resolve_dataset_source_path(config.source_path)
+    samples: list[DatasetSample] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for index, line in enumerate(handle):
+            record = json.loads(line)
+            scenario = str(record.get("input", ""))
+            label = str(record.get("label", "")).strip()
+            # Ethics labels: 0 = reasonable (morally acceptable), 1 = unreasonable
+            if label == "1":
+                reference_answer = "unreasonable"
+            else:
+                reference_answer = "reasonable"
+            samples.append(
+                DatasetSample(
+                    dataset=config.slug,
+                    sample_id=str(record.get("id", f"{config.sample_id_prefix}-{index:05d}")),
+                    question=f"{scenario}\n\nIs this action reasonable or unreasonable?",
+                    reference_answer=reference_answer,
+                    prompt_context="",
+                    metadata={"raw_index": index, "raw_label": label},
+                )
+            )
+    return samples
+
+
+def _load_triviaqa(config: BenchmarkConfig) -> list[DatasetSample]:
+    """加载 TriviaQA 开放域问答数据集（论文 Table 2）。"""
+    path = resolve_dataset_source_path(config.source_path)
+    samples: list[DatasetSample] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for index, line in enumerate(handle):
+            record = json.loads(line)
+            question = str(record.get("question", ""))
+            aliases = record.get("answer_aliases", [])
+            normalized = str(record.get("normalized_answer", ""))
+            # 使用 normalized answer 作为参考答案，aliases 存在 metadata 中用于评分
+            samples.append(
+                DatasetSample(
+                    dataset=config.slug,
+                    sample_id=str(record.get("id", f"{config.sample_id_prefix}-{index:05d}")),
+                    question=question,
+                    reference_answer=normalized,
+                    prompt_context="",
+                    metadata={"raw_index": index, "answer_aliases": aliases},
                 )
             )
     return samples
