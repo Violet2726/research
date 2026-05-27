@@ -1,0 +1,15 @@
+# CONSENSAGENT 同构 3 智能体 roster
+[[agents]]
+agent_id = 1
+persona_name = "reasoner_1"
+persona_instruction = ""
+
+[[agents]]
+agent_id = 2
+persona_name = "reasoner_2"
+persona_instruction = ""
+
+[[agents]]
+agent_id = 3
+persona_name = "reasoner_3"
+persona_instruction = ""

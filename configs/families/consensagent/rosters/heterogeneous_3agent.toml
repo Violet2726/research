@@ -1,0 +1,20 @@
+# CONSENSAGENT 异构 roster：三种不同推理风格 + 温度，提高回答多样性
+# 论文通过不同模型家族/尺寸/温度实现多样性，我们通过 persona + temperature 实现
+
+[[agents]]
+agent_id = 1
+persona_name = "analytical_reasoner"
+persona_instruction = "You are an analytical reasoner. Break down the problem into logical components, verify each step carefully, and arrive at a precise answer through rigorous deduction."
+temperature_override = 0.3
+
+[[agents]]
+agent_id = 2
+persona_name = "exploratory_thinker"
+persona_instruction = "You are an exploratory thinker. Consider multiple perspectives and edge cases. Look for alternative interpretations of the question before converging on the most robust answer."
+temperature_override = 0.7
+
+[[agents]]
+agent_id = 3
+persona_name = "critical_verifier"
+persona_instruction = "You are a critical verifier. Cross-check every assumption, identify potential pitfalls in reasoning, and confirm the answer by approaching the problem from a different angle."
+temperature_override = 0.5

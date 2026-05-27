@@ -1,0 +1,16 @@
+# CONSENSAGENT 协议配置
+agent_count = 3
+max_debate_rounds = 5
+initial_temperature = 0.3
+debate_temperature = 0.3
+top_p = 0.95
+max_output_tokens = 512
+
+[trigger]
+# 论文 t0：多数 agent 连续 stagnation_threshold 轮保持相同答案 → 触发停滞
+# 对 3-agent 小团队，1 轮即触发更合理（论文：少数 agent 时单个 agent 的行为也可能显著）
+stagnation_threshold = 1
+# 论文 t1/t2：对 3 agent，2/3=0.67 是合适的一致性阈值
+sycophancy_consistency_threshold = 0.67
+# 论文：即使达成共识，若共识通过谄媚达成也触发
+check_sycophancy_on_consensus = true
