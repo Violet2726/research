@@ -588,10 +588,7 @@ def _run_control_method(
             seed=sample_seed + offset,
         )
         turns.append(row)
-    if method.mode == "vote_control":
-        final_answer = _majority_answer(turns)
-    else:
-        final_answer = _best_confidence_answer(turns)
+    final_answer = _majority_answer(turns) if method.mode == "vote_control" else _best_confidence_answer(turns)
     score = score_prediction(benchmark_slug, final_answer, sample.reference_answer)
     prediction = {
         "run_id": run_id,

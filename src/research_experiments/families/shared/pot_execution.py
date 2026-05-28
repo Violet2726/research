@@ -160,9 +160,8 @@ def extract_python_program(raw_text: str) -> str | None:
         program = _clean_program_text(match.group(1))
         if program:
             return program
-    if "ans" not in text:
-        if not _contains_python_signal(text):
-            return None
+    if "ans" not in text and not _contains_python_signal(text):
+        return None
     candidate_lines = text.splitlines()
     start_index = None
     for index, line in enumerate(candidate_lines):
@@ -393,10 +392,7 @@ def _clean_program_text(program_text: object) -> str | None:
         return None
     if cleaned.startswith("```"):
         match = _CODE_BLOCK_RE.search(cleaned)
-        if match:
-            cleaned = match.group(1).strip()
-        else:
-            cleaned = _strip_open_code_fence(cleaned)
+        cleaned = match.group(1).strip() if match else _strip_open_code_fence(cleaned)
     return cleaned or None
 
 

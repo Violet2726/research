@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 import threading
@@ -171,10 +172,8 @@ class RequestCache:
             return callback()
 
     def _recover_malformed_shard(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self.connection.close()
-        except Exception:
-            pass
         repair_cache_shard(self.db_path)
         self._pending_writes = 0
         self.connection = _open_cache_connection(self.db_path)

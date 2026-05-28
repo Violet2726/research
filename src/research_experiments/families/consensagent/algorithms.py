@@ -201,17 +201,15 @@ def check_triggers(
     # t1：答案互换触发 — 多数 agent 互换答案
     if len(round_history) >= 1:
         prev_round = round_history[-1]
-        if detect_sycophancy_swapping(prev_round, current_round_answers):
-            if check_sycophancy_on_consensus or not consistency.is_consensus:
-                return TriggerState(
-                    sycophancy_triggered=True,
-                    trigger_round=round_idx,
-                    trigger_type="answer_swap",
-                )
+        if detect_sycophancy_swapping(prev_round, current_round_answers) and (check_sycophancy_on_consensus or not consistency.is_consensus):
+            return TriggerState(
+                sycophancy_triggered=True,
+                trigger_round=round_idx,
+                trigger_type="answer_swap",
+            )
 
     # t2：复制型谄媚 — 多数 agent 改变到多数答案
-    if detect_sycophancy_copycat(current_round_answers, sycophancy_consistency_threshold):
-        if check_sycophancy_on_consensus or not consistency.is_consensus:
+    if detect_sycophancy_copycat(current_round_answers, sycophancy_consistency_threshold) and (check_sycophancy_on_consensus or not consistency.is_consensus):
             return TriggerState(
                 sycophancy_triggered=True,
                 trigger_round=round_idx,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import time
 from dataclasses import dataclass, field
@@ -72,10 +73,8 @@ class OpenAICompatibleProvider:
                         pass
                     finally:
                         for retired in handle.retired_clients:
-                            try:
+                            with contextlib.suppress(Exception):
                                 retired.close()
-                            except Exception:
-                                pass
                         self._shared_clients.pop(self._client_key, None)
         self._closed = True
 

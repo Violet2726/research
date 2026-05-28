@@ -788,7 +788,7 @@ def _run_madjudge_batch_round_by_round(
     consecutive_stable = 0
     previous_params: BetaBinomialParams | None = None
     final_ks_statistic = 1.0
-    actual_debate_rounds = 0
+    _actual_debate_rounds = 0
 
     for round_index in range(1, protocol.max_debate_rounds + 1):
         # 检查是否所有样本都已停止
@@ -815,7 +815,6 @@ def _run_madjudge_batch_round_by_round(
             prompt_version=prompt_version,
             max_concurrent_requests=max_concurrent_requests,
         )
-        actual_debate_rounds = round_index
 
         # 跨题聚合：收集所有活跃样本的 majority count
         majority_counts: list[int] = []
@@ -1061,7 +1060,7 @@ def _estimate_work(
     """估算本次运行的总调用量与总预测量。"""
     from research_experiments.families.madjudge.config import phase_metadata
 
-    phase = phase_metadata(experiment, phase_name)
+    phase_metadata(experiment, phase_name)
     total_calls = 0
     total_predictions = 0
     for benchmark in benchmarks:

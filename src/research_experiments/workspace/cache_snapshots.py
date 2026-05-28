@@ -295,16 +295,14 @@ def restore_cache_snapshot(
 
 def _compress_zstd_file(source_path: Path, target_path: Path) -> None:
     cctx = zstd.ZstdCompressor(level=10)
-    with source_path.open("rb") as source_handle, target_path.open("wb") as target_handle:
-        with cctx.stream_writer(target_handle) as compressed_handle:
-            shutil.copyfileobj(source_handle, compressed_handle)
+    with source_path.open("rb") as source_handle, target_path.open("wb") as target_handle, cctx.stream_writer(target_handle) as compressed_handle:
+        shutil.copyfileobj(source_handle, compressed_handle)
 
 
 def _decompress_zstd_file(source_path: Path, target_path: Path) -> None:
     dctx = zstd.ZstdDecompressor()
-    with source_path.open("rb") as source_handle, target_path.open("wb") as target_handle:
-        with dctx.stream_reader(source_handle) as decompressed_handle:
-            shutil.copyfileobj(decompressed_handle, target_handle)
+    with source_path.open("rb") as source_handle, target_path.open("wb") as target_handle, dctx.stream_reader(source_handle) as decompressed_handle:
+        shutil.copyfileobj(decompressed_handle, target_handle)
 
 
 def _export_consistent_sqlite_snapshot(source_path: Path, snapshot_path: Path) -> dict[str, Any]:

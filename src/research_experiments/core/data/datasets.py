@@ -1031,46 +1031,45 @@ def _load_gpqa_zip_csv(config: BenchmarkConfig) -> list[DatasetSample]:
     archive_member = config.archive_member or "dataset/gpqa_diamond.csv"
     archive_password = (config.archive_password or "").encode("utf-8") if config.archive_password else None
     samples: list[DatasetSample] = []
-    with zipfile.ZipFile(resolve_dataset_source_path(config.source_path)) as archive:
-        with archive.open(archive_member, pwd=archive_password) as handle:
-            reader = csv.DictReader(line.decode("utf-8") for line in handle)
-            for index, record in enumerate(reader):
-                question = str(record.get("Question") or "").strip()
-                correct = str(record.get("Correct Answer") or "").strip()
-                incorrects = [
-                    str(record.get("Incorrect Answer 1") or "").strip(),
-                    str(record.get("Incorrect Answer 2") or "").strip(),
-                    str(record.get("Incorrect Answer 3") or "").strip(),
-                ]
-                choices = [("correct", correct), *[(f"incorrect_{offset}", value) for offset, value in enumerate(incorrects, start=1)]]
-                shuffled_choices = choices[:]
-                random.Random(f"{config.random_seed}:{record.get('Record ID') or index}").shuffle(shuffled_choices)
-                options = [value for _, value in shuffled_choices if value]
-                answer_position = next(
-                    position
-                    for position, (label, value) in enumerate(shuffled_choices)
-                    if label == "correct" and value
+    with zipfile.ZipFile(resolve_dataset_source_path(config.source_path)) as archive, archive.open(archive_member, pwd=archive_password) as handle:
+        reader = csv.DictReader(line.decode("utf-8") for line in handle)
+        for index, record in enumerate(reader):
+            question = str(record.get("Question") or "").strip()
+            correct = str(record.get("Correct Answer") or "").strip()
+            incorrects = [
+                str(record.get("Incorrect Answer 1") or "").strip(),
+                str(record.get("Incorrect Answer 2") or "").strip(),
+                str(record.get("Incorrect Answer 3") or "").strip(),
+            ]
+            choices = [("correct", correct), *[(f"incorrect_{offset}", value) for offset, value in enumerate(incorrects, start=1)]]
+            shuffled_choices = choices[:]
+            random.Random(f"{config.random_seed}:{record.get('Record ID') or index}").shuffle(shuffled_choices)
+            options = [value for _, value in shuffled_choices if value]
+            answer_position = next(
+                position
+                for position, (label, value) in enumerate(shuffled_choices)
+                if label == "correct" and value
+            )
+            answer_letter = _choice_letter(answer_position)
+            sample_id = str(record.get("Record ID") or f"{config.sample_id_prefix}-{index:05d}")
+            samples.append(
+                DatasetSample(
+                    dataset=config.slug,
+                    sample_id=sample_id,
+                    question=question,
+                    reference_answer=f"{answer_letter}|||{correct}",
+                    prompt_context=_render_multiple_choice_options(options),
+                    metadata={
+                        "raw_index": index,
+                        "record_id": sample_id,
+                        "options": options,
+                        "answer_letter": answer_letter,
+                        "answer_text": correct,
+                        "high_level_domain": record.get("High-level domain"),
+                        "subdomain": record.get("Subdomain"),
+                    },
                 )
-                answer_letter = _choice_letter(answer_position)
-                sample_id = str(record.get("Record ID") or f"{config.sample_id_prefix}-{index:05d}")
-                samples.append(
-                    DatasetSample(
-                        dataset=config.slug,
-                        sample_id=sample_id,
-                        question=question,
-                        reference_answer=f"{answer_letter}|||{correct}",
-                        prompt_context=_render_multiple_choice_options(options),
-                        metadata={
-                            "raw_index": index,
-                            "record_id": sample_id,
-                            "options": options,
-                            "answer_letter": answer_letter,
-                            "answer_text": correct,
-                            "high_level_domain": record.get("High-level domain"),
-                            "subdomain": record.get("Subdomain"),
-                        },
-                    )
-                )
+            )
     return samples
 
 

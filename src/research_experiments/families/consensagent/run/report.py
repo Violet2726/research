@@ -379,7 +379,7 @@ def _build_conclusions(
 
 def _weighted_avg(rows: list[dict[str, Any]], field: str, weights: list[float]) -> float:
     values = [float(r.get(field, 0)) for r in rows]
-    return sum(v * w for v, w in zip(values, weights))
+    return sum(v * w for v, w in zip(values, weights, strict=False))
 
 
 def _safe_div(a: float, b: float) -> float:

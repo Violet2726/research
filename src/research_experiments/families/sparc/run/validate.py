@@ -12,7 +12,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.validate_common import load_json, load_jsonl, validate_shared_contracts
+from research_experiments.families.shared.validate_common import validate_shared_contracts
 
 DEFAULT_AUDITING_METHODS = ["majority_vote", "single_judge", "final_round_vote", "local_auditing"]
 
@@ -20,7 +20,7 @@ DEFAULT_AUDITING_METHODS = ["majority_vote", "single_judge", "final_round_vote",
 def validate_run(run_dir: str | Path, compare_run_dir: str | Path | None = None) -> dict[str, Any]:
     root = Path(run_dir)
     manifest = load_json(root / "manifest.json")
-    variant_name = manifest.get("variant_name", "")
+    _variant_name = manifest.get("variant_name", "")
     report_name = "report.md"
     required = [
         "manifest.json",

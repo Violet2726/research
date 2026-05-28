@@ -381,7 +381,7 @@ def _run_consensagent_sample(
 
         # 用优化后的 prompt 跑 post_optimization_rounds 轮辩论
         if optimized_prompt and protocol.phase3.post_optimization_rounds > 0:
-            opt_round_data: list[dict[str, Any]] = []
+            _opt_round_data: list[dict[str, Any]] = []
             for _ in range(protocol.phase3.post_optimization_rounds):
                 opt_round: list[dict[str, Any]] = []
                 for recipient_id in range(1, roster.agent_count + 1):
@@ -441,7 +441,7 @@ def _run_consensagent_sample(
                         seed=global_seed + recipient_id + (actual_debate_rounds + 1) * 100,
                     ))
                 phase3_turn_rows.extend(opt_round)
-                opt_round_data = [
+                _opt_round_data = [
                     {
                         "agent_id": t["agent_id"],
                         "answer": str(t["validated_output"].get("final_answer", "")).strip(),
@@ -767,7 +767,7 @@ def _estimate_work(
     """估算本次运行的总调用量与总预测量。"""
     from research_experiments.families.consensagent.config import phase_metadata
 
-    phase = phase_metadata(experiment, phase_name)
+    phase_metadata(experiment, phase_name)
     total_calls = 0
     total_predictions = 0
     for benchmark in benchmarks:

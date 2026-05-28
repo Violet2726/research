@@ -241,8 +241,8 @@ def _run_sample(
 
 def _run_content_sample(shared_context: dict[str, Any]) -> SampleResult:
     stage_a_turns = shared_context["stage_a_turns"]
-    sample = shared_context["sample"]
-    benchmark_slug = shared_context["dataset"]
+    _sample = shared_context["sample"]
+    _benchmark_slug = shared_context["dataset"]
     all_message_rows: list[dict[str, Any]] = []
     all_belief_rows: list[dict[str, Any]] = []
     all_audit_rows: list[dict[str, Any]] = []

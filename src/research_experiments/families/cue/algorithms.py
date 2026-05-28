@@ -112,10 +112,7 @@ def build_conflict_object(stage_a_rows: list[dict[str, Any]], signals: dict[str,
         else:
             conflict_type = "answer"
     else:
-        if float(signals.get("fragile_consensus") or 0.0) >= 0.50:
-            conflict_type = "fragile_consensus"
-        else:
-            conflict_type = "assumption"
+        conflict_type = "fragile_consensus" if float(signals.get("fragile_consensus") or 0.0) >= 0.5 else "assumption"
 
     claim_a = flatten_short_list(candidate_a.get("top_claims"), fallback=str(candidate_a.get("reasoning_sketch") or candidate_a.get("final_answer") or ""))
     claim_b = flatten_short_list(candidate_b.get("top_claims"), fallback=str(candidate_b.get("reasoning_sketch") or candidate_b.get("final_answer") or ""))

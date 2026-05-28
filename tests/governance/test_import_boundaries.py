@@ -29,7 +29,7 @@ def test_no_cross_experiment_imports() -> None:
                 else:
                     continue
                 for name in names:
-                    expected_prefix = f"research_experiments.families.{package}"
+                    _expected_prefix = f"research_experiments.families.{package}"
                     if name.startswith("research_experiments.families."):
                         segments = name.split(".")
                         imported_package = segments[2] if len(segments) > 2 else ""

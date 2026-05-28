@@ -645,7 +645,7 @@ def _estimate_work(
     controls,
 ) -> tuple[int, int]:
     """估算本次多智能体运行的总调用量与总预测量。"""
-    phase = phase_metadata(experiment, phase_name)
+    phase_metadata(experiment, phase_name)
     total_calls = 0
     total_predictions = 0
     for benchmark in benchmarks:

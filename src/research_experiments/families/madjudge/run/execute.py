@@ -64,7 +64,7 @@ def run_experiment(
     resolved_cache_root = Path(cache_root) if cache_root else default_cache_root()
 
     benchmarks = load_benchmarks(experiment)
-    phase = phase_metadata(experiment, phase_name)
+    phase_metadata(experiment, phase_name)
     setups = _active_setups(experiment, phase_name)
 
     controls = load_control_catalog(experiment.control_catalog) if experiment.control_catalog else {}

@@ -690,7 +690,5 @@ def _is_better_decision(
         return True
     if math.isclose(score, current.total_score, abs_tol=1e-12) and cost < current.total_cost:
         return True
-    if math.isclose(score, current.total_score, abs_tol=1e-12) and cost == current.total_cost and winner_ids < current.winner_agent_ids:
-        return True
-    return False
+    return bool(math.isclose(score, current.total_score, abs_tol=1e-12) and cost == current.total_cost and winner_ids < current.winner_agent_ids)
 

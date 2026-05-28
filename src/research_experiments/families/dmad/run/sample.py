@@ -1690,13 +1690,12 @@ def _execute_process_turn(
     max_output_tokens: int,
     seed: int,
 ) -> dict[str, Any]:
-    validator = (
-        lambda assistant_text, provider_reasoning_text: asdict(
-            build_pot_process_artifact(assistant_text, provider_reasoning_text)
-        )
-        if is_pot_reasoning(dataset, strategy_name)
-        else _validate_reasoning_process_output(assistant_text, provider_reasoning_text)
-    )
+    def validator(assistant_text, provider_reasoning_text):
+        return (asdict(
+                build_pot_process_artifact(assistant_text, provider_reasoning_text)
+            )
+            if is_pot_reasoning(dataset, strategy_name)
+            else _validate_reasoning_process_output(assistant_text, provider_reasoning_text))
     result = execute_cached_turn(
         backbone=backbone,
         provider=provider,

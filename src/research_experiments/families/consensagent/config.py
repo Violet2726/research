@@ -19,12 +19,12 @@ from research_experiments.families.shared.config_loading import (
 from research_experiments.families.shared.config_loading import (
     phase_metadata as _phase_metadata,
 )
+from research_experiments.families.shared.method_catalog import MethodConfig, load_method_catalog
 
 
 def phase_metadata(experiment: ConsensagentExperimentConfig, phase_name: str) -> dict[str, Any]:
     """返回指定 phase 配置的防御性拷贝。"""
     return _phase_metadata(experiment, phase_name)
-from research_experiments.families.shared.method_catalog import MethodConfig, load_method_catalog
 
 
 @dataclass(frozen=True)

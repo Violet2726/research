@@ -67,15 +67,12 @@ def pack_tar_zst(
         )
 
     original_size_bytes = sum((root / member).stat().st_size for member in normalized_members)
-    with target.open("wb") as raw_handle:
-        cctx = zstd.ZstdCompressor(level=compression_level)
-        with cctx.stream_writer(raw_handle) as compressed_handle:
-            with tarfile.open(fileobj=compressed_handle, mode="w|") as tar_handle:
-                for member in normalized_members:
-                    source_path = root / member
-                    if not source_path.exists():
-                        raise FileNotFoundError(f"Archive member does not exist: {source_path}")
-                    tar_handle.add(source_path, arcname=member, recursive=True)
+    with target.open("wb") as raw_handle, zstd.ZstdCompressor(level=compression_level).stream_writer(raw_handle) as compressed_handle, tarfile.open(fileobj=compressed_handle, mode="w|") as tar_handle:
+        for member in normalized_members:
+            source_path = root / member
+            if not source_path.exists():
+                raise FileNotFoundError(f"Archive member does not exist: {source_path}")
+            tar_handle.add(source_path, arcname=member, recursive=True)
 
     return PackedArchive(
         archive_name=target.name,

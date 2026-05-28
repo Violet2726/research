@@ -76,7 +76,7 @@ def prompt_hash(messages: list[dict[str, Any]]) -> str:
     return sha256(json.dumps(messages, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def run_indexed_batch(
+def run_indexed_batch[T, R](
     items: Iterable[T],
     *,
     worker: Callable[[T], R],

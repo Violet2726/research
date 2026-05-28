@@ -12,7 +12,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.validate_common import load_jsonl, validate_shared_contracts
+from research_experiments.families.shared.validate_common import validate_shared_contracts
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:

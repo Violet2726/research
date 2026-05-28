@@ -341,10 +341,7 @@ def _run_method_sample(
             break
 
     if not stop_reason:
-        if method.mode == "fixed":
-            stop_reason = f"fixed_round_limit_r{method.round_limit}"
-        else:
-            stop_reason = "max_rounds_reached"
+        stop_reason = f"fixed_round_limit_r{method.round_limit}" if method.mode == "fixed" else "max_rounds_reached"
 
     final_answers = [row["normalized_answer"] for row in final_round_turns]
     final_vote, final_vote_counts = aggregate_majority(final_answers)

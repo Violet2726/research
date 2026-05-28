@@ -5,7 +5,11 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict
 
-from research_experiments.families.multi_agent.config import load_protocol_config
+from research_experiments.families.multi_agent.config import (
+    load_control_catalog,
+    load_protocol_config,
+    load_roster_config,
+)
 from research_experiments.families.registry import get_family_spec
 from research_experiments.families.shared.cli import (
     build_standard_family_parser,
@@ -15,7 +19,6 @@ from research_experiments.families.shared.config_loading import load_benchmarks,
 from research_experiments.workspace.layout import workspace_defaults
 
 SPEC = get_family_spec("multi_agent")
-from research_experiments.families.multi_agent.config import load_control_catalog, load_roster_config
 
 
 def build_parser() -> argparse.ArgumentParser:

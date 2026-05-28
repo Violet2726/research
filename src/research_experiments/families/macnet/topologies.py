@@ -126,7 +126,7 @@ def _build_layer_edges(node_count: int, direction_mode: str) -> list[tuple[int, 
     if direction_mode != "divergent":
         layers = list(reversed(layers))
     edges: list[tuple[int, int]] = []
-    for current_layer, next_layer in zip(layers, layers[1:]):
+    for current_layer, next_layer in zip(layers, layers[1:], strict=False):
         for source in current_layer:
             for target in next_layer:
                 edges.append((source, target))

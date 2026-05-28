@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -389,10 +390,8 @@ class LocalReducedFreebaseBackend:
                 label = answer_alias
                 answer_anchor_ids.add(node_id)
             node_labels[node_id] = label
-            try:
+            with contextlib.suppress(Exception):
                 node_ids[int(node.get("nid"))] = node_id
-            except Exception:
-                pass
         built_edges: list[LocalEdge] = []
         for edge in edges_payload:
             source_id = node_ids.get(int(edge.get("start")), f"node:{edge.get('start')}")
