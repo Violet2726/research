@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from pathlib import Path
 import json
 import os
+from datetime import UTC, datetime
+from pathlib import Path
 from statistics import mean
 from typing import Any
 
-from research_experiments.workspace.layout import default_reports_root
 from research_experiments.matrix.matrix_specs import (
     EVIDENCE_DIAGNOSTIC,
     EVIDENCE_HEADLINE,
@@ -39,7 +38,7 @@ from research_experiments.reporting.run_figures import (
     build_scatter_figure_spec,
     write_figure_bundle,
 )
-
+from research_experiments.workspace.layout import default_reports_root
 
 PREDICTION_FILE_CANDIDATES = (
     "policy_predictions.jsonl",
@@ -156,7 +155,7 @@ def build_paper_package_payload(
     budget_references = _build_budget_matched_single_agent_references(state_entries, rows.overall_rows())
     helpful_harmful = _build_helpful_harmful_breakdown(state_entries)
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "phase_name": state_payload.get("overrides", {}).get("phase_name"),
         "model_ref": state_payload.get("overrides", {}).get("model_ref"),
         "counts": state_payload.get("counts", {}),
@@ -535,7 +534,7 @@ def _write_external_figure_bundle(
         rows.append(normalized)
 
     manifest = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "figure_count": len(rows),
         "figures": rows,
     }

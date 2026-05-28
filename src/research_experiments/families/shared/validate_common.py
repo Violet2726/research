@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import json
+from pathlib import Path
 from typing import Any
 
-from research_experiments.workspace.run_archives import validate_archive_contract
 from research_experiments.reporting.run_figures import validate_figure_contract
+from research_experiments.workspace.run_archives import validate_archive_contract
 
 
 def validate_shared_contracts(run_dir: str | Path) -> dict[str, Any]:

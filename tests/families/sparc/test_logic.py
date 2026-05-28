@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from research_experiments.families.sparc.algorithms import (
-    aggregate_with_confidence_tiebreak,
     aggregate_weighted_vote,
+    aggregate_with_confidence_tiebreak,
     project_message_packet,
     select_audit_candidate_pair,
 )

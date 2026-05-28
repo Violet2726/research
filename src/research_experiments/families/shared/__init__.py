@@ -28,15 +28,15 @@ from research_experiments.families.shared.config_loading import (
     resolve_model,
 )
 from research_experiments.families.shared.method_catalog import MethodConfig, load_method_catalog
-from research_experiments.families.shared.report_common import (
-    render_family_report_bundle,
-    render_family_scientific_report,
-)
 from research_experiments.families.shared.reference_runs import (
     TriggerReferenceConfig,
     TriggerReferenceDecision,
     resolve_trigger_reference_selection,
     write_policy_reference_summary,
+)
+from research_experiments.families.shared.report_common import (
+    render_family_report_bundle,
+    render_family_scientific_report,
 )
 from research_experiments.families.shared.validate_common import (
     load_json,

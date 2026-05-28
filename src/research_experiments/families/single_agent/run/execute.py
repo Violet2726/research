@@ -7,61 +7,38 @@ phase 解析、样本展开、并发请求、缓存复用、解析兜底、指�
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
-from functools import partial
-from pathlib import Path
 import json
-from statistics import mean, pstdev
+from dataclasses import asdict
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 
-from research_experiments.core.execution.artifacts import BufferedJsonlWriter
-from research_experiments.core.execution.cache import RequestCache, RequestCacheRouter, build_request_cache_key, cache_successful_response
 from research_experiments.core.config import (
     BenchmarkConfig,
     ResolvedModelConfig,
 )
 from research_experiments.core.data.datasets import (
-    DatasetSample,
-    generate_split_manifests as core_generate_split_manifests,
-    load_split_ids,
     select_samples,
 )
-from research_experiments.core.data.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from research_experiments.families.shared.common import resolve_phase_split_name
-from research_experiments.families.shared.method_catalog import MethodConfig, load_method_catalog
-from research_experiments.core.execution.providers import OpenAICompatibleProvider, build_payload, execute_completion_request
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
-from research_experiments.core.execution.runner_common import (
-    execute_cached_turn,
-    prepare_run_root,
-    prompt_hash as build_prompt_hash,
-    run_indexed_batch,
+from research_experiments.core.execution.artifacts import BufferedJsonlWriter
+from research_experiments.core.execution.cache import (
+    RequestCacheRouter,
 )
+from research_experiments.core.execution.providers import (
+    OpenAICompatibleProvider,
+)
+from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from research_experiments.core.structured_outputs import (
     ARTIFACT_VERSION,
-    SCHEMA_ANSWER_CORE,
-    validate_or_recover_structured_output,
 )
-from research_experiments.workspace.layout import (
-    default_cache_root,
-    default_reports_root,
-    default_runs_root,
-)
-from research_experiments.families.single_agent.config import (
-    ExperimentConfig,
-    phase_metadata,
-    required_benchmark_tags,
-    required_model_tags,
-)
-from research_experiments.families.single_agent.prompts import build_messages
-from research_experiments.families.single_agent.run.report import export_paper_tables, render_report, summarize_run
-from research_experiments.families.single_agent.run.validate import validate_run
-
+from research_experiments.families.shared.config_loading import phase_metadata
+from research_experiments.families.shared.method_catalog import load_method_catalog
+from research_experiments.families.single_agent.config import ExperimentConfig
 from research_experiments.families.single_agent.run.io import _prepare_run_paths
+from research_experiments.families.single_agent.run.report import export_paper_tables, render_report, summarize_run
 from research_experiments.families.single_agent.run.sample import (
     _aggregate_metrics,
     _benchmark_is_allowed,
@@ -73,6 +50,13 @@ from research_experiments.families.single_agent.run.sample import (
     _run_method_batch,
     _write_leaderboard,
 )
+from research_experiments.families.single_agent.run.validate import validate_run
+from research_experiments.workspace.layout import (
+    default_cache_root,
+    default_reports_root,
+    default_runs_root,
+)
+
 
 def run_experiment(
     experiment: ExperimentConfig,
@@ -118,7 +102,7 @@ def run_experiment(
     # manifest 记录的是“这次运行最终使用了什么配置”，它是最重要的审计入口。
     manifest = {
         "run_id": run_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "family_name": "single_agent",
         "experiment_name": experiment.name,
         "phase_name": phase_name,

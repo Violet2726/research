@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import os
-from threading import Lock
 import time
+from dataclasses import dataclass, field
+from threading import Lock
 from typing import Any
 
 import httpx

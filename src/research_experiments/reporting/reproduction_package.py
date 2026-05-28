@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from pathlib import Path
 import json
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from research_experiments.matrix.reproduction_analysis import render_reproduction_analysis
@@ -76,7 +76,7 @@ def build_reproduction_package_payload(analysis: dict[str, Any]) -> dict[str, An
     canonical_rows.sort(key=lambda row: (str(row.get("track_name") or ""), -(row.get("primary_metric_value") or 0.0)))
     auxiliary_rows.sort(key=lambda row: (str(row.get("track_name") or ""), str(row.get("entry_role") or ""), -(row.get("primary_metric_value") or 0.0)))
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "matrix_id": analysis.get("matrix_id"),
         "phase_name": analysis.get("phase_name"),
         "model_ref": analysis.get("model_ref"),

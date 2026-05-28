@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import csv
+from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.common import safe_mean
 from research_experiments.families.free_mad_lite.algorithms import METHOD_ORDER
 from research_experiments.families.free_mad_lite.prompts import anti_conformity_prompt_hash
+from research_experiments.families.shared.common import safe_mean
 
 
 def build_metrics_payload(prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:

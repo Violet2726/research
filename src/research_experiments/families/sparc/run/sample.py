@@ -7,58 +7,59 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
-from functools import partial
-from hashlib import sha256
-from pathlib import Path
 import csv
-import json
+from collections.abc import Callable
+from dataclasses import dataclass
+from functools import partial
+from pathlib import Path
 from typing import Any
-from typing import Callable
 
-from dotenv import load_dotenv
-
-from research_experiments.core.execution.artifacts import BufferedJsonlWriter
-from research_experiments.core.execution.cache import RequestCache, RequestCacheRouter, json_dump
-from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples
+from research_experiments.core.controls.selective_signals import (
+    decide_trigger,
+    normalize_confidence,
+    summarize_confidence_rows,
+)
+from research_experiments.core.data.datasets import DatasetSample, load_split_ids
 from research_experiments.core.data.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from research_experiments.families.shared.common import build_question_preview, resolve_phase_split_name, safe_mean, stable_trace_hash, sum_metric
-from research_experiments.core.execution.providers import OpenAICompatibleProvider, build_payload, execute_completion_request
+from research_experiments.core.execution.cache import RequestCache
+from research_experiments.core.execution.providers import (
+    OpenAICompatibleProvider,
+    build_payload,
+    execute_completion_request,
+)
 from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
 from research_experiments.core.execution.runner_common import (
     execute_cached_turn,
-    prepare_run_root,
     run_indexed_batch,
 )
-from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
-from research_experiments.core.controls.selective_signals import decide_trigger, normalize_confidence, summarize_confidence_rows
-from research_experiments.families.shared.reference_runs import resolve_trigger_reference_selection
+from research_experiments.core.execution.runtime import RunProgressTracker
 from research_experiments.core.structured_outputs import (
-    ARTIFACT_VERSION,
     SCHEMA_ANSWER_CORE,
     SCHEMA_ANSWER_WITH_PROXY_SIGNALS_DELIBERATION,
     SCHEMA_AUDIT_VERDICT,
     SCHEMA_BELIEF_UPDATE_DELTA,
 )
-from research_experiments.workspace.layout import default_cache_root, default_runs_root
-from research_experiments.families.sparc.config import (
-    SparcExperimentConfig,
-    SparcProtocolConfig,
-    load_benchmarks,
-    load_protocol_config,
-    phase_metadata,
+from research_experiments.families.shared.common import (
+    build_question_preview,
+    resolve_phase_split_name,
+    safe_mean,
+    stable_trace_hash,
+    sum_metric,
 )
+from research_experiments.families.shared.reference_runs import resolve_trigger_reference_selection
 from research_experiments.families.sparc.algorithms import (
     AGGREGATION_METHOD_ORDER,
-    DEFAULT_MESSAGE_MODE_BY_DATASET,
     MESSAGE_MODE_ORDER,
-    aggregate_with_confidence_tiebreak,
     aggregate_weighted_vote,
+    aggregate_with_confidence_tiebreak,
+    apply_belief_update,
     build_prompt_packet,
     project_message_packet,
     select_audit_candidate_pair,
-    apply_belief_update,
+)
+from research_experiments.families.sparc.config import (
+    SparcExperimentConfig,
+    SparcProtocolConfig,
 )
 from research_experiments.families.sparc.prompts import (
     build_audit_messages,
@@ -66,10 +67,6 @@ from research_experiments.families.sparc.prompts import (
     build_single_judge_messages,
     build_solver_messages,
 )
-from research_experiments.families.sparc.run.report import render_report
-from research_experiments.families.sparc.run.validate import validate_run
-from research_experiments.families.sparc.run.io import RunPaths
-
 
 REPORT_NAME_BY_KIND = {
     "content_ablation": "content_ablation_report.md",

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
 import json
+from typing import Any, Literal
 
 from research_experiments.core.structured_outputs.recovery import (
     looks_like_soft_rejection_text,
@@ -23,7 +23,6 @@ from research_experiments.core.structured_outputs.validators import (
     validate_split_context_belief_payload,
     validate_split_context_solver_payload,
 )
-
 
 ARTIFACT_VERSION = "v5"
 SCHEMA_ANSWER_CORE = "answer_core"

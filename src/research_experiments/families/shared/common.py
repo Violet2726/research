@@ -6,9 +6,10 @@ phase split 解析、trace 哈希、问题预览和基础统计工具。
 
 from __future__ import annotations
 
-from hashlib import sha256
 import json
-from typing import Any, Iterable
+from collections.abc import Iterable
+from hashlib import sha256
+from typing import Any
 
 from research_experiments.families.shared.config_loading import SupportsRawPhases, phase_metadata
 

@@ -8,19 +8,19 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from functools import partial
 import json
 import re
+from dataclasses import asdict, dataclass
+from functools import partial
 from typing import Any
 
 from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples
-from research_experiments.core.data.evaluation import aggregate_majority, normalize_prediction, score_prediction
+from research_experiments.core.data.evaluation import normalize_prediction, score_prediction
 from research_experiments.core.execution.runner_common import execute_cached_turn, run_indexed_batch
 from research_experiments.families.madjudge.algorithms import (
     BetaBinomialParams,
-    StabilityState,
     aggregate_majority_vote,
+    check_stability,
     check_stability_batch,
     compute_majority_count,
 )
@@ -437,6 +437,7 @@ def _run_initial_round_for_samples(
 ) -> list[SampleState]:
     """为所有样本并行运行初始轮（round 0）。"""
     from functools import partial
+
     from research_experiments.core.execution.runner_common import run_indexed_batch
 
     def _run_initial_single(sample: DatasetSample) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -525,6 +526,7 @@ def _run_debate_round_for_samples(
 ) -> list[SampleState]:
     """为所有未停止的样本运行一轮辩论。"""
     from functools import partial
+
     from research_experiments.core.execution.runner_common import run_indexed_batch
 
     # 只处理未停止的样本
@@ -761,7 +763,6 @@ def _run_madjudge_batch_round_by_round(
     论文的 Beta-Binomial 模型跨所有题目聚合观测：
     每轮结束后，收集所有题目的 majority count，拟合分布，比较相邻轮次差异。
     """
-    from research_experiments.families.madjudge.algorithms import check_stability_batch
 
     # Phase 1：初始轮
     print(f"[MADJudge] Running initial round for {len(samples)} samples...", flush=True)
@@ -793,7 +794,7 @@ def _run_madjudge_batch_round_by_round(
         # 检查是否所有样本都已停止
         active_count = sum(1 for s in states if not s.stopped)
         if active_count == 0:
-            print(f"[MADJudge] All samples reached consensus, stopping.", flush=True)
+            print("[MADJudge] All samples reached consensus, stopping.", flush=True)
             break
 
         print(f"[MADJudge] Running debate round {round_index} ({active_count} active samples)...", flush=True)

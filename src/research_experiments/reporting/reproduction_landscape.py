@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
-from datetime import datetime, timezone
-from pathlib import Path
 import json
+from collections import defaultdict
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from research_experiments.matrix.reproduction_analysis import render_reproduction_analysis
@@ -74,7 +74,7 @@ def build_reproduction_landscape_payload(analysis: dict[str, Any]) -> dict[str, 
             }
         )
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "matrix_id": analysis.get("matrix_id"),
         "phase_name": analysis.get("phase_name"),
         "model_ref": analysis.get("model_ref"),

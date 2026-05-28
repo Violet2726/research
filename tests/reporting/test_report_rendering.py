@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from testsupport.filesystem import write_json
+
 from research_experiments.families.selective_comm.run.report import render_report as render_selective_report
 from research_experiments.families.single_agent.run.report import render_report as render_single_agent_report
 from research_experiments.families.sparc.run.report import render_report as render_sparc_report
-from testsupport.filesystem import write_json
 
 
 def test_single_agent_render_report_outputs_scientific_markdown(tmp_path: Path) -> None:

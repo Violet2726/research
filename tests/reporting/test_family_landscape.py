@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from research_experiments.reporting.family_landscape import build_family_landscape_payload, render_family_landscape
 from testsupport.filesystem import write_json
+
+from research_experiments.reporting.family_landscape import build_family_landscape_payload, render_family_landscape
 
 
 def test_build_family_landscape_payload_creates_global_track_and_rollup_views() -> None:

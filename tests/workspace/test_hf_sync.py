@@ -2,8 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from research_experiments.workspace.hf_sync import discover_publishable_runs, pull_workspace_from_hub, push_workspace_to_hub
 from testsupport.filesystem import write_json
+
+from research_experiments.workspace.hf_sync import (
+    discover_publishable_runs,
+    pull_workspace_from_hub,
+    push_workspace_to_hub,
+)
 
 
 def test_discover_publishable_runs_includes_standard_and_matrix(tmp_path: Path) -> None:

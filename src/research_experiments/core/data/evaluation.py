@@ -9,13 +9,13 @@ from __future__ import annotations
 import ast
 import json
 import math
-import subprocess
 import re
 import string
+import subprocess
 import sys
 import tempfile
 from collections import Counter
-from typing import Iterable
+from collections.abc import Iterable
 
 
 def normalize_prediction(dataset: str, final_answer: str) -> str:

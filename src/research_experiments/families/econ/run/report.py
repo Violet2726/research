@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from research_experiments.workspace.layout import default_reports_root
 from research_experiments.families.shared.report_common import render_family_report_bundle
 from research_experiments.reporting.report_views import SummaryTableView, load_json_payload, load_jsonl_rows
 from research_experiments.reporting.run_figures import (
@@ -14,6 +13,7 @@ from research_experiments.reporting.run_figures import (
     build_grouped_bar_figure_spec,
     build_score_by_dataset_figure_spec,
 )
+from research_experiments.workspace.layout import default_reports_root
 
 
 def load_metrics(run_dir: str | Path) -> dict[str, Any]:

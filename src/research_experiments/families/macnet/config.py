@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from research_experiments.families.shared.config_loading import (
-    load_benchmarks,
     load_toml,
     optional_int,
 )

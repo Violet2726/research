@@ -6,14 +6,13 @@
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
-from pathlib import Path
 import json
 import re
+from collections import Counter, defaultdict
+from pathlib import Path
 from typing import Any
+
 from research_experiments.families.shared.validate_common import load_json, load_jsonl, validate_shared_contracts
-
-
 
 DEFAULT_AUDITING_METHODS = ["majority_vote", "single_judge", "final_round_vote", "local_auditing"]
 

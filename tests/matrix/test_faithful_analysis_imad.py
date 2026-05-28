@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import json
+from pathlib import Path
 
 from research_experiments.matrix.faithful_analysis import build_faithful_analysis
 

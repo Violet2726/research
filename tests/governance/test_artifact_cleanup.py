@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl
+
 from research_experiments.tools.artifact_cleanup import (
     build_parser,
     cleanup_invalid_artifacts,
     collect_report_statuses,
     collect_run_statuses,
 )
-from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl
 
 
 def test_collect_run_statuses_flags_failed_multi_agent_run(tmp_path: Path) -> None:

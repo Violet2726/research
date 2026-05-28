@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import subprocess
 import tomllib
+from pathlib import Path
 
 from research_experiments.core.execution.rate_limits import (
     STANDARD_MAX_CONCURRENT_REQUESTS,
@@ -13,7 +13,6 @@ from research_experiments.core.execution.rate_limits import (
 )
 from research_experiments.families.registry import registered_family_names, validator_map
 from research_experiments.tools.artifact_cleanup import RUN_VALIDATORS
-
 
 ROOT = Path(__file__).resolve().parents[2]
 FAMILIES_SRC = ROOT / "src" / "research_experiments" / "families"
@@ -53,7 +52,7 @@ def test_family_registry_matches_source_tree_and_cli_scripts() -> None:
 
 
 def test_artifact_cleanup_validator_registry_stays_in_sync() -> None:
-    assert RUN_VALIDATORS == validator_map()
+    assert validator_map() == RUN_VALIDATORS
 
 
 def test_family_experiment_configs_use_standard_runtime_limits() -> None:

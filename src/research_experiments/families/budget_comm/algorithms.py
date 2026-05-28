@@ -8,15 +8,14 @@ VCG 诊断支付、belief update 合并，以及是否值得进入 full DALA 的
 
 from __future__ import annotations
 
-from collections import Counter
-from dataclasses import dataclass
 import json
 import math
 import random
+from collections import Counter
+from dataclasses import dataclass
 from typing import Any
 
 from research_experiments.core.controls.selective_signals import normalize_confidence
-
 
 METHOD_ORDER = [
     "mv_3",

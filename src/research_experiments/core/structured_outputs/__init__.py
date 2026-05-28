@@ -24,7 +24,6 @@ from research_experiments.core.structured_outputs.registry import (
     validate_structured_output,
 )
 
-
 __all__ = [
     "ARTIFACT_VERSION",
     "SchemaId",

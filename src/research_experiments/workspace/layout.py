@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-import os
-
 
 RUNS_ROOT_ENV = "RESEARCH_RUNS_ROOT"
 REPORTS_ROOT_ENV = "RESEARCH_REPORTS_ROOT"

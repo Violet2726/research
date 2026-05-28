@@ -2,22 +2,24 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from pathlib import Path, PurePosixPath
 import json
-import sqlite3
 import shutil
+import sqlite3
 import tempfile
+from datetime import UTC, datetime
+from pathlib import Path, PurePosixPath
 from typing import Any
 
+import zstandard as zstd
 from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 
-from research_experiments.workspace.archive_utils import sha256_file
 from research_experiments.core.execution.cache import collect_cache_shard_summaries, repair_cache_shard
-from research_experiments.workspace.layout import auto_push_cache_snapshot_enabled, default_cache_hf_repo, workspace_layout
-
-import zstandard as zstd
-
+from research_experiments.workspace.archive_utils import sha256_file
+from research_experiments.workspace.layout import (
+    auto_push_cache_snapshot_enabled,
+    default_cache_hf_repo,
+    workspace_layout,
+)
 
 CACHE_SNAPSHOT_MANIFEST = "snapshot_manifest.json"
 
@@ -208,7 +210,7 @@ def build_cache_snapshot(
             "schema_version": 3,
             "snapshot_strategy": "sqlite_backup",
             "repaired_before_snapshot": snapshot_info["repaired_before_snapshot"],
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
         }
         (target_dir / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
         (target_dir / "sha256.txt").write_text(digest + "\n", encoding="utf-8")
@@ -237,7 +239,7 @@ def build_cache_snapshot(
     previous_signature = _manifest_rows_signature(_select_manifest_rows(previous_manifest, normalized_filters))
     payload = {
         "schema_version": 3,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "semantics": "latest_only",
         "snapshot_strategy": "sqlite_backup",
         "cache_root_name": root.name,

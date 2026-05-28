@@ -8,27 +8,23 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
-from datetime import datetime, timezone
-from pathlib import Path
 import json
-import sys
+from dataclasses import asdict
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 
+from research_experiments.core.controls.no_comm_controls import run_no_comm_control_batch
 from research_experiments.core.execution.artifacts import BufferedJsonlWriter
 from research_experiments.core.execution.cache import RequestCacheRouter
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
 from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from research_experiments.core.structured_outputs import ARTIFACT_VERSION
-from research_experiments.workspace.layout import default_cache_root, default_runs_root
-from research_experiments.core.controls.no_comm_controls import run_no_comm_control_batch
 from research_experiments.families.consensagent.config import (
     ConsensagentExperimentConfig,
-    ExperimentSetup,
-    load_benchmarks,
     load_control_catalog,
     load_protocol_config,
     load_roster_config,
@@ -37,7 +33,6 @@ from research_experiments.families.consensagent.config import (
 from research_experiments.families.consensagent.prompts import build_initial_messages
 from research_experiments.families.consensagent.run.io import RunPaths
 from research_experiments.families.consensagent.run.report import render_report, summarize_run
-from research_experiments.families.consensagent.run.validate import validate_run
 from research_experiments.families.consensagent.run.sample import (
     _active_setups,
     _build_control_prediction_row,
@@ -48,10 +43,12 @@ from research_experiments.families.consensagent.run.sample import (
     _execute_turn,
     _load_selected_samples,
     _resolve_split_name,
-    _run_consensagent_sample,
     _run_consensagent_batch,
     _write_sample_outputs,
 )
+from research_experiments.families.consensagent.run.validate import validate_run
+from research_experiments.families.shared.config_loading import load_benchmarks
+from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 
 def run_experiment(
@@ -97,7 +94,7 @@ def run_experiment(
     # 写入 manifest
     manifest = {
         "run_id": run_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "family_name": "consensagent",
         "experiment_name": experiment.name,
         "phase_name": phase_name,

@@ -5,8 +5,6 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from functools import partial
-import json
-from pathlib import Path
 from typing import Any
 
 from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples
@@ -33,10 +31,9 @@ from research_experiments.families.table_critic.prompts import (
     validate_critic_output,
     validate_curator_output,
     validate_judge_output,
-    validate_refiner_output_with_fallback,
     validate_reasoning_answer_output,
+    validate_refiner_output_with_fallback,
 )
-
 
 SINGLE_PASS_MODES = {"direct_qa", "few_shot_qa", "chain_of_table"}
 REFINEMENT_MODES = {"critic_cot", "table_critic_paper"}

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from research_experiments.families.free_mad_lite.algorithms import build_trajectory_decision, deterministic_trajectory_fallback
+from research_experiments.families.free_mad_lite.algorithms import (
+    build_trajectory_decision,
+    deterministic_trajectory_fallback,
+)
 
 
 def test_free_mad_lite_trajectory_fallback_uses_anti_majority() -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from research_experiments.cli_support.output import configure_utf8_stdio, emit_json
 from research_experiments.core.execution.cache import (
     CacheRootSummary,
     CacheShardSummary,
@@ -13,7 +14,6 @@ from research_experiments.core.execution.cache import (
     resolve_cache_shard_path,
     summarize_cache_root,
 )
-from research_experiments.cli_support.output import configure_utf8_stdio, emit_json
 from research_experiments.workspace.layout import default_cache_root
 
 

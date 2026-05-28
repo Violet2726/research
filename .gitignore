@@ -19,3 +19,5 @@ dist/
 
 /datasets/*
 !/datasets/README.md
+
+.mcp.json

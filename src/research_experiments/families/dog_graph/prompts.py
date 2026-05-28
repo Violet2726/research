@@ -6,7 +6,6 @@ from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.prompts.dataset_contracts import build_json_system_prompt, dataset_instruction_for_sample
 from research_experiments.families.dog_graph.dataset_views import GraphView
 
-
 DEFAULT_PROMPT_VERSION = "dog_graph_json_v1"
 
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
-import json
 from typing import Any
 
 from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples
@@ -15,13 +14,11 @@ from research_experiments.families.macnet.profiles import pick_profile_text
 from research_experiments.families.macnet.prompts import (
     build_actor_messages,
     build_instruction_messages,
-    build_single_agent_messages,
     validate_actor_output,
     validate_instruction_output,
 )
 from research_experiments.families.macnet.topologies import TopologySpec, build_topology
 from research_experiments.families.shared.common import build_question_preview, resolve_phase_split_name, safe_mean
-
 
 METHOD_ORDER = (
     "single_agent_cot",

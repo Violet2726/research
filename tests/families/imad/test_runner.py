@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl
+
 from research_experiments.families.imad.run.report import render_report
 from research_experiments.families.imad.run.validate import validate_run
-from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl
 
 
 def test_imad_render_report_outputs_markdown_and_figures(tmp_path: Path) -> None:

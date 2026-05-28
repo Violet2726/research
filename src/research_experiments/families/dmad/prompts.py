@@ -7,7 +7,6 @@ from research_experiments.core.prompts.dataset_contracts import build_json_syste
 from research_experiments.families.dmad.config import AgentProfile
 from research_experiments.families.shared.reasoning_methods import resolve_reasoning_method
 
-
 DEFAULT_PROMPT_VERSION = "dmad_v1_json"
 
 

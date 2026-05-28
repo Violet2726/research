@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 import argparse
+from dataclasses import asdict
 
-from research_experiments.workspace.layout import workspace_defaults
+from research_experiments.families.free_mad_lite.config import load_protocol_config
+from research_experiments.families.free_mad_lite.prompts import anti_conformity_prompt_hash
+from research_experiments.families.registry import get_family_spec
 from research_experiments.families.shared.cli import (
     build_standard_family_parser,
     dispatch_standard_family_cli,
 )
-from research_experiments.families.registry import get_family_spec
-from research_experiments.families.free_mad_lite.config import load_benchmarks, load_protocol_config, phase_metadata
-from research_experiments.families.free_mad_lite.prompts import anti_conformity_prompt_hash
-
+from research_experiments.families.shared.config_loading import load_benchmarks, phase_metadata
+from research_experiments.workspace.layout import workspace_defaults
 
 SPEC = get_family_spec("free_mad_lite")
 

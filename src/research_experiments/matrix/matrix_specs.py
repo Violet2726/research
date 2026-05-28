@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from functools import lru_cache
-from pathlib import Path
 import tomllib
-
+from dataclasses import dataclass
+from functools import cache
+from pathlib import Path
 
 TRACK_SAME_CONTEXT = "same_context"
 TRACK_SPLIT_CONTEXT = "split_context"
@@ -95,7 +94,7 @@ def get_matrix_profile(matrix_id: str = DEFAULT_MATRIX_ID) -> MatrixProfileSpec:
         raise KeyError(f"Unknown matrix_id: {matrix_id}") from exc
 
 
-@lru_cache(maxsize=None)
+@cache
 def _load_matrix_spec_rows(matrix_id: str) -> tuple[tuple[str, ExperimentMatrixSpec], ...]:
     profile = get_matrix_profile(matrix_id)
     with profile.config_path.open("rb") as handle:

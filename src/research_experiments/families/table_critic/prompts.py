@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from research_experiments.core.data.datasets import DatasetSample
-
 
 DEFAULT_PROMPT_VERSION = "table_critic_paper_v1"
 

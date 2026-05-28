@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
 import json
 import re
+from typing import Any
 
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.data.evaluation import normalize_error_detection_verdict
-
 
 DEFAULT_PROMPT_VERSION = "colmad_paper_v1"
 FAILURE_MODES = ("fake_evidence", "overconfident_claim", "fallacious_argument")

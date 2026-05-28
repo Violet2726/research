@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 import tomllib
+from pathlib import Path
 
 from research_experiments.families.registry import registered_family_names
-
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src" / "research_experiments"

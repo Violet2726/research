@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
-from datetime import datetime, timezone
-from pathlib import Path
 import json
+from dataclasses import asdict, is_dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -14,20 +14,20 @@ from research_experiments.core.execution.cache import RequestCacheRouter
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
 from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
-from research_experiments.workspace.layout import default_cache_root, default_runs_root
 from research_experiments.families.dog_graph.config import (
     DogGraphExperimentConfig,
     PaperProtocolConfig,
     StaticProtocolConfig,
-    load_benchmarks,
     load_protocol_config,
 )
 from research_experiments.families.dog_graph.paper_backend import build_backend_for_benchmark
+from research_experiments.families.dog_graph.run import paper as paper_run
+from research_experiments.families.dog_graph.run import sample as static_run
 from research_experiments.families.dog_graph.run.io import _prepare_run_paths
 from research_experiments.families.dog_graph.run.report import render_report, summarize_run
 from research_experiments.families.dog_graph.run.validate import validate_run
-from research_experiments.families.dog_graph.run import paper as paper_run
-from research_experiments.families.dog_graph.run import sample as static_run
+from research_experiments.families.shared.config_loading import load_benchmarks
+from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 
 def run_experiment(
@@ -76,7 +76,7 @@ def run_experiment(
     progress = RunProgressTracker(run_paths.progress, total_calls, total_predictions)
     manifest = {
         "run_id": run_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "family_name": "dog_graph",
         "experiment_name": experiment.name,
         "phase_name": phase_name,

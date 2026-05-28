@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import json
 import shutil
+from pathlib import Path
 
 from research_experiments.workspace.run_archives import (
     _build_run_publish_commit_message,

@@ -11,6 +11,8 @@ from research_experiments.core.execution.providers.client import (
 from research_experiments.core.execution.providers.normalization import (
     ProviderRequestError,
     ProviderResponse,
+)
+from research_experiments.core.execution.providers.normalization import (
     extract_message_channels as _extract_message_channels,
 )
 from research_experiments.core.execution.providers.payloads import (

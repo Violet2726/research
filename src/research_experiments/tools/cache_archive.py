@@ -6,8 +6,8 @@ import argparse
 
 from dotenv import load_dotenv
 
-from research_experiments.workspace.cache_snapshots import pull_latest_cache_snapshot, push_latest_cache_snapshot
 from research_experiments.cli_support.output import configure_utf8_stdio, emit_json
+from research_experiments.workspace.cache_snapshots import pull_latest_cache_snapshot, push_latest_cache_snapshot
 from research_experiments.workspace.layout import default_cache_hf_repo, default_cache_root
 
 

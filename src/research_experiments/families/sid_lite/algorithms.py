@@ -6,11 +6,10 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from dataclasses import dataclass
-import json
 from typing import Any
-
 
 METHOD_ORDER = ["mv_3", "always_full", "compression_only", "sid_lite"]
 

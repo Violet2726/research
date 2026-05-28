@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
-import json
 from typing import Any
 
 from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples
@@ -24,7 +23,6 @@ from research_experiments.families.colmad.prompts import (
     validate_judge_output,
 )
 from research_experiments.families.shared.common import resolve_phase_split_name, safe_mean, safe_ratio, sum_metric
-
 
 METHOD_ORDER = (
     "single_agent_detector",

@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-
 FILTER_BEST_REL_PROMPT = """
 For a multi-constraint problem, solving it requires first answering the initial question and then constraining the answer to the initial question to get the correct answer.
 Given a multi-constraint problem and multiple relations, choose the best relations that are most helpful in answering the initial sub-question.

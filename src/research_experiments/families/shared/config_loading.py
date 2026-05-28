@@ -6,9 +6,9 @@
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 from typing import Any, Protocol
-import tomllib
 
 from research_experiments.core.config import (
     BenchmarkConfig,

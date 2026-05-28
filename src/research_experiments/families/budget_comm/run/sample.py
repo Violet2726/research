@@ -10,35 +10,31 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from functools import partial
-from hashlib import sha256
-from pathlib import Path
 import csv
-import json
 import math
 import re
+from dataclasses import dataclass
+from functools import partial
+from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
-
-from research_experiments.families.budget_comm.config import (
-    AuctionPolicyConfig,
-    BudgetCommExperimentConfig,
-    BudgetProtocolConfig,
-    ContextViewConfig,
-    load_auction_policy_config,
-    load_benchmarks,
-    load_context_view_config,
-    load_protocol_config,
-    phase_metadata,
+from research_experiments.core.controls.selective_signals import confidence_display, normalize_confidence
+from research_experiments.core.data.datasets import DatasetSample, load_split_ids
+from research_experiments.core.data.evaluation import aggregate_majority, normalize_prediction, score_prediction
+from research_experiments.core.execution.cache import RequestCache, RequestCacheRouter
+from research_experiments.core.execution.providers import OpenAICompatibleProvider
+from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.runner_common import (
+    execute_cached_turn,
+    run_indexed_batch,
 )
-from research_experiments.families.budget_comm.dataset_views import build_context_views, serialize_view_row
+from research_experiments.core.execution.runtime import RunProgressTracker
+from research_experiments.core.structured_outputs import (
+    SCHEMA_ANSWER_WITH_PROXY_SIGNALS_BUDGET,
+    SCHEMA_BELIEF_UPDATE_DELTA,
+)
 from research_experiments.families.budget_comm.algorithms import (
     METHOD_ORDER,
-    PACKET_MODE_ORDER,
     apply_belief_update,
     build_all_to_all_full_decision,
     build_budget_confidence_decision,
@@ -47,30 +43,21 @@ from research_experiments.families.budget_comm.algorithms import (
     build_shared_candidate_features,
     evaluate_full_dala_gate,
 )
+from research_experiments.families.budget_comm.config import (
+    AuctionPolicyConfig,
+    BudgetCommExperimentConfig,
+    BudgetProtocolConfig,
+    ContextViewConfig,
+)
+from research_experiments.families.budget_comm.dataset_views import build_context_views, serialize_view_row
 from research_experiments.families.budget_comm.prompts import build_belief_update_messages, build_solver_messages
-from research_experiments.core.execution.artifacts import BufferedJsonlWriter
-from research_experiments.core.execution.cache import RequestCache, RequestCacheRouter, json_dump
-from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples
-from research_experiments.core.data.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from research_experiments.families.shared.common import build_question_preview, resolve_phase_split_name, safe_mean, stable_trace_hash, sum_metric
-from research_experiments.core.execution.providers import OpenAICompatibleProvider
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
-from research_experiments.core.execution.runner_common import (
-    execute_cached_turn,
-    prepare_run_root,
-    run_indexed_batch,
+from research_experiments.families.shared.common import (
+    build_question_preview,
+    resolve_phase_split_name,
+    safe_mean,
+    stable_trace_hash,
+    sum_metric,
 )
-from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
-from research_experiments.core.controls.selective_signals import confidence_display, normalize_confidence
-from research_experiments.core.structured_outputs import (
-    ARTIFACT_VERSION,
-    SCHEMA_ANSWER_WITH_PROXY_SIGNALS_BUDGET,
-    SCHEMA_BELIEF_UPDATE_DELTA,
-)
-from research_experiments.workspace.layout import default_cache_root, default_runs_root
-from research_experiments.families.budget_comm.run.io import RunPaths
-
-
 
 
 @dataclass(frozen=True)

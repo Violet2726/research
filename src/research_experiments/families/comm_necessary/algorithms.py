@@ -7,16 +7,16 @@ supporting facts 归一化、不同消息包强度压缩、答案与证据聚合
 
 from __future__ import annotations
 
-from collections import Counter
-from dataclasses import dataclass
 import json
 import math
 import re
 import string
-from typing import Any, Iterable
+from collections import Counter
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Any
 
 from research_experiments.core.data.evaluation import normalize_prediction
-
 
 METHOD_ORDER = [
     "full_context_single",

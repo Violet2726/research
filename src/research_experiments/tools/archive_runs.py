@@ -7,8 +7,8 @@ import argparse
 from dotenv import load_dotenv
 
 from research_experiments.cli_support.output import configure_utf8_stdio, emit_json
-from research_experiments.workspace.run_archives import fetch_run_from_hub, publish_run_to_hub
 from research_experiments.workspace.layout import default_runs_hf_repo, workspace_layout
+from research_experiments.workspace.run_archives import fetch_run_from_hub, publish_run_to_hub
 
 
 def build_parser() -> argparse.ArgumentParser:

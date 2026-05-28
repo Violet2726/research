@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -267,10 +267,7 @@ def compute_sycophancy_rate(
     sycophancy_count = 0
     for i, round_answers in enumerate(round_history):
         # t1：答案互换检测
-        if i > 0 and detect_sycophancy_swapping(round_history[i - 1], round_answers):
-            sycophancy_count += 1
-        # t2：复制型谄媚
-        elif detect_sycophancy_copycat(round_answers, consistency_threshold):
+        if i > 0 and detect_sycophancy_swapping(round_history[i - 1], round_answers) or detect_sycophancy_copycat(round_answers, consistency_threshold):
             sycophancy_count += 1
 
     return sycophancy_count / len(round_history)

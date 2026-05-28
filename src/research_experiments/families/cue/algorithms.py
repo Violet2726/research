@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter, defaultdict
 from math import log
 from typing import Any
-import json
 
 from research_experiments.families.cue.schemas import ConflictObject, UtilityBreakdown
 

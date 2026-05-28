@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from research_experiments.workspace.layout import default_reports_root
 from research_experiments.reporting.report_pipeline import SupplementalReport, render_report_bundle
 from research_experiments.reporting.scientific_report import render_scientific_report
+from research_experiments.workspace.layout import default_reports_root
 
 
 def render_family_report_bundle(

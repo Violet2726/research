@@ -5,11 +5,11 @@ from __future__ import annotations
 from research_experiments.core.config.catalog import (
     DEFAULT_MODEL_CATALOG_PATH,
     DEFAULT_PROVIDERS_DIR,
+    REASONING_EFFORT_VALUES,
     SHARED_CONFIG_ROOT,
     BenchmarkConfig,
     ModelCatalogEntry,
     ProviderConfig,
-    REASONING_EFFORT_VALUES,
     ResolvedModelConfig,
     benchmark_cache_namespace,
     load_benchmark_config,

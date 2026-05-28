@@ -8,7 +8,6 @@ from typing import Any
 
 from research_experiments.families.shared.validate_common import load_jsonl, validate_shared_contracts
 
-
 REQUIRED_PREDICTION_FIELDS = {
     "topology_type",
     "node_scale",

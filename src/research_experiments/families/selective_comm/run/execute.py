@@ -7,60 +7,32 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
-from functools import partial
-from hashlib import sha256
-from pathlib import Path
 import json
+from dataclasses import asdict
+from datetime import UTC, datetime
+from functools import partial
+from pathlib import Path
 from typing import Any
-from typing import Callable
 
 from dotenv import load_dotenv
 
+from research_experiments.core.data.datasets import select_samples
 from research_experiments.core.execution.artifacts import BufferedJsonlWriter
-from research_experiments.core.execution.cache import RequestCache, RequestCacheRouter, json_dump
-from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples
-from research_experiments.core.data.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from research_experiments.families.shared.common import build_question_preview, resolve_phase_split_name, safe_mean, safe_ratio, stable_trace_hash
+from research_experiments.core.execution.cache import RequestCacheRouter
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
 from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
-from research_experiments.core.execution.runner_common import (
-    execute_cached_turn,
-    prepare_run_root,
-    prompt_hash as build_prompt_hash,
-    run_indexed_batch,
-)
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
-from research_experiments.core.controls.selective_signals import (
-    confidence_display,
-    decide_trigger_from_policy,
-    normalize_confidence,
-    summarize_divergence_rows,
-    summarize_confidence_rows,
-)
-from research_experiments.families.shared.method_catalog import MethodConfig
-from research_experiments.families.shared.reference_runs import write_policy_reference_summary
 from research_experiments.core.structured_outputs import (
     ARTIFACT_VERSION,
-    SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE,
 )
-from research_experiments.workspace.layout import default_cache_root, default_runs_root
 from research_experiments.families.selective_comm.config import (
     SelectiveCommExperimentConfig,
-    SharedDebateProtocolConfig,
-    TriggerPolicyConfig,
-    load_benchmarks,
     load_control_catalog,
     load_policies,
     load_protocol_config,
-    phase_metadata,
 )
-from research_experiments.families.selective_comm.prompts import build_debate_messages, build_initial_messages
-from research_experiments.families.selective_comm.run.report import render_report
-from research_experiments.families.selective_comm.run.validate import validate_run
-
 from research_experiments.families.selective_comm.run.io import _prepare_run_paths
+from research_experiments.families.selective_comm.run.report import render_report
 from research_experiments.families.selective_comm.run.sample import (
     _build_metrics_payload,
     _build_oracle_payload,
@@ -72,6 +44,11 @@ from research_experiments.families.selective_comm.run.sample import (
     _write_sample_result,
     _write_seed_rows,
 )
+from research_experiments.families.selective_comm.run.validate import validate_run
+from research_experiments.families.shared.config_loading import load_benchmarks, phase_metadata
+from research_experiments.families.shared.reference_runs import write_policy_reference_summary
+from research_experiments.workspace.layout import default_cache_root, default_runs_root
+
 
 def run_experiment(
     experiment: SelectiveCommExperimentConfig,
@@ -113,7 +90,7 @@ def run_experiment(
 
     manifest = {
         "run_id": run_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "experiment": experiment.name,
         "description": experiment.description,
         "phase": phase_name,

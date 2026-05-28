@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
-from dataclasses import dataclass, field
-from pathlib import Path
 import json
 import os
 import re
+from collections import defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import httpx
 
 from research_experiments.core.config import BenchmarkConfig
 from research_experiments.core.data.datasets import resolve_dataset_source_path
-
 
 _FREEBASE_RELATION_BLACKLIST = {
     "type.object.type",

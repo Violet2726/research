@@ -11,7 +11,6 @@ from typing import Any
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.prompts.dataset_contracts import dataset_instruction_for_sample
 
-
 DEFAULT_PROMPT_VERSION = "madjudge_v1"
 
 # ── 论文 Section 3.1：初始响应生成 ──────────────────────────────────────────

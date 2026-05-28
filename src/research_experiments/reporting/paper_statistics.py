@@ -7,15 +7,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from pathlib import Path
 import json
 import math
 import random
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 from statistics import mean
 from typing import Any
-
 
 PREDICTION_FILE_CANDIDATES = (
     "policy_predictions.jsonl",
@@ -154,7 +153,7 @@ def build_paper_statistics(
         )
 
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "seed": seed,
         "bootstrap_samples": bootstrap_samples,
         "comparisons": comparisons,

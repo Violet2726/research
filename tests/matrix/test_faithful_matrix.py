@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections import Counter
 import json
+from collections import Counter
 from pathlib import Path
 
 from research_experiments.core.execution.rate_limits import (
@@ -12,6 +12,10 @@ from research_experiments.core.execution.rate_limits import (
     STANDARD_TOKENS_PER_MINUTE_LIMIT,
 )
 from research_experiments.families.budget_comm.config import load_experiment_config as load_budget_experiment_config
+from research_experiments.families.single_agent.config import (
+    load_experiment_config as load_single_agent_experiment_config,
+)
+from research_experiments.families.single_agent.config import required_model_tags
 from research_experiments.matrix.faithful_matrix import (
     MATRIX_EXPERIMENT_KIND,
     RuntimeOverrides,
@@ -20,8 +24,6 @@ from research_experiments.matrix.faithful_matrix import (
     build_run_matrix,
     resume_faithful_matrix,
 )
-from research_experiments.families.single_agent.config import load_experiment_config as load_single_agent_experiment_config
-from research_experiments.families.single_agent.config import required_model_tags
 
 
 def test_build_run_matrix_counts_expected() -> None:

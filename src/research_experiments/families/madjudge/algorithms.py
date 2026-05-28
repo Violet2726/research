@@ -15,7 +15,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import stats
 from scipy.optimize import minimize
-from scipy.special import comb, betaln
+from scipy.special import betaln, comb
 
 
 @dataclass(frozen=True)
@@ -291,6 +291,44 @@ def check_stability_batch(
             total_agents=k * len(round_majority_counts),
         ),
         current_params,
+    )
+
+
+def check_stability(
+    round_history: list[list[dict[str, str]]],
+    current_round_data: list[dict[str, str]],
+    ks_threshold: float = 0.05,
+    consecutive_stable_required: int = 2,
+    previous_params: BetaBinomialParams | None = None,
+    consecutive_stable_count: int = 0,
+) -> tuple[StabilityState, BetaBinomialParams]:
+    """单题级稳定性检测（论文 Section 5.3）。
+
+    从当前轮数据中提取答案并计算 majority count，
+    然后委托给 check_stability_batch 执行实际检测。
+
+    Args:
+        round_history: 历史轮次数据（当前轮之前）
+        current_round_data: 当前轮的 agent 答案数据
+        ks_threshold: KS 统计量阈值
+        consecutive_stable_required: 需要连续稳定的轮数
+        previous_params: 上一轮的模型参数
+        consecutive_stable_count: 已连续稳定的轮数
+
+    Returns:
+        (稳定性状态, 当前轮的模型参数)
+    """
+    answers = [str(d.get("answer", "")) for d in current_round_data]
+    k = len(answers)
+    majority_count = compute_majority_count(answers)
+
+    return check_stability_batch(
+        round_majority_counts=[majority_count],
+        k=k,
+        ks_threshold=ks_threshold,
+        consecutive_stable_required=consecutive_stable_required,
+        previous_params=previous_params,
+        consecutive_stable_count=consecutive_stable_count,
     )
 
 

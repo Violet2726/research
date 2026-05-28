@@ -2,27 +2,25 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 import argparse
+from dataclasses import asdict
 
-from research_experiments.workspace.layout import workspace_defaults
+from research_experiments.families.registry import get_family_spec
+from research_experiments.families.selective_comm.config import load_protocol_config
 from research_experiments.families.shared.cli import (
     build_standard_family_parser,
     dispatch_standard_family_cli,
 )
-from research_experiments.families.registry import get_family_spec
+from research_experiments.families.shared.config_loading import load_benchmarks, phase_metadata
+from research_experiments.workspace.layout import workspace_defaults
+
+SPEC = get_family_spec("selective_comm")
 from research_experiments.families.selective_comm.config import (
     describe_backbone_fit,
     ensure_backbone_fit,
-    load_benchmarks,
     load_control_catalog,
     load_policies,
-    load_protocol_config,
-    phase_metadata,
 )
-
-
-SPEC = get_family_spec("selective_comm")
 
 
 def build_parser() -> argparse.ArgumentParser:

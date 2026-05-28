@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import ast
 import json
 import re
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 
 from research_experiments.core.structured_outputs import SCHEMA_ANSWER_CORE, validate_or_recover_structured_output
 from research_experiments.families.shared.reasoning_methods import normalize_reasoning_method_name
-
 
 ALLOWED_IMPORT_ROOTS = {
     "collections",

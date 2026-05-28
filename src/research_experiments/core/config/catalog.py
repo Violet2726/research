@@ -6,12 +6,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import os
+import tomllib
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-import tomllib
-
 
 SHARED_CONFIG_ROOT = Path("configs/core/shared")
 DEFAULT_MODEL_CATALOG_PATH = SHARED_CONFIG_ROOT / "model_catalog.toml"

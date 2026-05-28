@@ -6,7 +6,6 @@ from typing import Literal
 
 from research_experiments.core.data.datasets import DatasetSample
 
-
 ContextScope = Literal["provided", "visible"]
 HotpotStyle = Literal["short_span", "shortest_span", "shortest_span_copy"]
 MultipleChoiceScope = Literal["general", "visible"]

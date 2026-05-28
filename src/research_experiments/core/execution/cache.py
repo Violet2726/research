@@ -10,13 +10,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from hashlib import sha256
-from pathlib import Path
 import json
 import sqlite3
 import threading
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from hashlib import sha256
+from pathlib import Path
 from typing import Any
 
 
@@ -409,7 +409,7 @@ def repair_cache_shard(shard_path: str | Path) -> dict[str, Any]:
             "skipped_rowids": [],
         }
 
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     backup_path = path.with_name(f"{path.name}.corrupt-{timestamp}")
     recovered_path = path.with_name(f"{path.name}.recovered-{timestamp}")
     _cleanup_sqlite_sidecars(path)

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from research_experiments.core.data.datasets import DatasetSample
-from research_experiments.families.dog_graph.config import load_benchmarks, load_experiment_config, load_protocol_config
+from research_experiments.families.dog_graph.config import load_experiment_config, load_protocol_config
+from research_experiments.families.dog_graph.dataset_views import GraphView
 from research_experiments.families.dog_graph.paper_backend import EntityRef, MetaqaGraphBackend
 from research_experiments.families.dog_graph.paper_prompts import (
     parse_enough_answer_output,
@@ -14,7 +14,7 @@ from research_experiments.families.dog_graph.run.execute import _cache_dataset_k
 from research_experiments.families.dog_graph.run.paper import _build_metrics as _build_paper_metrics
 from research_experiments.families.dog_graph.run.sample import _build_metrics as _build_static_metrics
 from research_experiments.families.dog_graph.run.sample import _ground_graph_payload, _validate_graph_answer_payload
-from research_experiments.families.dog_graph.dataset_views import GraphView
+from research_experiments.families.shared.config_loading import load_benchmarks
 
 
 def test_load_dog_graph_main_config_reads_paper_methods_and_protocol() -> None:

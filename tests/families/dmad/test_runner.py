@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import zipfile
+from pathlib import Path
+
+from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl
 
 from research_experiments.core.config import ResolvedModelConfig
 from research_experiments.families.dmad.config import load_experiment_config
 from research_experiments.families.dmad.run.execute import run_experiment
 from research_experiments.families.dmad.run.report import render_report
 from research_experiments.families.dmad.run.validate import validate_run
-from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl
 
 
 def test_dmad_render_report_uses_new_paper_scope_and_tables(tmp_path: Path) -> None:

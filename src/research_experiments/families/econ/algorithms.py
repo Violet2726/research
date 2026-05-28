@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any
 
-
 ACTION_ORDER = ("keep_local", "adopt_vote", "query_best_peer", "query_two_peers")
 
 

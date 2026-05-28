@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
-from datetime import datetime, timezone
-from pathlib import Path
 import json
+from collections import defaultdict
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
-from research_experiments.workspace.layout import default_reports_root
 from research_experiments.matrix.faithful_analysis import render_faithful_analysis
 from research_experiments.matrix.matrix_specs import (
     EVIDENCE_DIAGNOSTIC,
@@ -19,7 +18,7 @@ from research_experiments.matrix.matrix_specs import (
     TRACK_SPLIT_CONTEXT,
 )
 from research_experiments.reporting.report_views import MatrixAnalysisTableView, load_json_payload
-
+from research_experiments.workspace.layout import default_reports_root
 
 TRACK_ORDER = (TRACK_SAME_CONTEXT, TRACK_SPLIT_CONTEXT)
 TIER_ORDER = (
@@ -140,7 +139,7 @@ def build_family_landscape_payload(
     }
 
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "phase_name": state_payload.get("overrides", {}).get("phase_name"),
         "model_ref": state_payload.get("overrides", {}).get("model_ref"),
         "counts": state_payload.get("counts", {}),

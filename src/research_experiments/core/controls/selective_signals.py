@@ -9,7 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-
 UNCERTAINTY_TYPE_CHOICES = (
     "none",
     "calculation",
@@ -255,7 +254,7 @@ def decide_trigger_from_policy(
 ) -> TriggerDecision:
     """从策略对象读取参数后复用统一 trigger 规则。"""
     return decide_trigger(
-        trigger_type=str(getattr(policy, "trigger_type")),
+        trigger_type=str(policy.trigger_type),
         initial_disagreement=initial_disagreement,
         answer_divergence_score=answer_divergence_score,
         claim_divergence_score=claim_divergence_score,

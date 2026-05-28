@@ -7,7 +7,6 @@ from hashlib import sha256
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.prompts.dataset_contracts import build_json_system_prompt, dataset_instruction_for_sample
 
-
 DEFAULT_PROMPT_VERSION = "free_mad_lite_v1_json"
 
 

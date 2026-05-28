@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from html import escape
-from pathlib import Path
 import json
 import math
 import os
+from datetime import UTC, datetime
+from html import escape
+from pathlib import Path
 from typing import Any
 
 from research_experiments.reporting.report_views import coerce_summary_rows
-
 
 FONT_FAMILY = "Helvetica, Arial, sans-serif"
 COLOR_TEXT = "#111827"
@@ -61,7 +60,7 @@ def write_figure_bundle(run_dir: str | Path, figure_specs: list[dict[str, Any]])
         )
 
     manifest = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "figure_count": len(manifest_rows),
         "figures": manifest_rows,
     }

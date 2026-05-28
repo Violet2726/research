@@ -8,10 +8,10 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from functools import partial
 import json
 import re
+from dataclasses import asdict, dataclass
+from functools import partial
 from typing import Any
 
 from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples

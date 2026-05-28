@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-import json
 import random
 import zipfile
+from pathlib import Path
 
 from research_experiments.core.data.datasets import resolve_dataset_source_path
-
 
 BUILTIN_PROFILES = {
     "actor": [

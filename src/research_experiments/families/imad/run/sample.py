@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
+import random
 from functools import partial
 from hashlib import sha256
-import math
-import random
 from typing import Any
 
-from research_experiments.core.controls.no_comm_controls import run_no_comm_control_batch
 from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples
 from research_experiments.core.data.evaluation import aggregate_majority, normalize_prediction, score_prediction
 from research_experiments.core.execution.artifacts import BufferedJsonlWriter
@@ -17,7 +14,6 @@ from research_experiments.core.execution.cache import RequestCache
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
 from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
 from research_experiments.core.execution.runner_common import execute_cached_turn, run_indexed_batch
-from research_experiments.core.controls.no_comm_controls import BuildPredictionRowFn
 from research_experiments.core.structured_outputs import SCHEMA_ANSWER_CORE
 from research_experiments.families.imad.config import DebateMethodSpec, ImadExperimentConfig, ProtocolConfig
 from research_experiments.families.imad.prompts import build_debate_messages, build_initial_messages
@@ -839,7 +835,7 @@ def _beta_posterior_samples(*, support_count: int, agent_count: int, sample_coun
 
 
 def _posterior_seed(*, sample_id: str, method_name: str, round_index: int, global_seed: int) -> int:
-    payload = f"{sample_id}:{method_name}:{round_index}:{global_seed}".encode("utf-8")
+    payload = f"{sample_id}:{method_name}:{round_index}:{global_seed}".encode()
     digest = sha256(payload).hexdigest()
     return int(digest[:12], 16)
 

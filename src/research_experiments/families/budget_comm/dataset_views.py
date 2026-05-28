@@ -7,13 +7,12 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from hashlib import sha256
 from typing import Any
 
-from research_experiments.families.budget_comm.config import ContextViewConfig
 from research_experiments.core.data.datasets import DatasetSample
+from research_experiments.families.budget_comm.config import ContextViewConfig
 
 
 @dataclass(frozen=True)

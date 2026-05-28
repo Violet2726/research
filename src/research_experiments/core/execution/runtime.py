@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from pathlib import Path
 import json
-from threading import Event, RLock, Thread
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
+from pathlib import Path
+from threading import Event, RLock, Thread
+from typing import Any
 
 from research_experiments.workspace.run_archives import pack_run_artifacts, publish_run_if_configured
 
@@ -30,7 +31,7 @@ class RunProgressTracker:
         self.progress_path = progress_path
         self.total_planned_calls = total_planned_calls
         self.total_planned_predictions = total_planned_predictions
-        self.started_at = datetime.now(timezone.utc).isoformat()
+        self.started_at = datetime.now(UTC).isoformat()
         self.started_monotonic = time.monotonic()
         self.completed_calls = initial_completed_calls
         self.completed_predictions = initial_completed_predictions
@@ -116,7 +117,7 @@ class RunProgressTracker:
             payload = {
                 "status": self.status,
                 "started_at": self.started_at,
-                "last_updated_at": datetime.now(timezone.utc).isoformat(),
+                "last_updated_at": datetime.now(UTC).isoformat(),
                 "last_write_reason": self.last_write_reason,
                 "last_progress_event_at": self.last_progress_event_at,
                 "seconds_since_last_progress_event": round(max(0.0, now - self.last_progress_event_monotonic), 2),
@@ -146,13 +147,13 @@ class RunProgressTracker:
 
     def _note_progress_event_locked(self) -> None:
         self.last_progress_event_monotonic = time.monotonic()
-        self.last_progress_event_at = datetime.now(timezone.utc).isoformat()
+        self.last_progress_event_at = datetime.now(UTC).isoformat()
 
 
 def build_run_id(*parts: str) -> str:
     """Build a stable run id with a UTC timestamp prefix."""
 
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     safe_parts = [part.replace("/", "-") for part in parts if part]
     return "-".join([timestamp, *safe_parts])
 

@@ -24,7 +24,6 @@ from research_experiments.families.single_agent.spec import build_parser as buil
 from research_experiments.families.sparc.spec import build_parser as build_sparc_parser
 from research_experiments.families.table_critic.spec import build_parser as build_table_critic_parser
 
-
 ROOT = Path(__file__).resolve().parents[2]
 LEGACY_REPORT_COMMANDS = (
     "report-run",

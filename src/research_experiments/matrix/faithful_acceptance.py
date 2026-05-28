@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from pathlib import Path
 import json
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from research_experiments.matrix.matrix_specs import get_experiment_matrix_spec
@@ -57,7 +57,7 @@ def build_acceptance_summary(analysis_payload: dict[str, Any]) -> dict[str, Any]
     accepted_split_context = [row for row in evaluated if row["status"] == "accepted_split_context"]
     negative_control = [row for row in evaluated if row["status"] == "negative_control_family"]
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "counts": {
             "evaluated": len(evaluated),
             "accepted_same_context": len(accepted_same_context),

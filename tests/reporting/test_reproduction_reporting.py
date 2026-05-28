@@ -2,11 +2,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from research_experiments.matrix.reproduction_analysis import build_reproduction_analysis, render_reproduction_analysis
-from research_experiments.reporting.reproduction_landscape import build_reproduction_landscape_payload, render_reproduction_landscape
-from research_experiments.reporting.reproduction_package import build_reproduction_package_payload, render_reproduction_package
-from research_experiments.workspace.layout import default_reports_root
 from testsupport.filesystem import write_json
+
+from research_experiments.matrix.reproduction_analysis import render_reproduction_analysis
+from research_experiments.reporting.reproduction_landscape import (
+    build_reproduction_landscape_payload,
+    render_reproduction_landscape,
+)
+from research_experiments.reporting.reproduction_package import (
+    build_reproduction_package_payload,
+    render_reproduction_package,
+)
+from research_experiments.workspace.layout import default_reports_root
 
 
 def test_build_reproduction_package_payload_splits_canonical_auxiliary_and_scaling() -> None:

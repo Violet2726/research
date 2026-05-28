@@ -6,10 +6,9 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter, defaultdict
 from typing import Any
-import json
-
 
 MESSAGE_MODE_ORDER = [
     "full_cot",

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-import json
-from typing import Any, Callable, Iterable, Mapping, Sequence
+from typing import Any
 
 
 def load_json_payload(path: str | Path) -> dict[str, Any]:

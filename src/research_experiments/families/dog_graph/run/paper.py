@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from functools import partial
-from pathlib import Path
-import json
 from typing import Any
 
 from research_experiments.core.data.datasets import DatasetSample, select_samples
@@ -14,7 +12,11 @@ from research_experiments.core.execution.cache import RequestCache
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
 from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
 from research_experiments.core.execution.runner_common import execute_cached_turn, run_indexed_batch
-from research_experiments.families.dog_graph.config import DogGraphExperimentConfig, GraphMethodSpec, PaperProtocolConfig
+from research_experiments.families.dog_graph.config import (
+    DogGraphExperimentConfig,
+    GraphMethodSpec,
+    PaperProtocolConfig,
+)
 from research_experiments.families.dog_graph.paper_backend import EntityRef
 from research_experiments.families.dog_graph.paper_prompts import (
     build_direct_answer_messages,
@@ -27,7 +29,6 @@ from research_experiments.families.dog_graph.paper_prompts import (
     validate_plain_text_output,
 )
 from research_experiments.families.shared.common import resolve_phase_split_name, safe_mean
-
 
 PaperBackend = Any
 

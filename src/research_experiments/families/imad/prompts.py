@@ -5,7 +5,6 @@ from __future__ import annotations
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.prompts.dataset_contracts import build_json_system_prompt, dataset_instruction_for_sample
 
-
 DEFAULT_PROMPT_VERSION = "imad_controlled_json"
 
 

@@ -7,7 +7,6 @@ from pathlib import Path
 from research_experiments.core.config import load_benchmark_config
 from research_experiments.core.data.datasets import resolve_split_manifest_path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 BENCHMARKS_ROOT = ROOT / "configs" / "core" / "shared" / "benchmarks"
 

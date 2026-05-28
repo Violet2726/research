@@ -8,7 +8,6 @@ from typing import Any
 from research_experiments.families.shared.validate_common import load_jsonl, validate_shared_contracts
 from research_experiments.reporting.report_views import load_json_payload
 
-
 STATIC_REQUIRED_PREDICTION_FIELDS = {
     "subgraph_node_count",
     "subgraph_edge_count",

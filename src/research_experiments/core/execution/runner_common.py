@@ -9,19 +9,20 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
-import json
-from typing import Any, Callable, Iterable, TypeVar
+from typing import Any, TypeVar
 
+from research_experiments.core.config import ResolvedModelConfig
 from research_experiments.core.execution.cache import (
     RequestCache,
     build_request_cache_key,
     cache_successful_response,
 )
-from research_experiments.core.config import ResolvedModelConfig
 from research_experiments.core.execution.providers import (
     OpenAICompatibleProvider,
     build_payload,
@@ -29,7 +30,6 @@ from research_experiments.core.execution.providers import (
 )
 from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
 from research_experiments.core.structured_outputs import SchemaId, validate_or_recover_structured_output
-
 
 T = TypeVar("T")
 R = TypeVar("R")

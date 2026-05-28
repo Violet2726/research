@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import math
 import random
+from pathlib import Path
 from typing import Any
 
+from research_experiments.families.shared.report_common import (
+    render_family_report_bundle,
+    render_family_scientific_report,
+)
 from research_experiments.families.sid_lite.algorithms import METHOD_ORDER
-from research_experiments.workspace.layout import default_reports_root
 from research_experiments.reporting.analysis_reports import render_frontier_report
-from research_experiments.reporting.report_pipeline import SupplementalReport, render_report_bundle
-from research_experiments.families.shared.report_common import render_family_report_bundle, render_family_scientific_report
-from research_experiments.reporting.reporting_utils import resolve_manifest_model_name
+from research_experiments.reporting.report_pipeline import SupplementalReport
 from research_experiments.reporting.report_views import SummaryTableView, load_json_payload, load_jsonl_rows
+from research_experiments.reporting.reporting_utils import resolve_manifest_model_name
 from research_experiments.reporting.run_figures import (
     build_efficiency_rank_figure_spec,
     build_frontier_figure_spec,
@@ -24,8 +26,8 @@ from research_experiments.reporting.run_figures import (
 from research_experiments.reporting.scientific_report import (
     format_float,
     render_run_reproducibility_section,
-    render_scientific_report,
 )
+from research_experiments.workspace.layout import default_reports_root
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:

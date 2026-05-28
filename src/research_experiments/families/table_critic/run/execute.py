@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
-from datetime import datetime, timezone
-from pathlib import Path
 import json
+from dataclasses import asdict
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -14,9 +15,11 @@ from research_experiments.core.execution.cache import RequestCacheRouter
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
 from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
-from research_experiments.workspace.layout import default_cache_root, default_runs_root
 from research_experiments.families.shared.config_loading import load_benchmarks
-from research_experiments.families.table_critic.config import ProtocolConfig, TableCriticExperimentConfig, load_protocol_config
+from research_experiments.families.table_critic.config import (
+    TableCriticExperimentConfig,
+    load_protocol_config,
+)
 from research_experiments.families.table_critic.run.io import _prepare_run_paths
 from research_experiments.families.table_critic.run.report import render_report, summarize_run
 from research_experiments.families.table_critic.run.sample import (
@@ -32,6 +35,7 @@ from research_experiments.families.table_critic.run.sample import (
     _serialize_template_tree,
 )
 from research_experiments.families.table_critic.run.validate import validate_run
+from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 
 def run_experiment(
@@ -67,7 +71,7 @@ def run_experiment(
 
     manifest = {
         "run_id": run_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "family_name": "table_critic",
         "experiment_name": experiment.name,
         "experiment_kind": experiment.experiment_kind,

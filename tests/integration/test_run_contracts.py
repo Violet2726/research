@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import json
+from pathlib import Path
+
+from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl
 
 from research_experiments.core.execution.rate_limits import (
     STANDARD_REQUESTS_PER_MINUTE_LIMIT,
     STANDARD_TOKENS_PER_MINUTE_LIMIT,
+)
+from research_experiments.core.structured_outputs import (
+    SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE,
+    validate_or_recover_structured_output,
 )
 from research_experiments.families.budget_comm.run.report import summarize_run as summarize_budget
 from research_experiments.families.budget_comm.run.validate import validate_run as validate_budget
@@ -21,9 +27,11 @@ from research_experiments.families.free_mad_lite.run.report import summarize_run
 from research_experiments.families.free_mad_lite.run.validate import validate_run as validate_free_mad
 from research_experiments.families.multi_agent.run.report import summarize_run as summarize_multi_agent
 from research_experiments.families.multi_agent.run.validate import validate_run as validate_multi_agent
-from research_experiments.families.sparc.run.report import summarize_run as summarize_sparc
-from research_experiments.families.sparc.run.validate import validate_run as validate_sparc
-from research_experiments.families.selective_comm.config import load_control_catalog, load_policies, load_protocol_config
+from research_experiments.families.selective_comm.config import (
+    load_control_catalog,
+    load_policies,
+    load_protocol_config,
+)
 from research_experiments.families.selective_comm.run.report import summarize_run as summarize_selective
 from research_experiments.families.selective_comm.run.sample import _load_resume_seed_state
 from research_experiments.families.selective_comm.run.validate import validate_run as validate_selective
@@ -31,11 +39,8 @@ from research_experiments.families.sid_lite.run.report import summarize_run as s
 from research_experiments.families.sid_lite.run.validate import validate_run as validate_sid
 from research_experiments.families.single_agent.run.report import summarize_run as summarize_single_agent
 from research_experiments.families.single_agent.run.validate import validate_run as validate_single_agent
-from research_experiments.core.structured_outputs import (
-    SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE,
-    validate_or_recover_structured_output,
-)
-from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl
+from research_experiments.families.sparc.run.report import summarize_run as summarize_sparc
+from research_experiments.families.sparc.run.validate import validate_run as validate_sparc
 
 
 def test_single_agent_reporting_and_validation_use_method_name(tmp_path: Path) -> None:

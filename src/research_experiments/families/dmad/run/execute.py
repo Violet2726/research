@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
-from datetime import datetime, timezone
-from pathlib import Path
 import json
+from dataclasses import asdict
+from datetime import UTC, datetime
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -16,7 +16,6 @@ from research_experiments.core.execution.rate_limits import SlidingWindowRateLim
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from research_experiments.families.dmad.config import (
     DmadExperimentConfig,
-    load_benchmarks,
     load_control_catalog,
     load_protocol_config,
     load_roster_config,
@@ -36,6 +35,7 @@ from research_experiments.families.dmad.run.sample import (
     _write_sample_outputs,
 )
 from research_experiments.families.dmad.run.validate import validate_run
+from research_experiments.families.shared.config_loading import load_benchmarks
 from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 
@@ -83,7 +83,7 @@ def run_experiment(
 
     manifest = {
         "run_id": run_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "family_name": "dmad",
         "experiment_name": experiment.name,
         "phase_name": phase_name,

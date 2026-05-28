@@ -9,11 +9,11 @@
 
 from __future__ import annotations
 
+import shutil
+import tarfile
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
-import shutil
-import tarfile
 
 import zstandard as zstd
 
@@ -100,24 +100,23 @@ def extract_tar_zst(
     extracted_members: list[str] = []
     with archive.open("rb") as raw_handle:
         dctx = zstd.ZstdDecompressor()
-        with dctx.stream_reader(raw_handle) as reader:
-            with tarfile.open(fileobj=reader, mode="r|") as tar_handle:
-                for member in tar_handle:
-                    if member.name in {"", ".", "./"}:
-                        continue
-                    relative_path = _normalize_relative_path(member.name)
-                    destination = root / relative_path
-                    _ensure_within_root(root, destination)
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    if member.isdir():
-                        destination.mkdir(parents=True, exist_ok=True)
-                        continue
-                    extracted = tar_handle.extractfile(member)
-                    if extracted is None:
-                        continue
-                    with destination.open("wb") as output_handle:
-                        shutil.copyfileobj(extracted, output_handle)
-                    extracted_members.append(relative_path)
+        with dctx.stream_reader(raw_handle) as reader, tarfile.open(fileobj=reader, mode="r|") as tar_handle:
+            for member in tar_handle:
+                if member.name in {"", ".", "./"}:
+                    continue
+                relative_path = _normalize_relative_path(member.name)
+                destination = root / relative_path
+                _ensure_within_root(root, destination)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                if member.isdir():
+                    destination.mkdir(parents=True, exist_ok=True)
+                    continue
+                extracted = tar_handle.extractfile(member)
+                if extracted is None:
+                    continue
+                with destination.open("wb") as output_handle:
+                    shutil.copyfileobj(extracted, output_handle)
+                extracted_members.append(relative_path)
     return tuple(extracted_members)
 
 

@@ -8,27 +8,23 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
-from datetime import datetime, timezone
-from pathlib import Path
 import json
-import sys
+from dataclasses import asdict
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 
+from research_experiments.core.controls.no_comm_controls import run_no_comm_control_batch
 from research_experiments.core.execution.artifacts import BufferedJsonlWriter
 from research_experiments.core.execution.cache import RequestCacheRouter
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
 from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from research_experiments.core.structured_outputs import ARTIFACT_VERSION
-from research_experiments.workspace.layout import default_cache_root, default_runs_root
-from research_experiments.core.controls.no_comm_controls import run_no_comm_control_batch
 from research_experiments.families.madjudge.config import (
-    ExperimentSetup,
     MadJudgeExperimentConfig,
-    load_benchmarks,
     load_control_catalog,
     load_protocol_config,
     load_roster_config,
@@ -37,7 +33,6 @@ from research_experiments.families.madjudge.config import (
 from research_experiments.families.madjudge.prompts import build_initial_messages
 from research_experiments.families.madjudge.run.io import RunPaths
 from research_experiments.families.madjudge.run.report import render_report, summarize_run
-from research_experiments.families.madjudge.run.validate import validate_run
 from research_experiments.families.madjudge.run.sample import (
     _active_setups,
     _build_control_prediction_row,
@@ -51,6 +46,9 @@ from research_experiments.families.madjudge.run.sample import (
     _run_madjudge_batch_round_by_round,
     _write_sample_outputs,
 )
+from research_experiments.families.madjudge.run.validate import validate_run
+from research_experiments.families.shared.config_loading import load_benchmarks
+from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 
 def run_experiment(
@@ -96,7 +94,7 @@ def run_experiment(
     # 写入 manifest
     manifest = {
         "run_id": run_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "family_name": "madjudge",
         "experiment_name": experiment.name,
         "phase_name": phase_name,

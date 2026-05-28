@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from statistics import mean
 from typing import Any
 
-from research_experiments.workspace.layout import default_reports_root
 from research_experiments.matrix.matrix_specs import get_experiment_matrix_spec
 from research_experiments.reporting.report_views import (
     MatrixAnalysisRowView,
@@ -19,7 +17,7 @@ from research_experiments.reporting.report_views import (
     load_json_payload,
     load_jsonl_rows,
 )
-
+from research_experiments.workspace.layout import default_reports_root
 
 POLICY_METRIC_FAMILIES = {"cue", "selective_comm"}
 PREDICTION_FILE_CANDIDATES = (
@@ -233,7 +231,7 @@ def build_faithful_analysis(
     split_context_overall = [row for row in overall_rows if row["evaluation_track"] == "split_context"]
 
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "rows": rows,
         "experiments": experiments,
         "same_context_overall": _sort_rows(same_context_overall),

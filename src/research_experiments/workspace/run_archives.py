@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from pathlib import Path, PurePosixPath
 import json
 import shutil
 import tempfile
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from huggingface_hub import HfApi, snapshot_download
 
 from research_experiments.workspace.archive_utils import copy_relative_files, extract_tar_zst, pack_tar_zst
 from research_experiments.workspace.layout import auto_publish_runs_enabled, default_runs_hf_repo, workspace_layout
-
 
 ARCHIVE_MANIFEST_FILENAME = "archive_manifest.json"
 HF_PUBLISH_STATUS_FILENAME = "hf_publish.json"
@@ -103,7 +102,7 @@ def pack_run_artifacts(
 
     archive_manifest = {
         "schema_version": ARCHIVE_SCHEMA_VERSION,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "run_id": manifest_payload.get("run_id") or root.name,
         "remote_repo": remote_repo,
         "remote_prefix": remote_prefix,

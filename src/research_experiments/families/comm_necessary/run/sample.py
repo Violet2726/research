@@ -7,29 +7,33 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+import csv
+import json
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import partial
 from hashlib import sha256
 from pathlib import Path
-import csv
-import json
 from typing import Any
 
-from dotenv import load_dotenv
-
-from research_experiments.families.comm_necessary.config import (
-    CommNecessaryExperimentConfig,
-    CommNecessaryProtocolConfig,
-    load_benchmarks,
-    load_protocol_config,
-    phase_metadata,
+from research_experiments.core.config import ResolvedModelConfig
+from research_experiments.core.data.datasets import DatasetSample, load_split_ids
+from research_experiments.core.data.evaluation import normalize_prediction
+from research_experiments.core.execution.cache import RequestCache
+from research_experiments.core.execution.providers import OpenAICompatibleProvider, estimate_request_tokens
+from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.runner_common import (
+    execute_cached_turn,
+    run_indexed_batch,
 )
-from research_experiments.families.comm_necessary.dataset_views import HotpotView, build_hotpot_views, serialize_view_row
+from research_experiments.core.structured_outputs import (
+    SCHEMA_SPLIT_CONTEXT_BELIEF,
+    SCHEMA_SPLIT_CONTEXT_SOLVER,
+    validate_or_recover_structured_output,
+)
 from research_experiments.families.comm_necessary.algorithms import (
     METHOD_ORDER,
     aggregate_supporting_facts,
-    approximate_token_count,
     build_packet,
     gold_supporting_facts,
     majority_vote_with_counts,
@@ -38,30 +42,17 @@ from research_experiments.families.comm_necessary.algorithms import (
     score_hotpot_prediction,
     support_facts_to_jsonable,
 )
+from research_experiments.families.comm_necessary.config import (
+    CommNecessaryExperimentConfig,
+    CommNecessaryProtocolConfig,
+)
+from research_experiments.families.comm_necessary.dataset_views import (
+    HotpotView,
+    build_hotpot_views,
+    serialize_view_row,
+)
 from research_experiments.families.comm_necessary.prompts import build_belief_update_messages, build_solver_messages
-from research_experiments.core.execution.artifacts import BufferedJsonlWriter
-from research_experiments.core.execution.cache import RequestCache, RequestCacheRouter, json_dump
-from research_experiments.core.config import ResolvedModelConfig
-from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples
-from research_experiments.core.data.evaluation import normalize_prediction
 from research_experiments.families.shared.common import resolve_phase_split_name
-from research_experiments.core.execution.providers import OpenAICompatibleProvider, estimate_request_tokens
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
-from research_experiments.core.execution.runner_common import (
-    execute_cached_turn,
-    prepare_run_root,
-    run_indexed_batch,
-)
-from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
-from research_experiments.core.structured_outputs import (
-    SCHEMA_SPLIT_CONTEXT_BELIEF,
-    SCHEMA_SPLIT_CONTEXT_SOLVER,
-    validate_or_recover_structured_output,
-)
-from research_experiments.workspace.layout import default_cache_root, default_runs_root
-from research_experiments.families.comm_necessary.run.io import RunPaths
-
-
 
 
 @dataclass(frozen=True)
@@ -584,7 +575,7 @@ def _execute_turn(
     seed: int,
     extra_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    request_started_at = datetime.now(timezone.utc).isoformat()
+    request_started_at = datetime.now(UTC).isoformat()
 
     def _response_hook(payload: dict[str, Any], response_payload: dict[str, Any]) -> None:
         response_payload["request_started_at"] = request_started_at

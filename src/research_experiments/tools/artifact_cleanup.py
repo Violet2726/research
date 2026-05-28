@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Callable
 import argparse
 import json
 import re
 import shutil
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
 
 from research_experiments.cli_support.output import configure_utf8_stdio, emit_json
-from research_experiments.workspace.layout import workspace_layout
 from research_experiments.families.registry import validator_map
-
+from research_experiments.workspace.layout import workspace_layout
 
 RUN_ID_PATTERN = re.compile(r"20\d{6}T\d{6}Z-[A-Za-z0-9._:-]+")
 

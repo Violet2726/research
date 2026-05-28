@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl
+
 from research_experiments.core.config import ResolvedModelConfig
 from research_experiments.families.macnet.config import load_experiment_config
 from research_experiments.families.macnet.run.execute import run_experiment
 from research_experiments.families.macnet.run.validate import validate_run
-from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl
 
 
 def test_macnet_validate_run_accepts_complete_artifacts(tmp_path: Path) -> None:

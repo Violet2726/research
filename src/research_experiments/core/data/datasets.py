@@ -10,14 +10,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
 import csv
 import json
 import random
 import re
-from typing import Any
 import zipfile
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 import pyarrow.parquet as pq
 
@@ -1033,7 +1033,7 @@ def _load_gpqa_zip_csv(config: BenchmarkConfig) -> list[DatasetSample]:
     samples: list[DatasetSample] = []
     with zipfile.ZipFile(resolve_dataset_source_path(config.source_path)) as archive:
         with archive.open(archive_member, pwd=archive_password) as handle:
-            reader = csv.DictReader((line.decode("utf-8") for line in handle))
+            reader = csv.DictReader(line.decode("utf-8") for line in handle)
             for index, record in enumerate(reader):
                 question = str(record.get("Question") or "").strip()
                 correct = str(record.get("Correct Answer") or "").strip()

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from typing import Callable
+from collections.abc import Callable
 
 from research_experiments.cli_support.output import configure_utf8_stdio
 from research_experiments.families.registry import get_family_spec, registered_family_names
@@ -14,7 +14,6 @@ from research_experiments.tools.cache_archive import main as cache_archive_main
 from research_experiments.tools.cache_inspector import main as cache_inspector_main
 from research_experiments.tools.dataset_assets import main as dataset_assets_main
 from research_experiments.tools.hf_sync import main as hf_sync_main
-
 
 ToolMain = Callable[[list[str] | None], None]
 

@@ -9,7 +9,6 @@ from research_experiments.core.prompts.dataset_contracts import (
     dataset_instruction_for_sample,
 )
 
-
 DEFAULT_PROMPT_VERSION = "selective_comm_trigger_json"
 VOC_PROMPT_VERSION = "selective_comm_voc_json_v2"
 

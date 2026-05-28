@@ -4,42 +4,41 @@ from __future__ import annotations
 
 import argparse
 import copy
+import json
+import tomllib
 from collections import Counter
 from dataclasses import asdict, dataclass, replace
-from datetime import datetime, timezone
-import json
+from datetime import UTC, datetime
 from pathlib import Path
-import tomllib
 from typing import Any
 
-from research_experiments.core.config import load_benchmark_config, resolve_model_ref
 from research_experiments.cli_support.output import configure_utf8_stdio, emit_json
+from research_experiments.core.config import load_benchmark_config
 from research_experiments.core.execution.rate_limits import (
     STANDARD_MAX_CONCURRENT_REQUESTS,
     STANDARD_REQUESTS_PER_MINUTE_LIMIT,
     STANDARD_TOKENS_PER_MINUTE_LIMIT,
 )
 from research_experiments.families.registry import get_family_spec, validator_map
-from research_experiments.workspace.run_archives import publish_run_if_configured
 from research_experiments.matrix.faithful_acceptance import render_acceptance_summary
 from research_experiments.matrix.faithful_analysis import render_faithful_analysis
 from research_experiments.matrix.matrix_specs import (
-    all_matrix_ids,
     DEFAULT_MATRIX_ID,
     MATRIX_ID_FAITHFUL,
     MATRIX_RUN_KIND_FAITHFUL,
+    all_matrix_ids,
     get_experiment_matrix_spec,
     get_matrix_profile,
     ordered_matrix_config_paths,
 )
 from research_experiments.matrix.reproduction_analysis import render_reproduction_analysis
-from research_experiments.reporting.reproduction_landscape import render_reproduction_landscape
-from research_experiments.reporting.reproduction_package import render_reproduction_package
 from research_experiments.reporting.family_landscape import render_family_landscape
 from research_experiments.reporting.paper_package import render_paper_package
 from research_experiments.reporting.paper_statistics import render_paper_statistics
+from research_experiments.reporting.reproduction_landscape import render_reproduction_landscape
+from research_experiments.reporting.reproduction_package import render_reproduction_package
 from research_experiments.workspace.layout import default_reports_root, default_runs_root, workspace_defaults
-
+from research_experiments.workspace.run_archives import publish_run_if_configured
 
 DEFAULT_PHASE = "count20"
 DEFAULT_MODEL_REF = "xiaomimimo/mimo-v2.5"
@@ -538,7 +537,7 @@ def _prepare_orchestrator_paths(
     profile = get_matrix_profile(matrix_id)
     root_base = Path(state_root or default_runs_root(profile.matrix_kind))
     model_slug = overrides.model_ref.replace("/", "-")
-    run_id = datetime.now(timezone.utc).strftime(f"%Y%m%dT%H%M%SZ-{overrides.phase_name}-{model_slug}")
+    run_id = datetime.now(UTC).strftime(f"%Y%m%dT%H%M%SZ-{overrides.phase_name}-{model_slug}")
     root = root_base / run_id
     root.mkdir(parents=True, exist_ok=True)
     return OrchestratorPaths(
@@ -616,7 +615,7 @@ def _write_matrix_state(paths: OrchestratorPaths, matrix: MatrixBuild) -> None:
         }
     )
     payload = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "matrix_id": matrix.matrix_id,
         "matrix_kind": matrix.matrix_kind,
         "overrides": asdict(matrix.overrides),
@@ -636,7 +635,7 @@ def _render_matrix_report(matrix: MatrixBuild, counts: dict[str, int]) -> str:
     lines = [
         f"# {matrix.overrides.phase_name} {matrix.matrix_kind}",
         "",
-        f"- generated_at: `{datetime.now(timezone.utc).isoformat()}`",
+        f"- generated_at: `{datetime.now(UTC).isoformat()}`",
         f"- matrix_id: `{matrix.matrix_id}`",
         f"- model: `{matrix.overrides.model_ref}`",
         f"- rate_limits: `{matrix.overrides.max_concurrent_requests}` / `{matrix.overrides.requests_per_minute_limit}` / `{matrix.overrides.tokens_per_minute_limit}`",

@@ -2,20 +2,23 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from pathlib import Path
 import json
+from datetime import UTC, datetime
+from pathlib import Path
 from statistics import mean
 from typing import Any
 
 from research_experiments.matrix.matrix_specs import (
-    ANALYSIS_MODE_PRIMARY_SUMMARY,
     ANALYSIS_MODE_SCALING_SUMMARY,
     get_experiment_matrix_spec,
 )
-from research_experiments.reporting.report_views import MatrixStateEntryView, SummaryRowView, SummaryTableView, load_json_payload
+from research_experiments.reporting.report_views import (
+    MatrixStateEntryView,
+    SummaryRowView,
+    SummaryTableView,
+    load_json_payload,
+)
 from research_experiments.workspace.layout import default_reports_root
-
 
 POLICY_METRIC_FAMILIES = {"cue", "selective_comm"}
 
@@ -133,7 +136,7 @@ def build_reproduction_analysis(state_payload: dict[str, Any]) -> dict[str, Any]
         )
 
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "matrix_id": matrix_id,
         "matrix_kind": str(state_payload.get("matrix_kind") or "reproduction_matrix"),
         "phase_name": state_payload.get("overrides", {}).get("phase_name"),

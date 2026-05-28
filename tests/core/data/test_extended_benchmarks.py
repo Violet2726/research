@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import zipfile
+from pathlib import Path
 
 from research_experiments.core.config import load_benchmark_config
 from research_experiments.core.data.datasets import load_samples

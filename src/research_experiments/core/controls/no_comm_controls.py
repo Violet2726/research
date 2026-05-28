@@ -7,13 +7,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
-from typing import Any, Callable
+from typing import Any
 
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.data.evaluation import aggregate_majority, score_prediction
-
 
 BuildMessagesFn = Callable[[DatasetSample, int, str], list[dict[str, str]]]
 ExecuteTurnFn = Callable[..., dict[str, Any]]

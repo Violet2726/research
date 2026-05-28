@@ -2,22 +2,25 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
-from datetime import datetime, timezone
-from pathlib import Path
 import json
+from dataclasses import asdict
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 
+from research_experiments.core.controls.no_comm_controls import run_no_comm_control_batch
 from research_experiments.core.execution.artifacts import BufferedJsonlWriter
 from research_experiments.core.execution.cache import RequestCacheRouter
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
 from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
-from research_experiments.core.controls.no_comm_controls import run_no_comm_control_batch
-from research_experiments.workspace.layout import default_cache_root, default_runs_root
-from research_experiments.families.imad.config import load_benchmarks, load_control_catalog, load_protocol_config, ImadExperimentConfig
+from research_experiments.families.imad.config import (
+    ImadExperimentConfig,
+    load_control_catalog,
+    load_protocol_config,
+)
 from research_experiments.families.imad.prompts import build_initial_messages
 from research_experiments.families.imad.run.io import _prepare_run_paths
 from research_experiments.families.imad.run.report import render_report, summarize_run
@@ -28,13 +31,15 @@ from research_experiments.families.imad.run.sample import (
     _build_metrics,
     _build_stability_diagnostics,
     _estimate_work,
+    _execute_turn,
     _load_selected_samples,
     _resolve_split_name,
     _run_method_batch,
     _write_sample_outputs,
-    _execute_turn,
 )
 from research_experiments.families.imad.run.validate import validate_run
+from research_experiments.families.shared.config_loading import load_benchmarks
+from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 
 def run_experiment(
@@ -72,7 +77,7 @@ def run_experiment(
 
     manifest = {
         "run_id": run_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "family_name": "imad",
         "experiment_name": experiment.name,
         "phase_name": phase_name,

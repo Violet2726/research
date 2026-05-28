@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -13,7 +14,6 @@ from research_experiments.workspace.layout import (
     default_reports_root,
     default_runs_root,
 )
-
 
 InspectPayloadBuilder = Callable[[str, str | None], dict[str, Any]]
 RunCommand = Callable[[argparse.Namespace], Any]

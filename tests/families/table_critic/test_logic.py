@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from research_experiments.core.data.datasets import DatasetSample
-from research_experiments.families.table_critic.config import TableCriticMethodSpec, load_experiment_config, load_protocol_config
+from research_experiments.families.table_critic.config import (
+    TableCriticMethodSpec,
+    load_experiment_config,
+    load_protocol_config,
+)
 from research_experiments.families.table_critic.prompts import build_chain_of_table_messages, build_refiner_messages
 from research_experiments.families.table_critic.run.sample import (
     _build_metrics,

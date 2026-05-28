@@ -7,47 +7,30 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
-from functools import partial
-from pathlib import Path
 import json
+from dataclasses import asdict
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 
-from research_experiments.core.execution.artifacts import BufferedJsonlWriter
-from research_experiments.core.execution.cache import RequestCache, RequestCacheRouter, json_dump
-from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples
-from research_experiments.core.data.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from research_experiments.families.shared.common import resolve_phase_split_name
 from research_experiments.core.controls.no_comm_controls import run_no_comm_control_batch
+from research_experiments.core.execution.artifacts import BufferedJsonlWriter
+from research_experiments.core.execution.cache import RequestCacheRouter
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
 from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
-from research_experiments.core.execution.runner_common import (
-    execute_cached_turn,
-    prepare_run_root,
-    run_indexed_batch,
-)
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
-from research_experiments.core.structured_outputs import ARTIFACT_VERSION, SCHEMA_ANSWER_CORE
-from research_experiments.workspace.layout import default_cache_root, default_runs_root
+from research_experiments.core.structured_outputs import ARTIFACT_VERSION
 from research_experiments.families.multi_agent.config import (
-    ExperimentSetup,
     MultiAgentExperimentConfig,
-    ProtocolConfig,
-    RosterConfig,
-    load_benchmarks,
     load_control_catalog,
     load_protocol_config,
     load_roster_config,
-    phase_metadata,
 )
-from research_experiments.families.multi_agent.prompts import build_debate_messages, build_initial_messages
-from research_experiments.families.multi_agent.run.report import render_report, summarize_run
-from research_experiments.families.multi_agent.run.validate import validate_run
-
+from research_experiments.families.multi_agent.prompts import build_initial_messages
 from research_experiments.families.multi_agent.run.io import _prepare_run_paths
+from research_experiments.families.multi_agent.run.report import render_report, summarize_run
 from research_experiments.families.multi_agent.run.sample import (
     _active_setups,
     _build_control_prediction_row,
@@ -61,6 +44,10 @@ from research_experiments.families.multi_agent.run.sample import (
     _run_mad_setup_batch,
     _write_sample_outputs,
 )
+from research_experiments.families.multi_agent.run.validate import validate_run
+from research_experiments.families.shared.config_loading import load_benchmarks, phase_metadata
+from research_experiments.workspace.layout import default_cache_root, default_runs_root
+
 
 def run_experiment(
     experiment: MultiAgentExperimentConfig,
@@ -91,7 +78,7 @@ def run_experiment(
 
     manifest = {
         "run_id": run_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "family_name": "multi_agent",
         "experiment_name": experiment.name,
         "phase_name": phase_name,

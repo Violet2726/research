@@ -7,61 +7,48 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
-from functools import partial
-from hashlib import sha256
-from pathlib import Path
 import json
+from dataclasses import asdict
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 
-from research_experiments.core.execution.artifacts import BufferedJsonlWriter
-from research_experiments.core.execution.cache import RequestCache, RequestCacheRouter, json_dump
 from research_experiments.core.config import ResolvedModelConfig
-from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples
-from research_experiments.core.data.evaluation import normalize_prediction, score_prediction
-from research_experiments.families.shared.common import resolve_phase_split_name, safe_mean, stable_trace_hash, summarize_row_cost
+from research_experiments.core.data.datasets import select_samples
+from research_experiments.core.execution.artifacts import BufferedJsonlWriter
+from research_experiments.core.execution.cache import RequestCacheRouter
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
 from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
-from research_experiments.core.execution.runner_common import (
-    execute_cached_turn,
-    prepare_run_root,
-    run_indexed_batch,
-)
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
-from research_experiments.core.controls.selective_signals import normalize_confidence
 from research_experiments.core.structured_outputs import (
     ARTIFACT_VERSION,
-    SCHEMA_ANSWER_WITH_PROXY_SIGNALS_DELIBERATION,
-    SCHEMA_BELIEF_UPDATE_DELTA,
-    validate_or_recover_structured_output,
 )
-from research_experiments.workspace.layout import default_cache_root, default_runs_root
+from research_experiments.families.shared.config_loading import load_benchmarks, phase_metadata
+from research_experiments.families.sid_lite.config import (
+    SidLiteExperimentConfig,
+    load_protocol_config,
+)
+from research_experiments.families.sid_lite.run.io import _prepare_run_paths
 from research_experiments.families.sid_lite.run.metrics import (
     build_diagnostics_payload as build_sid_diagnostics_payload,
+)
+from research_experiments.families.sid_lite.run.metrics import (
     build_metrics_payload as build_sid_metrics_payload,
+)
+from research_experiments.families.sid_lite.run.metrics import (
     write_paper_summary as write_sid_paper_summary,
 )
-from research_experiments.families.sid_lite.config import SidLiteExperimentConfig, SidLiteProtocolConfig, load_benchmarks, load_protocol_config, phase_metadata
-from research_experiments.families.sid_lite.algorithms import (
-    apply_belief_update,
-    compression_ratio,
-    decide_early_exit,
-    majority_vote_with_counts,
-    project_message_packet,
-)
-from research_experiments.families.sid_lite.prompts import build_belief_update_messages, build_solver_messages
 from research_experiments.families.sid_lite.run.report import render_report, summarize_run
-from research_experiments.families.sid_lite.run.validate import validate_run
-
-from research_experiments.families.sid_lite.run.io import _prepare_run_paths
 from research_experiments.families.sid_lite.run.sample import (
     _estimate_work,
     _resolve_split_name,
     _run_sample_batch,
 )
+from research_experiments.families.sid_lite.run.validate import validate_run
+from research_experiments.workspace.layout import default_cache_root, default_runs_root
+
 
 def run_experiment(
     experiment: SidLiteExperimentConfig,
@@ -90,7 +77,7 @@ def run_experiment(
 
     manifest = {
         "run_id": run_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "experiment": experiment.name,
         "description": experiment.description,
         "phase": phase_name,

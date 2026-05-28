@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
 import random
-from typing import Any, Iterable
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Any
 
 from research_experiments.reporting.run_figures import build_interval_figure_spec
 from research_experiments.reporting.scientific_report import format_float
