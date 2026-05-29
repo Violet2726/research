@@ -16,7 +16,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from research_experiments.core.controls.no_comm_controls import run_no_comm_control_batch
+from research_experiments.core.controls.no_comm_controls import run_unified_control_batch
 from research_experiments.core.execution.artifacts import BufferedJsonlWriter
 from research_experiments.core.execution.cache import RequestCacheRouter
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
@@ -30,7 +30,6 @@ from research_experiments.families.madjudge.config import (
     load_roster_config,
     phase_metadata,
 )
-from research_experiments.families.madjudge.prompts import build_initial_messages
 from research_experiments.families.madjudge.run.io import RunPaths
 from research_experiments.families.madjudge.run.report import render_report, summarize_run
 from research_experiments.families.madjudge.run.sample import (
@@ -178,7 +177,7 @@ def run_experiment(
             for control_name in matched_control_names:
                 method = controls[control_name]
                 print(f"[MADJudge] Running control: {control_name}", flush=True)
-                control_results = run_no_comm_control_batch(
+                control_results = run_unified_control_batch(
                     run_id=run_id,
                     samples=samples,
                     control_name=control_name,
@@ -190,9 +189,7 @@ def run_experiment(
                     cache=cache,
                     limiter=limiter,
                     global_seed=experiment.global_seed,
-                    prompt_version=experiment.prompt_version,
                     max_concurrent_requests=experiment.max_concurrent_requests,
-                    build_messages=build_initial_messages,
                     execute_turn=_execute_turn,
                     build_prediction_row=_build_control_prediction_row,
                 )

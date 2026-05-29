@@ -10,7 +10,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from research_experiments.core.controls.no_comm_controls import run_no_comm_control_batch
+from research_experiments.core.controls.no_comm_controls import run_unified_control_batch
 from research_experiments.core.execution.artifacts import BufferedJsonlWriter
 from research_experiments.core.execution.cache import RequestCacheRouter
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
@@ -21,7 +21,6 @@ from research_experiments.families.imad.config import (
     load_control_catalog,
     load_protocol_config,
 )
-from research_experiments.families.imad.prompts import build_initial_messages
 from research_experiments.families.imad.run.io import _prepare_run_paths
 from research_experiments.families.imad.run.report import render_report, summarize_run
 from research_experiments.families.imad.run.sample import (
@@ -150,7 +149,7 @@ def run_experiment(
                 )
 
             for control_name in control_names:
-                control_results = run_no_comm_control_batch(
+                control_results = run_unified_control_batch(
                     samples=samples,
                     control_name=control_name,
                     method=controls[control_name],
@@ -162,9 +161,7 @@ def run_experiment(
                     cache=cache,
                     limiter=limiter,
                     global_seed=experiment.global_seed,
-                    prompt_version=experiment.prompt_version,
                     max_concurrent_requests=experiment.max_concurrent_requests,
-                    build_messages=build_initial_messages,
                     execute_turn=_execute_turn,
                     build_prediction_row=_build_control_prediction_row,
                 )

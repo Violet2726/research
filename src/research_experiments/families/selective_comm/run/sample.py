@@ -14,6 +14,10 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
+from research_experiments.core.controls.control_prompts import (
+    build_cot_messages,
+    build_mv_messages,
+)
 from research_experiments.core.controls.selective_signals import (
     confidence_display,
     decide_trigger_from_policy,
@@ -650,9 +654,18 @@ def _run_control_method(
     question_preview: str,
 ) -> dict[str, Any]:
     """运行一个独立控制方法。"""
+    # 根据方法族选择统一的 prompt 构建函数
+    family = str(getattr(control, "family", "") or "").strip().lower()
+    if family in ("cot", "chain_of_thought", "self_consistency"):
+        build_messages = build_cot_messages
+    elif family in ("majority_vote", "mv"):
+        build_messages = build_mv_messages
+    else:
+        build_messages = build_cot_messages
+
     turn_rows: list[dict[str, Any]] = []
     for replicate_id in range(control.budget_calls):
-        messages = build_initial_messages(sample, replicate_id + 1, prompt_version=experiment.prompt_version)
+        messages = build_messages(sample, replicate_id + 1, None)
         seed = experiment.global_seed + replicate_id
         turn_rows.append(
             _execute_turn(
