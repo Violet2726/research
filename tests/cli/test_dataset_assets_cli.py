@@ -7,21 +7,12 @@ from testsupport.cli import run_cli_json
 
 def test_dataset_assets_list_used_cli() -> None:
     payload = run_cli_json(["research_cli", "tools", "dataset-assets", "list-used"])
-    assert payload["benchmark_count"] == 26
+    assert payload["benchmark_count"] == 15
     assert {item["slug"] for item in payload["benchmarks"]} == {
         "commongen_hard",
         "competition_math",
-        "cwq",
-        "grailqa_test",
-        "metaqa_1hop",
-        "metaqa_2hop",
-        "metaqa_3hop",
-        "webqsp",
-        "webquestions_paper_test",
-        "grailqa",
         "gpqa_diamond",
         "gsm8k",
-        "gsm_symbolic",
         "hotpotqa",
         "humaneval",
         "math500",
@@ -32,8 +23,6 @@ def test_dataset_assets_list_used_cli() -> None:
         "realmistake_fine_grained_fact_verification",
         "realmistake_math_problem_generation",
         "strategyqa",
-        "tabfact",
         "webquestions",
-        "wikitq",
     }
     assert any(item["asset_id"] == "train" for item in payload["supplementary_assets"])

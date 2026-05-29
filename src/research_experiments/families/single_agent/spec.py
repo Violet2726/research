@@ -51,7 +51,6 @@ def build_parser() -> argparse.ArgumentParser:
             "configs/core/shared/benchmarks/math500/test.toml",
             "configs/core/shared/benchmarks/mmlu-pro/test.toml",
             "configs/core/shared/benchmarks/gpqa/dataset.toml",
-            "configs/core/shared/benchmarks/gsm-symbolic/GSM_symbolic.toml",
         ],
     )
     generate.add_argument("--output-dir", default="configs/core/shared/benchmarks/splits")

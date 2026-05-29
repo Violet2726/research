@@ -418,7 +418,7 @@ def _require_uncertainty_type(value: object) -> str:
 
 
 def _default_uncertainty_type(dataset: str | None) -> str:
-    if dataset in {"gsm8k", "gsm_symbolic", "math500"}:
+    if dataset in {"gsm8k", "math500"}:
         return "calculation"
     if dataset == "hotpotqa":
         return "multi_hop"

@@ -35,7 +35,7 @@ def dataset_instruction(
     multiple_choice_scope: MultipleChoiceScope = "general",
 ) -> str:
     """按数据集与可见上下文范围生成标准化指令文本。"""
-    if dataset in {"gsm8k", "gsm_symbolic"}:
+    if dataset == "gsm8k":
         return (
             "Solve the math problem carefully. "
             "The final_answer must be only the final numeric answer without commas or units."
@@ -65,7 +65,7 @@ def dataset_instruction(
             f"Answer the multi-hop question using only the {context_phrase}. "
             "The final_answer must be a short text span."
         )
-    if dataset in {"webquestions", "grailqa"}:
+    if dataset == "webquestions":
         context_phrase = "provided graph evidence" if context_scope == "provided" else "graph evidence visible to you"
         return (
             f"Answer the graph question using only the {context_phrase}. "

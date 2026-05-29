@@ -16,7 +16,7 @@
 
 - `configs/core/shared/benchmarks/` 下的 benchmark 配置必须镜像 `local/datasets/` 的相对路径层级，并使用“去掉数据文件扩展名后的路径”作为配置路径。
 - `local/cache/providers/<provider>/<model>/...` 下的数据集缓存分片必须使用同一套层级键，避免把方法名或实验线名写成 dataset shard 名。
-- 示例：`local/datasets/cwq/test.json` 对应 `configs/core/shared/benchmarks/cwq/test.toml` 与 `local/cache/providers/<provider>/<model>/cwq/test/requests.sqlite`。
+- 示例：`local/datasets/gsm8k/test.jsonl` 对应 `configs/core/shared/benchmarks/gsm8k/test.toml` 与 `local/cache/providers/<provider>/<model>/gsm8k/test/requests.sqlite`。
 
 ## 当前本地资产根目录
 
@@ -75,18 +75,6 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 冻结 split：`count100/competition_math/MATH-seed0.json`, `count20/competition_math/MATH-seed0.json`, `full/competition_math/MATH-seed0.json`
 - 说明：与 Hendrycks MATH 论文主结果口径对齐的官方压缩包；运行时按 `MATH/test/<subject>/*.json` 读取。
 
-### CWQ (`cwq`)
-
-- benchmark 配置：`configs/core/shared/benchmarks/cwq/test.toml`
-- 数据相对路径：`cwq/test.json`
-- 本地资产：`local/datasets/cwq/test.json`
-- 上游来源：DoG official GitHub，`https://raw.githubusercontent.com/mira-ai-lab/DoG/main/KBQA_TASK/freebase/dataset/cwq.json`
-- 上游 split：`test`
-- 样本数：`3531`
-- 文件大小：`3.66 MiB`
-- 冻结 split：`count100/cwq/test-seed42.json`, `count20/cwq/test-seed42.json`, `count300/cwq/test-seed42.json`, `full/cwq/test-seed42.json`
-- 说明：DoG 官方仓提供的 CWQ 论文复现 JSON；真正运行仍需本地 Freebase/Virtuoso。
-
 ### GPQA Diamond (`gpqa_diamond`)
 
 - benchmark 配置：`configs/core/shared/benchmarks/gpqa/dataset.toml`
@@ -99,30 +87,6 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 冻结 split：`count100/gpqa/dataset-seed42.json`, `count20/gpqa/dataset-seed42.json`, `full/gpqa/dataset-seed42.json`
 - 说明：官方 zip 同时内嵌 gpqa_main、gpqa_experts 与 gpqa_extended；请遵循上游许可与使用说明。
 
-### GrailQA (`grailqa`)
-
-- benchmark 配置：`configs/core/shared/benchmarks/grailqa/validation.toml`
-- 数据相对路径：`grailqa/validation.parquet`
-- 本地资产：`local/datasets/grailqa/validation.parquet`
-- 上游来源：Hugging Face dataset mirror，`https://huggingface.co/datasets/Hieuman/grail_qa`
-- 上游 split：`validation`
-- 样本数：`6763`
-- 文件大小：`2.76 MiB`
-- 冻结 split：`count100/grailqa/validation-seed42.json`, `count20/grailqa/validation-seed42.json`, `count300/grailqa/validation-seed42.json`, `count500/grailqa/validation-seed42.json`, `full/grailqa/validation-seed42.json`
-- 说明：上游官方主页提供下载入口；这里使用 Hugging Face parquet 镜像，便于单文件恢复与本地 split 重建。
-
-### GrailQA Test (`grailqa_test`)
-
-- benchmark 配置：`configs/core/shared/benchmarks/grailqa/test.toml`
-- 数据相对路径：`grailqa/test.json`
-- 本地资产：`local/datasets/grailqa/test.json`
-- 上游来源：DoG official GitHub，`https://raw.githubusercontent.com/mira-ai-lab/DoG/main/KBQA_TASK/freebase/dataset/grailqa.json`
-- 上游 split：`test`
-- 样本数：`1000`
-- 文件大小：`3.71 MiB`
-- 冻结 split：`count100/grailqa/test-seed42.json`, `count20/grailqa/test-seed42.json`, `count300/grailqa/test-seed42.json`, `full/grailqa/test-seed42.json`
-- 说明：DoG 官方仓提供的 GrailQA 论文复现 JSON；真正运行仍需本地 Freebase/Virtuoso。
-
 ### GSM8K (`gsm8k`)
 
 - benchmark 配置：`configs/core/shared/benchmarks/gsm8k/test.toml`
@@ -133,18 +97,6 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 样本数：`1319`
 - 文件大小：`732.17 KiB`
 - 冻结 split：`count100/gsm8k/test-seed42.json`, `count20/gsm8k/test-seed42.json`, `count300/gsm8k/test-seed42.json`, `count500/gsm8k/test-seed42.json`, `full/gsm8k/test-seed42.json`
-
-### GSM-Symbolic (`gsm_symbolic`)
-
-- benchmark 配置：`configs/core/shared/benchmarks/gsm-symbolic/GSM_symbolic.toml`
-- 数据相对路径：`gsm-symbolic/GSM_symbolic.jsonl`
-- 本地资产：`local/datasets/gsm-symbolic/GSM_symbolic.jsonl`
-- 上游来源：Hugging Face dataset，`https://huggingface.co/datasets/apple/GSM-Symbolic/blob/main/main/test.jsonl`
-- 上游 split：`test`
-- 样本数：`5000`
-- 文件大小：`5.94 MiB`
-- 冻结 split：`count100/gsm-symbolic/GSM_symbolic-seed42.json`, `count20/gsm-symbolic/GSM_symbolic-seed42.json`, `count300/gsm-symbolic/GSM_symbolic-seed42.json`, `count500/gsm-symbolic/GSM_symbolic-seed42.json`, `full/gsm-symbolic/GSM_symbolic-seed42.json`
-- 说明：公开版本只提供生成后的 test 集。
 
 ### HotpotQA (`hotpotqa`)
 
@@ -180,42 +132,6 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 文件大小：`436.10 KiB`
 - 冻结 split：`count100/math500/test-seed42.json`, `count20/math500/test-seed42.json`, `count300/math500/test-seed42.json`, `full/math500/test-seed42.json`
 - 说明：官方公开数据仅提供 test 集。
-
-### MetaQA 1-hop (`metaqa_1hop`)
-
-- benchmark 配置：`configs/core/shared/benchmarks/metaqa/1-hop/test.toml`
-- 数据相对路径：`metaqa/1-hop/test.txt`
-- 本地资产：`local/datasets/metaqa/1-hop/test.txt`
-- 上游来源：DoG official GitHub，`https://raw.githubusercontent.com/mira-ai-lab/DoG/main/KBQA_TASK/metaqa/dataset/1-hop/qa_test.txt`
-- 上游 split：`test`
-- 样本数：`9947`
-- 文件大小：`659.40 KiB`
-- 冻结 split：`count100/metaqa/1-hop/test-seed42.json`, `count20/metaqa/1-hop/test-seed42.json`, `count300/metaqa/1-hop/test-seed42.json`, `full/metaqa/1-hop/test-seed42.json`
-- 说明：DoG 论文复现使用的 MetaQA 1-hop 测试集；运行时还需要共享的 `metaqa/kb.txt` 图后端。
-
-### MetaQA 2-hop (`metaqa_2hop`)
-
-- benchmark 配置：`configs/core/shared/benchmarks/metaqa/2-hop/test.toml`
-- 数据相对路径：`metaqa/2-hop/test.txt`
-- 本地资产：`local/datasets/metaqa/2-hop/test.txt`
-- 上游来源：DoG official GitHub，`https://raw.githubusercontent.com/mira-ai-lab/DoG/main/KBQA_TASK/metaqa/dataset/2-hop/qa_test.txt`
-- 上游 split：`test`
-- 样本数：`14872`
-- 文件大小：`2.05 MiB`
-- 冻结 split：`count100/metaqa/2-hop/test-seed42.json`, `count20/metaqa/2-hop/test-seed42.json`, `count300/metaqa/2-hop/test-seed42.json`, `full/metaqa/2-hop/test-seed42.json`
-- 说明：DoG 论文复现使用的 MetaQA 2-hop 测试集；运行时还需要共享的 `metaqa/kb.txt` 图后端。
-
-### MetaQA 3-hop (`metaqa_3hop`)
-
-- benchmark 配置：`configs/core/shared/benchmarks/metaqa/3-hop/test.toml`
-- 数据相对路径：`metaqa/3-hop/test.txt`
-- 本地资产：`local/datasets/metaqa/3-hop/test.txt`
-- 上游来源：DoG official GitHub，`https://raw.githubusercontent.com/mira-ai-lab/DoG/main/KBQA_TASK/metaqa/dataset/3-hop/qa_test.txt`
-- 上游 split：`test`
-- 样本数：`14274`
-- 文件大小：`3.17 MiB`
-- 冻结 split：`count100/metaqa/3-hop/test-seed42.json`, `count20/metaqa/3-hop/test-seed42.json`, `count300/metaqa/3-hop/test-seed42.json`, `full/metaqa/3-hop/test-seed42.json`
-- 说明：DoG 论文复现使用的 MetaQA 3-hop 测试集；运行时还需要共享的 `metaqa/kb.txt` 图后端。
 
 ### MMLU (`mmlu`)
 
@@ -299,30 +215,6 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 文件大小：`414.25 KiB`
 - 冻结 split：`count100/strategyqa/dev-seed42.json`, `count20/strategyqa/dev-seed42.json`, `full/strategyqa/dev-seed42.json`
 
-### TabFact (`tabfact`)
-
-- benchmark 配置：`configs/core/shared/benchmarks/tabfact/test.toml`
-- 数据相对路径：`tabfact/test.jsonl`
-- 本地资产：`local/datasets/tabfact/test.jsonl`
-- 上游来源：Table-Critic official GitHub，`https://raw.githubusercontent.com/Peiying-Yu/Table-Critic/main/thought/TableFV/data/tabfact/test.jsonl`
-- 上游 split：`test`
-- 样本数：`2024`
-- 文件大小：`2.84 MiB`
-- 冻结 split：`count100/tabfact/test-seed42.json`, `count20/tabfact/test-seed42.json`, `count300/tabfact/test-seed42.json`, `count500/tabfact/test-seed42.json`, `full/tabfact/test-seed42.json`
-- 说明：Table-Critic 官方仓提供的 TabFact 论文复现测试文件，包含表格、陈述与真假标签。
-
-### WebQSP (`webqsp`)
-
-- benchmark 配置：`configs/core/shared/benchmarks/webqsp/test.toml`
-- 数据相对路径：`webqsp/test.json`
-- 本地资产：`local/datasets/webqsp/test.json`
-- 上游来源：DoG official GitHub，`https://raw.githubusercontent.com/mira-ai-lab/DoG/main/KBQA_TASK/freebase/dataset/WebQSP.json`
-- 上游 split：`test`
-- 样本数：`1639`
-- 文件大小：`6.21 MiB`
-- 冻结 split：`count100/webqsp/test-seed42.json`, `count20/webqsp/test-seed42.json`, `count300/webqsp/test-seed42.json`, `full/webqsp/test-seed42.json`
-- 说明：DoG 官方仓提供的 WebQSP 论文复现 JSON；真正运行仍需本地 Freebase/Virtuoso。
-
 ### WebQuestions (`webquestions`)
 
 - benchmark 配置：`configs/core/shared/benchmarks/webquestions/test.toml`
@@ -335,30 +227,6 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 冻结 split：`count100/webquestions/test-seed42.json`, `count20/webquestions/test-seed42.json`, `count300/webquestions/test-seed42.json`, `count500/webquestions/test-seed42.json`, `full/webquestions/test-seed42.json`
 - 说明：主文件只包含问题与答案。若要恢复更完整的图注释，请再下载 supplementary 里的 Freebase 路径与实体链接文件。
 
-### WebQuestions Paper Test (`webquestions_paper_test`)
-
-- benchmark 配置：`configs/core/shared/benchmarks/webquestions/paper_test.toml`
-- 数据相对路径：`webquestions/paper_test.json`
-- 本地资产：`local/datasets/webquestions/paper_test.json`
-- 上游来源：DoG official GitHub，`https://raw.githubusercontent.com/mira-ai-lab/DoG/main/KBQA_TASK/freebase/dataset/WebQuestions.json`
-- 上游 split：`test`
-- 样本数：`2032`
-- 文件大小：`794.23 KiB`
-- 冻结 split：`count100/webquestions/paper_test-seed42.json`, `count20/webquestions/paper_test-seed42.json`, `count300/webquestions/paper_test-seed42.json`, `full/webquestions/paper_test-seed42.json`
-- 说明：DoG 官方仓提供的 WebQuestions 论文复现 JSON；真正运行仍需本地 Freebase/Virtuoso。
-
-### WikiTQ (`wikitq`)
-
-- benchmark 配置：`configs/core/shared/benchmarks/wikitq/test_lower.toml`
-- 数据相对路径：`wikitq/test_lower.jsonl`
-- 本地资产：`local/datasets/wikitq/test_lower.jsonl`
-- 上游来源：Table-Critic official GitHub，`https://raw.githubusercontent.com/Peiying-Yu/Table-Critic/main/thought/TableQA/data/wikitq/test_lower.jsonl`
-- 上游 split：`test`
-- 样本数：`4344`
-- 文件大小：`11.18 MiB`
-- 冻结 split：`count100/wikitq/test_lower-seed42.json`, `count20/wikitq/test_lower-seed42.json`, `count300/wikitq/test_lower-seed42.json`, `count500/wikitq/test_lower-seed42.json`, `full/wikitq/test_lower-seed42.json`
-- 说明：Table-Critic 官方仓提供的 WikiTQ 论文复现测试文件，保留了表格正文与答案集合。
-
 ## 训练集与补充上游 split
 
 ### MacNet SRDD Profile / srdd_profile_repo
@@ -369,23 +237,6 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 上游 split：`shared`
 - 文件大小：`8.62 MiB`
 - 说明：包含官方 SRDD_Profile 目录；MacNet family 会直接从 zip 中读取角色 profile 文本。
-
-### GrailQA / train
-
-- 本地资产：`local/datasets/grailqa/train.parquet`
-- 用途：`train`
-- 上游来源：Hugging Face dataset mirror，`https://huggingface.co/datasets/Hieuman/grail_qa`
-- 上游 split：`train`
-- 文件大小：尚未下载
-
-### GrailQA / test
-
-- 本地资产：`local/datasets/grailqa/test.parquet`
-- 用途：`test_public`
-- 上游来源：Hugging Face dataset mirror，`https://huggingface.co/datasets/Hieuman/grail_qa`
-- 上游 split：`test`
-- 文件大小：尚未下载
-- 说明：用于额外泛化检查；正式 family v1 默认仍以 validation split 进入 count20/count100/count300。
 
 ### GSM8K / train
 
@@ -410,15 +261,6 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 上游来源：Hugging Face dataset，`https://huggingface.co/datasets/hotpotqa/hotpot_qa`
 - 上游 split：`distractor_train`
 - 文件大小：尚未下载
-
-### DoG MetaQA / kb
-
-- 本地资产：`local/datasets/metaqa/kb.txt`
-- 用途：`backend`
-- 上游来源：DoG official GitHub，`https://raw.githubusercontent.com/mira-ai-lab/DoG/main/KBQA_TASK/metaqa/dataset/kb.txt`
-- 上游 split：`shared`
-- 文件大小：`4.98 MiB`
-- 说明：MetaQA 论文复现共享知识图谱后端，供 1/2/3-hop 三个 benchmark 共用。
 
 ### MMLU / validation
 
@@ -445,16 +287,6 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 上游来源：GitHub raw，`https://raw.githubusercontent.com/eladsegal/strategyqa/main/data/strategyqa/train.json`
 - 上游 split：`train`
 - 文件大小：尚未下载
-
-### TabFact / raw2clean
-
-- 本地资产：`local/datasets/tabfact/raw2clean.jsonl`
-- 用途：`annotation`
-- 上游来源：Table-Critic official GitHub，`https://raw.githubusercontent.com/Peiying-Yu/Table-Critic/main/thought/TableFV/data/tabfact/raw2clean.jsonl`
-- 上游 split：`test`
-- 文件大小：`2.96 MiB`
-- 样本数：`1971`
-- 说明：Table-Critic 官方仓提供的清洗陈述对齐文件，可用于更贴近论文的 statement 标准化提示。
 
 ### WebQuestions / question_dump_test
 
@@ -518,13 +350,8 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 
 ## 未公开或不建议镜像的补充源
 
-- `cwq`：需要用户自行准备本地 Freebase/Virtuoso 后端；官方仓只公开题目 JSON，不公开可直接运行的 Freebase 快照。
 - `gpqa_diamond`：官方未提供独立 train split；补充题型已内嵌在 dataset.zip 中，不建议额外镜像分发。
-- `grailqa_test`：需要用户自行准备本地 Freebase/Virtuoso 后端；官方仓只公开题目 JSON，不公开可直接运行的 Freebase 快照。
-- `gsm_symbolic`：官方公开版本只提供生成后的 test 集。
 - `math500`：官方公开版本只提供 test 集。
-- `webqsp`：需要用户自行准备本地 Freebase/Virtuoso 后端；官方仓只公开题目 JSON，不公开可直接运行的 Freebase 快照。
-- `webquestions_paper_test`：需要用户自行准备本地 Freebase/Virtuoso 后端；官方仓只公开题目 JSON，不公开可直接运行的 Freebase 快照。
 
 ## 合规与治理说明
 

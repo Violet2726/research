@@ -141,7 +141,7 @@ uv run research_cli tools dataset-assets prepare-all-sources
 
 - `configs/core/shared/benchmarks/` 下的 benchmark 配置路径必须镜像 `local/datasets/` 的相对路径层级，并使用“去掉数据文件扩展名后的路径”作为配置路径。
 - `local/cache/providers/<provider>/<request_model>/...` 下的数据集 cache 分库必须沿用同一套层级键。
-- 示例：`local/datasets/cwq/test.json` 对应 `configs/core/shared/benchmarks/cwq/test.toml` 与 `local/cache/providers/xiaomimimo/mimo-v2-5/cwq/test/requests.sqlite`。
+- 示例：`local/datasets/gsm8k/test.jsonl` 对应 `configs/core/shared/benchmarks/gsm8k/test.toml` 与 `local/cache/providers/xiaomimimo/mimo-v2-5/gsm8k/test/requests.sqlite`。
 
 ## Hugging Face 归档
 

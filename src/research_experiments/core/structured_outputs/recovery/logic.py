@@ -76,7 +76,7 @@ def recover_answer_from_reasoning_text(reasoning_text: str, dataset: str) -> dic
         raise ValueError("Provider reasoning text is empty.")
     answer_phrase = _extract_answer_phrase(cleaned)
     final_answer = ""
-    if dataset in {"gsm8k", "gsm_symbolic", "math500"}:
+    if dataset in {"gsm8k", "math500"}:
         if answer_phrase:
             match = re.search(r"[-+]?\d[\d,]*(?:\.\d+)?", answer_phrase.replace(",", ""))
             if match:
@@ -485,7 +485,7 @@ def _extract_selective_final_answer(text: str, dataset: str) -> str | None:
     labeled = _extract_labeled_value(text, ["FINAL_ANSWER", "ANSWER", "FINAL"])
     if labeled:
         return labeled
-    if dataset in {"gsm8k", "gsm_symbolic", "math500"}:
+    if dataset in {"gsm8k", "math500"}:
         match = re.search(r"(?i)(?:final answer\s*(?:is|[:：])|answer is)\s*([^\n.]+)", text)
         if match:
             return match.group(1).strip()
@@ -525,7 +525,7 @@ def _infer_reasoning(text: str, final_answer: str) -> str:
 
 
 def _default_uncertainty_type(dataset: str | None) -> str:
-    if dataset in {"gsm8k", "gsm_symbolic", "math500"}:
+    if dataset in {"gsm8k", "math500"}:
         return "calculation"
     if dataset == "hotpotqa":
         return "multi_hop"

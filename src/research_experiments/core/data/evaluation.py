@@ -20,14 +20,12 @@ from collections.abc import Iterable
 
 def normalize_prediction(dataset: str, final_answer: str) -> str:
     """按数据集类型把模型答案归一化为可比较的形式。"""
-    if dataset in {"gsm8k", "gsm_symbolic"}:
+    if dataset == "gsm8k":
         return normalize_number(final_answer)
     if dataset in {"math500", "competition_math"}:
         return normalize_math_expression(final_answer)
     if dataset == "strategyqa":
         return normalize_yes_no(final_answer)
-    if dataset == "tabfact":
-        return normalize_tabfact_label(final_answer)
     if dataset == "commongen_hard":
         return normalize_commongen_sentence(final_answer)
     if dataset in {
@@ -39,15 +37,6 @@ def normalize_prediction(dataset: str, final_answer: str) -> str:
     if dataset in {
         "hotpotqa",
         "webquestions",
-        "grailqa",
-        "wikitq",
-        "webquestions_paper_test",
-        "grailqa_test",
-        "webqsp",
-        "cwq",
-        "metaqa_1hop",
-        "metaqa_2hop",
-        "metaqa_3hop",
     }:
         return normalize_text(final_answer)
     if dataset in {"mmlu_pro", "gpqa_diamond", "mmlu_abstract_algebra"}:
@@ -61,18 +50,7 @@ def normalize_prediction(dataset: str, final_answer: str) -> str:
 
 def normalize_gold(dataset: str, answer: str) -> str:
     """对金标答案沿用与预测值一致的归一化规则。"""
-    if dataset in {
-        "webquestions",
-        "grailqa",
-        "wikitq",
-        "webquestions_paper_test",
-        "grailqa_test",
-        "webqsp",
-        "cwq",
-        "metaqa_1hop",
-        "metaqa_2hop",
-        "metaqa_3hop",
-    }:
+    if dataset == "webquestions":
         answers = _decode_text_answer_set_gold(answer)
         return normalize_text(answers[0]) if answers else ""
     return normalize_prediction(dataset, answer)
@@ -85,12 +63,8 @@ def score_prediction(dataset: str, predicted: str, gold: str) -> float:
     """
     if dataset in {"mmlu_pro", "gpqa_diamond", "mmlu_abstract_algebra"}:
         return score_multiple_choice(predicted, gold)
-    if dataset in {"webquestions", "grailqa", "grailqa_test"}:
+    if dataset == "webquestions":
         return score_text_answer_set(predicted, gold)
-    if dataset == "wikitq":
-        return score_wikitq_answer_set(predicted, gold)
-    if dataset == "tabfact":
-        return 1.0 if normalize_tabfact_label(predicted) == normalize_tabfact_label(gold) else 0.0
     if dataset == "commongen_hard":
         return score_commongen_hard(predicted, gold)
     if dataset in {
@@ -101,15 +75,6 @@ def score_prediction(dataset: str, predicted: str, gold: str) -> float:
         return 1.0 if normalize_error_detection_verdict(predicted) == normalize_error_detection_verdict(gold) else 0.0
     if dataset == "humaneval":
         return score_humaneval(predicted, gold)
-    if dataset in {
-        "webquestions_paper_test",
-        "webqsp",
-        "cwq",
-        "metaqa_1hop",
-        "metaqa_2hop",
-        "metaqa_3hop",
-    }:
-        return score_text_answer_alias_exact(predicted, gold)
     if dataset == "mmlu":
         return score_multiple_choice(predicted, gold)
     return 1.0 if normalize_prediction(dataset, predicted) == normalize_gold(dataset, gold) else 0.0
@@ -147,17 +112,6 @@ def normalize_yes_no(value: str) -> str:
         return "yes"
     if lowered.startswith("no"):
         return "no"
-    return lowered
-
-
-def normalize_tabfact_label(value: str) -> str:
-    """把 TabFact 的真假标签归一成 `entailed / refuted`。"""
-
-    lowered = normalize_text(value)
-    if lowered in {"entailed", "entail", "true", "yes", "supported", "correct"}:
-        return "entailed"
-    if lowered in {"refuted", "refute", "false", "no", "unsupported", "incorrect"}:
-        return "refuted"
     return lowered
 
 
@@ -501,36 +455,6 @@ def score_text_answer_set(predicted: str, gold: str) -> float:
     return round(max(_token_f1(predicted_norm, gold_alias) for gold_alias in gold_aliases), 6)
 
 
-def score_text_answer_alias_exact(predicted: str, gold: str) -> float:
-    """按 DoG 官方脚本的近似方式比较文本答案集合。
-
-    官方实现会把生成答案整体转成小写并去空格，只要任一金标别名是其子串就算命中。
-    这里保留这一判定口径，用于高保真论文主线。
-    """
-
-    normalized_prediction = re.sub(r"\s+", "", str(predicted or "").lower())
-    if not normalized_prediction:
-        return 0.0
-    gold_aliases = [
-        re.sub(r"\s+", "", normalize_text(answer))
-        for answer in _decode_text_answer_set_gold(gold)
-        if normalize_text(answer)
-    ]
-    if any(alias and alias in normalized_prediction for alias in gold_aliases):
-        return 1.0
-    return 0.0
-
-
-def score_wikitq_answer_set(predicted: str, gold: str) -> float:
-    """按 WikiTQ 的答案集合口径比较最终答案。"""
-
-    gold_answers = [normalize_text(item) for item in _decode_text_answer_set_gold(gold) if normalize_text(item)]
-    predicted_answers = [normalize_text(item) for item in _decode_predicted_answer_set(predicted, gold_answers) if normalize_text(item)]
-    if not gold_answers or not predicted_answers:
-        return 0.0
-    return 1.0 if set(predicted_answers) == set(gold_answers) else 0.0
-
-
 def _decode_text_answer_set_gold(gold: str) -> list[str]:
     stripped = str(gold or "").strip()
     if not stripped:
@@ -543,23 +467,6 @@ def _decode_text_answer_set_gold(gold: str) -> list[str]:
         if isinstance(payload, list):
             return [str(item).strip() for item in payload if str(item).strip()]
     return [stripped]
-
-
-def _decode_predicted_answer_set(predicted: str, gold_answers: list[str]) -> list[str]:
-    stripped = str(predicted or "").strip()
-    if not stripped:
-        return []
-
-    cleaned = stripped.replace("\r", "\n")
-    if "|" in cleaned:
-        return [item.strip() for item in cleaned.split("|") if item.strip()]
-    if ";" in cleaned:
-        return [item.strip() for item in cleaned.split(";") if item.strip()]
-    if "\n" in cleaned:
-        return [item.strip() for item in cleaned.splitlines() if item.strip()]
-    if len(gold_answers) > 1 and "," in cleaned:
-        return [item.strip() for item in cleaned.split(",") if item.strip()]
-    return [cleaned]
 
 
 def _token_f1(predicted: str, gold: str) -> float:

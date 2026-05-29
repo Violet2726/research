@@ -33,7 +33,7 @@ def test_dataset_instruction_unifies_multiple_choice_answer_format() -> None:
 
 
 def test_dataset_instruction_supports_graph_qa_tracks() -> None:
-    instruction = dataset_instruction("grailqa", context_scope="visible")
+    instruction = dataset_instruction("webquestions", context_scope="visible")
     assert "graph evidence visible to you" in instruction
     assert "shortest judgeable entity span" in instruction
 
