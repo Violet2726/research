@@ -48,7 +48,7 @@ def test_faithful_matrix_inspect_cli() -> None:
         ],
     )
     assert payload["overrides"]["phase_name"] == "count20"
-    assert payload["counts"]["semantic_unique_targets"] == 18
+    assert payload["counts"]["semantic_unique_targets"] == 15
 
 
 def test_reproduction_matrix_inspect_cli() -> None:
@@ -65,7 +65,7 @@ def test_reproduction_matrix_inspect_cli() -> None:
     )
     assert payload["matrix_id"] == "reproduction"
     assert payload["matrix_kind"] == "reproduction_matrix"
-    assert payload["counts"]["semantic_unique_targets"] == 7
+    assert payload["counts"]["semantic_unique_targets"] == 4
 
 
 def test_imad_inspect_cli() -> None:
@@ -100,69 +100,6 @@ def test_dmad_inspect_cli() -> None:
     assert payload["protocol"]["agent_count"] == 3
     assert payload["methods"][-1]["name"] == "dmad_cot_sbp_pot"
     assert payload["methods"][-1]["roster_config"]["diversity_mode"] == "strategy_diverse"
-
-
-def test_dog_graph_inspect_cli() -> None:
-    payload = run_cli_json(
-        [
-            "research_cli",
-            "family",
-            "dog_graph",
-            "inspect-experiment",
-            "--experiment",
-            "configs/families/dog_graph/experiments/dog_graph_main.toml",
-        ],
-    )
-    assert payload["name"] == "dog_graph_main"
-    assert payload["experiment_kind"] == "paper"
-    assert payload["protocol"]["max_hops"] == 3
-    assert payload["methods"][-1]["name"] == "dog_graph_paper"
-
-
-def test_dog_graph_validate_backend_cli(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "research_experiments.families.dog_graph.spec.validate_required_backends",
-        lambda benchmarks, freebase_sparql_url, freebase_backend_mode: {
-            "ok": True,
-            "checks": [
-                {
-                    "backend_name": "local_reduced_freebase",
-                    "dataset_slug": "webquestions_paper_test",
-                    "ok": True,
-                    "detail": freebase_backend_mode,
-                }
-            ],
-        },
-    )
-    payload = run_cli_json(
-        [
-            "research_cli",
-            "family",
-            "dog_graph",
-            "validate-backend",
-            "--experiment",
-            "configs/families/dog_graph/experiments/dog_graph_main.toml",
-        ],
-    )
-    assert payload["ok"] is True
-    assert payload["checks"][0]["backend_name"] == "local_reduced_freebase"
-
-
-def test_table_critic_inspect_cli() -> None:
-    payload = run_cli_json(
-        [
-            "research_cli",
-            "family",
-            "table_critic",
-            "inspect-experiment",
-            "--experiment",
-            "configs/families/table_critic/experiments/table_critic_main.toml",
-        ],
-    )
-    assert payload["name"] == "table_critic_main"
-    assert payload["experiment_kind"] == "paper"
-    assert payload["protocol"]["max_refine_rounds"] == 2
-    assert payload["methods"][-1]["name"] == "table_critic_paper"
 
 
 def test_econ_inspect_cli() -> None:
@@ -304,43 +241,6 @@ def test_selective_comm_voc_v2_inspect_cli() -> None:
     assert payload["policies"][-1]["claim_divergence_threshold"] == 0.55
     assert payload["policies"][-1]["uncertainty_type_diversity_threshold"] == 0.5
     assert payload["model_fit_warnings"] == []
-
-
-def test_sparc_inspect_cli() -> None:
-    payload = run_cli_json(
-        [
-            "research_cli",
-            "family",
-            "sparc",
-            "inspect-experiment",
-            "--experiment",
-            "configs/families/sparc/experiments/content_ablation.toml",
-        ],
-    )
-    assert payload["name"] == "content_ablation"
-
-
-def test_sparc_local_auditing_inspect_cli() -> None:
-    payload = run_cli_json(
-        [
-            "research_cli",
-            "family",
-            "sparc",
-            "inspect-experiment",
-            "--experiment",
-            "configs/families/sparc/experiments/local_auditing_ablation.toml",
-        ],
-    )
-    assert payload["name"] == "local_auditing_ablation"
-    assert payload["resolved_model"]["name"] == "deepseek/deepseek-v4-flash"
-    _assert_standard_runtime_limits(payload)
-    assert payload["aggregation_methods"] == [
-        "majority_vote",
-        "weighted_vote_fallback",
-        "single_judge",
-        "final_round_vote",
-        "local_auditing",
-    ]
 
 
 def test_budget_comm_inspect_cli() -> None:

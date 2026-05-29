@@ -80,15 +80,6 @@ full_comm_reference = "always_communicate"
 token_gate_basis = "communication"
 
 [[entries]]
-config_path = "configs/families/sparc/experiments/end_to_end_main.toml"
-evaluation_track = "same_context"
-evidence_tier = "headline"
-primary_method_name = "sparc_v1"
-best_no_comm_candidates = ["mv_3"]
-full_comm_reference = "always_communicate"
-token_gate_basis = "communication"
-
-[[entries]]
 config_path = "configs/families/single_agent/experiments/same_context_main_table.toml"
 evaluation_track = "same_context"
 evidence_tier = "reference"
@@ -110,23 +101,6 @@ primary_method_name = "dala_lite"
 best_no_comm_candidates = ["mv_3"]
 full_comm_reference = "all_to_all_full"
 token_gate_basis = "communication"
-
-[[entries]]
-config_path = "configs/families/sparc/experiments/content_ablation.toml"
-evaluation_track = "same_context"
-evidence_tier = "diagnostic"
-primary_method_name = "task_adaptive"
-best_no_comm_candidates = ["mv_3"]
-full_comm_reference = "full_cot"
-token_gate_basis = "communication"
-
-[[entries]]
-config_path = "configs/families/sparc/experiments/local_auditing_ablation.toml"
-evaluation_track = "same_context"
-evidence_tier = "supporting"
-primary_method_name = "local_auditing"
-best_no_comm_candidates = ["majority_vote"]
-full_comm_reference = "final_round_vote"
 
 [[entries]]
 config_path = "configs/families/cue/experiments/cue_black_box_utility_main.toml"

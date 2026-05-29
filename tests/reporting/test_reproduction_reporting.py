@@ -24,39 +24,39 @@ def test_build_reproduction_package_payload_splits_canonical_auxiliary_and_scali
         "counts": {"completed": 3},
         "entries": [
             {
-                "family": "dog_graph",
-                "experiment_name": "dog_graph_main",
-                "track_name": "graph_reasoning",
+                "family": "colmad",
+                "experiment_name": "colmad_realmistake_main",
+                "track_name": "oversight_protocol",
                 "entry_role": "canonical",
                 "analysis_mode": "primary_summary",
                 "overall_row": {
-                    "family": "dog_graph",
-                    "experiment_name": "dog_graph_main",
-                    "track_name": "graph_reasoning",
+                    "family": "colmad",
+                    "experiment_name": "colmad_realmistake_main",
+                    "track_name": "oversight_protocol",
                     "entry_role": "canonical",
-                    "primary_method_name": "dog_graph_paper",
+                    "primary_method_name": "colmad_collaborative",
                     "primary_metric_label": "accuracy",
-                    "primary_metric_value": 0.77,
+                    "primary_metric_value": 0.85,
                     "total_tokens_mean": 3200.0,
                     "calls_per_question_mean": 5.0,
                 },
             },
             {
-                "family": "dog_graph",
-                "experiment_name": "dog_graph_static_ablation",
-                "track_name": "graph_reasoning",
-                "entry_role": "ablation",
+                "family": "dmad",
+                "experiment_name": "dmad_reasoning_main",
+                "track_name": "same_context",
+                "entry_role": "canonical",
                 "analysis_mode": "primary_summary",
                 "overall_row": {
-                    "family": "dog_graph",
-                    "experiment_name": "dog_graph_static_ablation",
-                    "track_name": "graph_reasoning",
-                    "entry_role": "ablation",
-                    "primary_method_name": "dog_graph_r1",
+                    "family": "dmad",
+                    "experiment_name": "dmad_reasoning_main",
+                    "track_name": "same_context",
+                    "entry_role": "canonical",
+                    "primary_method_name": "dmad_cot_sbp_pot",
                     "primary_metric_label": "accuracy",
-                    "primary_metric_value": 0.42,
-                    "total_tokens_mean": 900.0,
-                    "calls_per_question_mean": 2.0,
+                    "primary_metric_value": 0.78,
+                    "total_tokens_mean": 2800.0,
+                    "calls_per_question_mean": 4.0,
                 },
             },
             {
@@ -81,8 +81,8 @@ def test_build_reproduction_package_payload_splits_canonical_auxiliary_and_scali
 
     package = build_reproduction_package_payload(analysis)
 
-    assert package["canonical_board"][0]["experiment_name"] == "dog_graph_main"
-    assert package["auxiliary_board"][0]["experiment_name"] == "dog_graph_static_ablation"
+    assert package["canonical_board"][0]["experiment_name"] == "colmad_realmistake_main"
+    assert package["canonical_board"][1]["experiment_name"] == "dmad_reasoning_main"
     assert package["scaling_sections"][0]["experiment_name"] == "macnet_scaling_study"
 
 
@@ -94,19 +94,19 @@ def test_build_reproduction_landscape_payload_groups_only_within_track() -> None
         "counts": {"completed": 2},
         "entries": [
             {
-                "family": "table_critic",
-                "experiment_name": "table_critic_main",
-                "track_name": "table_reasoning",
+                "family": "colmad",
+                "experiment_name": "colmad_realmistake_main",
+                "track_name": "oversight_protocol",
                 "entry_role": "canonical",
                 "overall_row": {
-                    "family": "table_critic",
-                    "experiment_name": "table_critic_main",
-                    "track_name": "table_reasoning",
+                    "family": "colmad",
+                    "experiment_name": "colmad_realmistake_main",
+                    "track_name": "oversight_protocol",
                     "entry_role": "canonical",
-                    "primary_method_name": "table_critic_paper",
+                    "primary_method_name": "colmad_collaborative",
                     "primary_metric_label": "accuracy",
-                    "primary_metric_value": 0.895,
-                    "total_tokens_mean": 5583.06,
+                    "primary_metric_value": 0.85,
+                    "total_tokens_mean": 3200.0,
                 },
             },
             {
@@ -130,14 +130,14 @@ def test_build_reproduction_landscape_payload_groups_only_within_track() -> None
 
     payload = build_reproduction_landscape_payload(analysis)
 
-    assert "table_reasoning" in payload["track_boards"]
+    assert "oversight_protocol" in payload["track_boards"]
     assert "topology_collaboration" in payload["track_boards"]
     assert "global_total_board" not in payload
 
 
 def test_render_reproduction_outputs_markdown_and_json(tmp_path: Path) -> None:
     state_dir = tmp_path / "matrix_state_demo"
-    run_dir = tmp_path / "dog_graph_run"
+    run_dir = tmp_path / "colmad_run"
     run_dir.mkdir(parents=True)
     write_json(
         state_dir / "state.json",
@@ -148,9 +148,9 @@ def test_render_reproduction_outputs_markdown_and_json(tmp_path: Path) -> None:
             "counts": {"completed": 1, "semantic_unique_targets": 1},
             "semantic_entries": [
                 {
-                    "family": "dog_graph",
-                    "config_path": "configs/families/dog_graph/experiments/dog_graph_main.toml",
-                    "experiment_name": "dog_graph_main",
+                    "family": "colmad",
+                    "config_path": "configs/families/colmad/experiments/colmad_realmistake_main.toml",
+                    "experiment_name": "colmad_realmistake_main",
                     "status": "completed",
                     "run_dir": run_dir.as_posix(),
                 },
@@ -164,9 +164,9 @@ def test_render_reproduction_outputs_markdown_and_json(tmp_path: Path) -> None:
             ],
             "entries": [
                 {
-                    "family": "dog_graph",
-                    "config_path": "configs/families/dog_graph/experiments/dog_graph_main.toml",
-                    "experiment_name": "dog_graph_main",
+                    "family": "colmad",
+                    "config_path": "configs/families/colmad/experiments/colmad_realmistake_main.toml",
+                    "experiment_name": "colmad_realmistake_main",
                     "status": "completed",
                     "run_dir": run_dir.as_posix(),
                 },
@@ -186,15 +186,15 @@ def test_render_reproduction_outputs_markdown_and_json(tmp_path: Path) -> None:
             "summary": [
                 {
                     "dataset": "overall",
-                    "method_name": "tog_iterative_baseline",
-                    "accuracy_mean": 0.75,
-                    "total_tokens_mean": 4000.0,
+                    "method_name": "colmad_collaborative",
+                    "accuracy_mean": 0.85,
+                    "total_tokens_mean": 3200.0,
                 },
                 {
                     "dataset": "overall",
-                    "method_name": "dog_graph_paper",
-                    "accuracy_mean": 0.77,
-                    "total_tokens_mean": 4800.0,
+                    "method_name": "colmad_independent",
+                    "accuracy_mean": 0.78,
+                    "total_tokens_mean": 2800.0,
                 },
             ]
         },

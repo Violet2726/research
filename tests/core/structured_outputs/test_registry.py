@@ -350,7 +350,7 @@ def test_validate_or_recover_comm_necessary_soft_rejection_fail_opens() -> None:
     assert payload["final_answer"] == "unknown"
     assert payload["supporting_facts"] == []
 
-def test_validate_sparc_solver_structured_output() -> None:
+def test_validate_deliberation_solver_structured_output() -> None:
     payload = validate_structured_output(
         json.dumps(
             {
@@ -376,7 +376,7 @@ def test_validate_or_recover_cue_solver_from_partial_json() -> None:
     assert payload["confidence"] == 0.6
     assert payload["top_claims"] == ["50"]
 
-def test_validate_sparc_message_structured_output() -> None:
+def test_validate_deliberation_packet_structured_output() -> None:
     payload = validate_structured_output(
         json.dumps(
             {
@@ -389,7 +389,7 @@ def test_validate_sparc_message_structured_output() -> None:
     )
     assert payload["claim_span"] == "the key factual claim"
 
-def test_validate_sparc_belief_update_structured_output() -> None:
+def test_validate_belief_update_structured_output() -> None:
     payload = validate_structured_output(
         json.dumps(
             {
@@ -405,7 +405,7 @@ def test_validate_sparc_belief_update_structured_output() -> None:
     assert payload["changed_answer"] is True
     assert payload["new_answer"] == "no"
 
-def test_validate_sparc_audit_structured_output() -> None:
+def test_validate_audit_verdict_structured_output() -> None:
     payload = validate_structured_output(
         json.dumps(
             {

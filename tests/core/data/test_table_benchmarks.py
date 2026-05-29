@@ -10,7 +10,7 @@ from research_experiments.core.data.datasets import load_samples
 from research_experiments.core.data.evaluation import normalize_prediction, score_prediction
 
 
-def test_wikitq_loader_reads_processed_table_critic_jsonl(tmp_path: Path) -> None:
+def test_wikitq_loader_reads_processed_jsonl(tmp_path: Path) -> None:
     dataset_root = tmp_path / "local" / "datasets" / "wikitq"
     dataset_root.mkdir(parents=True)
     (dataset_root / "test_lower.jsonl").write_text(
@@ -64,7 +64,7 @@ def test_wikitq_loader_reads_processed_table_critic_jsonl(tmp_path: Path) -> Non
     assert sample.metadata["question_type"] in {"lookup", "table_qa", "superlative", "count"}
 
 
-def test_tabfact_loader_reads_processed_table_critic_jsonl_and_cleaned_statement(tmp_path: Path) -> None:
+def test_tabfact_loader_reads_processed_jsonl_and_cleaned_statement(tmp_path: Path) -> None:
     dataset_root = tmp_path / "local" / "datasets" / "tabfact"
     dataset_root.mkdir(parents=True)
     (dataset_root / "test.jsonl").write_text(

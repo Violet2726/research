@@ -32,10 +32,10 @@ def test_build_run_matrix_counts_expected() -> None:
     semantic_counts = Counter(entry.status for entry in matrix.semantic_entries)
     entry_counts = Counter(entry.status for entry in matrix.entries)
 
-    assert len(matrix.semantic_entries) == 18
-    assert semantic_counts["pending"] == 18
+    assert len(matrix.semantic_entries) == 15
+    assert semantic_counts["pending"] == 15
     assert entry_counts["excluded"] == 0
-    assert matrix.counts["semantic_unique_targets"] == 18
+    assert matrix.counts["semantic_unique_targets"] == 15
     cue_entry = next(entry for entry in matrix.semantic_entries if entry.experiment_name == "cue_black_box_utility_main")
     assert cue_entry.evaluation_track == "same_context"
     assert cue_entry.evidence_tier == "diagnostic"
@@ -62,10 +62,10 @@ def test_build_run_matrix_counts_expected_for_count100() -> None:
     semantic_counts = Counter(entry.status for entry in matrix.semantic_entries)
     entry_counts = Counter(entry.status for entry in matrix.entries)
 
-    assert len(matrix.semantic_entries) == 18
-    assert semantic_counts["pending"] == 18
+    assert len(matrix.semantic_entries) == 15
+    assert semantic_counts["pending"] == 15
     assert entry_counts["excluded"] == 0
-    assert matrix.counts["semantic_unique_targets"] == 18
+    assert matrix.counts["semantic_unique_targets"] == 15
     split_entry = next(
         entry
         for entry in matrix.semantic_entries
@@ -82,10 +82,10 @@ def test_build_run_matrix_counts_expected_for_count300() -> None:
     semantic_counts = Counter(entry.status for entry in matrix.semantic_entries)
     entry_counts = Counter(entry.status for entry in matrix.entries)
 
-    assert len(matrix.semantic_entries) == 18
-    assert semantic_counts["pending"] == 18
+    assert len(matrix.semantic_entries) == 15
+    assert semantic_counts["pending"] == 15
     assert entry_counts["excluded"] == 0
-    assert matrix.counts["semantic_unique_targets"] == 18
+    assert matrix.counts["semantic_unique_targets"] == 15
     headline_names = {
         entry.experiment_name
         for entry in matrix.semantic_entries
@@ -95,7 +95,6 @@ def test_build_run_matrix_counts_expected_for_count300() -> None:
         "trigger_early_exit_main",
         "voc_trigger_main",
         "dala_lite_same_context_main",
-        "end_to_end_main",
         "hotpotqa_split_context_communication_necessity",
         "dala_lite_split_context_main",
     }
@@ -107,10 +106,10 @@ def test_build_run_matrix_counts_expected_for_count500() -> None:
     semantic_counts = Counter(entry.status for entry in matrix.semantic_entries)
     entry_counts = Counter(entry.status for entry in matrix.entries)
 
-    assert len(matrix.semantic_entries) == 17
-    assert semantic_counts["pending"] == 17
+    assert len(matrix.semantic_entries) == 14
+    assert semantic_counts["pending"] == 14
     assert entry_counts["excluded"] == 0
-    assert matrix.counts["semantic_unique_targets"] == 17
+    assert matrix.counts["semantic_unique_targets"] == 14
     comm_entry = next(
         entry
         for entry in matrix.semantic_entries

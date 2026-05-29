@@ -39,8 +39,6 @@ from research_experiments.families.sid_lite.run.report import summarize_run as s
 from research_experiments.families.sid_lite.run.validate import validate_run as validate_sid
 from research_experiments.families.single_agent.run.report import summarize_run as summarize_single_agent
 from research_experiments.families.single_agent.run.validate import validate_run as validate_single_agent
-from research_experiments.families.sparc.run.report import summarize_run as summarize_sparc
-from research_experiments.families.sparc.run.validate import validate_run as validate_sparc
 
 
 def test_single_agent_reporting_and_validation_use_method_name(tmp_path: Path) -> None:
@@ -376,86 +374,6 @@ def test_selective_comm_reasoning_fallback_recovers_hotpot_answer() -> None:
     assert payload["final_answer"] == "15 August 1843"
 
 
-def test_sparc_validation_contract(tmp_path: Path) -> None:
-    write_json(
-        tmp_path / "manifest.json",
-        {
-            "variant_name": "content_ablation",
-        },
-    )
-    write_jsonl(tmp_path / "stage_a_turns.jsonl", [{"output_status": "ok", "cache_hit": False, "dataset": "gsm8k", "method_name": "shared_stage_a", "sample_id": "gsm8k-00001"}])
-    write_jsonl(tmp_path / "message_packets.jsonl", [{"x": 1}])
-    write_jsonl(tmp_path / "belief_updates.jsonl", [{"output_status": "ok", "cache_hit": False, "dataset": "gsm8k", "method_name": "shared_stage_b::full_cot", "sample_id": "gsm8k-00001"}])
-    write_jsonl(tmp_path / "audit_turns.jsonl", [])
-    write_jsonl(
-        tmp_path / "final_predictions.jsonl",
-        [
-            {
-                "dataset": "gsm8k",
-                "sample_id": "gsm8k-00001",
-                "method_name": "full_cot",
-                "stage_a_trace_hash": "a",
-                "audit_status": "not_applicable",
-                "audit_tokens_per_question": 0.0,
-            }
-        ],
-    )
-    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
-    write_json(tmp_path / "diagnostics.json", {"recommended_next_default": {"method_name": "full_cot"}})
-    (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "paper_summary.csv").write_text("dataset,model_name,method_name,accuracy_mean,communication_tokens_mean,total_tokens_mean,calls_per_question_mean,acc_per_1k_tokens\n", encoding="utf-8")
-    touch_figure_contract(tmp_path)
-
-    assert summarize_sparc(tmp_path)["row_count"] == 1
-    assert validate_sparc(tmp_path)["passed"] is True
-
-
-def test_sparc_auditing_ablation_paired_design_contract(tmp_path: Path) -> None:
-    write_json(
-        tmp_path / "manifest.json",
-        {
-            "variant_name": "auditing_ablation",
-            "phase_metadata": {"split_suffix": "count20_seed42"},
-            "aggregation_methods": ["majority_vote", "single_judge", "final_round_vote", "local_auditing"],
-            "benchmarks": [
-                {"slug": "gsm8k", "smoke_size": 1},
-                {"slug": "strategyqa", "smoke_size": 1},
-            ],
-        },
-    )
-    write_jsonl(tmp_path / "stage_a_turns.jsonl", [{"output_status": "ok"}])
-    write_jsonl(tmp_path / "message_packets.jsonl", [{"x": 1}])
-    write_jsonl(tmp_path / "belief_updates.jsonl", [{"output_status": "ok"}])
-    write_jsonl(
-        tmp_path / "audit_turns.jsonl",
-        [
-            {"output_status": "ok", "method_name": "single_judge", "input_includes_full_debate": False},
-            {"output_status": "ok", "method_name": "local_auditing", "input_includes_full_debate": False},
-        ],
-    )
-    write_jsonl(
-        tmp_path / "final_predictions.jsonl",
-        _sparc_auditing_prediction_rows("gsm8k", "gsm8k-00001")
-        + _sparc_auditing_prediction_rows("strategyqa", "strategyqa-00001"),
-    )
-    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "overall"}]})
-    write_json(tmp_path / "diagnostics.json", {"recommended_next_default": {"method_name": "local_auditing"}})
-    (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "paper_summary.csv").write_text("dataset,model_name,method_name,accuracy_mean,communication_tokens_mean,total_tokens_mean,calls_per_question_mean,acc_per_1k_tokens\n", encoding="utf-8")
-    touch_figure_contract(tmp_path)
-
-    validation = validate_sparc(tmp_path)
-    assert validation["passed"] is True
-    paired_check = validation["checks"]["auditing_ablation_paired_design_check"]
-    assert paired_check["expected_count_per_method"] == 2
-    assert paired_check["observed_count_per_method"] == {
-        "majority_vote": 2,
-        "single_judge": 2,
-        "final_round_vote": 2,
-        "local_auditing": 2,
-    }
-
-
 def test_budget_comm_validation_contract(tmp_path: Path) -> None:
     write_json(
         tmp_path / "manifest.json",
@@ -782,42 +700,6 @@ def test_comm_necessary_validation_contract(tmp_path: Path) -> None:
     assert summarize_comm_necessary(tmp_path)["row_count"] == 1
     assert validate_comm_necessary(tmp_path)["passed"] is True
 
-
-def _sparc_auditing_prediction_rows(dataset: str, sample_id: str) -> list[dict[str, object]]:
-    common = {
-        "dataset": dataset,
-        "sample_id": sample_id,
-        "stage_a_trace_hash": f"stage-a-{dataset}-{sample_id}",
-        "audit_tokens_per_question": 0.0,
-    }
-    return [
-        {
-            **common,
-            "method_name": "majority_vote",
-            "audit_status": "not_applicable",
-            "stage_b_trace_hash_used": None,
-        },
-        {
-            **common,
-            "method_name": "single_judge",
-            "audit_status": "judge",
-            "audit_tokens_per_question": 1.0,
-            "stage_b_trace_hash_used": f"stage-b-{dataset}-{sample_id}",
-        },
-        {
-            **common,
-            "method_name": "final_round_vote",
-            "audit_status": "not_applicable",
-            "stage_b_trace_hash_used": f"stage-b-{dataset}-{sample_id}",
-        },
-        {
-            **common,
-            "method_name": "local_auditing",
-            "audit_status": "resolved",
-            "audit_tokens_per_question": 1.0,
-            "stage_b_trace_hash_used": f"stage-b-{dataset}-{sample_id}",
-        },
-    ]
 
 
 

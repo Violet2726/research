@@ -1,34 +1,4 @@
 [[entries]]
-config_path = "configs/families/dog_graph/experiments/dog_graph_main.toml"
-track_name = "graph_reasoning"
-entry_role = "canonical"
-analysis_mode = "primary_summary"
-primary_method_name = "dog_graph_paper"
-primary_metric_field = "accuracy_mean"
-primary_metric_label = "accuracy"
-comparison_scope = "within_track_only"
-
-[[entries]]
-config_path = "configs/families/dog_graph/experiments/dog_graph_static_ablation.toml"
-track_name = "graph_reasoning"
-entry_role = "ablation"
-analysis_mode = "primary_summary"
-primary_method_name = "dog_graph_r1"
-primary_metric_field = "accuracy_mean"
-primary_metric_label = "accuracy"
-comparison_scope = "within_track_only"
-
-[[entries]]
-config_path = "configs/families/table_critic/experiments/table_critic_main.toml"
-track_name = "table_reasoning"
-entry_role = "canonical"
-analysis_mode = "primary_summary"
-primary_method_name = "table_critic_paper"
-primary_metric_field = "accuracy_mean"
-primary_metric_label = "accuracy"
-comparison_scope = "within_track_only"
-
-[[entries]]
 config_path = "configs/families/colmad/experiments/colmad_realmistake_main.toml"
 track_name = "oversight_protocol"
 entry_role = "canonical"

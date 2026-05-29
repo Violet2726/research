@@ -12,7 +12,6 @@ from research_experiments.families.colmad.spec import build_parser as build_colm
 from research_experiments.families.comm_necessary.spec import build_parser as build_comm_necessary_parser
 from research_experiments.families.cue.spec import build_parser as build_cue_parser
 from research_experiments.families.dmad.spec import build_parser as build_dmad_parser
-from research_experiments.families.dog_graph.spec import build_parser as build_dog_graph_parser
 from research_experiments.families.econ.spec import build_parser as build_econ_parser
 from research_experiments.families.free_mad_lite.spec import build_parser as build_free_mad_parser
 from research_experiments.families.imad.spec import build_parser as build_imad_parser
@@ -21,8 +20,6 @@ from research_experiments.families.multi_agent.spec import build_parser as build
 from research_experiments.families.selective_comm.spec import build_parser as build_selective_parser
 from research_experiments.families.sid_lite.spec import build_parser as build_sid_parser
 from research_experiments.families.single_agent.spec import build_parser as build_single_agent_parser
-from research_experiments.families.sparc.spec import build_parser as build_sparc_parser
-from research_experiments.families.table_critic.spec import build_parser as build_table_critic_parser
 
 ROOT = Path(__file__).resolve().parents[2]
 LEGACY_REPORT_COMMANDS = (
@@ -40,7 +37,6 @@ MARKDOWN_DOCS = [
     ROOT / "src" / "research_experiments" / "families" / "comm_necessary" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "cue" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "dmad" / "README.md",
-    ROOT / "src" / "research_experiments" / "families" / "dog_graph" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "econ" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "free_mad_lite" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "imad" / "README.md",
@@ -49,8 +45,6 @@ MARKDOWN_DOCS = [
     ROOT / "src" / "research_experiments" / "families" / "selective_comm" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "sid_lite" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "single_agent" / "README.md",
-    ROOT / "src" / "research_experiments" / "families" / "sparc" / "README.md",
-    ROOT / "src" / "research_experiments" / "families" / "table_critic" / "README.md",
 ]
 
 
@@ -62,18 +56,15 @@ def test_all_family_clis_expose_render_report() -> None:
         build_single_agent_parser(),
         build_multi_agent_parser(),
         build_selective_parser(),
-        build_sparc_parser(),
         build_budget_parser(),
         build_colmad_parser(),
         build_sid_parser(),
         build_free_mad_parser(),
-        build_dog_graph_parser(),
         build_imad_parser(),
         build_macnet_parser(),
         build_comm_necessary_parser(),
         build_cue_parser(),
         build_dmad_parser(),
-        build_table_critic_parser(),
         build_econ_parser(),
     ]
     for parser in parsers:
