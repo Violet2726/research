@@ -12,6 +12,7 @@ Copy-Item .env.example .env.local
 - `RESEARCH_RUNS_ROOT`
 - `RESEARCH_REPORTS_ROOT`
 - `RESEARCH_CACHE_ROOT`
+- `RESEARCH_DATASETS_ROOT`
 - `RESEARCH_FILES_ROOT`
 
 如需启用正式远程归档，请同时配置：

@@ -62,13 +62,22 @@ files/            # 研究资料
 
 ## 实验家族
 
-当前有 20+ 个实验家族，主要的：
+当前有 15 个实验家族：
+- `single_agent`：CoT/Self-Consistency 基线
+- `multi_agent`：标准 debate vs vote
 - `consensagent`：基于触发机制的反谄媚多智能体辩论
 - `dmad`：策略异质化多智能体辩论
 - `madjudge`：自适应多智能体辩论（Beta-Binomial + KS 检验）
 - `imad`：自适应停止复现
-- `single_agent`：CoT/Self-Consistency 基线
-- `multi_agent`：标准 debate vs vote
+- `selective_comm`：trigger / early-exit 选择性通信
+- `budget_comm`：预算约束通信与分配策略
+- `sid_lite`：SID-lite 机制验证
+- `free_mad_lite`：Free-MAD-lite 机制验证
+- `comm_necessary`：HotpotQA split-context 通信必要性
+- `cue`：Communication Utility Estimation 黑盒选择性通信
+- `colmad`：协作监督协议复现
+- `econ`：低通信协调论文复现
+- `macnet`：拓扑协作论文复现
 
 ## 编码规范
 
