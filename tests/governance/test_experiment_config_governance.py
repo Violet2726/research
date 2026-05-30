@@ -5,6 +5,7 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
+from research_experiments.families.shared.comparator_registry import is_protected_standard_bare_name
 from research_experiments.families.shared.standard_method_names import (
     COT_1,
     MAD_FIXED_R1,
@@ -45,3 +46,19 @@ def test_consensagent_and_madjudge_controls_stay_aligned() -> None:
     judge_setups = {row["name"]: row for row in madjudge["setups"]}
     assert judge_setups["madjudge_7a"]["matched_controls"] == [COT_1, MV_7]
     assert judge_setups["madjudge_5a"]["matched_controls"] == [COT_1, MV_5]
+
+
+def test_dmad_family_local_methods_do_not_use_protected_bare_names() -> None:
+    targets = [
+        "configs/families/dmad/experiments/dmad_reasoning_main.toml",
+        "configs/families/dmad/experiments/dmad_reasoning_appendix.toml",
+        "configs/families/dmad/experiments/dmad_reasoning_extended.toml",
+        "configs/families/dmad/experiments/dmad_joint_cross_domain_exploration.toml",
+    ]
+    for path in targets:
+        payload = _load_toml(path)
+        for method in payload.get("methods", []):
+            name = str(method["name"])
+            if name.startswith("mad_") or name.startswith("dmad_"):
+                continue
+            assert not is_protected_standard_bare_name(name), f"{path} 使用了受保护的裸名 {name}"

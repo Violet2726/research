@@ -15,39 +15,39 @@ tokens_per_minute_limit = 9000000
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 
 [[methods]]
-name = "cot"
+name = "dmad_single_cot"
 mode = "single_cot"
 
 [[methods]]
-name = "sbp"
+name = "dmad_single_sbp"
 mode = "single_sbp"
 
 [[methods]]
-name = "l2m"
+name = "dmad_single_pot_l2m"
 mode = "single_l2m"
 
 [[methods]]
-name = "cot_sc"
+name = "dmad_single_cot_sc"
 mode = "single_cot_sc"
 
 [[methods]]
-name = "sbp_sc"
+name = "dmad_single_sbp_sc"
 mode = "single_sbp_sc"
 
 [[methods]]
-name = "l2m_sc"
+name = "dmad_single_pot_l2m_sc"
 mode = "single_l2m_sc"
 
 [[methods]]
-name = "self_refine"
+name = "dmad_self_refine"
 mode = "self_refine_cot"
 
 [[methods]]
-name = "self_contrast"
+name = "dmad_self_contrast"
 mode = "self_contrast_cot_sbp_l2m"
 
 [[methods]]
-name = "mrp"
+name = "dmad_mrp"
 mode = "mrp_cot_sbp_l2m"
 
 [[methods]]

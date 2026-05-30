@@ -87,7 +87,7 @@ def _paired_design_check(manifest: dict[str, Any], prediction_rows: list[dict[st
     methods = list(
         manifest.get("methods")
         or [
-            "mv_3_initial",
+            "mv_3",
             "vanilla_mad_r1_final_vote",
             "anti_conformity_final_vote",
             "free_mad_lite_llm_trajectory",

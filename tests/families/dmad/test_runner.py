@@ -32,7 +32,7 @@ def test_dmad_render_report_uses_new_paper_scope_and_tables(tmp_path: Path) -> N
             "summary": [
                 {
                     "dataset": "overall",
-                    "method_name": "cot",
+                    "method_name": "dmad_single_cot",
                     "method_type": "single_agent",
                     "model_name": "xiaomimimo/mimo-v2.5",
                     "configured_strategy_name": "cot",
@@ -275,11 +275,11 @@ def test_dmad_run_experiment_executes_minimal_flow(monkeypatch, tmp_path: Path) 
                 'primary_model_ref = "mock/mock-model"',
                 "",
                 "[[methods]]",
-                'name = "cot"',
+                'name = "dmad_single_cot"',
                 'mode = "single_cot"',
                 "",
                 "[[methods]]",
-                'name = "self_refine"',
+                'name = "dmad_self_refine"',
                 'mode = "self_refine_cot"',
                 "",
                 "[[methods]]",

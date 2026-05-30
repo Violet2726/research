@@ -35,6 +35,8 @@ def test_standard_vanilla_mad_runners_call_shared_core_directly() -> None:
         text = path.read_text(encoding="utf-8")
         assert "run_shared_vanilla_mad_rounds(" in text, f"{path} 没有直接调用共享 vanilla MAD core"
         assert "build_shared_vanilla_mad_prediction(" in text, f"{path} 没有直接调用共享 prediction builder"
+        if "imad" in path.as_posix() or "consensagent" in path.as_posix():
+            assert "CONTROLLED_PROMPT_VERSION" in text, f"{path} 没有显式锁定共享 controlled prompt 版本"
 
 
 def test_stage_a_mv3_reuse_families_call_shared_builder() -> None:
@@ -47,3 +49,18 @@ def test_stage_a_mv3_reuse_families_call_shared_builder() -> None:
     for path in targets:
         text = path.read_text(encoding="utf-8")
         assert "build_stage_a_mv3_prediction(" in text, f"{path} 没有复用共享 mv_3 builder"
+
+
+def test_single_agent_and_selective_comm_reuse_shared_no_comm_core() -> None:
+    targets = [
+        ROOT / "src" / "research_experiments" / "families" / "single_agent" / "run" / "sample.py",
+        ROOT / "src" / "research_experiments" / "families" / "selective_comm" / "run" / "sample.py",
+    ]
+    for path in targets:
+        text = path.read_text(encoding="utf-8")
+        assert "run_unified_control_sample(" in text, f"{path} 没有复用共享 no-comm sample helper"
+
+    selective_comm_text = targets[1].read_text(encoding="utf-8")
+    assert "def _run_control_method(" in selective_comm_text
+    assert "build_cot_messages" not in selective_comm_text, "selective_comm 仍在本地重建 cot prompt"
+    assert "build_mv_messages" not in selective_comm_text, "selective_comm 仍在本地重建 mv prompt"

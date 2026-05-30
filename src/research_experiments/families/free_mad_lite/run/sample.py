@@ -382,7 +382,7 @@ def _build_outputs(
     rows = [
         _prediction_row(
             common,
-            method_name="mv_3_initial",
+            method_name="mv_3",
             method_kind="baseline",
             prediction=initial_vote,
             score=score_prediction(dataset, initial_vote, sample.reference_answer),

@@ -13,7 +13,7 @@ benchmark_configs = [
 ]
 protocol = "configs/families/free_mad_lite/protocols/shared_3a_r1.toml"
 methods = [
-  "mv_3_initial",
+  "mv_3",
   "vanilla_mad_r1_final_vote",
   "anti_conformity_final_vote",
   "free_mad_lite_llm_trajectory",

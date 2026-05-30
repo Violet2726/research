@@ -6,6 +6,7 @@ from research_experiments.families.shared.comparator_impls import (
     build_stage_a_mv3_prediction,
     run_shared_vanilla_mad_rounds,
 )
+from research_experiments.families.shared.vanilla_mad_prompting import CONTROLLED_PROMPT_VERSION
 
 
 def _sample() -> DatasetSample:
@@ -85,6 +86,7 @@ def test_run_shared_vanilla_mad_rounds_and_prediction_row() -> None:
         top_p=1.0,
         max_output_tokens=256,
         global_seed=42,
+        prompt_version=CONTROLLED_PROMPT_VERSION,
         execute_turn=execute_turn,
         build_debate_row=lambda sender, recipient_id, round_index: {"sender": sender["agent_id"], "recipient": recipient_id, "round_index": round_index},
     )
@@ -102,3 +104,43 @@ def test_run_shared_vanilla_mad_rounds_and_prediction_row() -> None:
     assert row["final_vote_prediction"] == "4"
     assert row["debate_rounds"] == 1
     assert row["corrected_by_debate"] is False
+
+
+def test_run_shared_vanilla_mad_rounds_rejects_non_controlled_prompt_version() -> None:
+    sample = _sample()
+
+    def execute_turn(**kwargs):
+        return {
+            "agent_id": kwargs["agent_id"],
+            "round_index": kwargs["round_index"],
+            "role": kwargs["role"],
+            "prompt_tokens": 1.0,
+            "completion_tokens": 1.0,
+            "total_tokens": 2.0,
+            "latency_ms": 1.0,
+            "normalized_answer": "4",
+            "validated_output": {"final_answer": "4", "reasoning": "ok"},
+        }
+
+    try:
+        run_shared_vanilla_mad_rounds(
+            sample=sample,
+            run_id="run",
+            dataset="gsm8k",
+            split_name="count20",
+            method_name="mad_3a_r1",
+            agent_count=3,
+            debate_rounds=1,
+            initial_temperature=0.7,
+            debate_temperature=0.7,
+            top_p=1.0,
+            max_output_tokens=256,
+            global_seed=42,
+            prompt_version="imad_controlled_json",
+            execute_turn=execute_turn,
+            build_debate_row=lambda sender, recipient_id, round_index: {},
+        )
+    except ValueError as exc:
+        assert CONTROLLED_PROMPT_VERSION in str(exc)
+    else:
+        raise AssertionError("Expected shared vanilla MAD core to reject non-controlled prompt version.")

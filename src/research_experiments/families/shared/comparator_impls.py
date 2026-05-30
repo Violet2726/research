@@ -21,6 +21,15 @@ ExecuteVanillaMadTurnFn = Callable[..., dict[str, Any]]
 BuildDebateRowFn = Callable[[dict[str, Any], int, int], dict[str, Any]]
 
 
+def assert_standard_vanilla_mad_prompt_version(prompt_version: str, *, method_name: str) -> None:
+    """约束标准 MAD comparator 只能使用共享 controlled prompt 版本。"""
+    if prompt_version != CONTROLLED_PROMPT_VERSION:
+        raise ValueError(
+            f"Standard vanilla MAD comparator {method_name} must use prompt_version="
+            f"{CONTROLLED_PROMPT_VERSION}, got {prompt_version}."
+        )
+
+
 def build_stage_a_mv3_prediction(
     *,
     run_id: str,
@@ -96,6 +105,7 @@ def run_shared_vanilla_mad_rounds(
     include_initial_turns_in_output: bool = True,
 ) -> dict[str, Any]:
     """运行共享 vanilla MAD 固定轮数核心。"""
+    assert_standard_vanilla_mad_prompt_version(prompt_version, method_name=method_name)
 
     generated_initial_turns: list[dict[str, Any]] = []
     if initial_turns is None:

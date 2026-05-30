@@ -18,11 +18,11 @@
 
 ## 论文主表方法
 
-- 单智能体：`cot`、`sbp`、`pot/l2m`
-- 自洽：`cot_sc`、`sbp_sc`、`pot_sc/l2m_sc`
-- 自反思：`self_refine`
-- 对比式自纠错：`self_contrast`
-- 动态方法选择：`mrp`
+- 单智能体：`dmad_single_cot`、`dmad_single_sbp`、`dmad_single_pot_l2m`
+- 自洽：`dmad_single_cot_sc`、`dmad_single_sbp_sc`、`dmad_single_pot_l2m_sc`
+- 自反思：`dmad_self_refine`
+- 对比式自纠错：`dmad_self_contrast`
+- 动态方法选择：`dmad_mrp`
 - 固定-MAD：`mad_all_cot`、`mad_all_sbp`、`mad_all_pot/l2m`
 - persona-MAD：`mad_persona_d`、`mad_persona_e`
 - DMAD：`dmad_cot_sbp_pot` 或 `dmad_cot_sbp_l2m`

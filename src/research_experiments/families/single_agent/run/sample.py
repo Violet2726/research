@@ -18,6 +18,7 @@ from research_experiments.core.config import (
     BenchmarkConfig,
     ResolvedModelConfig,
 )
+from research_experiments.core.controls.no_comm_controls import run_unified_control_sample
 from research_experiments.core.data.datasets import (
     DatasetSample,
     load_split_ids,
@@ -117,6 +118,23 @@ def _run_method_batch(
     raw_writer: BufferedJsonlWriter,
 ) -> list[dict[str, Any]]:
     """执行一个模型-数据集-方法-重跑组合下的一整批样本。"""
+    if _uses_shared_no_comm_core(method.family):
+        return _run_shared_no_comm_batch(
+            run_id=run_id,
+            phase_name=phase_name,
+            experiment=experiment,
+            benchmark=benchmark,
+            model=model,
+            method=method,
+            samples=samples,
+            provider=provider,
+            cache=cache,
+            rate_limiter=rate_limiter,
+            progress=progress,
+            rerun_index=rerun_index,
+            raw_writer=raw_writer,
+        )
+
     split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
     call_specs: list[CallSpec] = []
 
@@ -228,6 +246,211 @@ def _run_method_batch(
 
     progress.record_predictions(len(predictions), benchmark.slug, method.name)
     return predictions
+
+
+def _run_shared_no_comm_batch(
+    *,
+    run_id: str,
+    phase_name: str,
+    experiment: ExperimentConfig,
+    benchmark: BenchmarkConfig,
+    model: ResolvedModelConfig,
+    method: MethodConfig,
+    samples: list[DatasetSample],
+    provider: OpenAICompatibleProvider,
+    cache: RequestCache,
+    rate_limiter: SlidingWindowRateLimiter,
+    progress: RunProgressTracker,
+    rerun_index: int,
+    raw_writer: BufferedJsonlWriter,
+) -> list[dict[str, Any]]:
+    """通过共享 no-comm comparator 执行单智能体标准基线。"""
+    split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
+    sample_order_by_id = {sample.sample_id: sample_order for sample_order, sample in enumerate(samples)}
+    worker = partial(
+        _run_shared_no_comm_sample,
+        run_id=run_id,
+        benchmark=benchmark,
+        split_name=split_name,
+        method=method,
+        model=model,
+        provider=provider,
+        cache=cache,
+        rate_limiter=rate_limiter,
+        global_seed=experiment.global_seed + rerun_index,
+        rerun_index=rerun_index,
+        sample_order_by_id=sample_order_by_id,
+    )
+
+    predictions: list[dict[str, Any]] = []
+    for _, (turn_rows, prediction_row) in run_indexed_batch(
+        samples,
+        worker=worker,
+        max_concurrent_requests=experiment.max_concurrent_requests,
+    ):
+        for row in turn_rows:
+            raw_writer.write_row(row)
+            progress.record_call(row)
+        predictions.append(prediction_row)
+
+    progress.record_predictions(len(predictions), benchmark.slug, method.name)
+    return predictions
+
+
+def _run_shared_no_comm_sample(
+    sample: DatasetSample,
+    *,
+    run_id: str,
+    benchmark: BenchmarkConfig,
+    split_name: str,
+    method: MethodConfig,
+    model: ResolvedModelConfig,
+    provider: OpenAICompatibleProvider,
+    cache: RequestCache,
+    rate_limiter: SlidingWindowRateLimiter,
+    global_seed: int,
+    rerun_index: int,
+    sample_order_by_id: dict[str, int],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """执行单题共享 no-comm comparator，并保留 single_agent 产物结构。"""
+    return run_unified_control_sample(
+        run_id=run_id,
+        benchmark_slug=benchmark.slug,
+        split_name=split_name,
+        sample=sample,
+        control_name=method.name,
+        method=method,
+        backbone=model,
+        provider=provider,
+        cache=cache,
+        limiter=rate_limiter,
+        global_seed=global_seed,
+        execute_turn=partial(
+            _execute_shared_no_comm_turn,
+            method_family=method.family,
+            sample_order=sample_order_by_id[sample.sample_id],
+            rerun_index=rerun_index,
+        ),
+        build_prediction_row=partial(
+            _build_shared_no_comm_prediction_row,
+            rerun_index=rerun_index,
+        ),
+    )
+
+
+def _execute_shared_no_comm_turn(
+    *,
+    run_id: str,
+    dataset: str,
+    split_name: str,
+    sample: DatasetSample,
+    method_name: str,
+    method_type: str,
+    round_index: int,
+    agent_id: int,
+    role: str,
+    visible_peer_count: int,
+    messages: list[dict[str, str]],
+    backbone,
+    provider,
+    cache,
+    limiter,
+    temperature: float,
+    top_p: float,
+    max_output_tokens: int,
+    seed: int,
+    method_family: str,
+    sample_order: int,
+    rerun_index: int,
+) -> dict[str, Any]:
+    """执行单次共享 no-comm turn，并写成 single_agent 原始日志格式。"""
+    del method_type, round_index, role, visible_peer_count
+    result = execute_cached_turn(
+        backbone=backbone,
+        provider=provider,
+        cache=cache,
+        limiter=limiter,
+        messages=messages,
+        temperature=temperature,
+        top_p=top_p,
+        max_output_tokens=max_output_tokens,
+        seed=seed,
+        schema_id=SCHEMA_ANSWER_CORE,
+    )
+    final_answer = str(result.validated_output.get("final_answer") or "")
+    normalized_answer = normalize_prediction(dataset, final_answer) if final_answer else ""
+    return {
+        "run_id": run_id,
+        "dataset": dataset,
+        "split": split_name,
+        "sample_id": sample.sample_id,
+        "sample_order": sample_order,
+        "method_name": method_name,
+        "method_family": method_family,
+        "replicate_id": agent_id - 1,
+        "agent_id": None,
+        "rerun_index": rerun_index,
+        "model_name": backbone.name,
+        "model_id": backbone.model_id,
+        "provider": backbone.provider,
+        "base_url": backbone.base_url,
+        "prompt_hash": result.prompt_hash,
+        "assistant_text": result.response_payload.get("assistant_text", ""),
+        "provider_reasoning_text": result.response_payload.get("provider_reasoning_text", ""),
+        "validated_output": result.validated_output,
+        "normalized_answer": normalized_answer,
+        "output_status": result.output_status,
+        "usage_reported": result.response_payload.get("usage_reported"),
+        "usage_estimated": result.response_payload.get("usage_estimated"),
+        "usage_source": result.response_payload.get("usage_source"),
+        "latency_ms": result.response_payload.get("latency_ms"),
+        "http_status": result.response_payload.get("http_status"),
+        "provider_request_id": result.response_payload.get("provider_request_id"),
+        "request_error": result.request_error,
+        "cache_hit": result.cache_hit,
+    }
+
+
+def _build_shared_no_comm_prediction_row(
+    *,
+    control_name: str,
+    method: MethodConfig,
+    sample: DatasetSample,
+    final_vote: str,
+    final_score: float,
+    vote_counts: dict[str, int],
+    final_consensus: bool,
+    turn_rows: list[dict[str, Any]],
+    backbone,
+    benchmark_slug: str,
+    split_name: str,
+    run_id: str,
+    rerun_index: int,
+) -> dict[str, Any]:
+    """构造 single_agent 标准比较器的题级预测行。"""
+    del final_consensus
+    request_failure_count = sum(1 for row in turn_rows if row.get("request_error"))
+    return {
+        "run_id": run_id,
+        "dataset": benchmark_slug,
+        "split": split_name,
+        "sample_id": sample.sample_id,
+        "method_name": control_name,
+        "method_family": method.family,
+        "model_name": backbone.name,
+        "model_id": backbone.model_id,
+        "rerun_index": rerun_index,
+        "prediction": final_vote,
+        "gold": sample.reference_answer,
+        "score": final_score,
+        "vote_counts": vote_counts,
+        "request_failure_count": request_failure_count,
+        "prompt_tokens_per_question": _sum_usage(turn_rows, "prompt_tokens"),
+        "completion_tokens_per_question": _sum_usage(turn_rows, "completion_tokens"),
+        "total_tokens_per_question": _sum_usage(turn_rows, "total_tokens"),
+        "latency_ms_per_question": sum(float(row.get("latency_ms") or 0.0) for row in turn_rows),
+        "calls_per_question": method.budget_calls,
+    }
 
 
 def _execute_call(
@@ -419,6 +642,17 @@ def _write_leaderboard(path: Path, predictions: list[dict[str, Any]]) -> None:
     for row in summary:
         lines.append(",".join(str(row[field]) for field in headers))
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _uses_shared_no_comm_core(method_family: str) -> bool:
+    """判断当前方法是否应强制复用共享 no-comm comparator。"""
+    return str(method_family or "").strip().lower() in {
+        "cot",
+        "chain_of_thought",
+        "self_consistency",
+        "majority_vote",
+        "mv",
+    }
 
 
 

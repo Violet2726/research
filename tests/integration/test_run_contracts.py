@@ -524,7 +524,7 @@ def test_free_mad_lite_validation_contract(tmp_path: Path) -> None:
         tmp_path / "manifest.json",
         {
             "methods": [
-                "mv_3_initial",
+                "mv_3",
                 "vanilla_mad_r1_final_vote",
                 "anti_conformity_final_vote",
                 "free_mad_lite_llm_trajectory",
@@ -549,7 +549,7 @@ def test_free_mad_lite_validation_contract(tmp_path: Path) -> None:
                 "stage_a_trace_hash": "stage-a",
             }
             for method in [
-                "mv_3_initial",
+                "mv_3",
                 "vanilla_mad_r1_final_vote",
                 "anti_conformity_final_vote",
                 "free_mad_lite_llm_trajectory",

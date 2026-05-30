@@ -25,7 +25,7 @@ config_path = "configs/families/dmad/experiments/dmad_reasoning_main.toml"
 evaluation_track = "same_context"
 evidence_tier = "supporting"
 primary_method_name = "dmad_cot_sbp_pot"
-best_no_comm_candidates = ["cot", "cot_sc", "sbp_sc", "pot_sc", "self_refine", "self_contrast", "mrp"]
+best_no_comm_candidates = ["dmad_single_cot", "dmad_single_cot_sc", "dmad_single_sbp_sc", "dmad_single_pot_l2m_sc", "dmad_self_refine", "dmad_self_contrast", "dmad_mrp"]
 
 [[entries]]
 config_path = "configs/families/econ/experiments/econ_same_context_main.toml"
@@ -41,7 +41,7 @@ config_path = "configs/families/free_mad_lite/experiments/free_mad_lite_mechanis
 evaluation_track = "same_context"
 evidence_tier = "supporting"
 primary_method_name = "free_mad_lite_llm_trajectory"
-best_no_comm_candidates = ["mv_3_initial"]
+best_no_comm_candidates = ["mv_3"]
 full_comm_reference = "vanilla_mad_r1_final_vote"
 
 [[entries]]

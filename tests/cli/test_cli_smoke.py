@@ -300,7 +300,7 @@ def test_free_mad_lite_inspect_cli() -> None:
     )
     assert payload["name"] == "free_mad_lite_mechanism_validation"
     assert payload["methods"] == [
-        "mv_3_initial",
+        "mv_3",
         "vanilla_mad_r1_final_vote",
         "anti_conformity_final_vote",
         "free_mad_lite_llm_trajectory",
@@ -589,4 +589,3 @@ def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
     assert payload["selected_run_ids"] == ["20260510T000000Z-model"]
     assert payload["selected_run_prefixes"] == ["single_agent/demo/count20/20260510T000000Z-model"]
     assert payload["cache_shard_filters"] == ["providers/xiaomimimo/mimo-v2-5/strategyqa/dev"]
-

@@ -22,6 +22,7 @@ from research_experiments.families.shared.comparator_impls import (
     build_shared_vanilla_mad_prediction,
     run_shared_vanilla_mad_rounds,
 )
+from research_experiments.families.shared.vanilla_mad_prompting import CONTROLLED_PROMPT_VERSION
 
 
 def _active_methods(experiment: ImadExperimentConfig) -> list[DebateMethodSpec]:
@@ -170,7 +171,7 @@ def _run_method_sample(
             top_p=protocol.top_p,
             max_output_tokens=protocol.max_output_tokens,
             global_seed=global_seed,
-            prompt_version=prompt_version,
+            prompt_version=CONTROLLED_PROMPT_VERSION,
             execute_turn=lambda **kwargs: _execute_turn(
                 run_id=run_id,
                 dataset=benchmark_slug,
@@ -1024,4 +1025,3 @@ def _optional_mean(values) -> float | None:
     if not materialized:
         return None
     return round(sum(materialized) / len(materialized), 6)
-

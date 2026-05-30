@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 METHOD_ORDER = [
-    "mv_3_initial",
+    "mv_3",
     "vanilla_mad_r1_final_vote",
     "anti_conformity_final_vote",
     "free_mad_lite_llm_trajectory",

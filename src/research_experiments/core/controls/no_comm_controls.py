@@ -23,6 +23,23 @@ ExecuteTurnFn = Callable[..., dict[str, Any]]
 BuildPredictionRowFn = Callable[..., dict[str, Any]]
 
 
+def resolve_unified_control_message_builder(method_family: str) -> Callable[[DatasetSample, int, str | None], list[dict[str, str]]]:
+    """按共享 no-comm comparator 口径解析标准 prompt 构建器。"""
+    family = str(method_family or "").strip().lower()
+    if family in ("cot", "chain_of_thought", "self_consistency"):
+        return build_cot_messages
+    if family in ("majority_vote", "mv"):
+        return build_mv_messages
+    return build_cot_messages
+
+
+def resolve_unified_control_seed(*, global_seed: int, method_family: str, replicate_id: int) -> int:
+    """按共享 no-comm comparator 规则生成单次采样 seed。"""
+    if str(method_family or "").strip().lower() == "cot":
+        return global_seed
+    return global_seed + replicate_id
+
+
 def run_unified_control_batch(
     *,
     samples: list[DatasetSample],
@@ -45,19 +62,10 @@ def run_unified_control_batch(
     此函数自动根据 method.family 选择对应的统一 prompt 模板，
     不依赖任何实验家族的 build_messages。
     """
-    # 根据方法族选择统一的 prompt 构建函数
-    family = str(getattr(method, "family", "") or "").strip().lower()
-    if family in ("cot", "chain_of_thought", "self_consistency"):
-        # self_consistency 使用与 cot 相同的 prompt，多次采样后做多数投票
-        build_messages = build_cot_messages
-    elif family in ("majority_vote", "mv"):
-        build_messages = build_mv_messages
-    else:
-        # 对于未知的 method family，默认使用 CoT prompt
-        build_messages = build_cot_messages
+    build_messages = resolve_unified_control_message_builder(str(getattr(method, "family", "") or ""))
 
     worker = partial(
-        _run_control_sample,
+        run_unified_control_sample,
         run_id=run_id,
         benchmark_slug=benchmark_slug,
         split_name=split_name,
@@ -87,7 +95,7 @@ def run_unified_control_batch(
     return completed
 
 
-def _run_control_sample(
+def run_unified_control_sample(
     *,
     run_id: str,
     benchmark_slug: str,
@@ -100,15 +108,22 @@ def _run_control_sample(
     cache,
     limiter,
     global_seed: int,
-    build_messages: Callable[[DatasetSample, int, str | None], list[dict[str, str]]],
     execute_turn: ExecuteTurnFn,
     build_prediction_row: BuildPredictionRowFn,
+    build_messages: Callable[[DatasetSample, int, str | None], list[dict[str, str]]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """执行单题无通信对照，返回调用轨迹与最终预测。"""
     turn_rows: list[dict[str, Any]] = []
+    resolved_build_messages = build_messages or resolve_unified_control_message_builder(
+        str(getattr(method, "family", "") or "")
+    )
     for replicate_id in range(method.budget_calls):
-        messages = build_messages(sample, replicate_id + 1, None)
-        seed = global_seed if method.family == "cot" else global_seed + replicate_id
+        messages = resolved_build_messages(sample, replicate_id + 1, None)
+        seed = resolve_unified_control_seed(
+            global_seed=global_seed,
+            method_family=str(getattr(method, "family", "") or ""),
+            replicate_id=replicate_id,
+        )
         turn_rows.append(
             execute_turn(
                 run_id=run_id,

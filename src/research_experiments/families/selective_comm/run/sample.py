@@ -14,10 +14,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-from research_experiments.core.controls.control_prompts import (
-    build_cot_messages,
-    build_mv_messages,
-)
+from research_experiments.core.controls.no_comm_controls import run_unified_control_sample
 from research_experiments.core.controls.selective_signals import (
     confidence_display,
     decide_trigger_from_policy,
@@ -645,102 +642,106 @@ def _run_control_method(
     question_preview: str,
 ) -> dict[str, Any]:
     """运行一个独立控制方法。"""
-    # 根据方法族选择统一的 prompt 构建函数
-    family = str(getattr(control, "family", "") or "").strip().lower()
-    if family in ("cot", "chain_of_thought", "self_consistency"):
-        build_messages = build_cot_messages
-    elif family in ("majority_vote", "mv"):
-        build_messages = build_mv_messages
-    else:
-        build_messages = build_cot_messages
-
-    turn_rows: list[dict[str, Any]] = []
-    for replicate_id in range(control.budget_calls):
-        messages = build_messages(sample, replicate_id + 1, None)
-        seed = experiment.global_seed + replicate_id
-        turn_rows.append(
-            _execute_turn(
-                run_id=run_id,
-                dataset=benchmark_slug,
-                split_name=split_name,
-                sample=sample,
-                stage_name="control",
-                method_name=control_name,
-                role="control",
-                round_index=0,
-                agent_id=replicate_id + 1,
-                visible_peer_count=0,
-                messages=messages,
-                backbone=backbone,
-                provider=provider,
-                cache=cache,
-                limiter=limiter,
-                temperature=control.temperature,
-                top_p=control.top_p,
-                max_output_tokens=control.max_output_tokens,
-                seed=seed,
-                question_preview=question_preview,
-            )
-        )
+    turn_rows, prediction_row = run_unified_control_sample(
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        control_name=control_name,
+        method=control,
+        backbone=backbone,
+        provider=provider,
+        cache=cache,
+        limiter=limiter,
+        global_seed=experiment.global_seed,
+        execute_turn=partial(
+            _execute_turn,
+            stage_name="control",
+            question_preview=question_preview,
+        ),
+        build_prediction_row=partial(
+            _build_control_prediction_row,
+            question_preview=question_preview,
+        ),
+    )
     trace_hash = _trace_hash(turn_rows)
     for row in turn_rows:
         row["stage_trace_hash"] = trace_hash
-    answers = [row["normalized_answer"] for row in turn_rows]
-    prediction, vote_counts = aggregate_majority(answers)
-    score = score_prediction(benchmark_slug, prediction, sample.reference_answer)
+    prediction_row["stage_trace_hash"] = trace_hash
+    return {
+        "turn_rows": turn_rows,
+        "prediction_row": prediction_row,
+    }
+
+
+def _build_control_prediction_row(
+    *,
+    control_name: str,
+    method: MethodConfig,
+    sample: DatasetSample,
+    final_vote: str,
+    final_score: float,
+    vote_counts: dict[str, int],
+    final_consensus: bool,
+    turn_rows: list[dict[str, Any]],
+    backbone,
+    benchmark_slug: str,
+    split_name: str,
+    run_id: str,
+    question_preview: str,
+) -> dict[str, Any]:
+    """构造 selective_comm 共享 control 题级预测行。"""
+    del final_consensus
     prompt_tokens = sum(float(row["prompt_tokens"]) for row in turn_rows)
     completion_tokens = sum(float(row["completion_tokens"]) for row in turn_rows)
     total_tokens = sum(float(row["total_tokens"]) for row in turn_rows)
     latency_ms = sum(float(row["latency_ms"]) for row in turn_rows)
     return {
-        "turn_rows": turn_rows,
-        "prediction_row": {
-            "run_id": run_id,
-            "dataset": benchmark_slug,
-            "split": split_name,
-            "sample_id": sample.sample_id,
-            "question_preview": question_preview,
-            "method_name": control_name,
-            "display_name": control_name,
-            "method_kind": "control",
-            "method_family": control.family,
-            "model_name": backbone.name,
-            "prediction": prediction,
-            "gold": sample.reference_answer,
-            "score": score,
-            "triggered": False,
-            "early_exit": False,
-            "fail_open_applied": False,
-            "decision_reason": "independent_control",
-            "initial_disagreement": None,
-            "answer_unique_count": None,
-            "answer_divergence_score": None,
-            "claim_similarity_mean": None,
-            "claim_divergence_score": None,
-            "uncertainty_type_diversity_score": None,
-            "mean_confidence": None,
-            "confidence_spread": None,
-            "any_invalid_confidence": None,
-            "invalid_confidence_agents": [],
-            "stage_a_trace_hash": None,
-            "stage_b_trace_hash": None,
-            "stage_b_trace_hash_used": None,
-            "stage_a_prediction": None,
-            "stage_b_prediction": None,
-            "stage_a_score": None,
-            "stage_b_score": None,
-            "oracle_positive": None,
-            "prompt_tokens_per_question": prompt_tokens,
-            "completion_tokens_per_question": completion_tokens,
-            "total_tokens_per_question": total_tokens,
-            "communication_tokens_per_question": 0.0,
-            "latency_ms_per_question": latency_ms,
-            "communication_latency_ms_per_question": 0.0,
-            "calls_per_question": control.budget_calls,
-            "stage_a_tokens_per_question": 0.0,
-            "stage_b_tokens_per_question": 0.0,
-            "vote_counts": vote_counts,
-        },
+        "run_id": run_id,
+        "dataset": benchmark_slug,
+        "split": split_name,
+        "sample_id": sample.sample_id,
+        "question_preview": question_preview,
+        "method_name": control_name,
+        "display_name": control_name,
+        "method_kind": "control",
+        "method_family": method.family,
+        "model_name": backbone.name,
+        "prediction": final_vote,
+        "gold": sample.reference_answer,
+        "score": final_score,
+        "triggered": False,
+        "early_exit": False,
+        "fail_open_applied": False,
+        "decision_reason": "independent_control",
+        "initial_disagreement": None,
+        "answer_unique_count": None,
+        "answer_divergence_score": None,
+        "claim_similarity_mean": None,
+        "claim_divergence_score": None,
+        "uncertainty_type_diversity_score": None,
+        "mean_confidence": None,
+        "confidence_spread": None,
+        "any_invalid_confidence": None,
+        "invalid_confidence_agents": [],
+        "stage_a_trace_hash": None,
+        "stage_b_trace_hash": None,
+        "stage_b_trace_hash_used": None,
+        "stage_a_prediction": None,
+        "stage_b_prediction": None,
+        "stage_a_score": None,
+        "stage_b_score": None,
+        "oracle_positive": None,
+        "prompt_tokens_per_question": prompt_tokens,
+        "completion_tokens_per_question": completion_tokens,
+        "total_tokens_per_question": total_tokens,
+        "communication_tokens_per_question": 0.0,
+        "latency_ms_per_question": latency_ms,
+        "communication_latency_ms_per_question": 0.0,
+        "calls_per_question": method.budget_calls,
+        "stage_a_tokens_per_question": 0.0,
+        "stage_b_tokens_per_question": 0.0,
+        "vote_counts": vote_counts,
     }
 
 

@@ -695,14 +695,14 @@
 
 ## 11.2 方法集合
 
-- `mv_3_initial`
+- `mv_3`
 - `vanilla_mad_r1_final_vote`
 - `anti_conformity_final_vote`
 - `free_mad_lite_llm_trajectory`
 
 含义如下：
 
-- `mv_3_initial`
+- `mv_3`
   初始无通信投票
 - `vanilla_mad_r1_final_vote`
   普通单轮 debate 后再 vote

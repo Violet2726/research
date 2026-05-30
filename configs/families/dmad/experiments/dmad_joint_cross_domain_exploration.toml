@@ -16,12 +16,12 @@ tokens_per_minute_limit = 9000000
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 
 [[methods]]
-name = "cot"
+name = "dmad_single_cot"
 mode = "single_cot"
 note = "Single-agent lower bound."
 
 [[methods]]
-name = "mrp"
+name = "dmad_mrp"
 mode = "mrp_cot_sbp_pot"
 note = "Single-model dynamic method routing baseline."
 

@@ -53,7 +53,7 @@ def test_build_run_matrix_counts_expected() -> None:
     assert econ_entry.best_no_comm_candidates == ["vote_mv3"]
     dmad_entry = next(entry for entry in matrix.semantic_entries if entry.experiment_name == "dmad_reasoning_main")
     assert dmad_entry.primary_method_name == "dmad_cot_sbp_pot"
-    assert "cot" in dmad_entry.best_no_comm_candidates
+    assert "dmad_single_cot" in dmad_entry.best_no_comm_candidates
 
 
 def test_build_run_matrix_counts_expected_for_count100() -> None:
