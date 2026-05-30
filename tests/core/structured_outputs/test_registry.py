@@ -45,6 +45,15 @@ def test_validate_or_recover_core_output_from_truncated_json() -> None:
     assert payload["final_answer"] == "42"
     assert payload["reasoning"] == "simple arithmetic"
 
+
+def test_validate_or_recover_core_output_from_malformed_answer_quote() -> None:
+    payload = validate_or_recover_structured_output(
+        '{"final_answer": 52", "reasoning": "47 + 52 + 57 = 156, so 156 / 3 = 52."}',
+        SCHEMA_ANSWER_CORE,
+    )
+    assert payload["final_answer"] == "52"
+    assert payload["reasoning"] == "47 + 52 + 57 = 156, so 156 / 3 = 52."
+
 def test_validate_selective_structured_output() -> None:
     payload = validate_structured_output(
         json.dumps(

@@ -22,6 +22,7 @@ Provide your judgment/response. Think step by step, then give your final answer.
 Return exactly one JSON object with keys "final_answer" and "reasoning".
 - final_answer: your answer to the question
 - reasoning: brief step-by-step explanation (under 120 tokens)
+- Ensure final_answer exactly matches the conclusion stated in reasoning.
 
 Return JSON only. Do not add text before or after the JSON object."""
 
@@ -38,6 +39,7 @@ Provide your updated judgment/response. Think step by step, then give your final
 Return exactly one JSON object with keys "final_answer" and "reasoning".
 - final_answer: your revised answer
 - reasoning: brief explanation of what changed and why (under 120 tokens)
+- Ensure final_answer exactly matches the conclusion stated in reasoning.
 
 Return JSON only. Do not add text before or after the JSON object."""
 
@@ -105,6 +107,7 @@ def _system_prompt(persona_instruction: str = "") -> str:
         extra_rules=[
             "Solve the task carefully using only the provided question and context.",
             "Keep reasoning concise and under 120 tokens.",
+            "Before responding, verify that final_answer exactly matches the conclusion in reasoning.",
             "Do not add natural-language text before or after the JSON object.",
             "Do not add labels, category words, or explanatory suffixes to final_answer.",
         ],

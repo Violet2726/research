@@ -98,10 +98,7 @@ class SlidingWindowRateLimiter:
     def _compute_request_spacing_seconds(self) -> float:
         if not self.requests_per_minute:
             return 0.0
-        effective_requests_per_minute = self.requests_per_minute
-        if self.requests_per_minute > 10:
-            effective_requests_per_minute = max(1, self.requests_per_minute - 2)
-        return self.window_seconds / effective_requests_per_minute
+        return self.window_seconds / self.requests_per_minute
 
     def _on_rate_limit_hit(self, now: float) -> None:
         """429 回调：有效 RPM 减半，重置间距。"""
@@ -132,8 +129,7 @@ class SlidingWindowRateLimiter:
         rpm = self._effective_rpm
         if not rpm:
             return self.window_seconds / ADAPTIVE_MIN_RPM
-        effective = max(1, rpm - 2) if rpm > 10 else rpm
-        return self.window_seconds / effective
+        return self.window_seconds / rpm
 
     def _evict_expired(self, now: float) -> None:
         while self.request_events and now - self.request_events[0] >= self.window_seconds:

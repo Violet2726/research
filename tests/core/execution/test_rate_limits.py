@@ -27,3 +27,16 @@ def test_rate_limiter_settle_releases_reserved_tokens() -> None:
     limiter.acquire(90)
     assert time.monotonic() - started < 0.02
 
+
+def test_rate_limiter_uses_full_configured_rpm_without_extra_headroom() -> None:
+    limiter = SlidingWindowRateLimiter(
+        requests_per_minute=12,
+        tokens_per_minute=None,
+        window_seconds=6.0,
+    )
+    limiter.acquire(1)
+    started = time.monotonic()
+    limiter.acquire(1)
+    elapsed = time.monotonic() - started
+    assert 0.45 <= elapsed < 0.58
+

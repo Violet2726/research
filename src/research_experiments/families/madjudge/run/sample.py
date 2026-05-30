@@ -17,6 +17,10 @@ from typing import Any
 from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples
 from research_experiments.core.data.evaluation import normalize_prediction, score_prediction
 from research_experiments.core.execution.runner_common import execute_cached_turn, run_indexed_batch
+from research_experiments.core.structured_outputs import (
+    SCHEMA_ANSWER_CORE,
+    validate_or_recover_structured_output,
+)
 from research_experiments.families.madjudge.algorithms import (
     BetaBinomialParams,
     aggregate_majority_vote,
@@ -894,11 +898,12 @@ def _execute_turn(
         top_p=top_p,
         max_output_tokens=max_output_tokens,
         seed=seed,
-        validator=_validate_madjudge_output,
+        schema_id=SCHEMA_ANSWER_CORE,
         dataset=dataset,
         use_response_format=True,
     )
-    final_answer = str(result.validated_output.get("final_answer") or "")
+    validated_output = _repair_madjudge_answer_output(dataset, result.validated_output)
+    final_answer = str(validated_output.get("final_answer") or "")
     normalized = normalize_prediction(dataset, final_answer) if final_answer else ""
     return asdict(
         AgentTurnRecord(
@@ -924,7 +929,7 @@ def _execute_turn(
             payload=result.payload,
             assistant_text=result.response_payload.get("assistant_text", ""),
             provider_reasoning_text=result.response_payload.get("provider_reasoning_text", ""),
-            validated_output=result.validated_output,
+            validated_output=validated_output,
         )
     ) | {"normalized_answer": normalized}
 
@@ -1098,6 +1103,65 @@ def _resolve_split_name(experiment: MadJudgeExperimentConfig, phase_name: str, b
 def _load_selected_samples(benchmark, split_name: str) -> list[DatasetSample]:
     """按冻结 split 选择本轮要跑的样本。"""
     return select_samples(benchmark, split_name)
+
+
+def _repair_madjudge_answer_output(dataset: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """对数值题做保守纠偏，避免 final_answer 与 reasoning 明显矛盾。"""
+    if dataset not in {"gsm8k", "math500"}:
+        return payload
+    final_answer = str(payload.get("final_answer") or "").strip()
+    reasoning = str(payload.get("reasoning") or "").strip()
+    if not final_answer or not reasoning:
+        return payload
+    if _looks_like_peer_comparison_reasoning(reasoning):
+        return payload
+
+    current_normalized = normalize_prediction(dataset, final_answer)
+    inferred_answer = _infer_numeric_answer_from_reasoning(reasoning)
+    if not inferred_answer:
+        return payload
+    inferred_normalized = normalize_prediction(dataset, inferred_answer)
+    if not inferred_normalized or inferred_normalized == current_normalized:
+        return payload
+    if _reasoning_mentions_number(reasoning, current_normalized):
+        return payload
+    if not _reasoning_mentions_number(reasoning, inferred_normalized):
+        return payload
+    return {**payload, "final_answer": inferred_answer}
+
+
+def _infer_numeric_answer_from_reasoning(reasoning: str) -> str | None:
+    """从简短 reasoning 中提取最后的数值结论。"""
+    explicit_patterns = [
+        r"(?i)\b(?:final\s+answer|correct\s+answer|answer)\s+(?:should\s+be|is)\s*[:\-]?\s*([-+]?\d[\d,]*(?:\.\d+)?)",
+    ]
+    for pattern in explicit_patterns:
+        matches = re.findall(pattern, reasoning)
+        if matches:
+            return matches[-1].replace(",", "")
+
+    tail = reasoning.replace(",", "")[-48:]
+    equals_matches = re.findall(r"=\s*([-+]?\d[\d,]*(?:\.\d+)?)", tail)
+    if equals_matches:
+        return equals_matches[-1].replace(",", "")
+
+    trailing_match = re.search(r"([-+]?\d[\d,]*(?:\.\d+)?)\s*[.!?]?\s*$", tail)
+    if trailing_match:
+        return trailing_match.group(1).replace(",", "")
+    return None
+
+
+def _reasoning_mentions_number(reasoning: str, value: str) -> bool:
+    escaped = re.escape(value)
+    return re.search(rf"(?<![\d.]){escaped}(?![\d.])", reasoning.replace(",", "")) is not None
+
+
+def _looks_like_peer_comparison_reasoning(reasoning: str) -> bool:
+    lowered = reasoning.lower()
+    return any(
+        marker in lowered
+        for marker in ("agent_", "other judges", "others", "peer", "reported", "incorrectly", "error")
+    )
 
 
 def _validate_madjudge_output(assistant_text: str, provider_reasoning_text: str) -> dict[str, Any]:
