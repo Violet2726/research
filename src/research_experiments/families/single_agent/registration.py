@@ -6,12 +6,6 @@ import argparse
 from dataclasses import asdict
 
 from research_experiments.core.contracts import FamilyCliHelp
-from research_experiments.family_runtime.registration import (
-    build_single_agent_run_from_cli,
-    make_family_registration,
-)
-from research_experiments.family_runtime.config_helpers import load_benchmarks, resolve_model
-from research_experiments.family_runtime.method_catalog import load_method_catalog
 from research_experiments.families.single_agent.config import (
     load_experiment_config,
     required_benchmark_tags,
@@ -20,6 +14,12 @@ from research_experiments.families.single_agent.config import (
 from research_experiments.families.single_agent.run.execute import run_experiment
 from research_experiments.families.single_agent.run.report import render_report, summarize_run
 from research_experiments.families.single_agent.run.validate import validate_run
+from research_experiments.family_runtime.config_helpers import load_benchmarks, resolve_model
+from research_experiments.family_runtime.method_catalog import load_method_catalog
+from research_experiments.family_runtime.registration import (
+    build_single_agent_run_from_cli,
+    make_family_registration,
+)
 from research_experiments.workspace.layout import workspace_defaults
 
 

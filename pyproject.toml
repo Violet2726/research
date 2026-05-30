@@ -51,9 +51,9 @@ ignore_errors = true
 [[tool.mypy.overrides]]
 module = [
   "research_experiments.cli",
+  "research_experiments.cli.*",
   "research_experiments.core.contracts",
   "research_experiments.core.contracts.*",
-  "research_experiments.families.artifacts",
   "research_experiments.families.registry",
 ]
 ignore_errors = false

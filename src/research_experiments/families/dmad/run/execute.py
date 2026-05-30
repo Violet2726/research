@@ -20,7 +20,6 @@ from research_experiments.families.dmad.config import (
     load_protocol_config,
     load_roster_config,
 )
-from research_experiments.family_runtime.layout import prepare_registered_run_layout
 from research_experiments.families.dmad.run.report import render_report, summarize_run
 from research_experiments.families.dmad.run.sample import (
     _active_methods,
@@ -35,8 +34,9 @@ from research_experiments.families.dmad.run.sample import (
     _write_sample_outputs,
 )
 from research_experiments.families.dmad.run.validate import validate_run
-from research_experiments.family_runtime.manifest import finalize_family_manifest
 from research_experiments.family_runtime.config_helpers import load_benchmarks
+from research_experiments.family_runtime.layout import prepare_registered_run_layout
+from research_experiments.family_runtime.manifest import finalize_family_manifest
 from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 

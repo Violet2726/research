@@ -51,15 +51,15 @@ from research_experiments.core.structured_outputs import (
     SCHEMA_ANSWER_CORE,
     validate_or_recover_structured_output,
 )
-from research_experiments.family_runtime.common import resolve_phase_split_name
-from research_experiments.family_runtime.config_helpers import phase_metadata
-from research_experiments.family_runtime.method_catalog import MethodConfig
 from research_experiments.families.single_agent.config import (
     ExperimentConfig,
     required_benchmark_tags,
     required_model_tags,
 )
 from research_experiments.families.single_agent.prompts import build_messages
+from research_experiments.family_runtime.common import resolve_phase_split_name
+from research_experiments.family_runtime.config_helpers import phase_metadata
+from research_experiments.family_runtime.method_catalog import MethodConfig
 
 
 @dataclass(frozen=True)

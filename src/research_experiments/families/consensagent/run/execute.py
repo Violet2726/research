@@ -30,7 +30,6 @@ from research_experiments.families.consensagent.config import (
     load_roster_config,
     phase_metadata,
 )
-from research_experiments.family_runtime.layout import prepare_registered_run_layout
 from research_experiments.families.consensagent.run.report import render_report, summarize_run
 from research_experiments.families.consensagent.run.sample import (
     _active_setups,
@@ -46,8 +45,9 @@ from research_experiments.families.consensagent.run.sample import (
     _write_sample_outputs,
 )
 from research_experiments.families.consensagent.run.validate import validate_run
-from research_experiments.family_runtime.manifest import finalize_family_manifest
 from research_experiments.family_runtime.config_helpers import load_benchmarks
+from research_experiments.family_runtime.layout import prepare_registered_run_layout
+from research_experiments.family_runtime.manifest import finalize_family_manifest
 from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 

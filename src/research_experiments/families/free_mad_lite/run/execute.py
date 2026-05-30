@@ -32,7 +32,6 @@ from research_experiments.families.free_mad_lite.config import (
 from research_experiments.families.free_mad_lite.prompts import (
     anti_conformity_prompt_hash,
 )
-from research_experiments.family_runtime.layout import prepare_registered_run_layout
 from research_experiments.families.free_mad_lite.run.metrics import (
     build_diagnostics_payload as build_free_mad_diagnostics_payload,
 )
@@ -49,8 +48,9 @@ from research_experiments.families.free_mad_lite.run.sample import (
     _run_sample_batch,
 )
 from research_experiments.families.free_mad_lite.run.validate import validate_run
-from research_experiments.family_runtime.manifest import finalize_family_manifest
 from research_experiments.family_runtime.config_helpers import load_benchmarks, phase_metadata
+from research_experiments.family_runtime.layout import prepare_registered_run_layout
+from research_experiments.family_runtime.manifest import finalize_family_manifest
 from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 

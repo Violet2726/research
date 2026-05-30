@@ -12,7 +12,12 @@ from research_experiments.matrix.matrix_specs import (
     ordered_matrix_config_paths,
     referenced_method_names,
 )
-from research_experiments.matrix.orchestrator import DiscoveredConfig, RuntimeOverrides, build_run_matrix, discover_phase_configs
+from research_experiments.matrix.orchestrator import (
+    DiscoveredConfig,
+    RuntimeOverrides,
+    build_run_matrix,
+    discover_phase_configs,
+)
 
 __all__ = [
     "DEFAULT_MATRIX_ID",

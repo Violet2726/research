@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 
-from research_experiments.cli_support.output import configure_utf8_stdio
 from research_experiments.cli.family import dispatch_family_cli
 from research_experiments.cli.matrix import main as matrix_main
 from research_experiments.cli.support import ToolMain
@@ -14,6 +13,7 @@ from research_experiments.cli.tools.cache_archive import main as cache_archive_m
 from research_experiments.cli.tools.cache_inspector import main as cache_inspector_main
 from research_experiments.cli.tools.dataset_assets import main as dataset_assets_main
 from research_experiments.cli.tools.hf_sync import main as hf_sync_main
+from research_experiments.cli_support.output import configure_utf8_stdio
 from research_experiments.families.registry import get_family_registration, registered_family_names
 
 TOOL_MAINS: dict[str, ToolMain] = {

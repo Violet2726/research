@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -77,7 +77,7 @@ class FamilyArtifactSchema:
         }
 
     @classmethod
-    def from_manifest_payload(cls, payload: dict[str, object] | None) -> "FamilyArtifactSchema":
+    def from_manifest_payload(cls, payload: dict[str, object] | None) -> FamilyArtifactSchema:
         """从 manifest 载荷恢复 artifact 合同。"""
 
         source = payload or {}
@@ -91,9 +91,9 @@ class FamilyArtifactSchema:
             metrics_view_path=str(source.get("metrics_view_path") or "views/metrics.json"),
             prediction_records_path=str(source.get("prediction_records_path") or "views/predictions.jsonl"),
             run_summary_path=str(source.get("run_summary_path") or "views/run_summary.json"),
-            turn_record_paths=tuple(str(item) for item in source.get("turn_record_paths", []) or ()),
-            diagnostic_paths=tuple(str(item) for item in source.get("diagnostic_paths", []) or ()),
-            export_paths=tuple(str(item) for item in source.get("export_paths", []) or ()),
+            turn_record_paths=_coerce_string_tuple(source.get("turn_record_paths")),
+            diagnostic_paths=_coerce_string_tuple(source.get("diagnostic_paths")),
+            export_paths=_coerce_string_tuple(source.get("export_paths")),
         )
 
 
@@ -148,3 +148,13 @@ class FamilyRegistration:
         """映射当前 family 的正式产物路径。"""
 
         return self.artifact_schema.build_paths(run_dir)
+
+
+def _coerce_string_tuple(value: object) -> tuple[str, ...]:
+    """把 manifest 中的路径字段稳健转换成字符串元组。"""
+
+    if value is None or isinstance(value, (str, bytes)):
+        return ()
+    if not isinstance(value, Iterable):
+        return ()
+    return tuple(str(item) for item in value)

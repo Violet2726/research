@@ -26,7 +26,6 @@ from research_experiments.families.comm_necessary.config import (
     CommNecessaryExperimentConfig,
     load_protocol_config,
 )
-from research_experiments.family_runtime.layout import prepare_registered_run_layout
 from research_experiments.families.comm_necessary.run.sample import (
     _build_diagnostics,
     _build_metrics,
@@ -36,8 +35,9 @@ from research_experiments.families.comm_necessary.run.sample import (
     _write_hotpot_predictions,
     _write_paper_summary,
 )
-from research_experiments.family_runtime.manifest import finalize_family_manifest
 from research_experiments.family_runtime.config_helpers import load_benchmarks, phase_metadata
+from research_experiments.family_runtime.layout import prepare_registered_run_layout
+from research_experiments.family_runtime.manifest import finalize_family_manifest
 from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 

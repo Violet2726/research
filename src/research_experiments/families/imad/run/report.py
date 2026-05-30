@@ -10,8 +10,8 @@ from research_experiments.family_runtime.artifact_index import (
     named_diagnostic_paths,
     resolve_run_artifact_index,
 )
-from research_experiments.family_runtime.report_bundle import render_family_report_bundle
 from research_experiments.family_runtime.comparators import MAD_FIXED_R1, MAD_FIXED_R3, MV_6
+from research_experiments.family_runtime.report_bundle import render_family_report_bundle
 from research_experiments.reporting.report_views import SummaryTableView, load_json_payload
 from research_experiments.reporting.run_figures import (
     build_efficiency_rank_figure_spec,

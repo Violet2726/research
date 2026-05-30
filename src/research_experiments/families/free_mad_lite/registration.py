@@ -10,11 +10,11 @@ from research_experiments.families.free_mad_lite.prompts import anti_conformity_
 from research_experiments.families.free_mad_lite.run.execute import run_experiment
 from research_experiments.families.free_mad_lite.run.report import render_report, summarize_run
 from research_experiments.families.free_mad_lite.run.validate import validate_run
+from research_experiments.family_runtime.config_helpers import load_benchmarks, phase_metadata, resolve_model
 from research_experiments.family_runtime.registration import (
     build_backbone_run_from_cli,
     make_family_registration,
 )
-from research_experiments.family_runtime.config_helpers import load_benchmarks, phase_metadata, resolve_model
 from research_experiments.workspace.layout import workspace_defaults
 
 

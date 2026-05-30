@@ -6,11 +6,11 @@ from pathlib import Path
 from typing import Any
 
 from research_experiments.family_runtime.artifact_index import load_metrics_payload, resolve_run_artifact_index
+from research_experiments.family_runtime.comparators import COT_1, SC_5
 from research_experiments.family_runtime.report_bundle import (
     render_family_report_bundle,
     render_family_scientific_report,
 )
-from research_experiments.family_runtime.comparators import COT_1, SC_5
 from research_experiments.reporting.report_statistics import (
     PairwiseComparisonSpec,
     build_pairwise_comparison_rows,

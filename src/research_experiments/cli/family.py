@@ -95,7 +95,7 @@ def dispatch_family_cli(registration: FamilyRegistration, argv: list[str] | None
         payload = (
             registration.render_from_cli(args)
             if registration.render_from_cli is not None
-            else registration.render_report(args.run_dir, publish_dir=args.publish_dir)
+            else registration.render_report(args.run_dir, args.publish_dir)
         )
         emit_json(payload)
         return

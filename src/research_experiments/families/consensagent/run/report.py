@@ -11,15 +11,14 @@ from pathlib import Path
 from typing import Any
 
 from research_experiments.family_runtime.artifact_index import (
-    load_metrics_payload,
     named_diagnostic_paths,
     resolve_run_artifact_index,
 )
+from research_experiments.family_runtime.comparators import MV_6
 from research_experiments.family_runtime.report_bundle import (
     render_family_report_bundle,
     render_family_scientific_report,
 )
-from research_experiments.family_runtime.comparators import MV_6
 from research_experiments.reporting.report_views import SummaryTableView, load_json_payload
 from research_experiments.reporting.reporting_utils import resolve_manifest_model_name
 from research_experiments.reporting.run_figures import (

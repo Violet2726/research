@@ -15,11 +15,11 @@ from research_experiments.families.consensagent.config import (
 from research_experiments.families.consensagent.run.execute import run_experiment
 from research_experiments.families.consensagent.run.report import render_report, summarize_run
 from research_experiments.families.consensagent.run.validate import validate_run
+from research_experiments.family_runtime.config_helpers import load_benchmarks, resolve_model
 from research_experiments.family_runtime.registration import (
     build_backbone_run_from_cli,
     make_family_registration,
 )
-from research_experiments.family_runtime.config_helpers import load_benchmarks, resolve_model
 from research_experiments.workspace.layout import workspace_defaults
 
 

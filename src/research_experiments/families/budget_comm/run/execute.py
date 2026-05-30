@@ -37,7 +37,6 @@ from research_experiments.families.budget_comm.config import (
     load_context_view_config,
     load_protocol_config,
 )
-from research_experiments.family_runtime.layout import prepare_registered_run_layout
 from research_experiments.families.budget_comm.run.sample import (
     _build_budget_diagnostics,
     _build_metrics,
@@ -48,8 +47,9 @@ from research_experiments.families.budget_comm.run.sample import (
     _run_sample_batch,
     _write_sample_results,
 )
-from research_experiments.family_runtime.manifest import finalize_family_manifest
 from research_experiments.family_runtime.config_helpers import load_benchmarks, phase_metadata
+from research_experiments.family_runtime.layout import prepare_registered_run_layout
+from research_experiments.family_runtime.manifest import finalize_family_manifest
 from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 

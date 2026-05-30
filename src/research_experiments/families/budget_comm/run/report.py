@@ -11,11 +11,11 @@ from research_experiments.family_runtime.artifact_index import (
     named_diagnostic_paths,
     resolve_run_artifact_index,
 )
+from research_experiments.family_runtime.comparators import MV_3
 from research_experiments.family_runtime.report_bundle import (
     render_family_report_bundle,
     render_family_scientific_report,
 )
-from research_experiments.family_runtime.comparators import MV_3
 from research_experiments.reporting.analysis_reports import render_frontier_report
 from research_experiments.reporting.report_pipeline import SupplementalReport
 from research_experiments.reporting.report_statistics import (

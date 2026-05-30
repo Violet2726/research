@@ -5,13 +5,13 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
-from research_experiments.family_runtime.comparators import is_protected_standard_bare_name
 from research_experiments.family_runtime.comparators import (
     COT_1,
     MAD_FIXED_R1,
     MV_5,
     MV_6,
     MV_7,
+    is_protected_standard_bare_name,
 )
 
 ROOT = Path(__file__).resolve().parents[2]

@@ -6,8 +6,8 @@ import csv
 from pathlib import Path
 from typing import Any
 
-from research_experiments.family_runtime.common import safe_mean
 from research_experiments.families.sid_lite.algorithms import METHOD_ORDER
+from research_experiments.family_runtime.common import safe_mean
 
 
 def build_metrics_payload(prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:
