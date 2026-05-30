@@ -2,9 +2,11 @@
 
 from research_experiments.core.contracts.artifacts import RunArtifactIndex
 from research_experiments.core.contracts.families import (
-    FamilyArtifactContract,
-    FamilyManifest,
+    FamilyArtifactSchema,
+    FamilyCliHelp,
     FamilyPrototype,
+    FamilyRegistration,
+    FamilyRunRequest,
 )
 from research_experiments.core.contracts.records import (
     ExperimentSpec,
@@ -16,8 +18,10 @@ from research_experiments.core.contracts.records import (
 
 __all__ = [
     "ExperimentSpec",
-    "FamilyArtifactContract",
-    "FamilyManifest",
+    "FamilyArtifactSchema",
+    "FamilyCliHelp",
+    "FamilyRegistration",
+    "FamilyRunRequest",
     "FamilyPrototype",
     "MatrixEntryRecord",
     "PredictionRecord",

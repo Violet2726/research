@@ -6,9 +6,9 @@ import argparse
 from collections.abc import Callable
 
 from research_experiments.cli_support.output import configure_utf8_stdio
-from research_experiments.core.engine import dispatch_experiment_cli
-from research_experiments.families.registry import get_family_manifest, registered_family_names
-from research_experiments.matrix.faithful_matrix import main as matrix_main
+from research_experiments.families.cli_runtime import dispatch_family_cli
+from research_experiments.families.registry import get_family_registration, registered_family_names
+from research_experiments.matrix.cli import main as matrix_main
 from research_experiments.tools.archive_runs import main as archive_runs_main
 from research_experiments.tools.artifact_cleanup import main as artifact_cleanup_main
 from research_experiments.tools.cache_archive import main as cache_archive_main
@@ -54,11 +54,7 @@ def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
 
     if args.group == "experiment":
-        dispatch_experiment_cli(
-            family_name=args.family,
-            cli_main_getter=lambda family_name: get_family_manifest(family_name).cli_main,
-            argv=args.experiment_args,
-        )
+        dispatch_family_cli(get_family_registration(args.family), args.experiment_args)
         return
 
     if args.group == "matrix":

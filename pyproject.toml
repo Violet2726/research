@@ -53,8 +53,6 @@ module = [
   "research_experiments.cli",
   "research_experiments.core.contracts",
   "research_experiments.core.contracts.*",
-  "research_experiments.core.engine",
-  "research_experiments.core.engine.*",
   "research_experiments.families.artifacts",
   "research_experiments.families.registry",
 ]

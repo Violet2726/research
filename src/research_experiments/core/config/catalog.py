@@ -7,10 +7,11 @@
 from __future__ import annotations
 
 import os
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from research_experiments.core.io import read_toml
 
 SHARED_CONFIG_ROOT = Path("configs/core/shared")
 DEFAULT_MODEL_CATALOG_PATH = SHARED_CONFIG_ROOT / "model_catalog.toml"
@@ -100,8 +101,7 @@ class BenchmarkConfig:
 
 def _load_toml(path: str | Path) -> dict[str, Any]:
     """读取 TOML 文件并返回原始字典。"""
-    with Path(path).open("rb") as handle:
-        return tomllib.load(handle)
+    return read_toml(path)
 
 
 def _provider_config_path(provider_name: str) -> Path:

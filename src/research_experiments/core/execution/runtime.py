@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -10,6 +9,7 @@ from pathlib import Path
 from threading import Event, RLock, Thread
 from typing import Any
 
+from research_experiments.core.io import write_json
 from research_experiments.workspace.run_archives import pack_run_artifacts, publish_run_if_configured
 
 
@@ -138,7 +138,7 @@ class RunProgressTracker:
                 "last_method": self.last_method,
                 "last_sample_id": self.last_sample_id,
             }
-            self.progress_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            write_json(self.progress_path, payload)
             self.last_write_monotonic = now
 
     def _heartbeat_loop(self) -> None:
@@ -173,9 +173,9 @@ def finalize_run_outputs(
     pack_run_artifacts(root)
     validation = validator(root)
     output_path = Path(validation_path) if validation_path is not None else root / "run_validation.json"
-    output_path.write_text(json.dumps(validation, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(output_path, validation)
     publish_payload = publish_run_if_configured(root, validation=validation)
     if publish_payload is not None:
         validation["hf_publish"] = publish_payload
-        output_path.write_text(json.dumps(validation, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_json(output_path, validation)
     return validation

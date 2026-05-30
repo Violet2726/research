@@ -1,53 +1,33 @@
-"""`dmad` experiment CLI entrypoint."""
+"""`dmad` family registration."""
 
 from __future__ import annotations
 
-import argparse
 from dataclasses import asdict
 
+from research_experiments.core.contracts import FamilyCliHelp
 from research_experiments.families.dmad.config import (
     load_control_catalog,
+    load_experiment_config,
     load_protocol_config,
     load_roster_config,
 )
-from research_experiments.families.registry import get_family_spec
-from research_experiments.families.shared.cli import build_standard_family_parser, dispatch_standard_family_cli
-from research_experiments.families.shared.config_loading import load_benchmarks
+from research_experiments.families.dmad.run.execute import run_experiment
+from research_experiments.families.dmad.run.report import render_report, summarize_run
+from research_experiments.families.dmad.run.validate import validate_run
+from research_experiments.families.registration_helpers import (
+    build_backbone_run_from_cli,
+    make_family_registration,
+)
+from research_experiments.families.shared.config_loading import load_benchmarks, resolve_model
 from research_experiments.workspace.layout import workspace_defaults
 
-SPEC = get_family_spec("dmad")
 
-
-def build_parser() -> argparse.ArgumentParser:
-    return build_standard_family_parser(
-        family_name=SPEC.family_name,
-        description="DMAD 论文主线高保真复现实验 runner。",
-        inspect_help="Show the resolved DMAD experiment configuration.",
-        run_help="Execute one configured DMAD experiment phase.",
-        summarize_help="Print a concise DMAD run summary.",
-        validate_help="Run DMAD validation checks.",
-        report_help="Regenerate the Chinese DMAD markdown report.",
-    )
-
-
-def main(argv: list[str] | None = None) -> None:
-    dispatch_standard_family_cli(
-        parser=build_parser(),
-        inspect_payload_builder=_build_inspect_payload,
-        run_command=_run_command,
-        summarize_run=SPEC.summarizer,
-        validate_run=SPEC.validator,
-        render_report=SPEC.report_renderer,
-        argv=argv,
-    )
-
-
-def _build_inspect_payload(experiment_path: str, model_override: str | None) -> dict[str, object]:
-    experiment = SPEC.config_loader(experiment_path)
+def inspect_experiment(experiment_path: str, model_override: str | None) -> dict[str, object]:
+    experiment = load_experiment_config(experiment_path)
     protocol = load_protocol_config(experiment.protocol)
     benchmarks = load_benchmarks(experiment)
     controls = load_control_catalog(experiment.control_catalog) if experiment.control_catalog is not None else {}
-    resolved_model = SPEC.model_resolver(model_override or experiment.primary_model_ref)
+    resolved_model = resolve_model(model_override or experiment.primary_model_ref)
     return {
         "name": experiment.name,
         "description": experiment.description,
@@ -75,24 +55,38 @@ def _build_inspect_payload(experiment_path: str, model_override: str | None) -> 
         "max_concurrent_requests": experiment.max_concurrent_requests,
         "requests_per_minute_limit": experiment.requests_per_minute_limit,
         "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
-        "workspace_defaults": workspace_defaults(SPEC.family_name),
+        "workspace_defaults": workspace_defaults("dmad"),
         "primary_model_ref": experiment.primary_model_ref,
         "resolved_model": asdict(resolved_model),
         "phases": experiment.raw["phases"],
     }
 
 
-def _run_command(args: argparse.Namespace):
-    experiment = SPEC.config_loader(args.experiment)
-    resolved_model = SPEC.model_resolver(args.model or experiment.primary_model_ref)
-    return SPEC.runner(
-        experiment=experiment,
-        phase_name=args.phase,
-        backbone=resolved_model,
-        run_root=args.runs_root,
-        cache_root=args.cache_root,
-    )
-
-
-if __name__ == "__main__":
-    main()
+REGISTRATION = make_family_registration(
+    family_name="dmad",
+    prototype="debate_rounds",
+    cli_help=FamilyCliHelp(
+        description="DMAD 论文主线高保真复现实验 runner.",
+        inspect_help="Show the resolved DMAD experiment configuration.",
+        run_help="Execute one configured DMAD experiment phase.",
+        summarize_help="Print a concise DMAD run summary.",
+        validate_help="Run DMAD validation checks.",
+        report_help="Regenerate the Chinese DMAD markdown report.",
+    ),
+    load_experiment=load_experiment_config,
+    resolve_model=resolve_model,
+    invoke_runner=run_experiment,
+    inspect_experiment=inspect_experiment,
+    run_from_cli=build_backbone_run_from_cli(
+        load_experiment=load_experiment_config,
+        resolve_model=resolve_model,
+        invoke_runner=run_experiment,
+    ),
+    summarize_run=summarize_run,
+    validate_run=validate_run,
+    render_report=render_report,
+    metrics_view_path="metrics.json",
+    prediction_records_path="final_predictions.jsonl",
+    turn_record_paths=("agent_turns.jsonl", "debate_messages.jsonl"),
+    extra_view_paths=("cost_breakdown.json", "strategy_diagnostics.json", "paper_tables.json", "run_summary.json"),
+)

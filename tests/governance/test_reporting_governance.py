@@ -7,21 +7,11 @@ import re
 from pathlib import Path
 
 from research_experiments.cli import build_parser as build_root_parser
-from research_experiments.families.budget_comm.spec import build_parser as build_budget_parser
-from research_experiments.families.colmad.spec import build_parser as build_colmad_parser
-from research_experiments.families.comm_necessary.spec import build_parser as build_comm_necessary_parser
-from research_experiments.families.consensagent.spec import build_parser as build_consensagent_parser
-from research_experiments.families.cue.spec import build_parser as build_cue_parser
-from research_experiments.families.dmad.spec import build_parser as build_dmad_parser
-from research_experiments.families.econ.spec import build_parser as build_econ_parser
-from research_experiments.families.free_mad_lite.spec import build_parser as build_free_mad_parser
-from research_experiments.families.imad.spec import build_parser as build_imad_parser
-from research_experiments.families.macnet.spec import build_parser as build_macnet_parser
-from research_experiments.families.madjudge.spec import build_parser as build_madjudge_parser
-from research_experiments.families.multi_agent.spec import build_parser as build_multi_agent_parser
-from research_experiments.families.selective_comm.spec import build_parser as build_selective_parser
-from research_experiments.families.sid_lite.spec import build_parser as build_sid_parser
-from research_experiments.families.single_agent.spec import build_parser as build_single_agent_parser
+from research_experiments.families.cli_runtime import build_family_parser
+from research_experiments.families.registry import (
+    get_family_registration,
+    registered_family_names,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 LEGACY_REPORT_COMMANDS = (
@@ -56,23 +46,7 @@ def test_all_family_clis_expose_render_report() -> None:
     root_parser = build_root_parser()
     assert _subcommands(root_parser) == {"experiment", "matrix", "tools"}
 
-    parsers = [
-        build_single_agent_parser(),
-        build_multi_agent_parser(),
-        build_selective_parser(),
-        build_budget_parser(),
-        build_colmad_parser(),
-        build_consensagent_parser(),
-        build_sid_parser(),
-        build_free_mad_parser(),
-        build_imad_parser(),
-        build_macnet_parser(),
-        build_madjudge_parser(),
-        build_comm_necessary_parser(),
-        build_cue_parser(),
-        build_dmad_parser(),
-        build_econ_parser(),
-    ]
+    parsers = [build_family_parser(get_family_registration(name)) for name in registered_family_names()]
     for parser in parsers:
         assert "render-report" in _subcommands(parser)
 

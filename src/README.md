@@ -24,6 +24,6 @@
 - family 之间不直接互相导入
 - 共享能力统一下沉到 `research_experiments/core`
 - family 级共享脚手架统一放在 `research_experiments/families/shared`
-- family 注册信息统一由各自目录下的 `family_manifest.py` 声明并自动发现
+- family 注册信息统一由各自目录下的 `registration.py` 声明并自动发现
 - 默认工作区路径与 Hugging Face 归档设置统一由 `research_experiments.workspace.layout` 管理
 

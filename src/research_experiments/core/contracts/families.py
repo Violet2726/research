@@ -1,13 +1,12 @@
-"""实验家族平台合同模型。"""
+"""实验家族注册合同。"""
 
 from __future__ import annotations
 
+import argparse
 from collections.abc import Callable
-from importlib import import_module
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
-
-from pydantic import BaseModel, ConfigDict
+from typing import Any, Literal
 
 FamilyPrototype = Literal[
     "independent_sampling",
@@ -17,92 +16,89 @@ FamilyPrototype = Literal[
     "topology_or_graph",
 ]
 
-
 ArtifactPaths = dict[str, Path | tuple[Path, ...]]
 
 
-class FamilyArtifactContract(BaseModel):
-    """声明某个 family 对外暴露的正式运行产物合同。"""
-
-    model_config = ConfigDict(frozen=True)
+@dataclass(frozen=True)
+class FamilyArtifactSchema:
+    """声明某个 family 对外暴露的正式运行产物布局。"""
 
     manifest_path: str = "manifest.json"
     progress_path: str = "progress.json"
     validation_path: str = "run_validation.json"
     report_path: str = "report.md"
     figure_manifest_path: str = "figure_manifest.json"
-    metrics_view_path: str
-    prediction_records_path: str
+    archive_manifest_path: str = "archive_manifest.json"
+    metrics_view_path: str = "views/metrics.json"
+    prediction_records_path: str = "views/predictions.jsonl"
     turn_record_paths: tuple[str, ...] = ()
     extra_view_paths: tuple[str, ...] = ()
 
-
-class FamilyManifest(BaseModel):
-    """单个实验家族的统一平台注册合同。"""
-
-    model_config = ConfigDict(frozen=True)
-
-    family_name: str
-    prototype: FamilyPrototype
-    historical_labels: tuple[str, ...] = ()
-    config_loader_path: str
-    model_resolver_path: str
-    runner_path: str
-    validator_path: str
-    summarizer_path: str
-    report_renderer_path: str
-    cli_main_path: str
-    artifact_contract: FamilyArtifactContract
-
-    def _load_object(self, path: str) -> Callable[..., object]:
-        module_path, object_name = path.split(":", 1)
-        module = import_module(module_path)
-        loaded = getattr(module, object_name)
-        if not callable(loaded):
-            raise TypeError(f"{path} 不是可调用对象。")
-        return loaded
-
-    @property
-    def config_loader(self) -> Callable[..., object]:
-        return self._load_object(self.config_loader_path)
-
-    @property
-    def model_resolver(self) -> Callable[..., object]:
-        return self._load_object(self.model_resolver_path)
-
-    @property
-    def runner(self) -> Callable[..., object]:
-        return self._load_object(self.runner_path)
-
-    @property
-    def validator(self) -> Callable[..., object]:
-        return self._load_object(self.validator_path)
-
-    @property
-    def summarizer(self) -> Callable[..., object]:
-        return self._load_object(self.summarizer_path)
-
-    @property
-    def report_renderer(self) -> Callable[..., object]:
-        return self._load_object(self.report_renderer_path)
-
-    @property
-    def cli_main(self) -> Callable[..., object]:
-        return self._load_object(self.cli_main_path)
-
-    def build_artifact_paths(self, run_dir: str | Path) -> ArtifactPaths:
+    def build_paths(self, run_dir: str | Path) -> ArtifactPaths:
         """把相对合同路径映射成某个 run 目录下的绝对路径。"""
 
         root = Path(run_dir)
-        contract = self.artifact_contract
         return {
-            "manifest_path": root / contract.manifest_path,
-            "progress_path": root / contract.progress_path,
-            "validation_path": root / contract.validation_path,
-            "report_path": root / contract.report_path,
-            "figure_manifest_path": root / contract.figure_manifest_path,
-            "metrics_view_path": root / contract.metrics_view_path,
-            "prediction_records_path": root / contract.prediction_records_path,
-            "turn_record_paths": tuple(root / path for path in contract.turn_record_paths),
-            "extra_view_paths": tuple(root / path for path in contract.extra_view_paths),
+            "manifest_path": root / self.manifest_path,
+            "progress_path": root / self.progress_path,
+            "validation_path": root / self.validation_path,
+            "report_path": root / self.report_path,
+            "figure_manifest_path": root / self.figure_manifest_path,
+            "archive_manifest_path": root / self.archive_manifest_path,
+            "metrics_view_path": root / self.metrics_view_path,
+            "prediction_records_path": root / self.prediction_records_path,
+            "turn_record_paths": tuple(root / path for path in self.turn_record_paths),
+            "extra_view_paths": tuple(root / path for path in self.extra_view_paths),
         }
+
+
+@dataclass(frozen=True)
+class FamilyCliHelp:
+    """统一 family CLI 的命令帮助文案。"""
+
+    description: str
+    inspect_help: str
+    run_help: str
+    summarize_help: str
+    validate_help: str
+    report_help: str
+    include_resume_run_dir: bool = False
+
+
+@dataclass(frozen=True)
+class FamilyRunRequest:
+    """从根 CLI 传入 family runner 的标准请求。"""
+
+    experiment_path: str
+    phase_name: str
+    model_ref: str | None = None
+    runs_root: str | Path | None = None
+    cache_root: str | Path | None = None
+    resume_run_dir: str | Path | None = None
+
+
+@dataclass(frozen=True)
+class FamilyRegistration:
+    """单个实验家族的统一注册对象。"""
+
+    family_name: str
+    prototype: FamilyPrototype
+    cli_help: FamilyCliHelp
+    artifact_schema: FamilyArtifactSchema
+    load_experiment: Callable[[str | Path], Any]
+    resolve_model: Callable[[str], Any]
+    invoke_runner: Callable[..., Path]
+    inspect_experiment: Callable[[str, str | None], dict[str, object]]
+    run_from_cli: Callable[[FamilyRunRequest], Path]
+    summarize_run: Callable[[str | Path], dict[str, Any]]
+    validate_run: Callable[..., dict[str, Any]]
+    render_report: Callable[[str | Path, str | Path | None], dict[str, Any]]
+    configure_parser: Callable[[argparse.ArgumentParser], None] | None = None
+    dispatch_extra_command: Callable[[argparse.Namespace], bool] | None = None
+    validate_from_cli: Callable[[argparse.Namespace], dict[str, Any]] | None = None
+    render_from_cli: Callable[[argparse.Namespace], dict[str, Any]] | None = None
+
+    def build_artifact_paths(self, run_dir: str | Path) -> ArtifactPaths:
+        """映射当前 family 的正式产物路径。"""
+
+        return self.artifact_schema.build_paths(run_dir)

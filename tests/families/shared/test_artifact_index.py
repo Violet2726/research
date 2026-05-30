@@ -14,7 +14,7 @@ from research_experiments.families.artifacts import (
 )
 
 
-def test_resolve_run_artifact_index_uses_family_manifest_contract(tmp_path: Path) -> None:
+def test_resolve_run_artifact_index_uses_family_registration_schema(tmp_path: Path) -> None:
     write_json(tmp_path / "manifest.json", {"family_name": "selective_comm", "run_id": "demo"})
 
     index = resolve_run_artifact_index(tmp_path)

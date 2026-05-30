@@ -11,7 +11,11 @@ from research_experiments.core.execution.rate_limits import (
     STANDARD_REQUESTS_PER_MINUTE_LIMIT,
     STANDARD_TOKENS_PER_MINUTE_LIMIT,
 )
-from research_experiments.families.registry import registered_family_manifests, registered_family_names, validator_map
+from research_experiments.families.registry import (
+    registered_family_names,
+    registered_family_registrations,
+    validator_map,
+)
 from research_experiments.tools.artifact_cleanup import RUN_VALIDATORS
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -51,11 +55,13 @@ def test_family_registry_matches_source_tree_and_cli_scripts() -> None:
     assert list(scripts) == ["research_cli"]
 
 
-def test_every_family_exports_manifest_and_family_test_directory() -> None:
-    manifests = {manifest.family_name: manifest for manifest in registered_family_manifests()}
+def test_every_family_exports_registration_and_family_test_directory() -> None:
+    registrations = {item.family_name: item for item in registered_family_registrations()}
     for family_name in registered_family_names():
-        assert family_name in manifests
-        assert (FAMILIES_SRC / family_name / "family_manifest.py").exists()
+        assert family_name in registrations
+        assert (FAMILIES_SRC / family_name / "registration.py").exists()
+        assert not (FAMILIES_SRC / family_name / "spec.py").exists()
+        assert not (FAMILIES_SRC / family_name / "family_manifest.py").exists()
         assert (ROOT / "tests" / "families" / family_name).is_dir()
 
 

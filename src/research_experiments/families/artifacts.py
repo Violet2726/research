@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import cast
 
 from research_experiments.core.contracts import PredictionRecord, RunArtifactIndex
-from research_experiments.families.registry import get_family_manifest, registered_family_names
+from research_experiments.core.io import read_json
+from research_experiments.families.registry import get_family_registration, registered_family_names
 
 
 def resolve_run_artifact_index(
@@ -19,17 +19,18 @@ def resolve_run_artifact_index(
 
     root = Path(run_dir)
     resolved_family = family_name or _resolve_family_name(root)
-    manifest = get_family_manifest(resolved_family)
-    paths = manifest.build_artifact_paths(root)
+    registration = get_family_registration(resolved_family)
+    paths = registration.build_artifact_paths(root)
     return RunArtifactIndex(
-        family_name=manifest.family_name,
-        prototype=manifest.prototype,
+        family_name=registration.family_name,
+        prototype=registration.prototype,
         run_dir=root,
         manifest_path=cast(Path, paths["manifest_path"]),
         progress_path=cast(Path, paths["progress_path"]),
         validation_path=cast(Path, paths["validation_path"]),
         report_path=cast(Path, paths["report_path"]),
         figure_manifest_path=cast(Path, paths["figure_manifest_path"]),
+        archive_manifest_path=cast(Path, paths["archive_manifest_path"]),
         metrics_view_path=cast(Path, paths["metrics_view_path"]),
         prediction_records_path=cast(Path, paths["prediction_records_path"]),
         turn_record_paths=cast(tuple[Path, ...], paths["turn_record_paths"]),
@@ -44,7 +45,7 @@ def load_run_manifest(run_dir: str | Path) -> dict[str, object]:
     manifest_path = root / "manifest.json"
     if not manifest_path.exists():
         return {}
-    return json.loads(manifest_path.read_text(encoding="utf-8"))
+    return read_json(manifest_path)
 
 
 def load_metrics_payload(run_dir: str | Path, *, family_name: str | None = None) -> dict[str, object]:
@@ -53,7 +54,7 @@ def load_metrics_payload(run_dir: str | Path, *, family_name: str | None = None)
     index = resolve_run_artifact_index(run_dir, family_name=family_name)
     if not index.metrics_view_path.exists():
         return {}
-    return json.loads(index.metrics_view_path.read_text(encoding="utf-8"))
+    return read_json(index.metrics_view_path)
 
 
 def load_prediction_records(

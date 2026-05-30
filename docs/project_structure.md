@@ -36,7 +36,7 @@
 - `<family>/run/sample.py`：样本级执行链路与私有辅助逻辑
 - `<family>/run/report.py`：汇总与报告
 - `<family>/run/validate.py`：运行校验
-- `<family>/spec.py`：family CLI 规格
+- `<family>/registration.py`：family 注册定义与 inspect/run 入口
 
 ### 其他共享目录
 

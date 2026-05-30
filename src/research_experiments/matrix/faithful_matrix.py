@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import copy
 import json
-import tomllib
 from collections import Counter
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
@@ -19,8 +18,9 @@ from research_experiments.core.execution.rate_limits import (
     STANDARD_REQUESTS_PER_MINUTE_LIMIT,
     STANDARD_TOKENS_PER_MINUTE_LIMIT,
 )
+from research_experiments.core.io import read_json, read_toml, write_json, write_markdown
 from research_experiments.families.artifacts import load_metrics_payload
-from research_experiments.families.registry import get_family_spec, validator_map
+from research_experiments.families.registry import get_family_registration, validator_map
 from research_experiments.matrix.faithful_acceptance import render_acceptance_summary
 from research_experiments.matrix.faithful_analysis import render_faithful_analysis
 from research_experiments.matrix.matrix_specs import (
@@ -471,23 +471,23 @@ def _run_postprocess(
 def _execute_entry(entry: MatrixEntry, overrides: RuntimeOverrides) -> Path:
     family = entry.family
     config_path = entry.config_path
-    spec = get_family_spec(family)
+    registration = get_family_registration(family)
     if family == "single_agent":
-        experiment = spec.config_loader(config_path)
+        experiment = registration.load_experiment(config_path)
         overridden = apply_runtime_overrides(family, experiment, overrides)
-        model = spec.model_resolver(overrides.model_ref)
+        model = registration.resolve_model(overrides.model_ref)
         benchmarks = [load_benchmark_config(path) for path in overridden.benchmark_configs]
-        return spec.runner(
+        return registration.invoke_runner(
             experiment=overridden,
             phase_name=overrides.phase_name,
             models=[model],
             benchmarks=benchmarks,
         )
 
-    experiment = spec.config_loader(config_path)
+    experiment = registration.load_experiment(config_path)
     overridden = apply_runtime_overrides(family, experiment, overrides)
-    backbone = spec.model_resolver(overrides.model_ref)
-    return spec.runner(
+    backbone = registration.resolve_model(overrides.model_ref)
+    return registration.invoke_runner(
         experiment=overridden,
         phase_name=overrides.phase_name,
         backbone=backbone,
@@ -623,12 +623,12 @@ def _write_matrix_state(paths: OrchestratorPaths, matrix: MatrixBuild) -> None:
         "entries": [asdict(entry) for entry in matrix.entries],
         "semantic_entries": [asdict(entry) for entry in matrix.semantic_entries],
     }
-    paths.matrix.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    paths.state.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(paths.matrix, payload)
+    write_json(paths.state, payload)
     report_text = _render_matrix_report(matrix, dict(counts))
-    paths.report.write_text(report_text, encoding="utf-8")
+    write_markdown(paths.report, report_text)
     paths.published_summary.parent.mkdir(parents=True, exist_ok=True)
-    paths.published_summary.write_text(report_text, encoding="utf-8")
+    write_markdown(paths.published_summary, report_text)
 
 
 def _render_matrix_report(matrix: MatrixBuild, counts: dict[str, int]) -> str:
@@ -678,8 +678,7 @@ def _synchronize_entries_with_semantic_entries(matrix: MatrixBuild) -> None:
 
 
 def _load_toml(path: str | Path) -> dict[str, Any]:
-    with Path(path).open("rb") as handle:
-        return tomllib.load(handle)
+    return read_toml(path)
 
 
 def _safe_load_json(path: str | Path) -> dict[str, Any] | None:
@@ -687,7 +686,7 @@ def _safe_load_json(path: str | Path) -> dict[str, Any] | None:
     if not target.exists():
         return None
     try:
-        return json.loads(target.read_text(encoding="utf-8"))
+        return read_json(target)
     except Exception:
         return None
 

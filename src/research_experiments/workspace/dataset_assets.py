@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import tomllib
 import urllib.request
 import zipfile
 from dataclasses import dataclass
@@ -19,6 +18,7 @@ from research_experiments.core.data.datasets import (
     load_samples,
     resolve_dataset_source_path,
 )
+from research_experiments.core.io import read_toml, write_json, write_markdown
 from research_experiments.workspace.layout import default_datasets_root
 
 DATASETS_DOCS_ROOT = Path("datasets")
@@ -645,7 +645,7 @@ def write_dataset_inventory_files(
     inventory = collect_dataset_inventory(benchmarks, splits_root=splits_root)
 
     manifest_path = datasets_root_path / "manifest.json"
-    manifest_path.write_text(json.dumps(inventory, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(manifest_path, inventory)
 
     readme_lines = [
         "# datasets",
@@ -764,7 +764,7 @@ def write_dataset_inventory_files(
     )
 
     readme_path = docs_root_path / "README.md"
-    readme_path.write_text("\n".join(readme_lines) + "\n", encoding="utf-8")
+    write_markdown(readme_path, "\n".join(readme_lines) + "\n")
     return {"readme": readme_path, "manifest": manifest_path}
 
 
@@ -1133,8 +1133,7 @@ def _resolve_config_reference(path: Path, configs_root: Path) -> Path | None:
 
 
 def _load_toml(path: Path) -> dict[str, object]:
-    with path.open("rb") as handle:
-        return tomllib.load(handle)
+    return read_toml(path)
 
 
 def _serialize_download_result(result: DatasetDownloadResult) -> dict[str, object]:

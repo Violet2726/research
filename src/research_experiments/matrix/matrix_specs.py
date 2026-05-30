@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import tomllib
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
+
+from research_experiments.core.io import read_toml
 
 TRACK_SAME_CONTEXT = "same_context"
 TRACK_SPLIT_CONTEXT = "split_context"
@@ -97,8 +98,7 @@ def get_matrix_profile(matrix_id: str = DEFAULT_MATRIX_ID) -> MatrixProfileSpec:
 @cache
 def _load_matrix_spec_rows(matrix_id: str) -> tuple[tuple[str, ExperimentMatrixSpec], ...]:
     profile = get_matrix_profile(matrix_id)
-    with profile.config_path.open("rb") as handle:
-        payload = tomllib.load(handle)
+    payload = read_toml(profile.config_path)
     rows: list[tuple[str, ExperimentMatrixSpec]] = []
     for entry in payload.get("entries", []):
         config_path = str(entry["config_path"])

@@ -20,6 +20,7 @@ class RunArtifactIndex(BaseModel):
     validation_path: Path
     report_path: Path
     figure_manifest_path: Path
+    archive_manifest_path: Path
     metrics_view_path: Path
     prediction_records_path: Path
     turn_record_paths: tuple[Path, ...] = ()

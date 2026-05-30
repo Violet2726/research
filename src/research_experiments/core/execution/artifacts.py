@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from typing import Any, TextIO
 
+from research_experiments.core.io import write_json as write_json_file
+
 
 class BufferedJsonlWriter:
     """按行写 JSONL，并以小批量方式稳定 flush。"""
@@ -58,7 +60,4 @@ class BufferedJsonlWriter:
 
 def write_json(path: str | Path, payload: dict[str, Any]) -> None:
     """按 UTF-8 规范写出 JSON 文件。"""
-    Path(path).write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    write_json_file(path, payload)

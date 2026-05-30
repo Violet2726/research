@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -12,6 +11,7 @@ from typing import Any
 
 from huggingface_hub import HfApi, snapshot_download
 
+from research_experiments.core.io import read_json, write_json
 from research_experiments.workspace.archive_utils import copy_relative_files, extract_tar_zst, pack_tar_zst
 from research_experiments.workspace.layout import auto_publish_runs_enabled, default_runs_hf_repo, workspace_layout
 
@@ -111,13 +111,13 @@ def pack_run_artifacts(
         "archives": packed_rows,
     }
     archive_manifest_path = root / ARCHIVE_MANIFEST_FILENAME
-    archive_manifest_path.write_text(json.dumps(archive_manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(archive_manifest_path, archive_manifest)
 
     manifest_payload["remote_repo"] = remote_repo
     manifest_payload["remote_prefix"] = remote_prefix
     manifest_payload["archive_manifest_path"] = ARCHIVE_MANIFEST_FILENAME
     manifest_payload["artifacts_packaged"] = bool(packed_rows)
-    manifest_path.write_text(json.dumps(manifest_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(manifest_path, manifest_payload)
     return {
         "run_dir": root.as_posix(),
         "archive_manifest": archive_manifest_path.as_posix(),
@@ -147,7 +147,7 @@ def publish_run_to_hub(
     manifest_payload["remote_prefix"] = summary["remote_prefix"]
     manifest_payload["archive_manifest_path"] = ARCHIVE_MANIFEST_FILENAME
     manifest_payload["artifacts_packaged"] = bool(summary["archives"])
-    manifest_path.write_text(json.dumps(manifest_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(manifest_path, manifest_payload)
     summary = pack_run_artifacts(root, runs_root=runs_root)
 
     api = HfApi(token=token)
@@ -198,7 +198,7 @@ def publish_run_if_configured(
         create_repo=create_repo,
     )
     status_path = Path(run_dir) / HF_PUBLISH_STATUS_FILENAME
-    status_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(status_path, payload)
     return payload
 
 
@@ -431,7 +431,7 @@ def _build_run_publish_commit_message(remote_prefix: str) -> str:
 def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    return read_json(path)
 
 
 def _sha256_of(path: Path) -> str:

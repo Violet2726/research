@@ -81,6 +81,11 @@ def test_no_core_foundation_python_modules_remain() -> None:
     assert not any(foundation_root.rglob("*.py"))
 
 
+def test_no_legacy_family_entrypoint_files_remain() -> None:
+    assert not any(FAMILIES_SRC.rglob("spec.py"))
+    assert not any(FAMILIES_SRC.rglob("family_manifest.py"))
+
+
 def test_tools_do_not_import_concrete_family_modules() -> None:
     violations: list[str] = []
     for path in TOOLS_SRC.rglob("*.py"):

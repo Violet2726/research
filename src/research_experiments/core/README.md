@@ -5,7 +5,7 @@
 ## 分层结构
 
 - `contracts/`
-  平台级公开合同，如 `FamilyManifest`、`RunArtifactIndex` 与规范记录模型。
+  平台级公开合同，如 `FamilyRegistration`、`RunArtifactIndex` 与规范记录模型。
 - `artifacts/`
   平台级运行产物读模型与索引。
 - `engine/`

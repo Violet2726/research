@@ -6,9 +6,10 @@
 
 from __future__ import annotations
 
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+
+from research_experiments.core.io import read_toml
 
 
 @dataclass(frozen=True)
@@ -25,8 +26,7 @@ class MethodConfig:
 
 def load_method_catalog(path: str | Path) -> dict[str, MethodConfig]:
     """从 TOML 方法目录加载方法定义。"""
-    with Path(path).open("rb") as handle:
-        payload = tomllib.load(handle)
+    payload = read_toml(path)
     methods = payload.get("methods", {})
     return {
         str(name): MethodConfig(name=str(name), **config)

@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import tomllib
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -16,6 +15,7 @@ from research_experiments.core.config import (
     load_benchmark_config,
     resolve_model_ref,
 )
+from research_experiments.core.io import read_toml
 
 
 class SupportsRawPhases(Protocol):
@@ -33,8 +33,7 @@ class SupportsBenchmarkConfigs(Protocol):
 def load_toml(path: str | Path) -> dict[str, Any]:
     """从磁盘读取一个 TOML 载荷。"""
 
-    with Path(path).open("rb") as handle:
-        return tomllib.load(handle)
+    return read_toml(path)
 
 
 def optional_int(payload: dict[str, Any], key: str) -> int | None:

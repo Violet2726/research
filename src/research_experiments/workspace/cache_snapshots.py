@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import shutil
 import sqlite3
 import tempfile
@@ -14,6 +13,7 @@ import zstandard as zstd
 from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 
 from research_experiments.core.execution.cache import collect_cache_shard_summaries, repair_cache_shard
+from research_experiments.core.io import read_json, write_json, write_text
 from research_experiments.workspace.archive_utils import sha256_file
 from research_experiments.workspace.layout import (
     auto_push_cache_snapshot_enabled,
@@ -212,8 +212,8 @@ def build_cache_snapshot(
             "repaired_before_snapshot": snapshot_info["repaired_before_snapshot"],
             "generated_at": datetime.now(UTC).isoformat(),
         }
-        (target_dir / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-        (target_dir / "sha256.txt").write_text(digest + "\n", encoding="utf-8")
+        write_json(target_dir / "metadata.json", metadata)
+        write_text(target_dir / "sha256.txt", digest + "\n")
         snapshot_path.unlink()
 
         shards_payload.append(
@@ -255,7 +255,7 @@ def build_cache_snapshot(
     manifest_changed = _manifest_rows_signature(shards_payload) != previous_signature
     payload["manifest_changed"] = manifest_changed
     payload["upload_required"] = bool(uploaded_shards) or manifest_changed
-    (stage / CACHE_SNAPSHOT_MANIFEST).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(stage / CACHE_SNAPSHOT_MANIFEST, payload)
     return payload
 
 
@@ -384,7 +384,7 @@ def _cleanup_sqlite_sidecars(sqlite_path: Path) -> None:
 def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    return read_json(path)
 
 
 def _download_remote_cache_manifest(
@@ -551,4 +551,3 @@ def _normalize_shard_filters(
 
 def _matches_shard_filter(relative_dir: str, normalized_filters: tuple[str, ...]) -> bool:
     return any(relative_dir == item or relative_dir.startswith(f"{item}/") for item in normalized_filters)
-

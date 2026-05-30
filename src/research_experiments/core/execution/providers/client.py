@@ -88,33 +88,44 @@ class OpenAICompatibleProvider:
             "Content-Type": "application/json",
         }
         timeout = httpx.Timeout(self.config.timeout_seconds)
-        started = time.perf_counter()
-        client = self._client_handle.client
-        response = client.post(url, headers=headers, json=payload, timeout=timeout)
-        latency_ms = (time.perf_counter() - started) * 1000
-        response.raise_for_status()
-        body = response.json()
-        usage_reported = body.get("usage")
-        assistant_text, provider_reasoning_text = extract_message_channels(body)
-        response_id = body.get("id")
-        provider_request_id = (
-            response.headers.get("x-request-id")
-            or response.headers.get("x-b3-traceid")
-            or response_id
-        )
-        return ProviderResponse(
-            http_status=response.status_code,
-            raw_payload=body,
-            assistant_text=assistant_text,
-            provider_reasoning_text=provider_reasoning_text,
-            finish_reason=extract_finish_reason(body),
-            usage_reported=usage_reported,
-            usage_estimated=estimate_usage(payload, assistant_text),
-            usage_source="reported" if usage_reported else "estimated",
-            latency_ms=latency_ms,
-            provider_request_id=provider_request_id,
-            response_id=response_id,
-        )
+        last_error: httpx.TransportError | None = None
+        for attempt in range(2):
+            client = self._client_handle.client
+            started = time.perf_counter()
+            try:
+                response = client.post(url, headers=headers, json=payload, timeout=timeout)
+            except httpx.TransportError as exc:
+                last_error = exc
+                self._reset_shared_client(client)
+                if attempt == 0:
+                    continue
+                raise
+            latency_ms = (time.perf_counter() - started) * 1000
+            response.raise_for_status()
+            body = response.json()
+            usage_reported = body.get("usage")
+            assistant_text, provider_reasoning_text = extract_message_channels(body)
+            response_id = body.get("id")
+            provider_request_id = (
+                response.headers.get("x-request-id")
+                or response.headers.get("x-b3-traceid")
+                or response_id
+            )
+            return ProviderResponse(
+                http_status=response.status_code,
+                raw_payload=body,
+                assistant_text=assistant_text,
+                provider_reasoning_text=provider_reasoning_text,
+                finish_reason=extract_finish_reason(body),
+                usage_reported=usage_reported,
+                usage_estimated=estimate_usage(payload, assistant_text),
+                usage_source="reported" if usage_reported else "estimated",
+                latency_ms=latency_ms,
+                provider_request_id=provider_request_id,
+                response_id=response_id,
+            )
+        assert last_error is not None
+        raise last_error
 
     def _acquire_shared_client_handle(self) -> _SharedClientHandle:
         with self._shared_clients_lock:

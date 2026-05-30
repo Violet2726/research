@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from research_experiments.families.shared.standard_method_names import (
     COT_1,
-    MV_3,
     MAD_3A_R1,
     MAD_FIXED_R3,
+    MV_3,
     MV_6,
     SC_5,
     SC_6,
