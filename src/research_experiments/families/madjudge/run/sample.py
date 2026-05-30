@@ -896,7 +896,7 @@ def _execute_turn(
         seed=seed,
         validator=_validate_madjudge_output,
         dataset=dataset,
-        use_response_format=False,
+        use_response_format=True,
     )
     final_answer = str(result.validated_output.get("final_answer") or "")
     normalized = normalize_prediction(dataset, final_answer) if final_answer else ""
@@ -1101,32 +1101,14 @@ def _load_selected_samples(benchmark, split_name: str) -> list[DatasetSample]:
 
 
 def _validate_madjudge_output(assistant_text: str, provider_reasoning_text: str) -> dict[str, Any]:
-    """解析 ##Answer/##Explanation 标记格式，带 JSON fallback。"""
+    """解析 JSON 格式输出。"""
     text = str(assistant_text or "").strip() or str(provider_reasoning_text or "").strip()
     if not text:
         raise ValueError("Model output is empty.")
 
-    # 尝试从 JSON 外壳中提取内嵌的 ##Answer 格式
-    inner_text = _extract_inner_text(text)
-
-    # 优先解析标记格式
-    answer_match = re.search(r"##Answer\s*\n?\s*(.*?)(?=\s*##|\s*$)", inner_text, re.DOTALL | re.IGNORECASE)
-    explanation_match = re.search(r"##Explanation\s*\n?\s*(.*?)(?=\s*##|\s*$)", inner_text, re.DOTALL | re.IGNORECASE)
-
-    if answer_match:
-        validated = {
-            "final_answer": answer_match.group(1).strip(),
-            "reasoning": explanation_match.group(1).strip() if explanation_match else "",
-        }
-        return validated
-
-    # JSON fallback
     payload = _try_parse_json(text)
-    if payload is None:
-        raise ValueError("Failed to parse model output: neither ##Answer format nor JSON found.")
-
-    if not isinstance(payload, dict):
-        raise ValueError("Model output is not a JSON object.")
+    if payload is None or not isinstance(payload, dict):
+        raise ValueError("Failed to parse model output as JSON.")
 
     final_answer = str(
         payload.get("final_answer") or payload.get("answer") or payload.get("prediction") or ""
@@ -1141,30 +1123,9 @@ def _validate_madjudge_output(assistant_text: str, provider_reasoning_text: str)
             final_answer = ", ".join(str(item).strip() for item in list_val if str(item).strip())
 
     if not final_answer:
-        raise ValueError("Could not extract answer from model output.")
+        raise ValueError("Could not extract answer from JSON output.")
 
-    return {
-        "final_answer": final_answer,
-        "reasoning": reasoning,
-    }
-
-
-def _extract_inner_text(text: str) -> str:
-    """如果 text 是 JSON 且包含内嵌的 ##Answer 格式，提取内部文本。"""
-    if not text.startswith("{"):
-        return text
-    try:
-        payload = json.loads(text)
-    except Exception:
-        return text
-    if not isinstance(payload, dict):
-        return text
-    for key in ("answer", "response", "text", "content", "output"):
-        val = payload.get(key)
-        if isinstance(val, str) and "##Answer" in val:
-            return val
-    return text
-
+    return {"final_answer": final_answer, "reasoning": reasoning}
 
 def _try_parse_json(text: str) -> dict[str, Any] | None:
     """尝试多种方式解析 JSON。"""
@@ -1183,6 +1144,7 @@ def _try_parse_json(text: str) -> dict[str, Any] | None:
         except Exception:
             pass
     return None
+
 
 
 def _run_madjudge_batch(
