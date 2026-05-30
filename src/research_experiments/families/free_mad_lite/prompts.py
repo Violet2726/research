@@ -146,6 +146,6 @@ def _anti_conformity_instruction() -> str:
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
-    return dataset_instruction_for_sample(sample, hotpot_style="shortest_span")
+    return dataset_instruction_for_sample(sample, hotpot_style="short_span")
 
 

@@ -1,6 +1,6 @@
 """CONSENSAGENT 实验的提示词构造器（对齐论文 Appendix L + Figure 4）。
 
-模板采用论文的 ##Answer/##Explanation/##Confidence 标记格式，
+统一使用 JSON 输出格式，包含 final_answer、reasoning、confidence 字段。
 Phase 3 使用 LLM in-context learning（含 1 个 few-shot 示例）替代微调。
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from research_experiments.core.data.datasets import DatasetSample
-from research_experiments.core.prompts.dataset_contracts import dataset_instruction_for_sample
+from research_experiments.core.prompts.dataset_contracts import build_json_system_prompt, dataset_instruction_for_sample
 
 DEFAULT_PROMPT_VERSION = "consensagent_paper_v1"
 
@@ -17,17 +17,12 @@ DEFAULT_PROMPT_VERSION = "consensagent_paper_v1"
 _INITIAL_TEMPLATE = """{dataset_instruction}
 {question}{context}
 
-Provide an explanation after '##Explanation'.
-Evaluate your confidence (0.0 to 1.0) after '##Confidence'.
+Return exactly one JSON object with keys "final_answer", "reasoning", and "confidence".
+- final_answer: your answer to the question
+- reasoning: brief step-by-step explanation (under 120 tokens)
+- confidence: a float between 0.0 and 1.0 expressing your confidence
 
-##Answer
-<your answer here>
-
-##Explanation
-<your reasoning here>
-
-##Confidence
-<your confidence score>"""
+Return JSON only. Do not add text before or after the JSON object."""
 
 # ── 论文 Phase 2：多轮辩论（Appendix L）─────────────────────────────────
 _DEBATE_TEMPLATE = """{dataset_instruction}
@@ -37,14 +32,13 @@ Here are responses provided by other agents. Please update your responses if nec
 Clearly explain what you agree with and disagree with.
 
 {peer_block}
-##Answer
-<your answer here>
 
-##Explanation
-<your reasoning here>
+Return exactly one JSON object with keys "final_answer", "reasoning", and "confidence".
+- final_answer: your revised answer
+- reasoning: brief explanation of what changed and why (under 120 tokens)
+- confidence: a float between 0.0 and 1.0
 
-##Confidence
-<your confidence score>"""
+Return JSON only. Do not add text before or after the JSON object."""
 
 # ── 论文 Phase 3：Prompt 优化（in-context learning 替代微调）───────────
 # 基于论文 Figure 4 / Appendix B 的优化示例
@@ -228,8 +222,7 @@ def build_team_answer_messages(
         "1. The confidence scores of each agent\n"
         "2. The consistency of answers across agents\n"
         "3. The quality of reasoning provided\n\n"
-        "Output format:\n"
-        "##Answer\n<your final answer>"
+        'Return exactly one JSON object with keys "final_answer" and "reasoning". Return JSON only.'
     )
     return [
         {"role": "system", "content": _system_prompt("team")},
@@ -240,15 +233,23 @@ def build_team_answer_messages(
 # ── 辅助函数 ────────────────────────────────────────────────────────────
 
 def _system_prompt(phase: str = "initial", persona_instruction: str = "") -> str:
-    """构建系统提示。论文无显式 system prompt，保持最小化。"""
+    """构建系统提示。"""
     if persona_instruction:
         return persona_instruction
-    return "You are a helpful assistant."
+    return build_json_system_prompt(
+        "You are one reasoning agent in a multi-agent debate experiment.",
+        extra_rules=[
+            "Solve the task carefully using only the provided question and context.",
+            "Keep reasoning concise and under 120 tokens.",
+            "Do not add natural-language text before or after the JSON object.",
+            "Do not add labels, category words, or explanatory suffixes to final_answer.",
+        ],
+    )
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
     if sample.dataset == "hotpotqa":
-        return dataset_instruction_for_sample(sample, hotpot_style="shortest_span_copy")
+        return dataset_instruction_for_sample(sample, hotpot_style="short_span")
     return dataset_instruction_for_sample(sample)
 
 

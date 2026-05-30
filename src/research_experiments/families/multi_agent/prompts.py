@@ -99,8 +99,6 @@ def _system_prompt(prompt_version: str) -> str:
 
 def _dataset_instruction(sample: DatasetSample, prompt_version: str) -> str:
     if sample.dataset == "hotpotqa":
-        if prompt_version == CONTROLLED_PROMPT_VERSION:
-            return dataset_instruction_for_sample(sample, hotpot_style="shortest_span_copy")
         return dataset_instruction_for_sample(sample, hotpot_style="short_span")
     return dataset_instruction_for_sample(sample)
 

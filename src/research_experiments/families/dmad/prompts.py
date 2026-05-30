@@ -477,7 +477,7 @@ def _reflection_feedback_system_prompt() -> str:
 
 def _dataset_instruction(sample: DatasetSample) -> str:
     if sample.dataset == "hotpotqa":
-        return dataset_instruction_for_sample(sample, hotpot_style="shortest_span_copy")
+        return dataset_instruction_for_sample(sample, hotpot_style="short_span")
     return dataset_instruction_for_sample(sample)
 
 

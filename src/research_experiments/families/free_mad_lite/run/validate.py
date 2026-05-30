@@ -1,7 +1,7 @@
-"""Free-MAD-lite 运行产物验证。
+"""Free-MAD-lite run artifact validation.
 
-该校验器重点检查共享前缀哈希、单轮约束、judge 输出结构，
-以及轨迹裁决器在日志层面是否保持可复核。
+Checks shared frontend hashes, single-round constraint, judge output
+structure, and trajectory judge log-level reproducibility.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.validate_common import validate_shared_contracts
+from research_experiments.families.shared.validate_common import summarize_turn_statuses, validate_shared_contracts
 
 REQUIRED_FILES = [
     "manifest.json",
@@ -29,24 +29,18 @@ REQUIRED_FILES = [
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
-    """验证 Free-MAD-lite run 是否满足 smoke 实验契约。"""
+    """Validate Free-MAD-lite run meets smoke experiment contract."""
     root = Path(run_dir)
     missing = [name for name in REQUIRED_FILES if not (root / name).exists()]
-    manifest = load_json(root / "manifest.json") if (root / "manifest.json").exists() else {}
-    turn_rows = load_jsonl(root / "agent_turns.jsonl")
-    score_rows = load_jsonl(root / "trajectory_scores.jsonl")
-    prediction_rows = load_jsonl(root / "final_predictions.jsonl")
+    manifest = _load_json(root / "manifest.json") if (root / "manifest.json").exists() else {}
+    turn_rows = _load_jsonl(root / "agent_turns.jsonl")
+    score_rows = _load_jsonl(root / "trajectory_scores.jsonl")
+    prediction_rows = _load_jsonl(root / "final_predictions.jsonl")
 
-    request_failures = sum(
-        1
-        for row in turn_rows
-        if row.get("role") != "trajectory_judge" and row.get("output_status") == "request_fail"
-    )
-    schema_failures = sum(
-        1
-        for row in turn_rows
-        if row.get("role") != "trajectory_judge" and row.get("output_status") == "schema_fail"
-    )
+    # Exclude trajectory_judge role — those have their own schema check below
+    filtered_turns = [row for row in turn_rows if row.get("role") != "trajectory_judge"]
+    status_summary = summarize_turn_statuses(filtered_turns)
+
     paired_check = _paired_design_check(manifest, prediction_rows)
     stage_hash_check = _shared_stage_hash_check(prediction_rows)
     round_check = _single_round_check(manifest)
@@ -60,8 +54,8 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     archive_contract = shared_contracts["archive_contract"]
     passed = (
         not missing
-        and request_failures == 0
-        and schema_failures == 0
+        and status_summary["request_failures"] == 0
+        and status_summary["schema_failures"] == 0
         and paired_check["passed"]
         and stage_hash_check["passed"]
         and round_check["passed"]
@@ -74,9 +68,9 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "run_dir": str(root),
         "passed": passed,
         "missing_files": missing,
+        "request_failures": status_summary["request_failures"],
+        "schema_failures": status_summary["schema_failures"],
         "checks": {
-            "request_failures_total": request_failures,
-            "schema_failures_total": schema_failures,
             "paired_design_check": paired_check,
             "shared_stage_a_hash_check": stage_hash_check,
             "single_round_check": round_check,
@@ -162,15 +156,14 @@ def _compact_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def load_json(path: Path) -> dict[str, Any]:
+def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def load_jsonl(path: Path) -> list[dict[str, Any]]:
+def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
-

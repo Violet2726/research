@@ -6,7 +6,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.validate_common import load_json, load_jsonl, validate_shared_contracts
+from research_experiments.families.shared.validate_common import load_json, load_jsonl, summarize_turn_statuses, validate_shared_contracts
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
@@ -28,16 +28,16 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     agent_rows = load_jsonl(root / "agent_turns.jsonl") if (root / "agent_turns.jsonl").exists() else []
     prediction_rows = load_jsonl(root / "final_predictions.jsonl") if (root / "final_predictions.jsonl").exists() else []
     diagnostics = load_json(root / "strategy_diagnostics.json") if (root / "strategy_diagnostics.json").exists() else {"rows": []}
-    request_failures_total = sum(1 for row in agent_rows if row.get("output_status") == "request_fail")
-    schema_failures_total = sum(1 for row in agent_rows if row.get("output_status") == "schema_fail")
+
+    status_summary = summarize_turn_statuses(agent_rows)
     methods = Counter(str(row.get("method_name")) for row in prediction_rows)
     shared_contracts = validate_shared_contracts(root)
     figure_contract = shared_contracts["figure_contract"]
     archive_contract = shared_contracts["archive_contract"]
     passed = (
         not missing
-        and request_failures_total == 0
-        and schema_failures_total == 0
+        and status_summary["request_failures"] == 0
+        and status_summary["schema_failures"] == 0
         and bool(prediction_rows)
         and bool(diagnostics.get("rows"))
         and figure_contract["passed"]
@@ -47,8 +47,8 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "run_dir": str(root),
         "passed": passed,
         "missing_files": missing,
-        "request_failures_total": request_failures_total,
-        "schema_failures_total": schema_failures_total,
+        "request_failures": status_summary["request_failures"],
+        "schema_failures": status_summary["schema_failures"],
         "prediction_rows": len(prediction_rows),
         "methods": dict(methods),
         "strategy_diagnostics_present": bool(diagnostics.get("rows")),

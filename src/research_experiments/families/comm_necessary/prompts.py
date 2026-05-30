@@ -20,7 +20,7 @@ def build_solver_messages(
     user_prompt = (
         f"You are agent_{view.agent_id} in a controlled HotpotQA communication experiment.\n"
         f"View kind: {view.view_kind}.\n"
-        f"{dataset_instruction_for_sample(sample, context_scope='visible', hotpot_style='shortest_span')}\n"
+        f"{dataset_instruction_for_sample(sample, context_scope='visible', hotpot_style='short_span')}\n"
         "If you cite evidence, use the exact paragraph title and sentence id shown as (0), (1), ... .\n\n"
         f"Question:\n{sample.question.strip()}\n\n"
         f"Visible context:\n{view.context_text}\n\n"

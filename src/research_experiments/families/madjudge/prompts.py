@@ -1,7 +1,7 @@
 """MADJudge 实验的提示词构造器。
 
 基于论文 "Multi-Agent Debate for LLM Judges with Adaptive Stability Detection" 的 prompt 设计。
-论文使用简洁的辩论格式，让 judges 协作推理并迭代优化判断。
+统一使用 JSON 输出格式，包含 final_answer 和 reasoning 字段。
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from research_experiments.core.data.datasets import DatasetSample
-from research_experiments.core.prompts.dataset_contracts import dataset_instruction_for_sample
+from research_experiments.core.prompts.dataset_contracts import build_json_system_prompt, dataset_instruction_for_sample
 
 DEFAULT_PROMPT_VERSION = "madjudge_v1"
 
@@ -19,11 +19,11 @@ _INITIAL_TEMPLATE = """{dataset_instruction}
 
 Provide your judgment/response. Think step by step, then give your final answer.
 
-##Answer
-<your answer here>
+Return exactly one JSON object with keys "final_answer" and "reasoning".
+- final_answer: your answer to the question
+- reasoning: brief step-by-step explanation (under 120 tokens)
 
-##Explanation
-<your reasoning here>"""
+Return JSON only. Do not add text before or after the JSON object."""
 
 # ── 论文 Section 3.1：多轮辩论 ──────────────────────────────────────────────
 _DEBATE_TEMPLATE = """{dataset_instruction}
@@ -35,11 +35,11 @@ Here are responses provided by other judges. Please review their reasoning and u
 
 Provide your updated judgment/response. Think step by step, then give your final answer.
 
-##Answer
-<your answer here>
+Return exactly one JSON object with keys "final_answer" and "reasoning".
+- final_answer: your revised answer
+- reasoning: brief explanation of what changed and why (under 120 tokens)
 
-##Explanation
-<your reasoning here>"""
+Return JSON only. Do not add text before or after the JSON object."""
 
 
 def build_initial_messages(
@@ -100,12 +100,20 @@ def _system_prompt(persona_instruction: str = "") -> str:
     """构建系统提示。"""
     if persona_instruction:
         return persona_instruction
-    return "You are a helpful judge providing accurate and well-reasoned responses."
+    return build_json_system_prompt(
+        "You are a helpful judge providing accurate and well-reasoned responses.",
+        extra_rules=[
+            "Solve the task carefully using only the provided question and context.",
+            "Keep reasoning concise and under 120 tokens.",
+            "Do not add natural-language text before or after the JSON object.",
+            "Do not add labels, category words, or explanatory suffixes to final_answer.",
+        ],
+    )
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
     if sample.dataset == "hotpotqa":
-        return dataset_instruction_for_sample(sample, hotpot_style="shortest_span_copy")
+        return dataset_instruction_for_sample(sample, hotpot_style="short_span")
     return dataset_instruction_for_sample(sample)
 
 

@@ -1,4 +1,4 @@
-"""CUE 运行产物的完整性与一致性校验。"""
+"""CUE run artifact completeness and consistency validation."""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.validate_common import validate_shared_contracts
+from research_experiments.families.shared.validate_common import summarize_turn_statuses, validate_shared_contracts
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
-    """校验单次 CUE 运行目录是否满足最小可复现要求。"""
+    """Validate a single CUE run directory meets minimum reproducibility requirements."""
     root = Path(run_dir)
     required = [
         "manifest.json",
@@ -28,27 +28,36 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "archive_manifest.json",
     ]
     missing = [name for name in required if not (root / name).exists()]
-    stage_a_rows = load_jsonl(root / "stage_a_turns.jsonl")
-    communication_rows = load_jsonl(root / "communication_turns.jsonl")
-    audit_rows = load_jsonl(root / "audit_turns.jsonl")
-    control_rows = load_jsonl(root / "control_turns.jsonl")
-    prediction_rows = load_jsonl(root / "policy_predictions.jsonl")
+    stage_a_rows = _load_jsonl(root / "stage_a_turns.jsonl")
+    communication_rows = _load_jsonl(root / "communication_turns.jsonl")
+    audit_rows = _load_jsonl(root / "audit_turns.jsonl")
+    control_rows = _load_jsonl(root / "control_turns.jsonl")
+    prediction_rows = _load_jsonl(root / "policy_predictions.jsonl")
     all_turn_rows = stage_a_rows + communication_rows + audit_rows + control_rows
-    request_failures = sum(1 for row in all_turn_rows if row.get("output_status") == "request_fail")
-    output_success_count = sum(1 for row in all_turn_rows if row.get("output_status") == "ok")
-    output_success_rate = output_success_count / len(all_turn_rows) if all_turn_rows else 0.0
+
+    status_summary = summarize_turn_statuses(all_turn_rows)
     stage_a_hash_check = _validate_stage_a_hashes(prediction_rows)
     shared_contracts = validate_shared_contracts(root)
     figure_contract = shared_contracts["figure_contract"]
     archive_contract = shared_contracts["archive_contract"]
-    passed = not missing and request_failures == 0 and output_success_rate >= 0.90 and stage_a_hash_check["passed"] and figure_contract["passed"] and archive_contract["passed"]
+    passed = (
+        not missing
+        and status_summary["request_failures"] == 0
+        and status_summary["schema_failures"] == 0
+        and status_summary["output_success_rate"] >= 0.90
+        and stage_a_hash_check["passed"]
+        and figure_contract["passed"]
+        and archive_contract["passed"]
+    )
     return {
         "run_dir": str(root),
         "passed": passed,
         "missing_files": missing,
+        "request_failures": status_summary["request_failures"],
+        "schema_failures": status_summary["schema_failures"],
+        "output_success_rate": status_summary["output_success_rate"],
         "checks": {
-            "request_failures_total": request_failures,
-            "output_success_rate": round(output_success_rate, 6),
+            "output_success_threshold": 0.90,
             "stage_a_hash_check": stage_a_hash_check,
             "figure_contract": figure_contract,
             "archive_contract": archive_contract,
@@ -70,9 +79,8 @@ def _validate_stage_a_hashes(prediction_rows: list[dict[str, Any]]) -> dict[str,
     return {"passed": len(mismatches) == 0, "mismatch_count": len(mismatches), "mismatches": mismatches[:20]}
 
 
-def load_jsonl(path: Path) -> list[dict[str, Any]]:
+def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
-

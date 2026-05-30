@@ -1,8 +1,8 @@
-"""`budget_comm` 运行结果校验。
+"""budget_comm run validation.
 
-本模块从研究约束而非单纯文件完整性的角度验证一次运行：
-既检查关键产物是否齐全，也检查预算是否超支、分片是否泄漏、配对设计是否被破坏，
-以及 DALA-lite 的 tier 分配与背包选择是否可以被重放。
+Validates from research constraints rather than mere file completeness:
+budget overrun, shard leakage, paired design integrity, knapsack replayability,
+and DALA-lite tier allocation consistency.
 """
 
 from __future__ import annotations
@@ -13,11 +13,11 @@ from pathlib import Path
 from typing import Any
 
 from research_experiments.families.budget_comm.algorithms import METHOD_ORDER, assign_density_tiers, solve_knapsack
-from research_experiments.families.shared.validate_common import validate_shared_contracts
+from research_experiments.families.shared.validate_common import summarize_turn_statuses, validate_shared_contracts
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
-    """检查 `budget_comm` 运行目录的关键产物与实验约束。"""
+    """Check budget_comm run directory key artifacts and experiment constraints."""
     root = Path(run_dir)
     required = [
         "manifest.json",
@@ -37,17 +37,15 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     ]
     missing = [name for name in required if not (root / name).exists()]
 
-    manifest = load_json(root / "manifest.json")
-    sample_views = load_jsonl(root / "sample_views.jsonl")
-    stage_a_rows = load_jsonl(root / "stage_a_turns.jsonl")
-    candidate_rows = load_jsonl(root / "candidate_packets.jsonl")
-    auction_rows = load_jsonl(root / "auction_decisions.jsonl")
-    belief_rows = load_jsonl(root / "belief_updates.jsonl")
-    prediction_rows = load_jsonl(root / "final_predictions.jsonl")
+    manifest = _load_json(root / "manifest.json")
+    sample_views = _load_jsonl(root / "sample_views.jsonl")
+    stage_a_rows = _load_jsonl(root / "stage_a_turns.jsonl")
+    candidate_rows = _load_jsonl(root / "candidate_packets.jsonl")
+    auction_rows = _load_jsonl(root / "auction_decisions.jsonl")
+    belief_rows = _load_jsonl(root / "belief_updates.jsonl")
+    prediction_rows = _load_jsonl(root / "final_predictions.jsonl")
 
-    turn_rows = stage_a_rows + belief_rows
-    request_failures = sum(1 for row in turn_rows if row.get("output_status") == "request_fail")
-    schema_failures = sum(1 for row in turn_rows if row.get("output_status") == "schema_fail")
+    status_summary = summarize_turn_statuses(stage_a_rows + belief_rows)
 
     budget_check = _validate_budget_overrun(auction_rows)
     silent_check = _validate_silent_zero_tokens(candidate_rows)
@@ -63,8 +61,8 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     passed = all(
         [
             not missing,
-            request_failures == 0,
-            schema_failures == 0,
+            status_summary["request_failures"] == 0,
+            status_summary["schema_failures"] == 0,
             budget_check["passed"],
             silent_check["passed"],
             tier_check["passed"],
@@ -81,9 +79,9 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "run_dir": str(root),
         "passed": passed,
         "missing_files": missing,
+        "request_failures": status_summary["request_failures"],
+        "schema_failures": status_summary["schema_failures"],
         "checks": {
-            "request_failures_total": request_failures,
-            "schema_failures_total": schema_failures,
             "budget_overrun_check": budget_check,
             "silent_zero_token_check": silent_check,
             "dala_tier_match_check": tier_check,
@@ -99,7 +97,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
 
 
 def _validate_budget_overrun(auction_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """检查任何一条预算决策是否出现超支。"""
+    """Check whether any budget decision shows overrun."""
     violations = [
         {
             "dataset": row["dataset"],
@@ -115,7 +113,7 @@ def _validate_budget_overrun(auction_rows: list[dict[str, Any]]) -> dict[str, An
 
 
 def _validate_silent_zero_tokens(candidate_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """检查被标记为 `silence` 的候选是否真的消耗 0 token。"""
+    """Check that candidates marked as silence actually consume 0 tokens."""
     mismatches = [
         {
             "dataset": row["dataset"],
@@ -131,7 +129,7 @@ def _validate_silent_zero_tokens(candidate_rows: list[dict[str, Any]]) -> dict[s
 
 
 def _validate_dala_tier_match(candidate_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """回放 density tier 分配，检查与日志中的档位是否一致。"""
+    """Replay density tier assignment and check consistency with logged values."""
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in candidate_rows:
         if row.get("method_name") == "dala_lite":
@@ -163,7 +161,7 @@ def _validate_dala_tier_match(candidate_rows: list[dict[str, Any]]) -> dict[str,
 
 
 def _validate_knapsack_replay(auction_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """用候选分数与成本重放 knapsack，检查赢家集合是否一致。"""
+    """Replay knapsack with candidate scores and costs, check winner set consistency."""
     mismatches: list[dict[str, Any]] = []
     for row in auction_rows:
         selection_rule = str(row.get("selection_rule"))
@@ -199,7 +197,7 @@ def _validate_knapsack_replay(auction_rows: list[dict[str, Any]]) -> dict[str, A
 
 
 def _validate_paired_design(prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """检查所有方法是否在完全相同的样本集合上比较。"""
+    """Check that all methods are compared on the exact same sample set."""
     sample_sets = {
         method_name: {(row["dataset"], row["sample_id"]) for row in prediction_rows if row.get("method_name") == method_name}
         for method_name in METHOD_ORDER
@@ -218,7 +216,7 @@ def _validate_paired_design(prediction_rows: list[dict[str, Any]]) -> dict[str, 
 
 
 def _validate_context_leak(sample_views: list[dict[str, Any]], manifest: dict[str, Any]) -> dict[str, Any]:
-    """检查 `split_context` 轨道是否意外泄漏完整上下文。"""
+    """Check whether split_context track accidentally leaks full context."""
     track_name = manifest.get("context_view", {}).get("track_name")
     if track_name != "split_context":
         return {"passed": True, "enabled": False}
@@ -235,7 +233,7 @@ def _validate_context_leak(sample_views: list[dict[str, Any]], manifest: dict[st
 
 
 def _validate_shard_union(sample_views: list[dict[str, Any]], manifest: dict[str, Any]) -> dict[str, Any]:
-    """检查各分片并集是否覆盖了设计上必须暴露的关键信息。"""
+    """Check that shard union covers required key information."""
     track_name = manifest.get("context_view", {}).get("track_name")
     if track_name != "split_context":
         return {"passed": True, "enabled": False}
@@ -261,17 +259,16 @@ def _validate_shard_union(sample_views: list[dict[str, Any]], manifest: dict[str
     return {"passed": len(violations) == 0, "enabled": True, "violation_count": len(violations), "violations": violations[:20]}
 
 
-def load_json(path: Path) -> dict[str, Any]:
-    """读取 UTF-8 JSON；不存在时返回空字典。"""
+def _load_json(path: Path) -> dict[str, Any]:
+    """Read a UTF-8 JSON file; return empty dict if missing."""
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def load_jsonl(path: Path) -> list[dict[str, Any]]:
-    """读取 UTF-8 JSONL；不存在时返回空列表。"""
+def _load_jsonl(path: Path) -> list[dict[str, Any]]:
+    """Read a UTF-8 JSONL file; return empty list if missing."""
     if not path.exists():
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
-

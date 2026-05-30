@@ -1,99 +1,63 @@
-"""CONSENSAGENT 实验的验证模块。"""
+"""CONSENSAGENT run validation."""
 
 from __future__ import annotations
 
-import json
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from research_experiments.families.shared.validate_common import (
+    load_jsonl,
+    summarize_turn_statuses,
+    validate_shared_contracts,
+)
+
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
-    """验证一个 CONSENSAGENT 运行的完整性。"""
-    run_root = Path(run_dir)
-    issues: list[str] = []
-    warnings: list[str] = []
+    root = Path(run_dir)
 
-    # 检查必要文件是否存在
     required_files = [
+        "manifest.json",
         "turns.jsonl",
+        "debate_messages.jsonl",
         "predictions.jsonl",
         "metrics.json",
-    ]
-    for filename in required_files:
-        filepath = run_root / filename
-        if not filepath.exists():
-            issues.append(f"Missing required file: {filename}")
-        elif filepath.stat().st_size == 0:
-            issues.append(f"Empty file: {filename}")
-
-    # 检查可选文件
-    optional_files = [
-        "debate_messages.jsonl",
         "cost_breakdown.json",
         "debate_diagnostics.json",
+        "report.md",
+        "figure_manifest.json",
+        "archive_manifest.json",
     ]
-    for filename in optional_files:
-        filepath = run_root / filename
-        if not filepath.exists():
-            warnings.append(f"Missing optional file: {filename}")
+    missing = [name for name in required_files if not (root / name).exists()]
 
-    # 检查 predictions.jsonl 的内容
-    predictions_path = run_root / "predictions.jsonl"
-    if predictions_path.exists():
-        try:
-            predictions = _load_jsonl(predictions_path)
-            if not predictions:
-                issues.append("predictions.jsonl is empty")
-            else:
-                # 检查必要字段
-                required_fields = [
-                    "run_id", "dataset", "sample_id", "method_name",
-                    "prediction", "gold", "score",
-                ]
-                for i, pred in enumerate(predictions[:5]):  # 只检查前5条
-                    for field in required_fields:
-                        if field not in pred:
-                            issues.append(f"Prediction {i} missing field: {field}")
+    turn_rows = load_jsonl(root / "turns.jsonl") if (root / "turns.jsonl").exists() else []
+    prediction_rows = load_jsonl(root / "predictions.jsonl") if (root / "predictions.jsonl").exists() else []
 
-                # 检查触发机制字段
-                trigger_fields = ["trigger_type", "trigger_round", "sycophancy_rate"]
-                for i, pred in enumerate(predictions[:5]):
-                    for field in trigger_fields:
-                        if field not in pred:
-                            warnings.append(f"Prediction {i} missing trigger field: {field}")
-        except Exception as e:
-            issues.append(f"Failed to parse predictions.jsonl: {e}")
+    status_summary = summarize_turn_statuses(turn_rows)
+    methods = Counter(str(row.get("method_name")) for row in prediction_rows)
 
-    # 检查 metrics.json 的内容
-    metrics_path = run_root / "metrics.json"
-    if metrics_path.exists():
-        try:
-            metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
-            if "summary" not in metrics:
-                issues.append("metrics.json missing 'summary' field")
-            else:
-                summary = metrics["summary"]
-                if not isinstance(summary, list):
-                    issues.append("metrics.summary is not a list")
-                elif len(summary) == 0:
-                    issues.append("metrics.summary is empty")
-        except Exception as e:
-            issues.append(f"Failed to parse metrics.json: {e}")
+    shared_contracts = validate_shared_contracts(root)
+    figure_contract = shared_contracts["figure_contract"]
+    archive_contract = shared_contracts["archive_contract"]
 
+    passed = (
+        not missing
+        and status_summary["request_failures"] == 0
+        and status_summary["schema_failures"] == 0
+        and bool(prediction_rows)
+        and figure_contract["passed"]
+        and archive_contract["passed"]
+    )
     return {
-        "valid": len(issues) == 0,
-        "issues": issues,
-        "warnings": warnings,
-        "checked_files": required_files + optional_files,
+        "run_dir": str(root),
+        "passed": passed,
+        "missing_files": missing,
+        "request_failures": status_summary["request_failures"],
+        "schema_failures": status_summary["schema_failures"],
+        "output_success_rate": status_summary["output_success_rate"],
+        "turn_rows": status_summary["total_turns"],
+        "prediction_rows": len(prediction_rows),
+        "methods": dict(methods),
+        "figure_contract": figure_contract,
+        "archive_contract": archive_contract,
     }
-
-
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
-    """加载 JSONL 文件。"""
-    records = []
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                records.append(json.loads(line))
-    return records

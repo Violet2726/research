@@ -1,7 +1,7 @@
-"""`comm_necessary` 运行产物验证。
+"""comm_necessary run artifact validation.
 
-该校验器重点检查 split-context 设计是否被破坏、消息包是否超上限、
-rate limit 约束是否失守，以及 HotpotQA 官方预测文件是否已经正确导出。
+Checks split-context design integrity, message packet cap compliance,
+rate limit constraints, and HotpotQA prediction file export correctness.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from research_experiments.families.comm_necessary.algorithms import METHOD_ORDER
-from research_experiments.families.shared.validate_common import validate_shared_contracts
+from research_experiments.families.shared.validate_common import summarize_turn_statuses, validate_shared_contracts
 
 REQUIRED_FILES = [
     "manifest.json",
@@ -33,19 +33,18 @@ REQUIRED_FILES = [
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
-    """验证 comm_necessary run 是否满足实验契约。"""
+    """Validate comm_necessary run meets experiment contract."""
     root = Path(run_dir)
     missing = [name for name in REQUIRED_FILES if not (root / name).exists()]
-    manifest = load_json(root / "manifest.json")
-    sample_views = load_jsonl(root / "sample_views.jsonl")
-    stage_a_rows = load_jsonl(root / "stage_a_turns.jsonl")
-    packet_rows = load_jsonl(root / "message_packets.jsonl")
-    stage_b_rows = load_jsonl(root / "stage_b_turns.jsonl")
-    prediction_rows = load_jsonl(root / "final_predictions.jsonl")
+    manifest = _load_json(root / "manifest.json")
+    sample_views = _load_jsonl(root / "sample_views.jsonl")
+    stage_a_rows = _load_jsonl(root / "stage_a_turns.jsonl")
+    packet_rows = _load_jsonl(root / "message_packets.jsonl")
+    stage_b_rows = _load_jsonl(root / "stage_b_turns.jsonl")
+    prediction_rows = _load_jsonl(root / "final_predictions.jsonl")
     turn_rows = stage_a_rows + stage_b_rows
 
-    request_failures = sum(1 for row in turn_rows if row.get("output_status") == "request_fail")
-    schema_failures = sum(1 for row in turn_rows if row.get("output_status") == "schema_fail")
+    status_summary = summarize_turn_statuses(turn_rows)
     paired_check = _paired_design_check(manifest, prediction_rows)
     context_leak_check = _context_leak_check(sample_views)
     shard_union_check = _shard_union_check(sample_views)
@@ -59,8 +58,8 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     passed = all(
         [
             not missing,
-            request_failures == 0,
-            schema_failures == 0,
+            status_summary["request_failures"] == 0,
+            status_summary["schema_failures"] == 0,
             paired_check["passed"],
             context_leak_check["passed"],
             shard_union_check["passed"],
@@ -76,9 +75,9 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "run_dir": str(root),
         "passed": passed,
         "missing_files": missing,
+        "request_failures": status_summary["request_failures"],
+        "schema_failures": status_summary["schema_failures"],
         "checks": {
-            "request_failures_total": request_failures,
-            "schema_failures_total": schema_failures,
             "paired_design_check": paired_check,
             "context_leak_check": context_leak_check,
             "shard_union_check": shard_union_check,
@@ -97,7 +96,7 @@ def _paired_design_check(manifest: dict[str, Any], prediction_rows: list[dict[st
     by_sample: dict[tuple[str, str], set[str]] = defaultdict(set)
     for row in prediction_rows:
         by_sample[(str(row.get("dataset")), str(row.get("sample_id")))].add(str(row.get("method_name")))
-    missing = [
+    missing_methods = [
         {"dataset": dataset, "sample_id": sample_id, "missing_methods": sorted(set(methods) - observed)}
         for (dataset, sample_id), observed in sorted(by_sample.items())
         if set(methods) - observed
@@ -110,9 +109,9 @@ def _paired_design_check(manifest: dict[str, Any], prediction_rows: list[dict[st
         if counts.get(method, 0) != expected
     ]
     return {
-        "passed": expected > 0 and not missing and not count_mismatches,
+        "passed": expected > 0 and not missing_methods and not count_mismatches,
         "sample_count": expected,
-        "missing_methods": missing[:20],
+        "missing_methods": missing_methods[:20],
         "count_mismatches": count_mismatches,
     }
 
@@ -177,7 +176,7 @@ def _hotpot_prediction_files_check(root: Path, prediction_rows: list[dict[str, A
         path = output_dir / f"{method}.json"
         if not path.exists():
             continue
-        payload = load_json(path)
+        payload = _load_json(path)
         answer = payload.get("answer")
         sp = payload.get("sp")
         expected_ids = expected_ids_by_method.get(method, set())
@@ -234,16 +233,16 @@ def _parse_timestamp(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def load_json(path: Path) -> dict[str, Any]:
+def _load_json(path: Path) -> dict[str, Any]:
+    """Read a UTF-8 JSON file; return empty dict if missing."""
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def load_jsonl(path: Path) -> list[dict[str, Any]]:
+def _load_jsonl(path: Path) -> list[dict[str, Any]]:
+    """Read a UTF-8 JSONL file; return empty list if missing."""
     if not path.exists():
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
-
-

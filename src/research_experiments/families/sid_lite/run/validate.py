@@ -1,7 +1,8 @@
-"""SID-lite 运行产物验证。
+"""SID-lite run artifact validation.
 
-该校验器重点验证共享前缀、公平对照与机制约束：
-例如 early-exit 是否真的零通信、共享 Stage A 哈希是否一致、置信度失效时是否 fail-open。
+Validates shared frontend, fair comparison, and mechanism constraints:
+early-exit zero communication, shared Stage A hash consistency,
+and confidence fail-open behavior.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.validate_common import validate_shared_contracts
+from research_experiments.families.shared.validate_common import summarize_turn_statuses, validate_shared_contracts
 
 REQUIRED_FILES = [
     "manifest.json",
@@ -29,17 +30,16 @@ REQUIRED_FILES = [
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
-    """验证 SID-lite run 是否满足 smoke 实验契约。"""
+    """Validate SID-lite run meets smoke experiment contract."""
     root = Path(run_dir)
     missing = [name for name in REQUIRED_FILES if not (root / name).exists()]
-    manifest = load_json(root / "manifest.json") if (root / "manifest.json").exists() else {}
-    stage_a_rows = load_jsonl(root / "stage_a_turns.jsonl")
-    packet_rows = load_jsonl(root / "message_packets.jsonl")
-    belief_rows = load_jsonl(root / "belief_updates.jsonl")
-    prediction_rows = load_jsonl(root / "final_predictions.jsonl")
+    manifest = _load_json(root / "manifest.json") if (root / "manifest.json").exists() else {}
+    stage_a_rows = _load_jsonl(root / "stage_a_turns.jsonl")
+    packet_rows = _load_jsonl(root / "message_packets.jsonl")
+    belief_rows = _load_jsonl(root / "belief_updates.jsonl")
+    prediction_rows = _load_jsonl(root / "final_predictions.jsonl")
 
-    request_failures = sum(1 for row in stage_a_rows + belief_rows if row.get("output_status") == "request_fail")
-    schema_failures = sum(1 for row in stage_a_rows + belief_rows if row.get("output_status") == "schema_fail")
+    status_summary = summarize_turn_statuses(stage_a_rows + belief_rows)
     paired_check = _paired_design_check(manifest, prediction_rows)
     stage_hash_check = _shared_stage_hash_check(prediction_rows)
     early_exit_check = _early_exit_zero_comm_check(prediction_rows)
@@ -50,8 +50,8 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     archive_contract = shared_contracts["archive_contract"]
     passed = (
         not missing
-        and request_failures == 0
-        and schema_failures == 0
+        and status_summary["request_failures"] == 0
+        and status_summary["schema_failures"] == 0
         and paired_check["passed"]
         and stage_hash_check["passed"]
         and early_exit_check["passed"]
@@ -64,9 +64,9 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "run_dir": str(root),
         "passed": passed,
         "missing_files": missing,
+        "request_failures": status_summary["request_failures"],
+        "schema_failures": status_summary["schema_failures"],
         "checks": {
-            "request_failures_total": request_failures,
-            "schema_failures_total": schema_failures,
             "paired_design_check": paired_check,
             "shared_stage_a_hash_check": stage_hash_check,
             "early_exit_zero_comm_check": early_exit_check,
@@ -160,15 +160,14 @@ def _compact_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def load_json(path: Path) -> dict[str, Any]:
+def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def load_jsonl(path: Path) -> list[dict[str, Any]]:
+def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
-

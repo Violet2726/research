@@ -112,7 +112,7 @@ def _dataset_instruction(sample: DatasetSample) -> str:
     return dataset_instruction_for_sample(
         sample,
         context_scope="visible",
-        hotpot_style="shortest_span",
+        hotpot_style="short_span",
         multiple_choice_scope="visible",
     )
 

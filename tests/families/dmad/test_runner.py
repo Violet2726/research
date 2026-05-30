@@ -207,7 +207,7 @@ def test_dmad_validate_run_accepts_complete_artifacts(tmp_path: Path) -> None:
     payload = validate_run(tmp_path)
 
     assert payload["passed"] is True
-    assert payload["request_failures_total"] == 0
+    assert payload["request_failures"] == 0
 
 
 def test_dmad_run_experiment_executes_minimal_flow(monkeypatch, tmp_path: Path) -> None:

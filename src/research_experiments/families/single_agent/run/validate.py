@@ -1,7 +1,8 @@
-"""单智能体运行结果校验。
+"""Single-agent run result validation.
 
-这里关注的不是机制复杂性，而是基线实验是否“干净可比”：
-请求失败率、输出成功率，以及不同方法在同一 split 上的预测行数是否对齐。
+Focuses on whether the baseline experiment is "clean and comparable":
+request failure rate, output success rate, and prediction row counts
+aligned across different methods on the same split.
 """
 
 from __future__ import annotations
@@ -11,14 +12,14 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.validate_common import validate_shared_contracts
+from research_experiments.families.shared.validate_common import summarize_turn_statuses, validate_shared_contracts
 
 
 def validate_run(
     run_dir: str | Path,
     output_success_threshold: float = 0.95,
 ) -> dict[str, Any]:
-    """对单智能体运行产物执行完整性与一致性检查。"""
+    """Run completeness and consistency checks on single-agent run artifacts."""
     root = Path(run_dir)
     required = [
         "manifest.json",
@@ -34,9 +35,7 @@ def validate_run(
     prediction_rows = load_jsonl(root / "predictions.jsonl")
     metrics = json.loads((root / "metrics.json").read_text(encoding="utf-8"))
 
-    request_failures = sum(1 for row in raw_rows if row.get("output_status") == "request_fail")
-    output_success_count = sum(1 for row in raw_rows if row.get("output_status") == "ok")
-    output_success_rate = output_success_count / len(raw_rows) if raw_rows else 0.0
+    status_summary = summarize_turn_statuses(raw_rows)
 
     output_by_group: dict[str, Any] = {}
     grouped_parse: dict[tuple[str, str], Counter] = defaultdict(Counter)
@@ -59,8 +58,8 @@ def validate_run(
     passed = all(
         [
             not missing_files,
-            request_failures == 0,
-            output_success_rate >= output_success_threshold,
+            status_summary["request_failures"] == 0,
+            status_summary["output_success_rate"] >= output_success_threshold,
             split_count_check["passed"],
             figure_contract["passed"],
             archive_contract["passed"],
@@ -71,9 +70,10 @@ def validate_run(
         "run_dir": str(root),
         "passed": passed,
         "missing_files": missing_files,
+        "request_failures": status_summary["request_failures"],
+        "schema_failures": status_summary["schema_failures"],
+        "output_success_rate": status_summary["output_success_rate"],
         "checks": {
-            "request_failures_total": request_failures,
-            "output_success_rate": output_success_rate,
             "output_success_threshold": output_success_threshold,
             "prediction_count_check": split_count_check,
             "figure_contract": figure_contract,
@@ -85,7 +85,7 @@ def validate_run(
 
 
 def _validate_prediction_counts(prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """检查同数据集下不同方法同 rerun 的预测行数是否对齐。"""
+    """Check that different methods under the same dataset have aligned prediction row counts."""
     grouped: Counter = Counter((row["dataset"], row["method_name"], row["rerun_index"]) for row in prediction_rows)
     if not grouped:
         return {"passed": False, "details": "No prediction rows found."}
@@ -107,7 +107,6 @@ def _validate_prediction_counts(prediction_rows: list[dict[str, Any]]) -> dict[s
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
-    """读取 UTF-8 JSONL 文件。"""
+    """Read a UTF-8 JSONL file."""
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
-
