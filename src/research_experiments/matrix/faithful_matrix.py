@@ -19,7 +19,7 @@ from research_experiments.core.execution.rate_limits import (
     STANDARD_TOKENS_PER_MINUTE_LIMIT,
 )
 from research_experiments.core.io import read_json, read_toml, write_json, write_markdown
-from research_experiments.families.artifacts import load_metrics_payload
+from research_experiments.core.families.artifacts import load_metrics_payload
 from research_experiments.families.registry import get_family_registration, validator_map
 from research_experiments.matrix.faithful_acceptance import render_acceptance_summary
 from research_experiments.matrix.faithful_analysis import render_faithful_analysis
@@ -857,4 +857,5 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
+
 

@@ -23,8 +23,10 @@ class RunArtifactIndex(BaseModel):
     archive_manifest_path: Path
     metrics_view_path: Path
     prediction_records_path: Path
+    run_summary_path: Path
     turn_record_paths: tuple[Path, ...] = ()
-    extra_view_paths: tuple[Path, ...] = ()
+    diagnostic_paths: tuple[Path, ...] = ()
+    export_paths: tuple[Path, ...] = ()
 
 
 __all__ = ["RunArtifactIndex"]

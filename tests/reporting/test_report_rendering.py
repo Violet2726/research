@@ -2,16 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from testsupport.filesystem import write_json
+from testsupport.filesystem import write_json, write_registered_family_manifest
 
 from research_experiments.families.selective_comm.run.report import render_report as render_selective_report
 from research_experiments.families.single_agent.run.report import render_report as render_single_agent_report
 
 
 def test_single_agent_render_report_outputs_scientific_markdown(tmp_path: Path) -> None:
-    write_json(
+    write_registered_family_manifest(
         tmp_path / "manifest.json",
-        {
+        family_name="single_agent",
+        payload={
             "created_at": "2026-05-09T12:00:00+00:00",
             "experiment": "same_context_core_benchmarks",
             "phase": "count20",
@@ -20,7 +21,7 @@ def test_single_agent_render_report_outputs_scientific_markdown(tmp_path: Path) 
         },
     )
     write_json(
-        tmp_path / "metrics.json",
+        tmp_path / "views" / "metrics.json",
         {
             "summary": [
                 {
@@ -75,17 +76,18 @@ def test_single_agent_render_report_outputs_scientific_markdown(tmp_path: Path) 
     local_report = Path(payload["local_report"]).read_text(encoding="utf-8")
     published_report = Path(payload["published_report"]).read_text(encoding="utf-8")
 
-    assert "## 摘要" in local_report
-    assert "## 研究问题与判读口径" in local_report
+    assert "# 单智能体科研报告" in local_report
+    assert "## 实验概览" in local_report
     assert "## 图表资产" in local_report
     assert "figures/frontier_overall.svg" in local_report
     assert "../figures/frontier_overall.svg" in published_report
 
 
 def test_selective_comm_render_report_outputs_scientific_markdown(tmp_path: Path) -> None:
-    write_json(
+    write_registered_family_manifest(
         tmp_path / "manifest.json",
-        {
+        family_name="selective_comm",
+        payload={
             "created_at": "2026-05-09T12:00:00+00:00",
             "experiment": "trigger_early_exit_main",
             "phase": "count20",
@@ -94,7 +96,7 @@ def test_selective_comm_render_report_outputs_scientific_markdown(tmp_path: Path
         },
     )
     write_json(
-        tmp_path / "policy_metrics.json",
+        tmp_path / "views" / "metrics.json",
         {
             "summary": [
                 {
@@ -137,7 +139,7 @@ def test_selective_comm_render_report_outputs_scientific_markdown(tmp_path: Path
         },
     )
     write_json(
-        tmp_path / "policy_diagnostics.json",
+        tmp_path / "diagnostics" / "policy_diagnostics.json",
         {
             "policy_rows": [
                 {
@@ -179,8 +181,8 @@ def test_selective_comm_render_report_outputs_scientific_markdown(tmp_path: Path
             "recommended_next_default_policy": {"selected_policy": "hybrid_trigger"},
         },
     )
-    write_json(tmp_path / "oracle_trigger_eval.json", {"sample_rows": []})
-    (tmp_path / "policy_predictions.jsonl").write_text("", encoding="utf-8")
+    write_json(tmp_path / "diagnostics" / "oracle_trigger_eval.json", {"sample_rows": []})
+    (tmp_path / "views" / "predictions.jsonl").write_text("", encoding="utf-8")
 
     payload = render_selective_report(tmp_path, publish_dir=tmp_path / "published")
     local_report = Path(payload["local_report"]).read_text(encoding="utf-8")

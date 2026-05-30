@@ -51,14 +51,14 @@ from research_experiments.families.budget_comm.config import (
 )
 from research_experiments.families.budget_comm.dataset_views import build_context_views, serialize_view_row
 from research_experiments.families.budget_comm.prompts import build_belief_update_messages, build_solver_messages
-from research_experiments.families.shared.common import (
+from research_experiments.core.families.common import (
     build_question_preview,
     resolve_phase_split_name,
     safe_mean,
     stable_trace_hash,
     sum_metric,
 )
-from research_experiments.families.shared.comparator_impls import build_stage_a_mv3_prediction
+from research_experiments.core.families.comparator_impls import build_stage_a_mv3_prediction
 
 
 @dataclass(frozen=True)
@@ -1021,5 +1021,6 @@ def _median_floor(values: list[int]) -> int:
     if len(ordered) % 2 == 1:
         return int(ordered[midpoint])
     return int((ordered[midpoint - 1] + ordered[midpoint]) // 2)
+
 
 

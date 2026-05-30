@@ -1,43 +1,30 @@
-"""`multi_agent` 运行目录与固定产物路径。"""
+"""Canonical run-layout helpers for `multi_agent`."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
-from research_experiments.core.execution.runner_common import prepare_run_root
+from research_experiments.core.families.run_layout import FamilyRunLayout, prepare_family_run_layout
+from research_experiments.families.registry import get_family_registration
 
 
-@dataclass(frozen=True)
-class RunPaths:
-    """多智能体运行目录下的固定产物路径集合。"""
-
-    root: Path
-    manifest: Path
-    agent_turns: Path
-    debate_messages: Path
-    final_predictions: Path
-    metrics: Path
-    cost_breakdown: Path
-    debate_diagnostics: Path
-    run_summary: Path
-    run_validation: Path
-    progress: Path
+ALIASES = {
+    "agent_turns": "turns/agent_turns.jsonl",
+"debate_messages": "turns/debate_messages.jsonl",
+"final_predictions": "views/predictions.jsonl",
+"cost_breakdown": "diagnostics/cost_breakdown.json",
+"debate_diagnostics": "diagnostics/debate_diagnostics.json",
+"run_validation": "run_validation.json",
+}
 
 
-def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> RunPaths:
-    """创建多智能体运行目录和固定产物路径。"""
-    root = prepare_run_root(run_root, experiment_name, phase_name, run_id)
-    return RunPaths(
-        root=root,
-        manifest=root / "manifest.json",
-        agent_turns=root / "agent_turns.jsonl",
-        debate_messages=root / "debate_messages.jsonl",
-        final_predictions=root / "final_predictions.jsonl",
-        metrics=root / "metrics.json",
-        cost_breakdown=root / "cost_breakdown.json",
-        debate_diagnostics=root / "debate_diagnostics.json",
-        run_summary=root / "run_summary.json",
-        run_validation=root / "run_validation.json",
-        progress=root / "progress.json",
+def prepare_run_layout(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> FamilyRunLayout:
+    registration = get_family_registration("multi_agent")
+    return prepare_family_run_layout(
+        run_root,
+        experiment_name,
+        phase_name,
+        run_id,
+        artifact_schema=registration.artifact_schema,
+        aliases=ALIASES,
     )

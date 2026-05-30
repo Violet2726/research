@@ -8,7 +8,7 @@ from typing import Any
 
 from research_experiments.families.free_mad_lite.algorithms import METHOD_ORDER
 from research_experiments.families.free_mad_lite.prompts import anti_conformity_prompt_hash
-from research_experiments.families.shared.common import safe_mean
+from research_experiments.core.families.common import safe_mean
 
 
 def build_metrics_payload(prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -73,4 +73,5 @@ def write_paper_summary(path: Path, metrics_payload: dict[str, Any]) -> None:
         writer.writeheader()
         for row in metrics_payload.get("summary", []):
             writer.writerow({key: row.get(key) for key in fieldnames})
+
 

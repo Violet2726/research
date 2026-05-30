@@ -8,11 +8,16 @@ from pathlib import Path
 from typing import Any
 
 from research_experiments.families.free_mad_lite.algorithms import METHOD_ORDER
-from research_experiments.families.shared.report_common import (
+from research_experiments.core.families.artifacts import (
+    load_metrics_payload,
+    named_diagnostic_paths,
+    resolve_run_artifact_index,
+)
+from research_experiments.core.families.report_common import (
     render_family_report_bundle,
     render_family_scientific_report,
 )
-from research_experiments.families.shared.standard_method_names import VANILLA_MAD_R1_FINAL_VOTE
+from research_experiments.core.families.comparator_registry import VANILLA_MAD_R1_FINAL_VOTE
 from research_experiments.reporting.analysis_reports import render_frontier_report
 from research_experiments.reporting.report_pipeline import SupplementalReport
 from research_experiments.reporting.report_views import SummaryTableView, load_json_payload, load_jsonl_rows
@@ -31,7 +36,7 @@ from research_experiments.workspace.layout import default_reports_root
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
-    summary = SummaryTableView.from_metrics_payload(load_json_payload(Path(run_dir) / "metrics.json"))
+    summary = SummaryTableView.from_metrics_payload(load_metrics_payload(run_dir, family_name="free_mad_lite"))
     grouped = summary.grouped_by_dataset()
     return {
         "run_dir": str(Path(run_dir)),
@@ -43,11 +48,12 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
 
 def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) -> dict[str, Any]:
     publish_dir = publish_dir or default_reports_root("free_mad_lite")
-    root = Path(run_dir)
-    manifest = load_json_payload(root / "manifest.json")
-    metrics = load_json_payload(root / "metrics.json")
-    diagnostics = load_json_payload(root / "diagnostics.json")
-    predictions = load_jsonl_rows(root / "final_predictions.jsonl")
+    index = resolve_run_artifact_index(run_dir, family_name="free_mad_lite")
+    root = index.run_dir
+    manifest = load_json_payload(index.manifest_path)
+    metrics = load_json_payload(index.metrics_view_path)
+    diagnostics = load_json_payload(named_diagnostic_paths(root, family_name="free_mad_lite")["diagnostics.json"])
+    predictions = load_jsonl_rows(index.prediction_records_path)
     base_markdown = _render_markdown(manifest, metrics, diagnostics, predictions, root)
     return render_family_report_bundle(
         family_name="free_mad_lite",
@@ -59,7 +65,7 @@ def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) ->
         supplemental_reports=[
             SupplementalReport(
                 result_key="frontier_report",
-                filename="frontier_report.md",
+                filename="exports/frontier_report.md",
                 content=render_frontier_report(metrics.get("summary", []), title="Free-MAD-lite 前沿附录"),
             )
         ],
@@ -293,5 +299,6 @@ def _quantile(values: list[float], q: float) -> float:
         return float(ordered[lower])
     weight = position - lower
     return round(ordered[lower] * (1 - weight) + ordered[upper] * weight, 6)
+
 
 

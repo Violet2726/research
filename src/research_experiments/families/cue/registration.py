@@ -18,7 +18,7 @@ from research_experiments.families.registration_helpers import (
     build_backbone_run_from_cli,
     make_family_registration,
 )
-from research_experiments.families.shared.config_loading import load_benchmarks, resolve_model
+from research_experiments.core.families.config_loading import load_benchmarks, resolve_model
 from research_experiments.workspace.layout import workspace_defaults
 
 
@@ -56,7 +56,7 @@ REGISTRATION = make_family_registration(
         description="CUE experiment runner.",
         inspect_help="Show the resolved CUE experiment configuration.",
         run_help="Execute one configured CUE phase.",
-        summarize_help="Print a concise run summary from policy_metrics.json.",
+        summarize_help="Print a concise run summary from views/metrics.json.",
         validate_help="Run validation checks for one CUE run.",
         report_help="Regenerate the Chinese CUE markdown report.",
     ),
@@ -72,13 +72,10 @@ REGISTRATION = make_family_registration(
     summarize_run=summarize_run,
     validate_run=validate_run,
     render_report=render_report,
-    metrics_view_path="policy_metrics.json",
-    prediction_records_path="policy_predictions.jsonl",
-    turn_record_paths=(
-        "stage_a_turns.jsonl",
-        "communication_turns.jsonl",
-        "audit_turns.jsonl",
-        "control_turns.jsonl",
-    ),
-    extra_view_paths=("policy_diagnostics.json", "oracle_trigger_eval.json"),
+    metrics_view_path="views/metrics.json",
+    prediction_records_path="views/predictions.jsonl",
+    turn_record_paths=('turns/stage_a_turns.jsonl', 'turns/communication_turns.jsonl', 'turns/audit_turns.jsonl', 'turns/control_turns.jsonl'),
+    diagnostic_paths=('diagnostics/policy_diagnostics.json', 'diagnostics/oracle_trigger_eval.json'),
+    export_paths=('exports/frontier_report.md',),
 )
+

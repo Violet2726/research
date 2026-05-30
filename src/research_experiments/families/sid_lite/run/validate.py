@@ -12,7 +12,13 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.validate_common import summarize_turn_statuses, validate_shared_contracts
+from research_experiments.core.families.artifacts import (
+    named_diagnostic_paths,
+    named_export_paths,
+    named_turn_record_paths,
+    resolve_run_artifact_index,
+)
+from research_experiments.core.families.validate_common import summarize_turn_statuses, validate_shared_contracts
 
 REQUIRED_FILES = [
     "manifest.json",
@@ -31,13 +37,31 @@ REQUIRED_FILES = [
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
     """Validate SID-lite run meets smoke experiment contract."""
-    root = Path(run_dir)
-    missing = [name for name in REQUIRED_FILES if not (root / name).exists()]
-    manifest = _load_json(root / "manifest.json") if (root / "manifest.json").exists() else {}
-    stage_a_rows = _load_jsonl(root / "stage_a_turns.jsonl")
-    packet_rows = _load_jsonl(root / "message_packets.jsonl")
-    belief_rows = _load_jsonl(root / "belief_updates.jsonl")
-    prediction_rows = _load_jsonl(root / "final_predictions.jsonl")
+    index = resolve_run_artifact_index(run_dir, family_name="sid_lite")
+    root = index.run_dir
+    turn_paths = named_turn_record_paths(root, family_name="sid_lite")
+    diagnostic_paths = named_diagnostic_paths(root, family_name="sid_lite")
+    export_paths = named_export_paths(root, family_name="sid_lite")
+    required_paths = [
+        index.manifest_path,
+        turn_paths["stage_a_turns.jsonl"],
+        turn_paths["message_packets.jsonl"],
+        turn_paths["belief_updates.jsonl"],
+        index.prediction_records_path,
+        index.metrics_view_path,
+        diagnostic_paths["diagnostics.json"],
+        index.progress_path,
+        index.report_path,
+        export_paths["paper_summary.csv"],
+        index.figure_manifest_path,
+        index.archive_manifest_path,
+    ]
+    missing = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
+    manifest = _load_json(index.manifest_path) if index.manifest_path.exists() else {}
+    stage_a_rows = _load_jsonl(turn_paths["stage_a_turns.jsonl"])
+    packet_rows = _load_jsonl(turn_paths["message_packets.jsonl"])
+    belief_rows = _load_jsonl(turn_paths["belief_updates.jsonl"])
+    prediction_rows = _load_jsonl(index.prediction_records_path)
 
     status_summary = summarize_turn_statuses(stage_a_rows + belief_rows)
     paired_check = _paired_design_check(manifest, prediction_rows)
@@ -171,3 +195,4 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+

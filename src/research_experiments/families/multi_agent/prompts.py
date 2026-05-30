@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from research_experiments.families.shared.vanilla_mad_prompting import (
+from research_experiments.core.families.vanilla_mad_prompting import (
     CONTROLLED_PROMPT_VERSION,
     DEFAULT_PROMPT_VERSION,
     build_debate_messages,
@@ -15,3 +15,4 @@ __all__ = [
     "build_initial_messages",
     "build_debate_messages",
 ]
+

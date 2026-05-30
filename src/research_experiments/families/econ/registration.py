@@ -13,7 +13,7 @@ from research_experiments.families.registration_helpers import (
     build_backbone_run_from_cli,
     make_family_registration,
 )
-from research_experiments.families.shared.config_loading import load_benchmarks, resolve_model
+from research_experiments.core.families.config_loading import load_benchmarks, resolve_model
 from research_experiments.workspace.layout import workspace_defaults
 
 
@@ -64,12 +64,10 @@ REGISTRATION = make_family_registration(
     summarize_run=summarize_run,
     validate_run=validate_run,
     render_report=render_report,
-    metrics_view_path="metrics.json",
-    prediction_records_path="final_predictions.jsonl",
-    turn_record_paths=(
-        "agent_turns.jsonl",
-        "communication_trace.jsonl",
-        "belief_trace.jsonl",
-        "equilibrium_trace.jsonl",
-    ),
+    metrics_view_path="views/metrics.json",
+    prediction_records_path="views/predictions.jsonl",
+    turn_record_paths=('turns/agent_turns.jsonl', 'turns/belief_trace.jsonl', 'turns/equilibrium_trace.jsonl', 'turns/communication_trace.jsonl'),
+    diagnostic_paths=(),
+    export_paths=(),
 )
+

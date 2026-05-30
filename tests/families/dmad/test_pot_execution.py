@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from research_experiments.families.shared.pot_execution import (
+from research_experiments.core.families.pot_execution import (
     build_pot_answer_artifact,
     execute_pot_program,
     extract_python_program,
@@ -90,3 +90,4 @@ def test_build_pot_answer_artifact_recovers_truncated_json_answer() -> None:
     assert artifact.final_answer == "45"
     assert artifact.execution_status == "ok"
     assert artifact.execution_resolution == "answer_field"
+

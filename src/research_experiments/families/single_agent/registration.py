@@ -10,8 +10,8 @@ from research_experiments.families.registration_helpers import (
     build_single_agent_run_from_cli,
     make_family_registration,
 )
-from research_experiments.families.shared.config_loading import load_benchmarks, resolve_model
-from research_experiments.families.shared.method_catalog import load_method_catalog
+from research_experiments.core.families.config_loading import load_benchmarks, resolve_model
+from research_experiments.core.families.method_catalog import load_method_catalog
 from research_experiments.families.single_agent.config import (
     load_experiment_config,
     required_benchmark_tags,
@@ -97,8 +97,10 @@ REGISTRATION = make_family_registration(
     render_report=render_report,
     configure_parser=configure_parser,
     validate_from_cli=validate_from_cli,
-    metrics_view_path="metrics.json",
-    prediction_records_path="predictions.jsonl",
-    turn_record_paths=("raw_responses.jsonl",),
-    extra_view_paths=("paper_tables.md", "run_summary.json"),
+    metrics_view_path="views/metrics.json",
+    prediction_records_path="views/predictions.jsonl",
+    turn_record_paths=('turns/raw_responses.jsonl',),
+    diagnostic_paths=(),
+    export_paths=('exports/paper_tables.md',),
 )
+

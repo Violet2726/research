@@ -26,7 +26,7 @@ from research_experiments.families.cue.config import (
     load_policies,
     load_protocol_config,
 )
-from research_experiments.families.cue.run.io import _prepare_run_paths
+from research_experiments.families.cue.run.io import prepare_run_layout
 from research_experiments.families.cue.run.report import render_report
 from research_experiments.families.cue.run.sample import (
     _build_metrics_payload,
@@ -38,7 +38,8 @@ from research_experiments.families.cue.run.sample import (
     _write_sample_result,
 )
 from research_experiments.families.cue.run.validate import validate_run
-from research_experiments.families.shared.config_loading import load_benchmarks, phase_metadata
+from research_experiments.families.run_manifest import finalize_family_manifest
+from research_experiments.core.families.config_loading import load_benchmarks, phase_metadata
 from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 
@@ -64,7 +65,7 @@ def run_experiment(
         tokens_per_minute=experiment.tokens_per_minute_limit,
     )
     run_id = build_run_id(backbone.name)
-    run_paths = _prepare_run_paths(run_root, experiment.name, phase_name, run_id)
+    run_paths = prepare_run_layout(run_root, experiment.name, phase_name, run_id)
     total_calls, total_predictions = _estimate_work(experiment, phase_name, benchmarks, protocol, controls, policies)
     progress = RunProgressTracker(run_paths.progress, total_calls, total_predictions)
 
@@ -93,6 +94,7 @@ def run_experiment(
         "total_planned_calls": total_calls,
         "total_planned_predictions": total_predictions,
     }
+    manifest = finalize_family_manifest(manifest, family_name="cue")
     run_paths.manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     all_stage_a_turns: list[dict[str, Any]] = []

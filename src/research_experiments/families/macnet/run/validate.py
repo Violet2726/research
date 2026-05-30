@@ -6,7 +6,13 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.validate_common import (
+from research_experiments.core.families.artifacts import (
+    named_diagnostic_paths,
+    named_export_paths,
+    named_turn_record_paths,
+    resolve_run_artifact_index,
+)
+from research_experiments.core.families.validate_common import (
     load_jsonl,
     summarize_turn_statuses,
     validate_shared_contracts,
@@ -30,23 +36,27 @@ REQUIRED_PREDICTION_FIELDS = {
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
     """Check whether a MacNet run meets the minimum analysis contract."""
 
-    root = Path(run_dir)
-    required = [
-        "manifest.json",
-        "artifact_trace.jsonl",
-        "instruction_trace.jsonl",
-        "final_predictions.jsonl",
-        "topology_manifest.json",
-        "scaling_summary.json",
-        "metrics.json",
-        "report.md",
-        "figure_manifest.json",
-        "archive_manifest.json",
+    index = resolve_run_artifact_index(run_dir, family_name="macnet")
+    root = index.run_dir
+    turn_paths = named_turn_record_paths(root, family_name="macnet")
+    diagnostic_paths = named_diagnostic_paths(root, family_name="macnet")
+    export_paths = named_export_paths(root, family_name="macnet")
+    required_paths = [
+        index.manifest_path,
+        turn_paths["artifact_trace.jsonl"],
+        turn_paths["instruction_trace.jsonl"],
+        index.prediction_records_path,
+        export_paths["topology_manifest.json"],
+        diagnostic_paths["scaling_summary.json"],
+        index.metrics_view_path,
+        index.report_path,
+        index.figure_manifest_path,
+        index.archive_manifest_path,
     ]
-    missing = [name for name in required if not (root / name).exists()]
-    artifact_rows = load_jsonl(root / "artifact_trace.jsonl") if (root / "artifact_trace.jsonl").exists() else []
-    instruction_rows = load_jsonl(root / "instruction_trace.jsonl") if (root / "instruction_trace.jsonl").exists() else []
-    prediction_rows = load_jsonl(root / "final_predictions.jsonl") if (root / "final_predictions.jsonl").exists() else []
+    missing = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
+    artifact_rows = load_jsonl(turn_paths["artifact_trace.jsonl"]) if turn_paths["artifact_trace.jsonl"].exists() else []
+    instruction_rows = load_jsonl(turn_paths["instruction_trace.jsonl"]) if turn_paths["instruction_trace.jsonl"].exists() else []
+    prediction_rows = load_jsonl(index.prediction_records_path) if index.prediction_records_path.exists() else []
 
     status_summary = summarize_turn_statuses(artifact_rows + instruction_rows)
     methods = Counter(row.get("method_name") for row in prediction_rows)
@@ -77,3 +87,4 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "figure_contract": figure_contract,
         "archive_contract": archive_contract,
     }
+

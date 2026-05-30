@@ -2,6 +2,7 @@
 
 from research_experiments.core.contracts.artifacts import RunArtifactIndex
 from research_experiments.core.contracts.families import (
+    ARTIFACT_SCHEMA_VERSION,
     FamilyArtifactSchema,
     FamilyCliHelp,
     FamilyPrototype,
@@ -18,6 +19,7 @@ from research_experiments.core.contracts.records import (
 
 __all__ = [
     "ExperimentSpec",
+    "ARTIFACT_SCHEMA_VERSION",
     "FamilyArtifactSchema",
     "FamilyCliHelp",
     "FamilyRegistration",

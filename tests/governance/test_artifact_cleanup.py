@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl
+from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl, write_registered_family_manifest
 
 from research_experiments.tools.artifact_cleanup import (
     build_parser,
@@ -20,24 +20,24 @@ def test_collect_run_statuses_flags_failed_multi_agent_run(tmp_path: Path) -> No
 
     valid_run = runs_root / "multi_agent" / "valid_run"
     valid_run.mkdir(parents=True)
-    write_json(valid_run / "manifest.json", {"run_id": "20260429T000001Z-valid"})
-    write_jsonl(valid_run / "agent_turns.jsonl", [{"output_status": "ok"}])
-    write_jsonl(valid_run / "debate_messages.jsonl", [{"x": 1}])
-    write_jsonl(valid_run / "final_predictions.jsonl", [{"method_name": "mad_3a_r1"}])
-    write_json(valid_run / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
-    write_json(valid_run / "cost_breakdown.json", {"rows": []})
-    write_json(valid_run / "debate_diagnostics.json", {"rows": []})
+    write_registered_family_manifest(valid_run / "manifest.json", family_name="multi_agent", run_id="20260429T000001Z-valid")
+    write_jsonl(valid_run / "turns" / "agent_turns.jsonl", [{"output_status": "ok"}])
+    write_jsonl(valid_run / "turns" / "debate_messages.jsonl", [{"x": 1}])
+    write_jsonl(valid_run / "views" / "predictions.jsonl", [{"method_name": "mad_3a_r1"}])
+    write_json(valid_run / "views" / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
+    write_json(valid_run / "diagnostics" / "cost_breakdown.json", {"rows": []})
+    write_json(valid_run / "diagnostics" / "debate_diagnostics.json", {"rows": []})
     touch_figure_contract(valid_run)
 
     invalid_run = runs_root / "multi_agent" / "invalid_run"
     invalid_run.mkdir(parents=True)
-    write_json(invalid_run / "manifest.json", {"run_id": "20260429T000002Z-invalid"})
-    write_jsonl(invalid_run / "agent_turns.jsonl", [{"output_status": "request_fail"}])
-    write_jsonl(invalid_run / "debate_messages.jsonl", [{"x": 1}])
-    write_jsonl(invalid_run / "final_predictions.jsonl", [{"method_name": "mad_3a_r1"}])
-    write_json(invalid_run / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
-    write_json(invalid_run / "cost_breakdown.json", {"rows": []})
-    write_json(invalid_run / "debate_diagnostics.json", {"rows": []})
+    write_registered_family_manifest(invalid_run / "manifest.json", family_name="multi_agent", run_id="20260429T000002Z-invalid")
+    write_jsonl(invalid_run / "turns" / "agent_turns.jsonl", [{"output_status": "request_fail"}])
+    write_jsonl(invalid_run / "turns" / "debate_messages.jsonl", [{"x": 1}])
+    write_jsonl(invalid_run / "views" / "predictions.jsonl", [{"method_name": "mad_3a_r1"}])
+    write_json(invalid_run / "views" / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
+    write_json(invalid_run / "diagnostics" / "cost_breakdown.json", {"rows": []})
+    write_json(invalid_run / "diagnostics" / "debate_diagnostics.json", {"rows": []})
 
     statuses = collect_run_statuses(workspace_root=workspace_root, runs_root=runs_root)
     status_by_id = {status.run_id: status for status in statuses}
@@ -76,24 +76,24 @@ def test_cleanup_invalid_artifacts_deletes_invalid_runs_and_reports(tmp_path: Pa
 
     valid_run = runs_root / "multi_agent" / "valid_run"
     valid_run.mkdir(parents=True)
-    write_json(valid_run / "manifest.json", {"run_id": "20260429T000001Z-valid"})
-    write_jsonl(valid_run / "agent_turns.jsonl", [{"output_status": "ok"}])
-    write_jsonl(valid_run / "debate_messages.jsonl", [{"x": 1}])
-    write_jsonl(valid_run / "final_predictions.jsonl", [{"method_name": "mad_3a_r1"}])
-    write_json(valid_run / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
-    write_json(valid_run / "cost_breakdown.json", {"rows": []})
-    write_json(valid_run / "debate_diagnostics.json", {"rows": []})
+    write_registered_family_manifest(valid_run / "manifest.json", family_name="multi_agent", run_id="20260429T000001Z-valid")
+    write_jsonl(valid_run / "turns" / "agent_turns.jsonl", [{"output_status": "ok"}])
+    write_jsonl(valid_run / "turns" / "debate_messages.jsonl", [{"x": 1}])
+    write_jsonl(valid_run / "views" / "predictions.jsonl", [{"method_name": "mad_3a_r1"}])
+    write_json(valid_run / "views" / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
+    write_json(valid_run / "diagnostics" / "cost_breakdown.json", {"rows": []})
+    write_json(valid_run / "diagnostics" / "debate_diagnostics.json", {"rows": []})
     touch_figure_contract(valid_run)
 
     invalid_run = runs_root / "multi_agent" / "invalid_run"
     invalid_run.mkdir(parents=True)
-    write_json(invalid_run / "manifest.json", {"run_id": "20260429T000002Z-invalid"})
-    write_jsonl(invalid_run / "agent_turns.jsonl", [{"output_status": "request_fail"}])
-    write_jsonl(invalid_run / "debate_messages.jsonl", [{"x": 1}])
-    write_jsonl(invalid_run / "final_predictions.jsonl", [{"method_name": "mad_3a_r1"}])
-    write_json(invalid_run / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
-    write_json(invalid_run / "cost_breakdown.json", {"rows": []})
-    write_json(invalid_run / "debate_diagnostics.json", {"rows": []})
+    write_registered_family_manifest(invalid_run / "manifest.json", family_name="multi_agent", run_id="20260429T000002Z-invalid")
+    write_jsonl(invalid_run / "turns" / "agent_turns.jsonl", [{"output_status": "request_fail"}])
+    write_jsonl(invalid_run / "turns" / "debate_messages.jsonl", [{"x": 1}])
+    write_jsonl(invalid_run / "views" / "predictions.jsonl", [{"method_name": "mad_3a_r1"}])
+    write_json(invalid_run / "views" / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
+    write_json(invalid_run / "diagnostics" / "cost_breakdown.json", {"rows": []})
+    write_json(invalid_run / "diagnostics" / "debate_diagnostics.json", {"rows": []})
 
     reports_root.mkdir()
     (reports_root / "keep.md").write_text("20260429T000001Z-valid", encoding="utf-8")
@@ -143,12 +143,12 @@ def test_collect_run_statuses_recognizes_cue_family(tmp_path: Path) -> None:
     runs_root = workspace_root / "local" / "runs"
     cue_run = runs_root / "cue" / "valid_run"
     cue_run.mkdir(parents=True)
-    write_json(cue_run / "manifest.json", {"run_id": "20260429T000004Z-cue"})
-    write_jsonl(cue_run / "stage_a_turns.jsonl", [{"output_status": "ok"}])
-    write_jsonl(cue_run / "communication_turns.jsonl", [])
-    write_jsonl(cue_run / "audit_turns.jsonl", [])
+    write_registered_family_manifest(cue_run / "manifest.json", family_name="cue", run_id="20260429T000004Z-cue")
+    write_jsonl(cue_run / "turns" / "stage_a_turns.jsonl", [{"output_status": "ok"}])
+    write_jsonl(cue_run / "turns" / "communication_turns.jsonl", [])
+    write_jsonl(cue_run / "turns" / "audit_turns.jsonl", [])
     write_jsonl(
-        cue_run / "policy_predictions.jsonl",
+        cue_run / "views" / "predictions.jsonl",
         [
             {
                 "dataset": "gsm8k",
@@ -164,9 +164,9 @@ def test_collect_run_statuses_recognizes_cue_family(tmp_path: Path) -> None:
             },
         ],
     )
-    write_json(cue_run / "policy_metrics.json", {"summary": [{"dataset": "gsm8k"}]})
-    write_json(cue_run / "policy_diagnostics.json", {"policy_rows": []})
-    write_json(cue_run / "oracle_trigger_eval.json", {"summary_rows": []})
+    write_json(cue_run / "views" / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
+    write_json(cue_run / "diagnostics" / "policy_diagnostics.json", {"policy_rows": []})
+    write_json(cue_run / "diagnostics" / "oracle_trigger_eval.json", {"summary_rows": []})
     (cue_run / "progress.json").write_text("{}", encoding="utf-8")
     touch_figure_contract(cue_run)
 

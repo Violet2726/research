@@ -13,7 +13,13 @@ from pathlib import Path
 from typing import Any
 
 from research_experiments.families.comm_necessary.algorithms import METHOD_ORDER
-from research_experiments.families.shared.validate_common import summarize_turn_statuses, validate_shared_contracts
+from research_experiments.core.families.artifacts import (
+    named_diagnostic_paths,
+    named_export_paths,
+    named_turn_record_paths,
+    resolve_run_artifact_index,
+)
+from research_experiments.core.families.validate_common import summarize_turn_statuses, validate_shared_contracts
 
 REQUIRED_FILES = [
     "manifest.json",
@@ -34,14 +40,33 @@ REQUIRED_FILES = [
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
     """Validate comm_necessary run meets experiment contract."""
-    root = Path(run_dir)
-    missing = [name for name in REQUIRED_FILES if not (root / name).exists()]
-    manifest = _load_json(root / "manifest.json")
-    sample_views = _load_jsonl(root / "sample_views.jsonl")
-    stage_a_rows = _load_jsonl(root / "stage_a_turns.jsonl")
-    packet_rows = _load_jsonl(root / "message_packets.jsonl")
-    stage_b_rows = _load_jsonl(root / "stage_b_turns.jsonl")
-    prediction_rows = _load_jsonl(root / "final_predictions.jsonl")
+    index = resolve_run_artifact_index(run_dir, family_name="comm_necessary")
+    root = index.run_dir
+    turn_paths = named_turn_record_paths(root, family_name="comm_necessary")
+    diagnostic_paths = named_diagnostic_paths(root, family_name="comm_necessary")
+    export_paths = named_export_paths(root, family_name="comm_necessary")
+    required_paths = [
+        index.manifest_path,
+        turn_paths["sample_views.jsonl"],
+        turn_paths["stage_a_turns.jsonl"],
+        turn_paths["message_packets.jsonl"],
+        turn_paths["stage_b_turns.jsonl"],
+        index.prediction_records_path,
+        index.metrics_view_path,
+        diagnostic_paths["diagnostics.json"],
+        index.progress_path,
+        index.report_path,
+        export_paths["paper_summary.csv"],
+        index.figure_manifest_path,
+        index.archive_manifest_path,
+    ]
+    missing = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
+    manifest = _load_json(index.manifest_path)
+    sample_views = _load_jsonl(turn_paths["sample_views.jsonl"])
+    stage_a_rows = _load_jsonl(turn_paths["stage_a_turns.jsonl"])
+    packet_rows = _load_jsonl(turn_paths["message_packets.jsonl"])
+    stage_b_rows = _load_jsonl(turn_paths["stage_b_turns.jsonl"])
+    prediction_rows = _load_jsonl(index.prediction_records_path)
     turn_rows = stage_a_rows + stage_b_rows
 
     status_summary = summarize_turn_statuses(turn_rows)
@@ -49,7 +74,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     context_leak_check = _context_leak_check(sample_views)
     shard_union_check = _shard_union_check(sample_views)
     packet_cap_check = _packet_cap_check(packet_rows)
-    hotpot_prediction_check = _hotpot_prediction_files_check(root, prediction_rows)
+    hotpot_prediction_check = _hotpot_prediction_files_check(export_paths["hotpot_predictions"], prediction_rows)
     rate_limit_check = _rate_limit_check(turn_rows, manifest)
     shared_contracts = validate_shared_contracts(root)
     figure_contract = shared_contracts["figure_contract"]
@@ -164,8 +189,7 @@ def _packet_cap_check(packet_rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {"passed": not violations, "violation_count": len(violations), "violations": violations[:20]}
 
 
-def _hotpot_prediction_files_check(root: Path, prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    output_dir = root / "hotpot_predictions"
+def _hotpot_prediction_files_check(output_dir: Path, prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:
     missing = [method for method in METHOD_ORDER if not (output_dir / f"{method}.json").exists()]
     invalid: list[dict[str, Any]] = []
     expected_ids_by_method = {
@@ -246,3 +270,4 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+

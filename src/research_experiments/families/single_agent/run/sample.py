@@ -51,9 +51,9 @@ from research_experiments.core.structured_outputs import (
     SCHEMA_ANSWER_CORE,
     validate_or_recover_structured_output,
 )
-from research_experiments.families.shared.common import resolve_phase_split_name
-from research_experiments.families.shared.config_loading import phase_metadata
-from research_experiments.families.shared.method_catalog import MethodConfig
+from research_experiments.core.families.common import resolve_phase_split_name
+from research_experiments.core.families.config_loading import phase_metadata
+from research_experiments.core.families.method_catalog import MethodConfig
 from research_experiments.families.single_agent.config import (
     ExperimentConfig,
     required_benchmark_tags,
@@ -771,5 +771,6 @@ def _ensure_run_has_eligible_work(
             f"Benchmark tag requirements: {json.dumps(benchmark_requirements, ensure_ascii=False)} | "
             f"model tags: [{', '.join(model.tags)}]"
         )
+
 
 

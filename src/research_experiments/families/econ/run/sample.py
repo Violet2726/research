@@ -27,7 +27,7 @@ from research_experiments.families.econ.prompts import (
     build_belief_update_messages,
     build_single_agent_messages,
 )
-from research_experiments.families.shared.common import (
+from research_experiments.core.families.common import (
     build_question_preview,
     resolve_phase_split_name,
     safe_mean,
@@ -859,4 +859,5 @@ def _stable_sample_seed(sample_id: str) -> int:
     """从样本 ID 派生稳定种子，避免全局随机漂移。"""
 
     return sum(ord(char) for char in sample_id)
+
 

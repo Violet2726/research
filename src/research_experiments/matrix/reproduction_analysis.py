@@ -8,7 +8,7 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
-from research_experiments.families.artifacts import load_metrics_payload
+from research_experiments.core.families.artifacts import load_metrics_payload
 from research_experiments.matrix.matrix_specs import (
     ANALYSIS_MODE_SCALING_SUMMARY,
     get_experiment_matrix_spec,
@@ -279,3 +279,4 @@ def _as_optional_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+

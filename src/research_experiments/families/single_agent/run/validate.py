@@ -12,7 +12,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.validate_common import summarize_turn_statuses, validate_shared_contracts
+from research_experiments.core.families.artifacts import named_turn_record_paths, resolve_run_artifact_index
+from research_experiments.core.families.validate_common import summarize_turn_statuses, validate_shared_contracts
 
 
 def validate_run(
@@ -20,20 +21,22 @@ def validate_run(
     output_success_threshold: float = 0.95,
 ) -> dict[str, Any]:
     """Run completeness and consistency checks on single-agent run artifacts."""
-    root = Path(run_dir)
-    required = [
-        "manifest.json",
-        "metrics.json",
-        "raw_responses.jsonl",
-        "predictions.jsonl",
-        "report.md",
-        "figure_manifest.json",
-        "archive_manifest.json",
+    index = resolve_run_artifact_index(run_dir, family_name="single_agent")
+    root = index.run_dir
+    turn_paths = named_turn_record_paths(root, family_name="single_agent")
+    required_paths = [
+        index.manifest_path,
+        index.metrics_view_path,
+        turn_paths["raw_responses.jsonl"],
+        index.prediction_records_path,
+        index.report_path,
+        index.figure_manifest_path,
+        index.archive_manifest_path,
     ]
-    missing_files = [name for name in required if not (root / name).exists()]
-    raw_rows = load_jsonl(root / "raw_responses.jsonl")
-    prediction_rows = load_jsonl(root / "predictions.jsonl")
-    metrics = json.loads((root / "metrics.json").read_text(encoding="utf-8"))
+    missing_files = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
+    raw_rows = load_jsonl(turn_paths["raw_responses.jsonl"])
+    prediction_rows = load_jsonl(index.prediction_records_path)
+    metrics = json.loads(index.metrics_view_path.read_text(encoding="utf-8"))
 
     status_summary = summarize_turn_statuses(raw_rows)
 
@@ -110,3 +113,4 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
     """Read a UTF-8 JSONL file."""
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+

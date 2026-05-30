@@ -5,8 +5,8 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
-from research_experiments.families.shared.comparator_registry import is_protected_standard_bare_name
-from research_experiments.families.shared.standard_method_names import (
+from research_experiments.core.families.comparator_registry import is_protected_standard_bare_name
+from research_experiments.core.families.comparator_registry import (
     COT_1,
     MAD_FIXED_R1,
     MV_5,
@@ -62,3 +62,4 @@ def test_dmad_family_local_methods_do_not_use_protected_bare_names() -> None:
             if name.startswith("mad_") or name.startswith("dmad_"):
                 continue
             assert not is_protected_standard_bare_name(name), f"{path} 使用了受保护的裸名 {name}"
+

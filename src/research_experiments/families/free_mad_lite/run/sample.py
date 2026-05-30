@@ -41,7 +41,7 @@ from research_experiments.families.free_mad_lite.prompts import (
     build_initial_messages,
     build_trajectory_judge_messages,
 )
-from research_experiments.families.shared.common import (
+from research_experiments.core.families.common import (
     resolve_phase_split_name,
     safe_mean,
     stable_trace_hash,
@@ -686,5 +686,6 @@ def _trace_hash(rows: list[dict[str, Any]], keys: list[str]) -> str:
 
 def _mean(values) -> float:
     return safe_mean(values)
+
 
 

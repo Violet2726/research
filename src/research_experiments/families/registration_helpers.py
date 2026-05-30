@@ -12,7 +12,7 @@ from research_experiments.core.contracts import (
     FamilyRegistration,
     FamilyRunRequest,
 )
-from research_experiments.families.shared.config_loading import load_benchmarks
+from research_experiments.core.families.config_loading import load_benchmarks
 
 
 def build_backbone_run_from_cli(
@@ -79,7 +79,8 @@ def make_family_registration(
     metrics_view_path: str,
     prediction_records_path: str,
     turn_record_paths: tuple[str, ...] = (),
-    extra_view_paths: tuple[str, ...] = (),
+    diagnostic_paths: tuple[str, ...] = (),
+    export_paths: tuple[str, ...] = (),
     configure_parser=None,
     dispatch_extra_command=None,
     validate_from_cli=None,
@@ -107,6 +108,8 @@ def make_family_registration(
             metrics_view_path=metrics_view_path,
             prediction_records_path=prediction_records_path,
             turn_record_paths=turn_record_paths,
-            extra_view_paths=extra_view_paths,
+            diagnostic_paths=diagnostic_paths,
+            export_paths=export_paths,
         ),
     )
+

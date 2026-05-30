@@ -30,12 +30,12 @@ from research_experiments.families.multi_agent.config import (
     load_protocol_config,
     load_roster_config,
 )
-from research_experiments.families.shared.common import resolve_phase_split_name
-from research_experiments.families.shared.comparator_impls import (
+from research_experiments.core.families.common import resolve_phase_split_name
+from research_experiments.core.families.comparator_impls import (
     build_shared_vanilla_mad_prediction,
     run_shared_vanilla_mad_rounds,
 )
-from research_experiments.families.shared.config_loading import phase_metadata
+from research_experiments.core.families.config_loading import phase_metadata
 
 
 @dataclass(frozen=True)
@@ -575,5 +575,6 @@ def _ratio(numerator: int, denominator: int) -> float:
     if denominator == 0:
         return 0.0
     return round(numerator / denominator, 6)
+
 
 

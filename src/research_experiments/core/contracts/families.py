@@ -16,6 +16,8 @@ FamilyPrototype = Literal[
     "topology_or_graph",
 ]
 
+ARTIFACT_SCHEMA_VERSION = 1
+
 ArtifactPaths = dict[str, Path | tuple[Path, ...]]
 
 
@@ -31,8 +33,10 @@ class FamilyArtifactSchema:
     archive_manifest_path: str = "archive_manifest.json"
     metrics_view_path: str = "views/metrics.json"
     prediction_records_path: str = "views/predictions.jsonl"
+    run_summary_path: str = "views/run_summary.json"
     turn_record_paths: tuple[str, ...] = ()
-    extra_view_paths: tuple[str, ...] = ()
+    diagnostic_paths: tuple[str, ...] = ()
+    export_paths: tuple[str, ...] = ()
 
     def build_paths(self, run_dir: str | Path) -> ArtifactPaths:
         """把相对合同路径映射成某个 run 目录下的绝对路径。"""
@@ -47,9 +51,50 @@ class FamilyArtifactSchema:
             "archive_manifest_path": root / self.archive_manifest_path,
             "metrics_view_path": root / self.metrics_view_path,
             "prediction_records_path": root / self.prediction_records_path,
+            "run_summary_path": root / self.run_summary_path,
             "turn_record_paths": tuple(root / path for path in self.turn_record_paths),
-            "extra_view_paths": tuple(root / path for path in self.extra_view_paths),
+            "diagnostic_paths": tuple(root / path for path in self.diagnostic_paths),
+            "export_paths": tuple(root / path for path in self.export_paths),
         }
+
+    def to_manifest_payload(self) -> dict[str, object]:
+        """序列化为 manifest 内的稳定 artifact 合同。"""
+
+        return {
+            "version": ARTIFACT_SCHEMA_VERSION,
+            "manifest_path": self.manifest_path,
+            "progress_path": self.progress_path,
+            "validation_path": self.validation_path,
+            "report_path": self.report_path,
+            "figure_manifest_path": self.figure_manifest_path,
+            "archive_manifest_path": self.archive_manifest_path,
+            "metrics_view_path": self.metrics_view_path,
+            "prediction_records_path": self.prediction_records_path,
+            "run_summary_path": self.run_summary_path,
+            "turn_record_paths": list(self.turn_record_paths),
+            "diagnostic_paths": list(self.diagnostic_paths),
+            "export_paths": list(self.export_paths),
+        }
+
+    @classmethod
+    def from_manifest_payload(cls, payload: dict[str, object] | None) -> "FamilyArtifactSchema":
+        """从 manifest 载荷恢复 artifact 合同。"""
+
+        source = payload or {}
+        return cls(
+            manifest_path=str(source.get("manifest_path") or "manifest.json"),
+            progress_path=str(source.get("progress_path") or "progress.json"),
+            validation_path=str(source.get("validation_path") or "run_validation.json"),
+            report_path=str(source.get("report_path") or "report.md"),
+            figure_manifest_path=str(source.get("figure_manifest_path") or "figure_manifest.json"),
+            archive_manifest_path=str(source.get("archive_manifest_path") or "archive_manifest.json"),
+            metrics_view_path=str(source.get("metrics_view_path") or "views/metrics.json"),
+            prediction_records_path=str(source.get("prediction_records_path") or "views/predictions.jsonl"),
+            run_summary_path=str(source.get("run_summary_path") or "views/run_summary.json"),
+            turn_record_paths=tuple(str(item) for item in source.get("turn_record_paths", []) or ()),
+            diagnostic_paths=tuple(str(item) for item in source.get("diagnostic_paths", []) or ()),
+            export_paths=tuple(str(item) for item in source.get("export_paths", []) or ()),
+        )
 
 
 @dataclass(frozen=True)

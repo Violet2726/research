@@ -6,11 +6,16 @@ from pathlib import Path
 from typing import Any
 
 from research_experiments.families.budget_comm.algorithms import METHOD_ORDER
-from research_experiments.families.shared.report_common import (
+from research_experiments.core.families.artifacts import (
+    load_metrics_payload,
+    named_diagnostic_paths,
+    resolve_run_artifact_index,
+)
+from research_experiments.core.families.report_common import (
     render_family_report_bundle,
     render_family_scientific_report,
 )
-from research_experiments.families.shared.standard_method_names import MV_3
+from research_experiments.core.families.comparator_registry import MV_3
 from research_experiments.reporting.analysis_reports import render_frontier_report
 from research_experiments.reporting.report_pipeline import SupplementalReport
 from research_experiments.reporting.report_statistics import (
@@ -37,7 +42,7 @@ from research_experiments.workspace.layout import default_reports_root
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
     """输出结构化运行摘要。"""
-    summary = SummaryTableView.from_metrics_payload(load_json_payload(Path(run_dir) / "metrics.json"))
+    summary = SummaryTableView.from_metrics_payload(load_metrics_payload(run_dir, family_name="budget_comm"))
     grouped = summary.grouped_by_dataset()
     return {
         "run_dir": str(Path(run_dir)),
@@ -53,11 +58,12 @@ def render_report(
 ) -> dict[str, Any]:
     """渲染中文科研报告并刷新图资产。"""
     publish_dir = publish_dir or default_reports_root("budget_comm")
-    root = Path(run_dir)
-    manifest = load_json_payload(root / "manifest.json")
-    metrics = load_json_payload(root / "metrics.json")
-    diagnostics = load_json_payload(root / "budget_diagnostics.json")
-    predictions = load_jsonl_rows(root / "final_predictions.jsonl")
+    index = resolve_run_artifact_index(run_dir, family_name="budget_comm")
+    root = index.run_dir
+    manifest = load_json_payload(index.manifest_path)
+    metrics = load_json_payload(index.metrics_view_path)
+    diagnostics = load_json_payload(named_diagnostic_paths(root, family_name="budget_comm")["budget_diagnostics.json"])
+    predictions = load_jsonl_rows(index.prediction_records_path)
     base_markdown = _render_markdown(manifest, metrics, diagnostics, predictions, root)
     return render_family_report_bundle(
         family_name="budget_comm",
@@ -69,7 +75,7 @@ def render_report(
         supplemental_reports=[
             SupplementalReport(
                 result_key="frontier_report",
-                filename="frontier_report.md",
+                filename="exports/frontier_report.md",
                 content=render_frontier_report(metrics.get("summary", []), title="预算通信前沿附录"),
             )
         ],
@@ -401,6 +407,7 @@ def _budget_evidence_rows(predictions: list[dict[str, Any]]) -> list[dict[str, A
 
 def _ordered_rows(rows: list[Any]) -> list[Any]:
     return sorted(rows, key=lambda row: METHOD_ORDER.index(row.method_name) if row.method_name in METHOD_ORDER else 999)
+
 
 
 

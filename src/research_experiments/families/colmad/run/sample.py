@@ -22,7 +22,7 @@ from research_experiments.families.colmad.prompts import (
     validate_detector_output,
     validate_judge_output,
 )
-from research_experiments.families.shared.common import resolve_phase_split_name, safe_mean, safe_ratio, sum_metric
+from research_experiments.core.families.common import resolve_phase_split_name, safe_mean, safe_ratio, sum_metric
 
 METHOD_ORDER = (
     "single_agent_detector",
@@ -741,3 +741,4 @@ def _call_budget(method: ColmadMethodSpec) -> int:
 
 def _stable_sample_seed(sample_id: str) -> int:
     return sum(ord(char) for char in sample_id) % 100000
+

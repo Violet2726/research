@@ -45,15 +45,15 @@ from research_experiments.families.cue.prompts import (
     build_communication_messages,
     build_solver_messages,
 )
-from research_experiments.families.shared.common import (
+from research_experiments.core.families.common import (
     build_question_preview,
     resolve_phase_split_name,
     safe_mean,
     safe_ratio,
     stable_trace_hash,
 )
-from research_experiments.families.shared.comparator_impls import build_stage_a_mv3_prediction
-from research_experiments.families.shared.method_catalog import MethodConfig
+from research_experiments.core.families.comparator_impls import build_stage_a_mv3_prediction
+from research_experiments.core.families.method_catalog import MethodConfig
 
 DISPLAY_NAME_MAP = {
     "cue_v1": "cue_v1",
@@ -1005,5 +1005,6 @@ def _mean(values) -> float:
 
 def _ratio(numerator: int, denominator: int) -> float:
     return safe_ratio(numerator, denominator)
+
 
 

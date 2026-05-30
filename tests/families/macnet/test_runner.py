@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl
+from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl, write_registered_family_manifest
 
 from research_experiments.core.config import ResolvedModelConfig
 from research_experiments.families.macnet.config import load_experiment_config
@@ -12,11 +12,11 @@ from research_experiments.families.macnet.run.validate import validate_run
 
 
 def test_macnet_validate_run_accepts_complete_artifacts(tmp_path: Path) -> None:
-    write_json(tmp_path / "manifest.json", {"run_id": "demo", "experiment_name": "macnet_paper_main"})
-    write_jsonl(tmp_path / "artifact_trace.jsonl", [{"method_name": "single_agent_cot", "output_status": "ok"}])
-    write_jsonl(tmp_path / "instruction_trace.jsonl", [{"method_name": "macnet_chain", "output_status": "ok"}])
+    write_registered_family_manifest(tmp_path / "manifest.json", family_name="macnet", run_id="demo", payload={"experiment_name": "macnet_paper_main"})
+    write_jsonl(tmp_path / "turns" / "artifact_trace.jsonl", [{"method_name": "single_agent_cot", "output_status": "ok"}])
+    write_jsonl(tmp_path / "turns" / "instruction_trace.jsonl", [{"method_name": "macnet_chain", "output_status": "ok"}])
     write_jsonl(
-        tmp_path / "final_predictions.jsonl",
+        tmp_path / "views" / "predictions.jsonl",
         [
             {
                 "method_name": "macnet_chain",
@@ -34,9 +34,9 @@ def test_macnet_validate_run_accepts_complete_artifacts(tmp_path: Path) -> None:
             }
         ],
     )
-    write_json(tmp_path / "topology_manifest.json", {"topologies": []})
-    write_json(tmp_path / "scaling_summary.json", {"series": []})
-    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "mmlu"}]})
+    write_json(tmp_path / "exports" / "topology_manifest.json", {"topologies": []})
+    write_json(tmp_path / "diagnostics" / "scaling_summary.json", {"series": []})
+    write_json(tmp_path / "views" / "metrics.json", {"summary": [{"dataset": "mmlu"}]})
     touch_figure_contract(tmp_path)
 
     payload = validate_run(tmp_path)
@@ -183,7 +183,7 @@ def test_macnet_run_experiment_executes_minimal_flow(monkeypatch, tmp_path: Path
     )
 
     validation = validate_run(run_dir)
-    predictions = [json.loads(line) for line in (run_dir / "final_predictions.jsonl").read_text(encoding="utf-8").splitlines()]
+    predictions = [json.loads(line) for line in (run_dir / "views" / "predictions.jsonl").read_text(encoding="utf-8").splitlines()]
 
     assert validation["passed"] is True
     assert len(predictions) == 2

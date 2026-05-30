@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl
+from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl, write_registered_family_manifest
 
 from research_experiments.core.config import ResolvedModelConfig
 from research_experiments.families.colmad.config import load_experiment_config
@@ -13,9 +13,10 @@ from research_experiments.families.colmad.run.validate import validate_run
 
 
 def test_colmad_render_report_outputs_markdown_and_figures(tmp_path: Path) -> None:
-    write_json(
+    write_registered_family_manifest(
         tmp_path / "manifest.json",
-        {
+        family_name="colmad",
+        payload={
             "created_at": "2026-05-17T12:00:00+00:00",
             "experiment_name": "colmad_realmistake_main",
             "experiment_kind": "paper",
@@ -25,7 +26,7 @@ def test_colmad_render_report_outputs_markdown_and_figures(tmp_path: Path) -> No
         },
     )
     write_json(
-        tmp_path / "metrics.json",
+        tmp_path / "views" / "metrics.json",
         {
             "summary": [
                 {
@@ -68,7 +69,7 @@ def test_colmad_render_report_outputs_markdown_and_figures(tmp_path: Path) -> No
         },
     )
     write_json(
-        tmp_path / "protocol_diagnostics.json",
+        tmp_path / "diagnostics" / "protocol_diagnostics.json",
         {
             "summary_rows": [
                 {
@@ -110,21 +111,22 @@ def test_colmad_render_report_outputs_markdown_and_figures(tmp_path: Path) -> No
 
 
 def test_colmad_validate_run_accepts_complete_artifacts(tmp_path: Path) -> None:
-    write_json(tmp_path / "manifest.json", {"run_id": "demo", "experiment_name": "colmad_realmistake_main"})
-    write_jsonl(tmp_path / "debate_trace.jsonl", [{"method_name": "copmad_competitive", "output_status": "ok"}])
+    write_registered_family_manifest(tmp_path / "manifest.json", family_name="colmad", run_id="demo", payload={"experiment_name": "colmad_realmistake_main"})
+    write_jsonl(tmp_path / "turns" / "debate_trace.jsonl", [{"method_name": "copmad_competitive", "output_status": "ok"}])
     write_jsonl(
-        tmp_path / "judge_trace.jsonl",
+        tmp_path / "turns" / "judge_trace.jsonl",
         [
-            {
-                "method_name": "colmad_collaborative",
-                "debate_protocol": "collaborative",
-                "verdict": "contains_error",
-                "observed_failure_modes": [],
-            }
-        ],
-    )
+                {
+                    "method_name": "colmad_collaborative",
+                    "debate_protocol": "collaborative",
+                    "verdict": "contains_error",
+                    "observed_failure_modes": [],
+                    "output_status": "ok",
+                }
+            ],
+        )
     write_jsonl(
-        tmp_path / "final_predictions.jsonl",
+        tmp_path / "views" / "predictions.jsonl",
         [
             {
                 "sample_id": "demo",
@@ -143,8 +145,8 @@ def test_colmad_validate_run_accepts_complete_artifacts(tmp_path: Path) -> None:
             }
         ],
     )
-    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "overall"}]})
-    write_json(tmp_path / "protocol_diagnostics.json", {"summary_rows": []})
+    write_json(tmp_path / "views" / "metrics.json", {"summary": [{"dataset": "overall"}]})
+    write_json(tmp_path / "diagnostics" / "protocol_diagnostics.json", {"summary_rows": []})
     touch_figure_contract(tmp_path)
 
     payload = validate_run(tmp_path)
@@ -281,7 +283,7 @@ def test_colmad_run_experiment_executes_minimal_flow(monkeypatch, tmp_path: Path
 
     run_dir = run_experiment(experiment, "count20", backbone, run_root=tmp_path / "runs", cache_root=tmp_path / "cache")
 
-    assert (run_dir / "metrics.json").exists()
-    assert (run_dir / "protocol_diagnostics.json").exists()
+    assert (run_dir / "views" / "metrics.json").exists()
+    assert (run_dir / "diagnostics" / "protocol_diagnostics.json").exists()
     payload = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     assert payload["experiment_name"] == "colmad_realmistake_main"

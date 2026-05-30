@@ -86,6 +86,11 @@ def test_no_legacy_family_entrypoint_files_remain() -> None:
     assert not any(FAMILIES_SRC.rglob("family_manifest.py"))
 
 
+def test_no_python_modules_remain_under_families_shared() -> None:
+    shared_root = FAMILIES_SRC / "shared"
+    assert not any(shared_root.rglob("*.py"))
+
+
 def test_tools_do_not_import_concrete_family_modules() -> None:
     violations: list[str] = []
     for path in TOOLS_SRC.rglob("*.py"):
@@ -126,3 +131,9 @@ def test_no_legacy_matrix_cli_entrypoint() -> None:
 
     assert "research_cli" in scripts
     assert "count20_matrix_cli" not in scripts
+
+
+def test_matrix_cli_does_not_import_faithful_matrix_directly() -> None:
+    cli_path = SRC / "matrix" / "cli.py"
+    text = cli_path.read_text(encoding="utf-8")
+    assert "matrix.faithful_matrix" not in text

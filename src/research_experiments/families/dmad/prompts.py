@@ -5,7 +5,7 @@ from __future__ import annotations
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.prompts.dataset_contracts import build_json_system_prompt, dataset_instruction_for_sample
 from research_experiments.families.dmad.config import AgentProfile
-from research_experiments.families.shared.reasoning_methods import resolve_reasoning_method
+from research_experiments.core.families.reasoning_methods import resolve_reasoning_method
 
 DEFAULT_PROMPT_VERSION = "dmad_v1_json"
 
@@ -564,3 +564,4 @@ def _render_prior_rounds(agent_id: int, prior_rounds: list[list[dict[str, str]]]
                     peer_lines.append(f"  execution result: {str(peer.get('execution_result') or '').strip()}")
             blocks.append("\n".join(peer_lines))
     return "\n\n".join(blocks)
+

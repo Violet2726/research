@@ -5,8 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.report_common import render_family_report_bundle
-from research_experiments.families.shared.standard_method_names import MAD_FIXED_R1, MAD_FIXED_R3, MV_6
+from research_experiments.core.families.artifacts import (
+    load_metrics_payload,
+    named_diagnostic_paths,
+    resolve_run_artifact_index,
+)
+from research_experiments.core.families.report_common import render_family_report_bundle
+from research_experiments.core.families.comparator_registry import MAD_FIXED_R1, MAD_FIXED_R3, MV_6
 from research_experiments.reporting.report_views import SummaryTableView, load_json_payload
 from research_experiments.reporting.run_figures import (
     build_efficiency_rank_figure_spec,
@@ -20,7 +25,7 @@ from research_experiments.workspace.layout import default_reports_root
 def load_metrics(run_dir: str | Path) -> dict[str, Any]:
     """读取 iMAD 运行目录中的 `metrics.json`。"""
 
-    return load_json_payload(Path(run_dir) / "metrics.json")
+    return load_metrics_payload(run_dir, family_name="imad")
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
@@ -43,10 +48,11 @@ def render_report(
     """生成 iMAD 的中文科研报告。"""
 
     publish_dir = publish_dir or default_reports_root("imad")
-    root = Path(run_dir)
-    manifest = load_json_payload(root / "manifest.json")
+    index = resolve_run_artifact_index(run_dir, family_name="imad")
+    root = index.run_dir
+    manifest = load_json_payload(index.manifest_path)
     metrics = load_metrics(root)
-    stability = load_json_payload(root / "stability_diagnostics.json")
+    stability = load_json_payload(named_diagnostic_paths(root, family_name="imad")["stability_diagnostics.json"])
     summary = SummaryTableView.from_metrics_payload(metrics)
     overall_rows = [row.raw for row in summary.overall_rows()]
 
@@ -186,7 +192,7 @@ def render_report(
         base_markdown="\n".join(lines) + "\n",
         figure_specs=_build_figure_specs(metrics, stability),
     )
-    payload["stability_summary"] = str(root / "stability_diagnostics.json")
+    payload["stability_summary"] = str(named_diagnostic_paths(root, family_name="imad")["stability_diagnostics.json"])
     return payload
 
 
@@ -336,3 +342,4 @@ def _render_table(rows: list[dict[str, Any]], headers: list[str]) -> list[str]:
                 values.append(str(value))
         lines.append("| " + " | ".join(values) + " |")
     return lines
+

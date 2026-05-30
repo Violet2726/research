@@ -5,7 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.report_common import (
+from research_experiments.core.families.artifacts import (
+    load_metrics_payload,
+    named_diagnostic_paths,
+    named_export_paths,
+    resolve_run_artifact_index,
+)
+from research_experiments.core.families.report_common import (
     render_family_report_bundle,
     render_family_scientific_report,
 )
@@ -20,7 +26,7 @@ from research_experiments.reporting.run_figures import (
 
 
 def load_metrics(run_dir: str | Path) -> dict[str, Any]:
-    return load_json_payload(Path(run_dir) / "metrics.json")
+    return load_metrics_payload(run_dir, family_name="dmad")
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
@@ -35,11 +41,14 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
 
 
 def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) -> dict[str, Any]:
-    root = Path(run_dir)
-    manifest = load_json_payload(root / "manifest.json")
+    index = resolve_run_artifact_index(run_dir, family_name="dmad")
+    root = index.run_dir
+    manifest = load_json_payload(index.manifest_path)
     metrics = load_metrics(root)
-    diagnostics = load_json_payload(root / "strategy_diagnostics.json")
-    paper_tables = load_json_payload(root / "paper_tables.json")
+    diagnostic_paths = named_diagnostic_paths(root, family_name="dmad")
+    export_paths = named_export_paths(root, family_name="dmad")
+    diagnostics = load_json_payload(diagnostic_paths["strategy_diagnostics.json"])
+    paper_tables = load_json_payload(export_paths["paper_tables.json"])
     summary_rows = [row.raw for row in SummaryTableView.from_metrics_payload(metrics).rows]
     base_markdown = _render_report_markdown(
         run_dir=root,
@@ -313,3 +322,4 @@ def _fmt_signed(value: Any, digits: int = 4) -> str:
     if value is None:
         return ""
     return f"{float(value):+.{digits}f}"
+

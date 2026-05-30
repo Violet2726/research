@@ -2,16 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl
+from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl, write_registered_family_manifest
 
 from research_experiments.families.imad.run.report import render_report
 from research_experiments.families.imad.run.validate import validate_run
 
 
 def test_imad_render_report_outputs_markdown_and_figures(tmp_path: Path) -> None:
-    write_json(
+    write_registered_family_manifest(
         tmp_path / "manifest.json",
-        {
+        family_name="imad",
+        payload={
             "created_at": "2026-05-14T12:00:00+00:00",
             "experiment": "imad_same_context_main",
             "phase": "count20",
@@ -20,7 +21,7 @@ def test_imad_render_report_outputs_markdown_and_figures(tmp_path: Path) -> None
         },
     )
     write_json(
-        tmp_path / "metrics.json",
+        tmp_path / "views" / "metrics.json",
         {
             "summary": [
                 {
@@ -79,7 +80,7 @@ def test_imad_render_report_outputs_markdown_and_figures(tmp_path: Path) -> None
         },
     )
     write_json(
-        tmp_path / "stability_diagnostics.json",
+        tmp_path / "diagnostics" / "stability_diagnostics.json",
         {
             "summary_rows": [
                 {
@@ -120,9 +121,9 @@ def test_imad_render_report_outputs_markdown_and_figures(tmp_path: Path) -> None
 
 
 def test_imad_validate_run_accepts_complete_artifacts(tmp_path: Path) -> None:
-    write_json(tmp_path / "manifest.json", {"run_id": "demo", "experiment": "imad_same_context_main"})
+    write_registered_family_manifest(tmp_path / "manifest.json", family_name="imad", run_id="demo", payload={"experiment": "imad_same_context_main"})
     write_jsonl(
-        tmp_path / "agent_turns.jsonl",
+        tmp_path / "turns" / "agent_turns.jsonl",
         [
             {
                 "dataset": "gsm8k",
@@ -132,9 +133,9 @@ def test_imad_validate_run_accepts_complete_artifacts(tmp_path: Path) -> None:
             }
         ],
     )
-    write_jsonl(tmp_path / "debate_messages.jsonl", [])
+    write_jsonl(tmp_path / "turns" / "debate_messages.jsonl", [])
     write_jsonl(
-        tmp_path / "round_diagnostics.jsonl",
+        tmp_path / "turns" / "round_diagnostics.jsonl",
         [
             {
                 "dataset": "gsm8k",
@@ -145,7 +146,7 @@ def test_imad_validate_run_accepts_complete_artifacts(tmp_path: Path) -> None:
         ],
     )
     write_jsonl(
-        tmp_path / "final_predictions.jsonl",
+        tmp_path / "views" / "predictions.jsonl",
         [
             {
                 "dataset": "gsm8k",
@@ -164,8 +165,8 @@ def test_imad_validate_run_accepts_complete_artifacts(tmp_path: Path) -> None:
             }
         ],
     )
-    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
-    write_json(tmp_path / "stability_diagnostics.json", {"summary_rows": [{"dataset": "gsm8k"}]})
+    write_json(tmp_path / "views" / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
+    write_json(tmp_path / "diagnostics" / "stability_diagnostics.json", {"summary_rows": [{"dataset": "gsm8k"}]})
     touch_figure_contract(tmp_path)
 
     payload = validate_run(tmp_path)

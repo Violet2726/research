@@ -35,6 +35,7 @@ from research_experiments.core.execution.runtime import RunProgressTracker
 from research_experiments.core.structured_outputs import (
     SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE,
 )
+from research_experiments.core.families.artifacts import named_turn_record_paths, resolve_run_artifact_index
 from research_experiments.families.selective_comm.config import (
     SelectiveCommExperimentConfig,
     SharedDebateProtocolConfig,
@@ -42,15 +43,15 @@ from research_experiments.families.selective_comm.config import (
     load_policies,
 )
 from research_experiments.families.selective_comm.prompts import build_debate_messages, build_initial_messages
-from research_experiments.families.shared.common import (
+from research_experiments.core.families.common import (
     build_question_preview,
     resolve_phase_split_name,
     safe_mean,
     safe_ratio,
     stable_trace_hash,
 )
-from research_experiments.families.shared.comparator_impls import build_stage_a_mv3_prediction
-from research_experiments.families.shared.method_catalog import MethodConfig
+from research_experiments.core.families.comparator_impls import build_stage_a_mv3_prediction
+from research_experiments.core.families.method_catalog import MethodConfig
 
 DISPLAY_NAME_MAP = {
     "always_communicate": "always",
@@ -120,26 +121,28 @@ def _load_resume_seed_state(
     controls: dict[str, MethodConfig],
 ) -> ResumeSeedState:
     """从旧 run 中抽取“完整且无 request_fail”的样本结果，供新 run 复用。"""
-    manifest = _load_json_file(resume_root / "manifest.json")
+    index = resolve_run_artifact_index(resume_root, family_name="selective_comm")
+    turn_paths = named_turn_record_paths(resume_root, family_name="selective_comm")
+    manifest = _load_json_file(index.manifest_path)
     source_run_id = str(manifest.get("run_id") or resume_root.name)
-    stage_a_turns = _load_jsonl_file(resume_root / "stage_a_turns.jsonl")
-    stage_b_turns = _load_jsonl_file(resume_root / "stage_b_turns.jsonl")
+    stage_a_turns = _load_jsonl_file(turn_paths["stage_a_turns.jsonl"])
+    stage_b_turns = _load_jsonl_file(turn_paths["stage_b_turns.jsonl"])
     allowed_control_names = set(controls)
     allowed_policy_names = {policy.policy_name for policy in policies}
     allowed_prediction_methods = allowed_control_names | allowed_policy_names
     control_turns = [
         row
-        for row in _load_jsonl_file(resume_root / "control_turns.jsonl")
+        for row in _load_jsonl_file(turn_paths["control_turns.jsonl"])
         if str(row.get("method_name") or "") in allowed_control_names
     ]
     trigger_rows = [
         row
-        for row in _load_jsonl_file(resume_root / "trigger_decisions.jsonl")
+        for row in _load_jsonl_file(turn_paths["trigger_decisions.jsonl"])
         if str(row.get("policy_name") or "") in allowed_policy_names
     ]
     prediction_rows = [
         row
-        for row in _load_jsonl_file(resume_root / "policy_predictions.jsonl")
+        for row in _load_jsonl_file(index.prediction_records_path)
         if str(row.get("method_name") or "") in allowed_prediction_methods
     ]
 
@@ -1212,5 +1215,6 @@ def _load_json_file(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+
 
 

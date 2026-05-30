@@ -7,7 +7,7 @@
 - `research_experiments/core/`
   唯一共享核心层，按 `contracts/`、`artifacts/`、`config/`、`data/`、`execution/`、`prompts/` 拆分共享能力。
 - `research_experiments/families/`
-  各实验家族实现，以及仅服务 family 层的 `shared/` 共享脚手架。
+  各实验家族实现；family 之间不共享项目级基础设施。
 - `research_experiments/workspace/`
   工作区布局、运行归档、HF 同步与数据集资产工具。
 - `research_experiments/cli_support/`
@@ -23,7 +23,7 @@
 
 - family 之间不直接互相导入
 - 共享能力统一下沉到 `research_experiments/core`
-- family 级共享脚手架统一放在 `research_experiments/families/shared`
+- 跨 family 的共享能力统一下沉到 `research_experiments/core/families`
 - family 注册信息统一由各自目录下的 `registration.py` 声明并自动发现
 - 默认工作区路径与 Hugging Face 归档设置统一由 `research_experiments.workspace.layout` 管理
 

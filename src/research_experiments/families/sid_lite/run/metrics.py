@@ -6,7 +6,7 @@ import csv
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.common import safe_mean
+from research_experiments.core.families.common import safe_mean
 from research_experiments.families.sid_lite.algorithms import METHOD_ORDER
 
 
@@ -73,4 +73,5 @@ def write_paper_summary(path: Path, metrics_payload: dict[str, Any]) -> None:
         writer.writeheader()
         for row in metrics_payload.get("summary", []):
             writer.writerow({key: row.get(key) for key in fieldnames})
+
 

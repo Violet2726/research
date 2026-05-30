@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl
+from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl, write_registered_family_manifest
 
 from research_experiments.core.config import ResolvedModelConfig
 from research_experiments.families.econ.config import load_experiment_config
@@ -13,9 +13,10 @@ from research_experiments.families.econ.run.validate import validate_run
 
 
 def test_econ_render_report_outputs_markdown_and_figures(tmp_path: Path) -> None:
-    write_json(
+    write_registered_family_manifest(
         tmp_path / "manifest.json",
-        {
+        family_name="econ",
+        payload={
             "created_at": "2026-05-16T12:00:00+00:00",
             "experiment_name": "econ_same_context_main",
             "phase_name": "count20",
@@ -24,7 +25,7 @@ def test_econ_render_report_outputs_markdown_and_figures(tmp_path: Path) -> None
         },
     )
     write_json(
-        tmp_path / "metrics.json",
+        tmp_path / "views" / "metrics.json",
         {
             "summary": [
                 {
@@ -91,7 +92,7 @@ def test_econ_render_report_outputs_markdown_and_figures(tmp_path: Path) -> None
         },
     )
     write_jsonl(
-        tmp_path / "belief_trace.jsonl",
+        tmp_path / "turns" / "belief_trace.jsonl",
         [
             {
                 "dataset": "gsm8k",
@@ -103,7 +104,7 @@ def test_econ_render_report_outputs_markdown_and_figures(tmp_path: Path) -> None
         ],
     )
     write_jsonl(
-        tmp_path / "equilibrium_trace.jsonl",
+        tmp_path / "turns" / "equilibrium_trace.jsonl",
         [
             {
                 "dataset": "gsm8k",
@@ -127,13 +128,13 @@ def test_econ_render_report_outputs_markdown_and_figures(tmp_path: Path) -> None
 
 
 def test_econ_validate_run_accepts_complete_artifacts(tmp_path: Path) -> None:
-    write_json(tmp_path / "manifest.json", {"run_id": "demo", "experiment_name": "econ_same_context_main"})
-    write_jsonl(tmp_path / "agent_turns.jsonl", [{"method_name": "shared_stage_a", "output_status": "ok"}])
-    write_jsonl(tmp_path / "belief_trace.jsonl", [{"method_name": "econ_bne_main"}])
-    write_jsonl(tmp_path / "equilibrium_trace.jsonl", [{"method_name": "econ_bne_main"}])
-    write_jsonl(tmp_path / "communication_trace.jsonl", [{"method_name": "econ_full_comm_r1"}])
+    write_registered_family_manifest(tmp_path / "manifest.json", family_name="econ", run_id="demo", payload={"experiment_name": "econ_same_context_main"})
+    write_jsonl(tmp_path / "turns" / "agent_turns.jsonl", [{"method_name": "shared_stage_a", "output_status": "ok"}])
+    write_jsonl(tmp_path / "turns" / "belief_trace.jsonl", [{"method_name": "econ_bne_main"}])
+    write_jsonl(tmp_path / "turns" / "equilibrium_trace.jsonl", [{"method_name": "econ_bne_main"}])
+    write_jsonl(tmp_path / "turns" / "communication_trace.jsonl", [{"method_name": "econ_full_comm_r1"}])
     write_jsonl(
-        tmp_path / "final_predictions.jsonl",
+        tmp_path / "views" / "predictions.jsonl",
         [
             {
                 "method_name": "econ_bne_main",
@@ -148,7 +149,7 @@ def test_econ_validate_run_accepts_complete_artifacts(tmp_path: Path) -> None:
             }
         ],
     )
-    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
+    write_json(tmp_path / "views" / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
     touch_figure_contract(tmp_path)
 
     payload = validate_run(tmp_path)
@@ -305,7 +306,7 @@ def test_econ_run_experiment_executes_minimal_flow(monkeypatch, tmp_path: Path) 
     )
 
     validation = validate_run(run_dir)
-    predictions = [json.loads(line) for line in (run_dir / "final_predictions.jsonl").read_text(encoding="utf-8").splitlines()]
+    predictions = [json.loads(line) for line in (run_dir / "views" / "predictions.jsonl").read_text(encoding="utf-8").splitlines()]
 
     assert validation["passed"] is True
     assert len(predictions) == 4

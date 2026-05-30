@@ -13,7 +13,7 @@ from research_experiments.families.registration_helpers import (
     build_backbone_run_from_cli,
     make_family_registration,
 )
-from research_experiments.families.shared.config_loading import load_benchmarks, phase_metadata, resolve_model
+from research_experiments.core.families.config_loading import load_benchmarks, phase_metadata, resolve_model
 from research_experiments.workspace.layout import workspace_defaults
 
 
@@ -71,14 +71,10 @@ REGISTRATION = make_family_registration(
     summarize_run=summarize_run,
     validate_run=validate_run,
     render_report=render_report,
-    metrics_view_path="metrics.json",
-    prediction_records_path="final_predictions.jsonl",
-    turn_record_paths=("stage_a_turns.jsonl", "stage_b_turns.jsonl"),
-    extra_view_paths=(
-        "sample_views.jsonl",
-        "message_packets.jsonl",
-        "diagnostics.json",
-        "paper_summary.csv",
-        "hotpot_predictions",
-    ),
+    metrics_view_path="views/metrics.json",
+    prediction_records_path="views/predictions.jsonl",
+    turn_record_paths=('turns/sample_views.jsonl', 'turns/stage_a_turns.jsonl', 'turns/message_packets.jsonl', 'turns/stage_b_turns.jsonl'),
+    diagnostic_paths=('diagnostics/diagnostics.json',),
+    export_paths=('exports/paper_summary.csv', 'exports/hotpot_predictions'),
 )
+

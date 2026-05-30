@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from research_experiments.families.registry import get_family_registration
+
 
 def write_json(path: Path, payload: Any) -> None:
     """把对象按 UTF-8 JSON 写入磁盘，并确保父目录存在。"""
@@ -22,6 +24,27 @@ def write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
         "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + ("\n" if rows else ""),
         encoding="utf-8",
     )
+
+
+def write_registered_family_manifest(
+    path: Path,
+    *,
+    family_name: str,
+    run_id: str = "test-run",
+    payload: dict[str, Any] | None = None,
+) -> None:
+    """Write a manifest that carries the current registered artifact schema."""
+
+    registration = get_family_registration(family_name)
+    merged = {
+        "run_id": run_id,
+        "family_name": family_name,
+        "prototype": registration.prototype,
+        "artifact_schema": registration.artifact_schema.to_manifest_payload(),
+    }
+    if payload:
+        merged.update(payload)
+    write_json(path, merged)
 
 
 def touch_figure_contract(root: Path, report_name: str = "report.md") -> None:

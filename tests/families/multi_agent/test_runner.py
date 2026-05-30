@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from testsupport.filesystem import write_json
+from testsupport.filesystem import write_json, write_registered_family_manifest
 
 from research_experiments.families.multi_agent.run.report import summarize_run
 
 
 def test_summarize_run_groups_rows_by_dataset(tmp_path: Path) -> None:
+    write_registered_family_manifest(tmp_path / "manifest.json", family_name="multi_agent")
     write_json(
-        tmp_path / "metrics.json",
+        tmp_path / "views" / "metrics.json",
         {
             "summary": [
                 {"dataset": "gsm8k", "method_name": "mad_3a_r1", "accuracy_mean": 0.7},

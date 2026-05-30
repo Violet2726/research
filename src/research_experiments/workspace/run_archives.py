@@ -11,6 +11,7 @@ from typing import Any
 
 from huggingface_hub import HfApi, snapshot_download
 
+from research_experiments.core.contracts import FamilyArtifactSchema
 from research_experiments.core.io import read_json, write_json
 from research_experiments.workspace.archive_utils import copy_relative_files, extract_tar_zst, pack_tar_zst
 from research_experiments.workspace.layout import auto_publish_runs_enabled, default_runs_hf_repo, workspace_layout
@@ -68,7 +69,7 @@ def pack_run_artifacts(
     remote_repo = manifest_payload.get("remote_repo")
 
     relative_files = _list_run_files(root)
-    plans = _build_group_plans(relative_files)
+    plans = _build_group_plans(relative_files, manifest_payload=manifest_payload)
     grouped_members = {member for plan in plans for member in plan.members}
     visible_files = sorted(path for path in relative_files if path not in grouped_members)
 
@@ -327,7 +328,10 @@ def _stage_run_for_publish(run_root: Path, staging_root: Path) -> None:
     copy_relative_files(source_root=run_root, target_root=staging_root, members=files_to_copy)
 
 
-def _build_group_plans(relative_files: list[str]) -> list[ArchiveGroupPlan]:
+def _build_group_plans(relative_files: list[str], *, manifest_payload: dict[str, Any] | None = None) -> list[ArchiveGroupPlan]:
+    contract_plans = _build_group_plans_from_manifest(relative_files, manifest_payload)
+    if contract_plans is not None:
+        return contract_plans
     groups: dict[str, list[str]] = {
         "traces": [],
         "predictions": [],
@@ -343,6 +347,52 @@ def _build_group_plans(relative_files: list[str]) -> list[ArchiveGroupPlan]:
         ArchiveGroupPlan("predictions", "predictions.tar.zst", tuple(sorted(groups["predictions"]))),
         ArchiveGroupPlan("artifacts", "artifacts.tar.zst", tuple(sorted(groups["artifacts"]))),
     ]
+
+
+def _build_group_plans_from_manifest(
+    relative_files: list[str],
+    manifest_payload: dict[str, Any] | None,
+) -> list[ArchiveGroupPlan] | None:
+    if not manifest_payload or not isinstance(manifest_payload.get("artifact_schema"), dict):
+        return None
+    schema = FamilyArtifactSchema.from_manifest_payload(manifest_payload["artifact_schema"])
+    file_set = set(relative_files)
+    trace_members = _expand_contract_members(file_set, schema.turn_record_paths)
+    prediction_members = _expand_prediction_members(file_set, schema.prediction_records_path, schema.export_paths)
+    artifact_roots = (
+        schema.metrics_view_path,
+        schema.run_summary_path,
+        *schema.diagnostic_paths,
+        *schema.export_paths,
+    )
+    artifact_members = _expand_contract_members(file_set, artifact_roots) - prediction_members
+    return [
+        ArchiveGroupPlan("traces", "traces.tar.zst", tuple(sorted(trace_members))),
+        ArchiveGroupPlan("predictions", "predictions.tar.zst", tuple(sorted(prediction_members))),
+        ArchiveGroupPlan("artifacts", "artifacts.tar.zst", tuple(sorted(artifact_members))),
+    ]
+
+
+def _expand_contract_members(file_set: set[str], roots: tuple[str, ...] | list[str]) -> set[str]:
+    members: set[str] = set()
+    for root in roots:
+        normalized = str(root).replace("\\", "/").strip("/")
+        if not normalized:
+            continue
+        for path in file_set:
+            if path == normalized or path.startswith(f"{normalized}/"):
+                members.add(path)
+    return members
+
+
+def _expand_prediction_members(file_set: set[str], prediction_path: str, export_paths: tuple[str, ...]) -> set[str]:
+    members = _expand_contract_members(file_set, [prediction_path])
+    for export_path in export_paths:
+        normalized = str(export_path).replace("\\", "/").strip("/")
+        basename = PurePosixPath(normalized).name
+        if basename.endswith("_predictions") or basename == "hotpot_predictions":
+            members.update(_expand_contract_members(file_set, [normalized]))
+    return members
 
 
 def _classify_path(relative_path: str) -> str | None:

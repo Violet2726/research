@@ -1,45 +1,30 @@
-"""ECON 运行目录与固定产物路径。"""
+"""Canonical run-layout helpers for `econ`."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
-from research_experiments.core.execution.runner_common import prepare_run_root
+from research_experiments.core.families.run_layout import FamilyRunLayout, prepare_family_run_layout
+from research_experiments.families.registry import get_family_registration
 
 
-@dataclass(frozen=True)
-class RunPaths:
-    """`econ` 运行目录下的固定产物路径集合。"""
-
-    root: Path
-    manifest: Path
-    agent_turns: Path
-    belief_trace: Path
-    equilibrium_trace: Path
-    communication_trace: Path
-    final_predictions: Path
-    metrics: Path
-    progress: Path
-    run_validation: Path
-    report_markdown: Path
+ALIASES = {
+    "agent_turns": "turns/agent_turns.jsonl",
+"belief_trace": "turns/belief_trace.jsonl",
+"equilibrium_trace": "turns/equilibrium_trace.jsonl",
+"communication_trace": "turns/communication_trace.jsonl",
+"final_predictions": "views/predictions.jsonl",
+"run_validation": "run_validation.json",
+}
 
 
-def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> RunPaths:
-    """创建运行目录，并返回其中所有固定产物路径。"""
-
-    root = prepare_run_root(run_root, experiment_name, phase_name, run_id)
-    return RunPaths(
-        root=root,
-        manifest=root / "manifest.json",
-        agent_turns=root / "agent_turns.jsonl",
-        belief_trace=root / "belief_trace.jsonl",
-        equilibrium_trace=root / "equilibrium_trace.jsonl",
-        communication_trace=root / "communication_trace.jsonl",
-        final_predictions=root / "final_predictions.jsonl",
-        metrics=root / "metrics.json",
-        progress=root / "progress.json",
-        run_validation=root / "run_validation.json",
-        report_markdown=root / "report.md",
+def prepare_run_layout(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> FamilyRunLayout:
+    registration = get_family_registration("econ")
+    return prepare_family_run_layout(
+        run_root,
+        experiment_name,
+        phase_name,
+        run_id,
+        artifact_schema=registration.artifact_schema,
+        aliases=ALIASES,
     )
-

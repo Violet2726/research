@@ -6,11 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.config_loading import (
+from research_experiments.core.families.config_loading import (
     load_toml,
     optional_int,
 )
-from research_experiments.families.shared.method_catalog import MethodConfig, load_method_catalog
+from research_experiments.core.families.method_catalog import MethodConfig, load_method_catalog
 
 
 @dataclass(frozen=True)
@@ -148,6 +148,7 @@ def load_experiment_config(path: str | Path) -> CueExperimentConfig:
         primary_model_ref=str(payload["primary_model_ref"]),
         raw=payload,
     )
+
 
 
 

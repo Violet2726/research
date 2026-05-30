@@ -1,46 +1,31 @@
-"""`sid_lite` 运行目录与固定产物路径。"""
+"""Canonical run-layout helpers for `sid_lite`."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
-from research_experiments.core.execution.runner_common import prepare_run_root
+from research_experiments.core.families.run_layout import FamilyRunLayout, prepare_family_run_layout
+from research_experiments.families.registry import get_family_registration
 
 
-@dataclass(frozen=True)
-class RunPaths:
-    """SID-lite 运行目录下的固定产物路径。"""
-
-    root: Path
-    manifest: Path
-    stage_a_turns: Path
-    message_packets: Path
-    belief_updates: Path
-    final_predictions: Path
-    metrics: Path
-    diagnostics: Path
-    progress: Path
-    run_summary: Path
-    run_validation: Path
-    report_markdown: Path
-    paper_summary: Path
+ALIASES = {
+    "stage_a_turns": "turns/stage_a_turns.jsonl",
+"message_packets": "turns/message_packets.jsonl",
+"belief_updates": "turns/belief_updates.jsonl",
+"final_predictions": "views/predictions.jsonl",
+"diagnostics": "diagnostics/diagnostics.json",
+"run_validation": "run_validation.json",
+"paper_summary": "exports/paper_summary.csv",
+}
 
 
-def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> RunPaths:
-    root = prepare_run_root(run_root, experiment_name, phase_name, run_id)
-    return RunPaths(
-        root=root,
-        manifest=root / "manifest.json",
-        stage_a_turns=root / "stage_a_turns.jsonl",
-        message_packets=root / "message_packets.jsonl",
-        belief_updates=root / "belief_updates.jsonl",
-        final_predictions=root / "final_predictions.jsonl",
-        metrics=root / "metrics.json",
-        diagnostics=root / "diagnostics.json",
-        progress=root / "progress.json",
-        run_summary=root / "run_summary.json",
-        run_validation=root / "run_validation.json",
-        report_markdown=root / "report.md",
-        paper_summary=root / "paper_summary.csv",
+def prepare_run_layout(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> FamilyRunLayout:
+    registration = get_family_registration("sid_lite")
+    return prepare_family_run_layout(
+        run_root,
+        experiment_name,
+        phase_name,
+        run_id,
+        artifact_schema=registration.artifact_schema,
+        aliases=ALIASES,
     )

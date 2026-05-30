@@ -19,7 +19,7 @@ from research_experiments.families.selective_comm.config import (
 from research_experiments.families.selective_comm.run.execute import run_experiment
 from research_experiments.families.selective_comm.run.report import render_report, summarize_run
 from research_experiments.families.selective_comm.run.validate import validate_run
-from research_experiments.families.shared.config_loading import load_benchmarks, phase_metadata, resolve_model
+from research_experiments.core.families.config_loading import load_benchmarks, phase_metadata, resolve_model
 from research_experiments.workspace.layout import workspace_defaults
 
 
@@ -89,7 +89,7 @@ REGISTRATION = make_family_registration(
         description="Selective communication trigger experiment runner.",
         inspect_help="Show the resolved selective communication experiment configuration.",
         run_help="Execute one configured selective communication phase.",
-        summarize_help="Print a concise run summary from policy_metrics.json.",
+        summarize_help="Print a concise run summary from views/metrics.json.",
         validate_help="Run validation checks for one selective communication run.",
         report_help="Regenerate the Chinese trigger markdown report.",
         include_resume_run_dir=True,
@@ -102,8 +102,10 @@ REGISTRATION = make_family_registration(
     summarize_run=summarize_run,
     validate_run=validate_run,
     render_report=render_report,
-    metrics_view_path="policy_metrics.json",
-    prediction_records_path="policy_predictions.jsonl",
-    turn_record_paths=("stage_a_turns.jsonl", "stage_b_turns.jsonl", "control_turns.jsonl"),
-    extra_view_paths=("trigger_decisions.jsonl", "oracle_trigger_eval.json", "policy_diagnostics.json"),
+    metrics_view_path="views/metrics.json",
+    prediction_records_path="views/predictions.jsonl",
+    turn_record_paths=('turns/stage_a_turns.jsonl', 'turns/stage_b_turns.jsonl', 'turns/control_turns.jsonl', 'turns/trigger_decisions.jsonl'),
+    diagnostic_paths=('diagnostics/oracle_trigger_eval.json', 'diagnostics/policy_diagnostics.json'),
+    export_paths=(),
 )
+

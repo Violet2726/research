@@ -3,13 +3,29 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from testsupport.filesystem import write_json
+
+from research_experiments.core.contracts import FamilyArtifactSchema
 from research_experiments.matrix.faithful_analysis import build_faithful_analysis
 
 
 def test_build_faithful_analysis_uses_round_scores_for_stage_ceiling(tmp_path: Path) -> None:
     run_dir = tmp_path / "runs" / "imad" / "imad_same_context_main" / "count20" / "demo"
     run_dir.mkdir(parents=True)
-    (run_dir / "metrics.json").write_text(
+    (run_dir / "views").mkdir(parents=True, exist_ok=True)
+    write_json(
+        run_dir / "manifest.json",
+        {
+            "family_name": "imad",
+            "prototype": "debate_rounds",
+            "run_id": run_dir.name,
+            "artifact_schema": FamilyArtifactSchema(
+                metrics_view_path="views/metrics.json",
+                prediction_records_path="views/predictions.jsonl",
+            ).to_manifest_payload(),
+        },
+    )
+    (run_dir / "views" / "metrics.json").write_text(
         json.dumps(
             {
                 "summary": [
@@ -40,7 +56,7 @@ def test_build_faithful_analysis_uses_round_scores_for_stage_ceiling(tmp_path: P
         ),
         encoding="utf-8",
     )
-    (run_dir / "final_predictions.jsonl").write_text(
+    (run_dir / "views" / "predictions.jsonl").write_text(
         "\n".join(
             [
                 json.dumps(

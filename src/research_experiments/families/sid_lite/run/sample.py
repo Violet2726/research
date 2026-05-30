@@ -27,13 +27,13 @@ from research_experiments.core.structured_outputs import (
     SCHEMA_BELIEF_UPDATE_DELTA,
     validate_or_recover_structured_output,
 )
-from research_experiments.families.shared.common import (
+from research_experiments.core.families.common import (
     resolve_phase_split_name,
     safe_mean,
     stable_trace_hash,
     summarize_row_cost,
 )
-from research_experiments.families.shared.comparator_impls import build_stage_a_mv3_prediction
+from research_experiments.core.families.comparator_impls import build_stage_a_mv3_prediction
 from research_experiments.families.sid_lite.algorithms import (
     apply_belief_update,
     compression_ratio,
@@ -659,5 +659,6 @@ def _trace_hash(rows: list[dict[str, Any]], keys: list[str]) -> str:
 
 def _mean(values) -> float:
     return safe_mean(values)
+
 
 

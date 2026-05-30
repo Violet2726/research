@@ -140,11 +140,11 @@ def test_render_family_landscape_writes_json_and_markdown(tmp_path: Path) -> Non
         {
             "combined_overall": [
                 {
-                    "family": "sparc",
-                    "experiment_name": "end_to_end_main",
+                    "family": "cue",
+                    "experiment_name": "cue_black_box_utility_main",
                     "evaluation_track": "same_context",
                     "evidence_tier": "headline",
-                    "primary_method_name": "sparc_v1",
+                    "primary_method_name": "cue_v1",
                     "faithful_score": 0.664656,
                     "delta_vs_best_no_comm": 0.05187,
                     "delta_vs_full_comm": -0.004825,
@@ -166,4 +166,4 @@ def test_render_family_landscape_writes_json_and_markdown(tmp_path: Path) -> Non
     assert Path(outputs["json_path"]).exists()
     assert Path(outputs["published_path"]).exists()
     assert "## Global Total Board" in markdown
-    assert "end_to_end_main" in markdown
+    assert "cue_black_box_utility_main" in markdown

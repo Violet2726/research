@@ -30,7 +30,7 @@ from research_experiments.families.madjudge.config import (
     load_roster_config,
     phase_metadata,
 )
-from research_experiments.families.madjudge.run.io import RunPaths
+from research_experiments.families.madjudge.run.io import prepare_run_layout
 from research_experiments.families.madjudge.run.report import render_report, summarize_run
 from research_experiments.families.madjudge.run.sample import (
     _active_setups,
@@ -46,7 +46,8 @@ from research_experiments.families.madjudge.run.sample import (
     _write_sample_outputs,
 )
 from research_experiments.families.madjudge.run.validate import validate_run
-from research_experiments.families.shared.config_loading import load_benchmarks
+from research_experiments.families.run_manifest import finalize_family_manifest
+from research_experiments.core.families.config_loading import load_benchmarks
 from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 
@@ -76,14 +77,12 @@ def run_experiment(
         tokens_per_minute=experiment.tokens_per_minute_limit,
     )
     run_id = build_run_id(backbone.name)
-    run_root_path = resolved_run_root / experiment.name / phase_name / run_id
-    run_root_path.mkdir(parents=True, exist_ok=True)
-    paths = RunPaths(run_root=run_root_path)
+    paths = prepare_run_layout(resolved_run_root, experiment.name, phase_name, run_id)
 
     total_calls, total_predictions = _estimate_work(
         experiment, phase_name, benchmarks, setups, matched_control_names, controls,
     )
-    progress = RunProgressTracker(paths.run_root / "progress.json", total_calls, total_predictions)
+    progress = RunProgressTracker(paths.progress, total_calls, total_predictions)
 
     print(f"[MADJudge] Phase: {phase_name}", flush=True)
     print(f"[MADJudge] Benchmarks: {[b.slug for b in benchmarks]}", flush=True)
@@ -116,6 +115,7 @@ def run_experiment(
         "total_planned_calls": total_calls,
         "total_planned_predictions": total_predictions,
     }
+    manifest = finalize_family_manifest(manifest, family_name="madjudge")
     (paths.run_root / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     all_turns: list[dict[str, Any]] = []
@@ -212,15 +212,15 @@ def run_experiment(
     paths.metrics_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
     paths.debate_diagnostics_path.write_text(json.dumps(diagnostics, ensure_ascii=False, indent=2), encoding="utf-8")
     paths.cost_breakdown_path.write_text(json.dumps(cost_breakdown, ensure_ascii=False, indent=2), encoding="utf-8")
-    (paths.run_root / "run_summary.json").write_text(
-        json.dumps(summarize_run(paths.run_root), ensure_ascii=False, indent=2), encoding="utf-8"
+    paths.run_summary.write_text(
+        json.dumps(summarize_run(paths.root), ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    render_report(paths.run_root)
+    render_report(paths.root)
     finalize_run_outputs(
-        paths.run_root,
+        paths.root,
         validator=validate_run,
     )
     progress.mark_completed()
     provider.close()
     cache_router.close()
-    return run_root_path
+    return paths.root

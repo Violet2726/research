@@ -60,6 +60,7 @@ def render_report_bundle(
     }
     for report in extras:
         output_path = root / report.filename
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(report.content, encoding="utf-8")
         payload[report.result_key] = str(output_path)
     return payload

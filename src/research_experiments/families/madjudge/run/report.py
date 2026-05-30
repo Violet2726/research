@@ -9,7 +9,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.report_common import (
+from research_experiments.core.families.artifacts import named_diagnostic_paths, resolve_run_artifact_index
+from research_experiments.core.families.report_common import (
     render_family_report_bundle,
     render_family_scientific_report,
 )
@@ -24,8 +25,9 @@ from research_experiments.reporting.run_figures import (
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
     """生成 MADJudge 运行的摘要。"""
-    run_root = Path(run_dir)
-    metrics_path = run_root / "metrics.json"
+    index = resolve_run_artifact_index(run_dir, family_name="madjudge")
+    run_root = index.run_dir
+    metrics_path = index.metrics_view_path
     if not metrics_path.exists():
         return {"error": "metrics.json not found"}
 
@@ -43,11 +45,13 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
 
 def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) -> dict[str, Any]:
     """生成 MADJudge 实验的完整报告（report.md + 图表）。"""
-    root = Path(run_dir)
-    manifest = load_json_payload(root / "manifest.json")
-    metrics = load_json_payload(root / "metrics.json")
-    diagnostics = load_json_payload(root / "debate_diagnostics.json")
-    cost = load_json_payload(root / "cost_breakdown.json")
+    index = resolve_run_artifact_index(run_dir, family_name="madjudge")
+    root = index.run_dir
+    manifest = load_json_payload(index.manifest_path)
+    metrics = load_json_payload(index.metrics_view_path)
+    diagnostic_paths = named_diagnostic_paths(root, family_name="madjudge")
+    diagnostics = load_json_payload(diagnostic_paths["debate_diagnostics.json"])
+    cost = load_json_payload(diagnostic_paths["cost_breakdown.json"])
 
     summary_rows = [row.raw for row in SummaryTableView.from_metrics_payload(metrics).rows]
     overall_rows = _build_overall_rows(summary_rows)
@@ -405,3 +409,4 @@ def _fmt_pct(value: Any, digits: int = 1) -> str:
         return f"{float(value) * 100:.{digits}f}%"
     except (TypeError, ValueError):
         return ""
+

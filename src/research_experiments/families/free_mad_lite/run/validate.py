@@ -11,7 +11,13 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.validate_common import summarize_turn_statuses, validate_shared_contracts
+from research_experiments.core.families.artifacts import (
+    named_diagnostic_paths,
+    named_export_paths,
+    named_turn_record_paths,
+    resolve_run_artifact_index,
+)
+from research_experiments.core.families.validate_common import summarize_turn_statuses, validate_shared_contracts
 
 REQUIRED_FILES = [
     "manifest.json",
@@ -30,12 +36,29 @@ REQUIRED_FILES = [
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
     """Validate Free-MAD-lite run meets smoke experiment contract."""
-    root = Path(run_dir)
-    missing = [name for name in REQUIRED_FILES if not (root / name).exists()]
-    manifest = _load_json(root / "manifest.json") if (root / "manifest.json").exists() else {}
-    turn_rows = _load_jsonl(root / "agent_turns.jsonl")
-    score_rows = _load_jsonl(root / "trajectory_scores.jsonl")
-    prediction_rows = _load_jsonl(root / "final_predictions.jsonl")
+    index = resolve_run_artifact_index(run_dir, family_name="free_mad_lite")
+    root = index.run_dir
+    turn_paths = named_turn_record_paths(root, family_name="free_mad_lite")
+    diagnostic_paths = named_diagnostic_paths(root, family_name="free_mad_lite")
+    export_paths = named_export_paths(root, family_name="free_mad_lite")
+    required_paths = [
+        index.manifest_path,
+        turn_paths["agent_turns.jsonl"],
+        turn_paths["debate_messages.jsonl"],
+        export_paths["trajectory_scores.jsonl"],
+        index.prediction_records_path,
+        index.metrics_view_path,
+        diagnostic_paths["diagnostics.json"],
+        index.progress_path,
+        index.report_path,
+        index.figure_manifest_path,
+        index.archive_manifest_path,
+    ]
+    missing = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
+    manifest = _load_json(index.manifest_path) if index.manifest_path.exists() else {}
+    turn_rows = _load_jsonl(turn_paths["agent_turns.jsonl"])
+    score_rows = _load_jsonl(export_paths["trajectory_scores.jsonl"])
+    prediction_rows = _load_jsonl(index.prediction_records_path)
 
     # Exclude trajectory_judge role — those have their own schema check below
     filtered_turns = [row for row in turn_rows if row.get("role") != "trajectory_judge"]
@@ -167,3 +190,4 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+

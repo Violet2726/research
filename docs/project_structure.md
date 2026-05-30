@@ -8,7 +8,6 @@
    共享基础设施层，负责 provider、缓存、数据集加载、评测、结构化输出、归档与运行时工具。
 2. `src/research_experiments/families/<family>/`
    具体实验实现层。每个 family 只依赖共享核心，不互相依赖。
-   `src/research_experiments/families/shared/` 只承接 family 侧共享脚手架，不算实验家族。
 3. `configs/core/` 与 `configs/families/`
    配置层。共享配置放在 `configs/core/shared/`，矩阵 profile 放在 `configs/core/matrix/`，实验专属配置放在各自 family 目录。
 4. `datasets/`、`files/`、`local/`
@@ -27,7 +26,6 @@
 
 ### `src/research_experiments/families/`
 
-- `shared/`：family CLI、配置加载、报告/校验共用脚手架
 - `<family>/config.py`：实验配置解析
 - `<family>/prompts.py`：提示词模板
 - `<family>/algorithms.py` / `dataset_views.py`：family 机制逻辑
@@ -40,6 +38,7 @@
 
 ### 其他共享目录
 
+- `src/research_experiments/core/families/`：跨 family 共享的 artifact 合同、配置加载、比较器、报告包装与校验工具
 - `src/research_experiments/matrix/`：矩阵内核、faithful/reproduction profile 编排与分析
 - `src/research_experiments/reporting/`：科研报告、图资产、论文包与统计输出
 - `src/research_experiments/workspace/`：工作区布局、归档、HF 同步、数据集资产

@@ -6,7 +6,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.validate_common import (
+from research_experiments.core.families.artifacts import named_turn_record_paths, resolve_run_artifact_index
+from research_experiments.core.families.validate_common import (
     load_jsonl,
     summarize_turn_statuses,
     validate_shared_contracts,
@@ -29,25 +30,27 @@ ALLOWED_ACTIONS = {"none", "adopt_vote", "keep_local", "query_best_peer", "query
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
     """Check whether an ECON run meets the minimum analysis contract."""
 
-    root = Path(run_dir)
-    required = [
-        "manifest.json",
-        "agent_turns.jsonl",
-        "belief_trace.jsonl",
-        "equilibrium_trace.jsonl",
-        "communication_trace.jsonl",
-        "final_predictions.jsonl",
-        "metrics.json",
-        "report.md",
-        "figure_manifest.json",
-        "archive_manifest.json",
+    index = resolve_run_artifact_index(run_dir, family_name="econ")
+    root = index.run_dir
+    turn_paths = named_turn_record_paths(root, family_name="econ")
+    required_paths = [
+        index.manifest_path,
+        turn_paths["agent_turns.jsonl"],
+        turn_paths["belief_trace.jsonl"],
+        turn_paths["equilibrium_trace.jsonl"],
+        turn_paths["communication_trace.jsonl"],
+        index.prediction_records_path,
+        index.metrics_view_path,
+        index.report_path,
+        index.figure_manifest_path,
+        index.archive_manifest_path,
     ]
-    missing = [name for name in required if not (root / name).exists()]
-    turn_rows = load_jsonl(root / "agent_turns.jsonl") if (root / "agent_turns.jsonl").exists() else []
-    belief_rows = load_jsonl(root / "belief_trace.jsonl") if (root / "belief_trace.jsonl").exists() else []
-    equilibrium_rows = load_jsonl(root / "equilibrium_trace.jsonl") if (root / "equilibrium_trace.jsonl").exists() else []
-    communication_rows = load_jsonl(root / "communication_trace.jsonl") if (root / "communication_trace.jsonl").exists() else []
-    prediction_rows = load_jsonl(root / "final_predictions.jsonl") if (root / "final_predictions.jsonl").exists() else []
+    missing = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
+    turn_rows = load_jsonl(turn_paths["agent_turns.jsonl"]) if turn_paths["agent_turns.jsonl"].exists() else []
+    belief_rows = load_jsonl(turn_paths["belief_trace.jsonl"]) if turn_paths["belief_trace.jsonl"].exists() else []
+    equilibrium_rows = load_jsonl(turn_paths["equilibrium_trace.jsonl"]) if turn_paths["equilibrium_trace.jsonl"].exists() else []
+    communication_rows = load_jsonl(turn_paths["communication_trace.jsonl"]) if turn_paths["communication_trace.jsonl"].exists() else []
+    prediction_rows = load_jsonl(index.prediction_records_path) if index.prediction_records_path.exists() else []
 
     status_summary = summarize_turn_statuses(turn_rows)
     methods = Counter(row.get("method_name") for row in prediction_rows)
@@ -88,3 +91,4 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "figure_contract": figure_contract,
         "archive_contract": archive_contract,
     }
+

@@ -3,12 +3,32 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from testsupport.filesystem import write_json
+
+from research_experiments.core.contracts import FamilyArtifactSchema
 from research_experiments.reporting.paper_statistics import build_paper_statistics, render_paper_statistics
+
+
+def _write_manifest(run_dir: Path, *, family_name: str, prototype: str) -> None:
+    (run_dir / "views").mkdir(parents=True, exist_ok=True)
+    write_json(
+        run_dir / "manifest.json",
+        {
+            "family_name": family_name,
+            "prototype": prototype,
+            "run_id": run_dir.name,
+            "artifact_schema": FamilyArtifactSchema(
+                metrics_view_path="views/metrics.json",
+                prediction_records_path="views/predictions.jsonl",
+            ).to_manifest_payload(),
+        },
+    )
 
 
 def test_build_paper_statistics_pairs_binary_predictions(tmp_path: Path) -> None:
     run_dir = tmp_path / "trigger"
     run_dir.mkdir()
+    _write_manifest(run_dir, family_name="selective_comm", prototype="shared_stage_policy")
     rows = [
         {"dataset": "gsm8k", "sample_id": "1", "method_name": "hybrid_trigger", "score": 1.0},
         {"dataset": "gsm8k", "sample_id": "1", "method_name": "always_communicate", "score": 0.0},
@@ -17,7 +37,7 @@ def test_build_paper_statistics_pairs_binary_predictions(tmp_path: Path) -> None
         {"dataset": "gsm8k", "sample_id": "3", "method_name": "hybrid_trigger", "score": 1.0},
         {"dataset": "gsm8k", "sample_id": "3", "method_name": "always_communicate", "score": 1.0},
     ]
-    (run_dir / "policy_predictions.jsonl").write_text(
+    (run_dir / "views" / "predictions.jsonl").write_text(
         "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
         encoding="utf-8",
     )
@@ -44,11 +64,12 @@ def test_build_paper_statistics_pairs_binary_predictions(tmp_path: Path) -> None
 def test_render_paper_statistics_writes_fixed_artifacts(tmp_path: Path) -> None:
     run_dir = tmp_path / "dala"
     run_dir.mkdir()
+    _write_manifest(run_dir, family_name="budget_comm", prototype="packet_belief_update")
     rows = [
         {"dataset": "gsm8k", "sample_id": "1", "method_name": "dala_lite", "score": 1.0},
         {"dataset": "gsm8k", "sample_id": "1", "method_name": "all_to_all_full", "score": 1.0},
     ]
-    (run_dir / "final_predictions.jsonl").write_text(
+    (run_dir / "views" / "predictions.jsonl").write_text(
         "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
         encoding="utf-8",
     )

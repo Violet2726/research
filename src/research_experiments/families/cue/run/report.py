@@ -5,11 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.report_common import (
+from research_experiments.core.families.artifacts import (
+    load_metrics_payload,
+    named_diagnostic_paths,
+    resolve_run_artifact_index,
+)
+from research_experiments.core.families.report_common import (
     render_family_report_bundle,
     render_family_scientific_report,
 )
-from research_experiments.families.shared.standard_method_names import MV_3, MV_6, SC_6
+from research_experiments.core.families.comparator_registry import MV_3, MV_6, SC_6
 from research_experiments.reporting.analysis_reports import render_frontier_report
 from research_experiments.reporting.report_pipeline import SupplementalReport
 from research_experiments.reporting.report_views import DiagnosticTableView, SummaryTableView, load_json_payload
@@ -39,7 +44,7 @@ METHOD_ORDER = [
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
-    summary = SummaryTableView.from_metrics_payload(load_json_payload(Path(run_dir) / "policy_metrics.json"))
+    summary = SummaryTableView.from_metrics_payload(load_metrics_payload(run_dir, family_name="cue"))
     grouped = summary.grouped_by_dataset()
     return {
         "run_dir": str(Path(run_dir)),
@@ -51,11 +56,13 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
 
 def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) -> dict[str, Any]:
     publish_dir = publish_dir or default_reports_root("cue")
-    root = Path(run_dir)
-    manifest = load_json_payload(root / "manifest.json")
-    metrics = load_json_payload(root / "policy_metrics.json")
-    diagnostics = load_json_payload(root / "policy_diagnostics.json")
-    oracle = load_json_payload(root / "oracle_trigger_eval.json")
+    index = resolve_run_artifact_index(run_dir, family_name="cue")
+    root = index.run_dir
+    manifest = load_json_payload(index.manifest_path)
+    metrics = load_json_payload(index.metrics_view_path)
+    diagnostic_paths = named_diagnostic_paths(root, family_name="cue")
+    diagnostics = load_json_payload(diagnostic_paths["policy_diagnostics.json"])
+    oracle = load_json_payload(diagnostic_paths["oracle_trigger_eval.json"])
     base_markdown = _render_markdown(manifest, metrics, diagnostics, oracle, root)
     return render_family_report_bundle(
         family_name="cue",
@@ -67,7 +74,7 @@ def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) ->
         supplemental_reports=[
             SupplementalReport(
                 result_key="frontier_report",
-                filename="frontier_report.md",
+                filename="exports/frontier_report.md",
                 content=render_frontier_report(metrics.get("summary", []), title="CUE 前沿附录"),
             )
         ],
@@ -287,4 +294,5 @@ def _ordered_rows(rows: list[Any]) -> list[Any]:
 
 def _ordered_policy_rows(rows: list[Any]) -> list[Any]:
     return sorted(rows, key=lambda row: METHOD_ORDER.index(row.method_name) if row.method_name in METHOD_ORDER else 999)
+
 

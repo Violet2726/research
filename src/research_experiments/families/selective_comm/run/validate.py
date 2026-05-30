@@ -11,7 +11,12 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.validate_common import (
+from research_experiments.core.families.artifacts import (
+    named_diagnostic_paths,
+    named_turn_record_paths,
+    resolve_run_artifact_index,
+)
+from research_experiments.core.families.validate_common import (
     load_json,
     load_jsonl,
     summarize_turn_statuses,
@@ -21,30 +26,34 @@ from research_experiments.families.shared.validate_common import (
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
     """Check selective communication run directory meets key artifact and constraint requirements."""
-    root = Path(run_dir)
-    required = [
-        "manifest.json",
-        "stage_a_turns.jsonl",
-        "stage_b_turns.jsonl",
-        "trigger_decisions.jsonl",
-        "policy_predictions.jsonl",
-        "policy_metrics.json",
-        "policy_diagnostics.json",
-        "oracle_trigger_eval.json",
-        "policy_reference_summary.json",
-        "progress.json",
-        "report.md",
-        "figure_manifest.json",
-        "archive_manifest.json",
+    index = resolve_run_artifact_index(run_dir, family_name="selective_comm")
+    root = index.run_dir
+    turn_paths = named_turn_record_paths(root, family_name="selective_comm")
+    diagnostic_paths = named_diagnostic_paths(root, family_name="selective_comm")
+    policy_reference_path = root / "exports" / "policy_reference_summary.json"
+    required_paths = [
+        index.manifest_path,
+        turn_paths["stage_a_turns.jsonl"],
+        turn_paths["stage_b_turns.jsonl"],
+        turn_paths["trigger_decisions.jsonl"],
+        index.prediction_records_path,
+        index.metrics_view_path,
+        diagnostic_paths["policy_diagnostics.json"],
+        diagnostic_paths["oracle_trigger_eval.json"],
+        policy_reference_path,
+        index.progress_path,
+        index.report_path,
+        index.figure_manifest_path,
+        index.archive_manifest_path,
     ]
-    missing = [name for name in required if not (root / name).exists()]
+    missing = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
 
-    stage_a_rows = load_jsonl(root / "stage_a_turns.jsonl")
-    stage_b_rows = load_jsonl(root / "stage_b_turns.jsonl")
-    control_rows = load_jsonl(root / "control_turns.jsonl")
-    trigger_rows = load_jsonl(root / "trigger_decisions.jsonl")
-    prediction_rows = load_jsonl(root / "policy_predictions.jsonl")
-    diagnostics = load_json(root / "policy_diagnostics.json") if (root / "policy_diagnostics.json").exists() else {}
+    stage_a_rows = load_jsonl(turn_paths["stage_a_turns.jsonl"])
+    stage_b_rows = load_jsonl(turn_paths["stage_b_turns.jsonl"])
+    control_rows = load_jsonl(turn_paths["control_turns.jsonl"])
+    trigger_rows = load_jsonl(turn_paths["trigger_decisions.jsonl"])
+    prediction_rows = load_jsonl(index.prediction_records_path)
+    diagnostics = load_json(diagnostic_paths["policy_diagnostics.json"]) if diagnostic_paths["policy_diagnostics.json"].exists() else {}
 
     all_turn_rows = stage_a_rows + stage_b_rows + control_rows
     status_summary = summarize_turn_statuses(all_turn_rows)
@@ -190,3 +199,4 @@ def _confidence_invalid_ratio(trigger_rows: list[dict[str, Any]]) -> dict[str, A
         "overall_ratio": round(overall_numerator / overall_denominator, 6) if overall_denominator else 0.0,
         "per_dataset": per_dataset,
     }
+

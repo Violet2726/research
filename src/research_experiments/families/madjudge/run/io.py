@@ -1,37 +1,31 @@
-"""MADJudge 运行路径管理。"""
+"""Canonical run-layout helpers for `madjudge`."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
+from research_experiments.core.families.run_layout import FamilyRunLayout, prepare_family_run_layout
+from research_experiments.families.registry import get_family_registration
 
-@dataclass(frozen=True)
-class RunPaths:
-    """MADJudge 运行的文件路径集合。"""
 
-    run_root: Path
+ALIASES = {
+    "run_root": ".",
+"turns_path": "turns/turns.jsonl",
+"debate_messages_path": "turns/debate_messages.jsonl",
+"predictions_path": "views/predictions.jsonl",
+"metrics_path": "views/metrics.json",
+"debate_diagnostics_path": "diagnostics/debate_diagnostics.json",
+"cost_breakdown_path": "diagnostics/cost_breakdown.json",
+}
 
-    @property
-    def turns_path(self) -> Path:
-        return self.run_root / "turns.jsonl"
 
-    @property
-    def debate_messages_path(self) -> Path:
-        return self.run_root / "debate_messages.jsonl"
-
-    @property
-    def predictions_path(self) -> Path:
-        return self.run_root / "predictions.jsonl"
-
-    @property
-    def metrics_path(self) -> Path:
-        return self.run_root / "metrics.json"
-
-    @property
-    def debate_diagnostics_path(self) -> Path:
-        return self.run_root / "debate_diagnostics.json"
-
-    @property
-    def cost_breakdown_path(self) -> Path:
-        return self.run_root / "cost_breakdown.json"
+def prepare_run_layout(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> FamilyRunLayout:
+    registration = get_family_registration("madjudge")
+    return prepare_family_run_layout(
+        run_root,
+        experiment_name,
+        phase_name,
+        run_id,
+        artifact_schema=registration.artifact_schema,
+        aliases=ALIASES,
+    )

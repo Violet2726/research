@@ -39,7 +39,7 @@ from research_experiments.families.madjudge.prompts import (
     build_debate_messages,
     build_initial_messages,
 )
-from research_experiments.families.shared.common import resolve_phase_split_name, safe_mean, safe_ratio
+from research_experiments.core.families.common import resolve_phase_split_name, safe_mean, safe_ratio
 
 
 @dataclass(frozen=True)
@@ -1340,3 +1340,4 @@ def _build_control_prediction_row(
         ks_statistic_final=0.0,
         stable_rounds=0,
     )) | {"vote_counts": vote_counts}
+

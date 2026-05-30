@@ -40,6 +40,12 @@ MARKDOWN_DOCS = [
     ROOT / "src" / "research_experiments" / "families" / "sid_lite" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "single_agent" / "README.md",
 ]
+ACTIVE_PROJECT_DOCS = [
+    ROOT / "README.md",
+    ROOT / "src" / "README.md",
+    ROOT / "docs" / "README.md",
+    ROOT / "docs" / "project_structure.md",
+]
 
 
 def test_all_family_clis_expose_render_report() -> None:
@@ -72,6 +78,14 @@ def test_family_readmes_use_render_report_example() -> None:
         text = path.read_text(encoding="utf-8")
         assert "render-report --run-dir" in text, f"{path} is missing unified render-report example"
         assert "research_cli experiment --family " in text, f"{path} 未使用新的 experiment CLI 入口"
+
+
+def test_active_project_docs_do_not_reference_removed_families() -> None:
+    removed_markers = ("`sparc`", "sparc_v1", "families/shared")
+    for path in ACTIVE_PROJECT_DOCS:
+        text = path.read_text(encoding="utf-8")
+        for marker in removed_markers:
+            assert marker not in text, f"{path} still references removed marker {marker}"
 
 
 def _subcommands(parser: argparse.ArgumentParser) -> set[str]:

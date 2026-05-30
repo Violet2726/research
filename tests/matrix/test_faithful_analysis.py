@@ -5,13 +5,46 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from testsupport.filesystem import write_json
+
+from research_experiments.core.contracts import FamilyArtifactSchema
 from research_experiments.matrix.faithful_analysis import build_faithful_analysis, render_faithful_analysis
+
+
+def _write_run_manifest(
+    run_dir: Path,
+    *,
+    family_name: str,
+    prototype: str,
+    metrics_path: str,
+    predictions_path: str,
+) -> None:
+    (run_dir / "views").mkdir(parents=True, exist_ok=True)
+    write_json(
+        run_dir / "manifest.json",
+        {
+            "family_name": family_name,
+            "prototype": prototype,
+            "run_id": run_dir.name,
+            "artifact_schema": FamilyArtifactSchema(
+                metrics_view_path=metrics_path,
+                prediction_records_path=predictions_path,
+            ).to_manifest_payload(),
+        },
+    )
 
 
 def test_build_faithful_analysis_computes_reference_deltas_and_stage_ceiling(tmp_path: Path) -> None:
     run_dir = tmp_path / "runs" / "budget_comm" / "dala_lite_same_context_main" / "count20" / "demo"
     run_dir.mkdir(parents=True)
-    (run_dir / "metrics.json").write_text(
+    _write_run_manifest(
+        run_dir,
+        family_name="budget_comm",
+        prototype="packet_belief_update",
+        metrics_path="views/metrics.json",
+        predictions_path="views/predictions.jsonl",
+    )
+    (run_dir / "views" / "metrics.json").write_text(
         json.dumps(
             {
                 "summary": [
@@ -53,7 +86,7 @@ def test_build_faithful_analysis_computes_reference_deltas_and_stage_ceiling(tmp
         ),
         encoding="utf-8",
     )
-    (run_dir / "final_predictions.jsonl").write_text(
+    (run_dir / "views" / "predictions.jsonl").write_text(
         "\n".join(
             [
                 json.dumps(
@@ -110,7 +143,14 @@ def test_build_faithful_analysis_computes_reference_deltas_and_stage_ceiling(tmp
 def test_render_faithful_analysis_writes_artifacts(tmp_path: Path) -> None:
     run_dir = tmp_path / "runs" / "cue" / "cue_black_box_utility_main" / "count20" / "demo"
     run_dir.mkdir(parents=True)
-    (run_dir / "policy_metrics.json").write_text(
+    _write_run_manifest(
+        run_dir,
+        family_name="cue",
+        prototype="shared_stage_policy",
+        metrics_path="views/metrics.json",
+        predictions_path="views/predictions.jsonl",
+    )
+    (run_dir / "views" / "metrics.json").write_text(
         json.dumps(
             {
                 "summary": [
@@ -152,7 +192,7 @@ def test_render_faithful_analysis_writes_artifacts(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    (run_dir / "policy_predictions.jsonl").write_text(
+    (run_dir / "views" / "predictions.jsonl").write_text(
         json.dumps({"dataset": "overall", "method_name": "cue_v1", "score": 1.0, "stage_a_score": 1.0}, ensure_ascii=False)
         + "\n",
         encoding="utf-8",
@@ -190,7 +230,14 @@ def test_render_faithful_analysis_writes_artifacts(tmp_path: Path) -> None:
 def test_build_faithful_analysis_synthesizes_overall_when_metrics_lack_it(tmp_path: Path) -> None:
     run_dir = tmp_path / "runs" / "multi_agent" / "same_context_controlled_debate" / "count20" / "demo"
     run_dir.mkdir(parents=True)
-    (run_dir / "metrics.json").write_text(
+    _write_run_manifest(
+        run_dir,
+        family_name="multi_agent",
+        prototype="debate_rounds",
+        metrics_path="views/metrics.json",
+        predictions_path="views/predictions.jsonl",
+    )
+    (run_dir / "views" / "metrics.json").write_text(
         json.dumps(
             {
                 "summary": [
@@ -229,7 +276,7 @@ def test_build_faithful_analysis_synthesizes_overall_when_metrics_lack_it(tmp_pa
         ),
         encoding="utf-8",
     )
-    (run_dir / "final_predictions.jsonl").write_text(
+    (run_dir / "views" / "predictions.jsonl").write_text(
         "\n".join(
             [
                 json.dumps({"dataset": "gsm8k", "method_name": "mad_3a_r1", "score": 1.0}, ensure_ascii=False),

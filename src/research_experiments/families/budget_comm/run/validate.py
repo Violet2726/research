@@ -13,37 +13,47 @@ from pathlib import Path
 from typing import Any
 
 from research_experiments.families.budget_comm.algorithms import METHOD_ORDER, assign_density_tiers, solve_knapsack
-from research_experiments.families.shared.validate_common import summarize_turn_statuses, validate_shared_contracts
+from research_experiments.core.families.artifacts import (
+    named_diagnostic_paths,
+    named_export_paths,
+    named_turn_record_paths,
+    resolve_run_artifact_index,
+)
+from research_experiments.core.families.validate_common import summarize_turn_statuses, validate_shared_contracts
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
     """Check budget_comm run directory key artifacts and experiment constraints."""
-    root = Path(run_dir)
-    required = [
-        "manifest.json",
-        "sample_views.jsonl",
-        "stage_a_turns.jsonl",
-        "candidate_packets.jsonl",
-        "auction_decisions.jsonl",
-        "belief_updates.jsonl",
-        "final_predictions.jsonl",
-        "metrics.json",
-        "budget_diagnostics.json",
-        "progress.json",
-        "report.md",
-        "paper_summary.csv",
-        "figure_manifest.json",
-        "archive_manifest.json",
+    index = resolve_run_artifact_index(run_dir, family_name="budget_comm")
+    root = index.run_dir
+    turn_paths = named_turn_record_paths(root, family_name="budget_comm")
+    diagnostic_paths = named_diagnostic_paths(root, family_name="budget_comm")
+    export_paths = named_export_paths(root, family_name="budget_comm")
+    required_paths = [
+        index.manifest_path,
+        turn_paths["sample_views.jsonl"],
+        turn_paths["stage_a_turns.jsonl"],
+        turn_paths["candidate_packets.jsonl"],
+        turn_paths["auction_decisions.jsonl"],
+        turn_paths["belief_updates.jsonl"],
+        index.prediction_records_path,
+        index.metrics_view_path,
+        diagnostic_paths["budget_diagnostics.json"],
+        index.progress_path,
+        index.report_path,
+        export_paths["paper_summary.csv"],
+        index.figure_manifest_path,
+        index.archive_manifest_path,
     ]
-    missing = [name for name in required if not (root / name).exists()]
+    missing = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
 
-    manifest = _load_json(root / "manifest.json")
-    sample_views = _load_jsonl(root / "sample_views.jsonl")
-    stage_a_rows = _load_jsonl(root / "stage_a_turns.jsonl")
-    candidate_rows = _load_jsonl(root / "candidate_packets.jsonl")
-    auction_rows = _load_jsonl(root / "auction_decisions.jsonl")
-    belief_rows = _load_jsonl(root / "belief_updates.jsonl")
-    prediction_rows = _load_jsonl(root / "final_predictions.jsonl")
+    manifest = _load_json(index.manifest_path)
+    sample_views = _load_jsonl(turn_paths["sample_views.jsonl"])
+    stage_a_rows = _load_jsonl(turn_paths["stage_a_turns.jsonl"])
+    candidate_rows = _load_jsonl(turn_paths["candidate_packets.jsonl"])
+    auction_rows = _load_jsonl(turn_paths["auction_decisions.jsonl"])
+    belief_rows = _load_jsonl(turn_paths["belief_updates.jsonl"])
+    prediction_rows = _load_jsonl(index.prediction_records_path)
 
     status_summary = summarize_turn_statuses(stage_a_rows + belief_rows)
 
@@ -272,3 +282,4 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
         return []
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+

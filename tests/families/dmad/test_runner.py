@@ -4,7 +4,7 @@ import json
 import zipfile
 from pathlib import Path
 
-from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl
+from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl, write_registered_family_manifest
 
 from research_experiments.core.config import ResolvedModelConfig
 from research_experiments.families.dmad.config import load_experiment_config
@@ -14,9 +14,10 @@ from research_experiments.families.dmad.run.validate import validate_run
 
 
 def test_dmad_render_report_uses_new_paper_scope_and_tables(tmp_path: Path) -> None:
-    write_json(
+    write_registered_family_manifest(
         tmp_path / "manifest.json",
-        {
+        family_name="dmad",
+        payload={
             "created_at": "2026-05-19T12:00:00+00:00",
             "experiment_name": "dmad_reasoning_main",
             "phase_name": "count20",
@@ -27,7 +28,7 @@ def test_dmad_render_report_uses_new_paper_scope_and_tables(tmp_path: Path) -> N
         },
     )
     write_json(
-        tmp_path / "metrics.json",
+        tmp_path / "views" / "metrics.json",
         {
             "summary": [
                 {
@@ -98,7 +99,7 @@ def test_dmad_render_report_uses_new_paper_scope_and_tables(tmp_path: Path) -> N
         },
     )
     write_json(
-        tmp_path / "strategy_diagnostics.json",
+        tmp_path / "diagnostics" / "strategy_diagnostics.json",
         {
             "rows": [
                 {
@@ -148,7 +149,7 @@ def test_dmad_render_report_uses_new_paper_scope_and_tables(tmp_path: Path) -> N
         },
     )
     write_json(
-        tmp_path / "paper_tables.json",
+        tmp_path / "exports" / "paper_tables.json",
         {
             "evaluation_scope": "paper_main",
             "math_subject_rows": [
@@ -175,9 +176,9 @@ def test_dmad_render_report_uses_new_paper_scope_and_tables(tmp_path: Path) -> N
 
 
 def test_dmad_validate_run_accepts_complete_artifacts(tmp_path: Path) -> None:
-    write_json(tmp_path / "manifest.json", {"run_id": "demo", "experiment_name": "dmad_reasoning_main"})
+    write_registered_family_manifest(tmp_path / "manifest.json", family_name="dmad", run_id="demo", payload={"experiment_name": "dmad_reasoning_main"})
     write_jsonl(
-        tmp_path / "agent_turns.jsonl",
+        tmp_path / "turns" / "agent_turns.jsonl",
         [
             {
                 "dataset": "competition_math",
@@ -187,9 +188,9 @@ def test_dmad_validate_run_accepts_complete_artifacts(tmp_path: Path) -> None:
             }
         ],
     )
-    write_jsonl(tmp_path / "debate_messages.jsonl", [{"dataset": "competition_math", "sample_id": "s1"}])
+    write_jsonl(tmp_path / "turns" / "debate_messages.jsonl", [{"dataset": "competition_math", "sample_id": "s1"}])
     write_jsonl(
-        tmp_path / "final_predictions.jsonl",
+        tmp_path / "views" / "predictions.jsonl",
         [
             {
                 "dataset": "competition_math",
@@ -198,10 +199,10 @@ def test_dmad_validate_run_accepts_complete_artifacts(tmp_path: Path) -> None:
             }
         ],
     )
-    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "overall"}]})
-    write_json(tmp_path / "strategy_diagnostics.json", {"rows": [{"dataset": "overall"}]})
-    write_json(tmp_path / "cost_breakdown.json", {"rows": []})
-    write_json(tmp_path / "paper_tables.json", {"overall_rows": []})
+    write_json(tmp_path / "views" / "metrics.json", {"summary": [{"dataset": "overall"}]})
+    write_json(tmp_path / "diagnostics" / "strategy_diagnostics.json", {"rows": [{"dataset": "overall"}]})
+    write_json(tmp_path / "diagnostics" / "cost_breakdown.json", {"rows": []})
+    write_json(tmp_path / "exports" / "paper_tables.json", {"overall_rows": []})
     touch_figure_contract(tmp_path)
 
     payload = validate_run(tmp_path)
@@ -360,10 +361,10 @@ def test_dmad_run_experiment_executes_minimal_flow(monkeypatch, tmp_path: Path) 
     )
 
     validation = validate_run(run_dir)
-    predictions = [json.loads(line) for line in (run_dir / "final_predictions.jsonl").read_text(encoding="utf-8").splitlines()]
+    predictions = [json.loads(line) for line in (run_dir / "views" / "predictions.jsonl").read_text(encoding="utf-8").splitlines()]
 
     assert validation["passed"] is True
     assert len(predictions) == 4
-    assert (run_dir / "paper_tables.json").exists()
+    assert (run_dir / "exports" / "paper_tables.json").exists()
     assert any(row["method_name"] == "dmad_cot_sbp_pot" for row in predictions)
     assert (splits_root / "count20" / "tests" / "dmad" / "minimal_competition_math-seed0.json").exists()

@@ -18,7 +18,7 @@ from research_experiments.families.macnet.prompts import (
     validate_instruction_output,
 )
 from research_experiments.families.macnet.topologies import TopologySpec, build_topology
-from research_experiments.families.shared.common import build_question_preview, resolve_phase_split_name, safe_mean
+from research_experiments.core.families.common import build_question_preview, resolve_phase_split_name, safe_mean
 
 METHOD_ORDER = (
     "single_agent_cot",
@@ -920,3 +920,4 @@ def _coerce_confidence(value: object) -> float | None:
 
 def _stable_sample_seed(sample_id: str) -> int:
     return sum(ord(char) for char in sample_id)
+

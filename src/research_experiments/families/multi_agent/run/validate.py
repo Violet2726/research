@@ -10,7 +10,12 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.validate_common import (
+from research_experiments.core.families.artifacts import (
+    named_diagnostic_paths,
+    named_turn_record_paths,
+    resolve_run_artifact_index,
+)
+from research_experiments.core.families.validate_common import (
     load_jsonl,
     summarize_turn_statuses,
     validate_shared_contracts,
@@ -19,22 +24,25 @@ from research_experiments.families.shared.validate_common import (
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
     """检查多智能体运行目录中的关键产物是否齐全且基本可用。"""
-    root = Path(run_dir)
-    required = [
-        "manifest.json",
-        "agent_turns.jsonl",
-        "debate_messages.jsonl",
-        "final_predictions.jsonl",
-        "metrics.json",
-        "cost_breakdown.json",
-        "debate_diagnostics.json",
-        "report.md",
-        "figure_manifest.json",
-        "archive_manifest.json",
+    index = resolve_run_artifact_index(run_dir, family_name="multi_agent")
+    root = index.run_dir
+    turn_paths = named_turn_record_paths(root, family_name="multi_agent")
+    diagnostic_paths = named_diagnostic_paths(root, family_name="multi_agent")
+    required_paths = [
+        index.manifest_path,
+        turn_paths["agent_turns.jsonl"],
+        turn_paths["debate_messages.jsonl"],
+        index.prediction_records_path,
+        index.metrics_view_path,
+        diagnostic_paths["cost_breakdown.json"],
+        diagnostic_paths["debate_diagnostics.json"],
+        index.report_path,
+        index.figure_manifest_path,
+        index.archive_manifest_path,
     ]
-    missing = [name for name in required if not (root / name).exists()]
-    agent_rows = load_jsonl(root / "agent_turns.jsonl") if (root / "agent_turns.jsonl").exists() else []
-    prediction_rows = load_jsonl(root / "final_predictions.jsonl") if (root / "final_predictions.jsonl").exists() else []
+    missing = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
+    agent_rows = load_jsonl(turn_paths["agent_turns.jsonl"]) if turn_paths["agent_turns.jsonl"].exists() else []
+    prediction_rows = load_jsonl(index.prediction_records_path) if index.prediction_records_path.exists() else []
 
     status_summary = summarize_turn_statuses(agent_rows)
     methods = Counter(row.get("method_name") for row in prediction_rows)
@@ -56,8 +64,9 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "schema_failures": status_summary["schema_failures"],
         "prediction_rows": len(prediction_rows),
         "methods": dict(methods),
-        "paired_analysis_present": (root / "paired_debate_vs_vote.json").exists(),
+        "paired_analysis_present": (root / "paired_debate_vs_vote.json").exists() or (root / "exports" / "paired_debate_vs_vote.json").exists(),
         "paired_report_present": (root / "report.md").exists(),
         "figure_contract": figure_contract,
         "archive_contract": archive_contract,
     }
+

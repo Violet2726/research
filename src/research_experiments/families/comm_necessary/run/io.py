@@ -1,48 +1,34 @@
-"""`comm_necessary` 运行目录与固定产物路径。"""
+"""Canonical run-layout helpers for `comm_necessary`."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
-from research_experiments.core.execution.runner_common import prepare_run_root
+from research_experiments.core.families.run_layout import FamilyRunLayout, prepare_family_run_layout
+from research_experiments.families.registry import get_family_registration
 
 
-@dataclass(frozen=True)
-class RunPaths:
-    """comm_necessary 运行目录下的固定产物路径。"""
-
-    root: Path
-    manifest: Path
-    sample_views: Path
-    stage_a_turns: Path
-    message_packets: Path
-    stage_b_turns: Path
-    final_predictions: Path
-    hotpot_predictions: Path
-    metrics: Path
-    diagnostics: Path
-    progress: Path
-    run_validation: Path
-    report_markdown: Path
-    paper_summary: Path
+ALIASES = {
+    "sample_views": "turns/sample_views.jsonl",
+"stage_a_turns": "turns/stage_a_turns.jsonl",
+"message_packets": "turns/message_packets.jsonl",
+"stage_b_turns": "turns/stage_b_turns.jsonl",
+"final_predictions": "views/predictions.jsonl",
+"hotpot_predictions": "exports/hotpot_predictions",
+"diagnostics": "diagnostics/diagnostics.json",
+"run_validation": "run_validation.json",
+"report_markdown": "report.md",
+"paper_summary": "exports/paper_summary.csv",
+}
 
 
-def _prepare_run_paths(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> RunPaths:
-    root = prepare_run_root(run_root, experiment_name, phase_name, run_id)
-    return RunPaths(
-        root=root,
-        manifest=root / "manifest.json",
-        sample_views=root / "sample_views.jsonl",
-        stage_a_turns=root / "stage_a_turns.jsonl",
-        message_packets=root / "message_packets.jsonl",
-        stage_b_turns=root / "stage_b_turns.jsonl",
-        final_predictions=root / "final_predictions.jsonl",
-        hotpot_predictions=root / "hotpot_predictions",
-        metrics=root / "metrics.json",
-        diagnostics=root / "diagnostics.json",
-        progress=root / "progress.json",
-        run_validation=root / "run_validation.json",
-        report_markdown=root / "report.md",
-        paper_summary=root / "paper_summary.csv",
+def prepare_run_layout(run_root: str | Path, experiment_name: str, phase_name: str, run_id: str) -> FamilyRunLayout:
+    registration = get_family_registration("comm_necessary")
+    return prepare_family_run_layout(
+        run_root,
+        experiment_name,
+        phase_name,
+        run_id,
+        artifact_schema=registration.artifact_schema,
+        aliases=ALIASES,
     )

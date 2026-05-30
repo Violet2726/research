@@ -11,7 +11,7 @@ import tempfile
 from dataclasses import dataclass
 
 from research_experiments.core.structured_outputs import SCHEMA_ANSWER_CORE, validate_or_recover_structured_output
-from research_experiments.families.shared.reasoning_methods import normalize_reasoning_method_name
+from research_experiments.core.families.reasoning_methods import normalize_reasoning_method_name
 
 ALLOWED_IMPORT_ROOTS = {
     "collections",
@@ -423,3 +423,4 @@ def _strip_open_code_fence(text: str) -> str:
 def _contains_python_signal(text: str) -> bool:
     lowered = text.lower()
     return any(signal in lowered for signal in ["import ", "from ", "def ", "for ", "while ", "if ", "ans =", "print(", "# "])
+

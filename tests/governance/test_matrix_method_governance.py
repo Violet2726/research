@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from research_experiments.families.shared.standard_method_names import (
+from research_experiments.core.families.comparator_registry import (
     COT_1,
     MAD_3A_R1,
     MAD_FIXED_R3,
@@ -66,3 +66,4 @@ def test_faithful_matrix_does_not_reference_removed_aliases() -> None:
     for config_path in ordered_matrix_config_paths(MATRIX_ID_FAITHFUL):
         spec = get_experiment_matrix_spec(config_path, MATRIX_ID_FAITHFUL)
         assert removed_aliases.isdisjoint(referenced_method_names(spec)), config_path
+

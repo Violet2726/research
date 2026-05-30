@@ -11,13 +11,13 @@ from research_experiments.families.free_mad_lite.prompts import (
     build_debate_messages,
     build_initial_messages,
 )
-from research_experiments.families.shared.vanilla_mad_prompting import (
+from research_experiments.core.families.vanilla_mad_prompting import (
     CONTROLLED_PROMPT_VERSION,
 )
-from research_experiments.families.shared.vanilla_mad_prompting import (
+from research_experiments.core.families.vanilla_mad_prompting import (
     build_debate_messages as build_standard_mad_debate_messages,
 )
-from research_experiments.families.shared.vanilla_mad_prompting import (
+from research_experiments.core.families.vanilla_mad_prompting import (
     build_initial_messages as build_standard_mad_initial_messages,
 )
 
@@ -93,3 +93,4 @@ def test_free_mad_lite_vanilla_debate_prompt_matches_standard_vanilla_mad() -> N
         peer_messages=peer_messages,
         prompt_version=CONTROLLED_PROMPT_VERSION,
     )
+

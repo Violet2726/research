@@ -18,7 +18,7 @@ from research_experiments.families.registration_helpers import (
     build_backbone_run_from_cli,
     make_family_registration,
 )
-from research_experiments.families.shared.config_loading import load_benchmarks, phase_metadata, resolve_model
+from research_experiments.core.families.config_loading import load_benchmarks, phase_metadata, resolve_model
 from research_experiments.workspace.layout import workspace_defaults
 
 
@@ -80,15 +80,10 @@ REGISTRATION = make_family_registration(
     summarize_run=summarize_run,
     validate_run=validate_run,
     render_report=render_report,
-    metrics_view_path="metrics.json",
-    prediction_records_path="final_predictions.jsonl",
-    turn_record_paths=("stage_a_turns.jsonl",),
-    extra_view_paths=(
-        "sample_views.jsonl",
-        "candidate_packets.jsonl",
-        "auction_decisions.jsonl",
-        "belief_updates.jsonl",
-        "budget_diagnostics.json",
-        "paper_summary.csv",
-    ),
+    metrics_view_path="views/metrics.json",
+    prediction_records_path="views/predictions.jsonl",
+    turn_record_paths=('turns/sample_views.jsonl', 'turns/stage_a_turns.jsonl', 'turns/candidate_packets.jsonl', 'turns/auction_decisions.jsonl', 'turns/belief_updates.jsonl'),
+    diagnostic_paths=('diagnostics/budget_diagnostics.json',),
+    export_paths=('exports/paper_summary.csv',),
 )
+

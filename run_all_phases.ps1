@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Stop"
 
 function Import-DotEnvLocal {
     param(
@@ -47,8 +47,7 @@ function Invoke-MatrixPhase {
     $pythonScript = @'
 import os
 
-from research_experiments.matrix.faithful_matrix import RuntimeOverrides, assert_matrix_succeeded, run_faithful_matrix
-
+from research_experiments.matrix.orchestrator import RuntimeOverrides, assert_matrix_succeeded, run_faithful_matrix
 kwargs = {}
 reference_state = os.environ.get("FAITHFUL_REFERENCE_STATE")
 if reference_state:

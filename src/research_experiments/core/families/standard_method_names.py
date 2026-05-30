@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from research_experiments.families.shared.comparator_registry import (
+from research_experiments.core.families.comparator_registry import (
     COT_1,
     MAD_3A_R1,
     MAD_3A_R2,
@@ -43,3 +43,4 @@ __all__ = [
     "STANDARD_COMPARATOR_METHODS",
     "is_standard_comparator_method",
 ]
+

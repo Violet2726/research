@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from research_experiments.core.data.datasets import DatasetSample
-from research_experiments.families.shared.comparator_impls import (
+from research_experiments.core.families.comparator_impls import (
     build_shared_vanilla_mad_prediction,
     build_stage_a_mv3_prediction,
     run_shared_vanilla_mad_rounds,
 )
-from research_experiments.families.shared.vanilla_mad_prompting import CONTROLLED_PROMPT_VERSION
+from research_experiments.core.families.vanilla_mad_prompting import CONTROLLED_PROMPT_VERSION
 
 
 def _sample() -> DatasetSample:
@@ -144,3 +144,4 @@ def test_run_shared_vanilla_mad_rounds_rejects_non_controlled_prompt_version() -
         assert CONTROLLED_PROMPT_VERSION in str(exc)
     else:
         raise AssertionError("Expected shared vanilla MAD core to reject non-controlled prompt version.")
+

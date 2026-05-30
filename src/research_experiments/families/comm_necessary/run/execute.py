@@ -26,7 +26,7 @@ from research_experiments.families.comm_necessary.config import (
     CommNecessaryExperimentConfig,
     load_protocol_config,
 )
-from research_experiments.families.comm_necessary.run.io import _prepare_run_paths
+from research_experiments.families.comm_necessary.run.io import prepare_run_layout
 from research_experiments.families.comm_necessary.run.sample import (
     _build_diagnostics,
     _build_metrics,
@@ -36,7 +36,8 @@ from research_experiments.families.comm_necessary.run.sample import (
     _write_hotpot_predictions,
     _write_paper_summary,
 )
-from research_experiments.families.shared.config_loading import load_benchmarks, phase_metadata
+from research_experiments.families.run_manifest import finalize_family_manifest
+from research_experiments.core.families.config_loading import load_benchmarks, phase_metadata
 from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 
@@ -64,7 +65,7 @@ def run_experiment(
     )
 
     run_id = build_run_id(backbone.name)
-    paths = _prepare_run_paths(run_root, experiment.name, phase_name, run_id)
+    paths = prepare_run_layout(run_root, experiment.name, phase_name, run_id)
     total_calls, total_predictions = _estimate_work(experiment, phase_name, benchmarks, protocol)
     progress = RunProgressTracker(paths.progress, total_calls, total_predictions)
 
@@ -88,6 +89,7 @@ def run_experiment(
         "total_planned_predictions": total_predictions,
         "source_note": "HotpotQA distractor provides answer and sentence-level supporting facts; AgentsNet is reserved for later topology experiments.",
     }
+    manifest = finalize_family_manifest(manifest, family_name="comm_necessary")
     paths.manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     all_views: list[dict[str, Any]] = []

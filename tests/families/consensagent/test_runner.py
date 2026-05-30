@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from testsupport.filesystem import write_json
+from testsupport.filesystem import write_json, write_registered_family_manifest
 
 from research_experiments.families.consensagent.run.report import summarize_run
 
 
 def test_summarize_run_counts_methods_and_questions(tmp_path: Path) -> None:
+    write_registered_family_manifest(tmp_path / "manifest.json", family_name="consensagent")
     write_json(
-        tmp_path / "metrics.json",
+        tmp_path / "views" / "metrics.json",
         {
             "summary": [
                 {"method_name": "consensagent_3a", "prediction_rows": 5},

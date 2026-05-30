@@ -20,7 +20,7 @@ from research_experiments.families.dmad.config import (
     load_protocol_config,
     load_roster_config,
 )
-from research_experiments.families.dmad.run.io import _prepare_run_paths
+from research_experiments.families.dmad.run.io import prepare_run_layout
 from research_experiments.families.dmad.run.report import render_report, summarize_run
 from research_experiments.families.dmad.run.sample import (
     _active_methods,
@@ -35,7 +35,8 @@ from research_experiments.families.dmad.run.sample import (
     _write_sample_outputs,
 )
 from research_experiments.families.dmad.run.validate import validate_run
-from research_experiments.families.shared.config_loading import load_benchmarks
+from research_experiments.families.run_manifest import finalize_family_manifest
+from research_experiments.core.families.config_loading import load_benchmarks
 from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 
@@ -68,7 +69,7 @@ def run_experiment(
         tokens_per_minute=experiment.tokens_per_minute_limit,
     )
     run_id = build_run_id(backbone.name)
-    run_paths = _prepare_run_paths(run_root, experiment.name, phase_name, run_id)
+    run_paths = prepare_run_layout(run_root, experiment.name, phase_name, run_id)
     total_calls, total_predictions = _estimate_work(
         experiment,
         phase_name,
@@ -113,6 +114,7 @@ def run_experiment(
         "total_planned_calls": total_calls,
         "total_planned_predictions": total_predictions,
     }
+    manifest = finalize_family_manifest(manifest, family_name="dmad")
     run_paths.manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     all_turns: list[dict[str, object]] = []

@@ -9,7 +9,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.report_common import (
+from research_experiments.core.families.artifacts import load_metrics_payload, resolve_run_artifact_index
+from research_experiments.core.families.report_common import (
     render_family_report_bundle,
     render_family_scientific_report,
 )
@@ -31,7 +32,7 @@ from research_experiments.workspace.layout import default_reports_root
 
 def load_metrics(run_dir: str | Path) -> dict[str, Any]:
     """读取多智能体运行目录中的 `metrics.json`。"""
-    return load_json_payload(Path(run_dir) / "metrics.json")
+    return load_metrics_payload(run_dir, family_name="multi_agent")
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
@@ -52,10 +53,11 @@ def render_report(
 ) -> dict[str, Any]:
     """生成 Debate vs Vote 配对分析结果与中文科研报告。"""
     publish_dir = publish_dir or default_reports_root("multi_agent")
-    root = Path(run_dir)
-    manifest = load_json_payload(root / "manifest.json")
+    index = resolve_run_artifact_index(run_dir, family_name="multi_agent")
+    root = index.run_dir
+    manifest = load_json_payload(index.manifest_path)
     metrics = load_metrics(root)
-    prediction_rows = load_jsonl_rows(root / "final_predictions.jsonl")
+    prediction_rows = load_jsonl_rows(index.prediction_records_path)
     mad_rows = [row for row in prediction_rows if row.get("method_type") == "mad"]
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in mad_rows:
@@ -435,4 +437,5 @@ def _ratio(numerator: int, denominator: int) -> float:
     if denominator == 0:
         return 0.0
     return round(numerator / denominator, 6)
+
 

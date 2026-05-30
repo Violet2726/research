@@ -9,8 +9,8 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
-from research_experiments.families.artifacts import load_metrics_payload, load_prediction_records
-from research_experiments.families.shared.standard_method_names import COT_1, SC_5
+from research_experiments.core.families.artifacts import load_metrics_payload, load_prediction_records
+from research_experiments.core.families.comparator_registry import COT_1, SC_5
 from research_experiments.matrix.matrix_specs import (
     EVIDENCE_DIAGNOSTIC,
     EVIDENCE_HEADLINE,
@@ -798,4 +798,5 @@ def _track_display_label(track: str) -> str:
     if track == TRACK_SPLIT_CONTEXT:
         return "split"
     return "other"
+
 

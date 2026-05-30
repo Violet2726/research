@@ -31,7 +31,7 @@ from research_experiments.families.selective_comm.config import (
     load_policies,
     load_protocol_config,
 )
-from research_experiments.families.selective_comm.run.io import _prepare_run_paths
+from research_experiments.families.selective_comm.run.io import prepare_run_layout
 from research_experiments.families.selective_comm.run.report import render_report
 from research_experiments.families.selective_comm.run.sample import (
     _build_metrics_payload,
@@ -45,8 +45,9 @@ from research_experiments.families.selective_comm.run.sample import (
     _write_seed_rows,
 )
 from research_experiments.families.selective_comm.run.validate import validate_run
-from research_experiments.families.shared.config_loading import load_benchmarks, phase_metadata
-from research_experiments.families.shared.reference_runs import write_policy_reference_summary
+from research_experiments.families.run_manifest import finalize_family_manifest
+from research_experiments.core.families.config_loading import load_benchmarks, phase_metadata
+from research_experiments.core.families.reference_runs import write_policy_reference_summary
 from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 
@@ -78,7 +79,7 @@ def run_experiment(
         tokens_per_minute=experiment.tokens_per_minute_limit,
     )
     run_id = build_run_id(backbone.name)
-    run_paths = _prepare_run_paths(run_root, experiment.name, phase_name, run_id)
+    run_paths = prepare_run_layout(run_root, experiment.name, phase_name, run_id)
     total_calls, total_predictions = _estimate_work(experiment, phase_name, benchmarks, protocol, controls)
     progress = RunProgressTracker(
         run_paths.progress,
@@ -117,6 +118,7 @@ def run_experiment(
         manifest["resume_source_run_dir"] = resume_state.source_root.as_posix()
         manifest["resume_source_run_id"] = resume_state.source_run_id
         manifest["resume_completed_sample_count"] = len(resume_state.completed_sample_keys)
+    manifest = finalize_family_manifest(manifest, family_name="selective_comm")
     run_paths.manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     all_stage_a_turns: list[dict[str, Any]] = list(resume_state.stage_a_turns) if resume_state is not None else []

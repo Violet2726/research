@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl
+from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl, write_registered_family_manifest
 
 from research_experiments.core.execution.rate_limits import (
     STANDARD_REQUESTS_PER_MINUTE_LIMIT,
@@ -42,9 +42,9 @@ from research_experiments.families.single_agent.run.validate import validate_run
 
 
 def test_single_agent_reporting_and_validation_use_method_name(tmp_path: Path) -> None:
-    write_json(tmp_path / "manifest.json", {})
+    write_registered_family_manifest(tmp_path / "manifest.json", family_name="single_agent")
     write_jsonl(
-        tmp_path / "raw_responses.jsonl",
+        tmp_path / "turns" / "raw_responses.jsonl",
         [
             {
                 "dataset": "gsm8k",
@@ -65,13 +65,13 @@ def test_single_agent_reporting_and_validation_use_method_name(tmp_path: Path) -
         ],
     )
     write_jsonl(
-        tmp_path / "predictions.jsonl",
+        tmp_path / "views" / "predictions.jsonl",
         [
             {"dataset": "gsm8k", "method_name": "sc_5", "rerun_index": 0},
             {"dataset": "gsm8k", "method_name": "cot_1", "rerun_index": 0},
         ],
     )
-    (tmp_path / "metrics.json").write_text(
+    (tmp_path / "views" / "metrics.json").write_text(
         json.dumps(
             {
                 "summary": [
@@ -103,39 +103,39 @@ def test_single_agent_reporting_and_validation_use_method_name(tmp_path: Path) -
 
 
 def test_multi_agent_validation_contract(tmp_path: Path) -> None:
-    write_json(tmp_path / "manifest.json", {})
-    write_jsonl(tmp_path / "agent_turns.jsonl", [{"output_status": "ok"}])
-    write_jsonl(tmp_path / "debate_messages.jsonl", [{"x": 1}])
-    write_jsonl(tmp_path / "final_predictions.jsonl", [{"method_name": "mad_3a_r1"}])
-    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
-    write_json(tmp_path / "cost_breakdown.json", {"rows": []})
-    write_json(tmp_path / "debate_diagnostics.json", {"rows": []})
+    write_registered_family_manifest(tmp_path / "manifest.json", family_name="multi_agent")
+    write_jsonl(tmp_path / "turns" / "agent_turns.jsonl", [{"output_status": "ok"}])
+    write_jsonl(tmp_path / "turns" / "debate_messages.jsonl", [{"x": 1}])
+    write_jsonl(tmp_path / "views" / "predictions.jsonl", [{"method_name": "mad_3a_r1"}])
+    write_json(tmp_path / "views" / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
+    write_json(tmp_path / "diagnostics" / "cost_breakdown.json", {"rows": []})
+    write_json(tmp_path / "diagnostics" / "debate_diagnostics.json", {"rows": []})
     touch_figure_contract(tmp_path)
     assert summarize_multi_agent(tmp_path)["row_count"] == 1
     assert validate_multi_agent(tmp_path)["passed"] is True
 
 
 def test_dmad_validation_contract(tmp_path: Path) -> None:
-    write_json(tmp_path / "manifest.json", {})
-    write_jsonl(tmp_path / "agent_turns.jsonl", [{"output_status": "ok"}])
-    write_jsonl(tmp_path / "debate_messages.jsonl", [{"x": 1}])
-    write_jsonl(tmp_path / "final_predictions.jsonl", [{"method_name": "dmad_cot_sbp_pot"}])
-    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "competition_math"}]})
-    write_json(tmp_path / "strategy_diagnostics.json", {"rows": [{"dataset": "overall"}]})
-    write_json(tmp_path / "cost_breakdown.json", {"rows": []})
-    write_json(tmp_path / "paper_tables.json", {"overall_rows": []})
+    write_registered_family_manifest(tmp_path / "manifest.json", family_name="dmad")
+    write_jsonl(tmp_path / "turns" / "agent_turns.jsonl", [{"output_status": "ok"}])
+    write_jsonl(tmp_path / "turns" / "debate_messages.jsonl", [{"x": 1}])
+    write_jsonl(tmp_path / "views" / "predictions.jsonl", [{"method_name": "dmad_cot_sbp_pot"}])
+    write_json(tmp_path / "views" / "metrics.json", {"summary": [{"dataset": "competition_math"}]})
+    write_json(tmp_path / "diagnostics" / "strategy_diagnostics.json", {"rows": [{"dataset": "overall"}]})
+    write_json(tmp_path / "diagnostics" / "cost_breakdown.json", {"rows": []})
+    write_json(tmp_path / "exports" / "paper_tables.json", {"overall_rows": []})
     touch_figure_contract(tmp_path)
     assert summarize_dmad(tmp_path)["row_count"] == 1
     assert validate_dmad(tmp_path)["passed"] is True
 
 
 def test_selective_comm_validation_contract(tmp_path: Path) -> None:
-    write_json(tmp_path / "manifest.json", {})
-    write_jsonl(tmp_path / "stage_a_turns.jsonl", [{"output_status": "ok"}])
-    write_jsonl(tmp_path / "stage_b_turns.jsonl", [])
-    write_jsonl(tmp_path / "control_turns.jsonl", [])
+    write_registered_family_manifest(tmp_path / "manifest.json", family_name="selective_comm")
+    write_jsonl(tmp_path / "turns" / "stage_a_turns.jsonl", [{"output_status": "ok"}])
+    write_jsonl(tmp_path / "turns" / "stage_b_turns.jsonl", [])
+    write_jsonl(tmp_path / "turns" / "control_turns.jsonl", [])
     write_jsonl(
-        tmp_path / "trigger_decisions.jsonl",
+        tmp_path / "turns" / "trigger_decisions.jsonl",
         [
             {
                 "dataset": "gsm8k",
@@ -156,7 +156,7 @@ def test_selective_comm_validation_contract(tmp_path: Path) -> None:
         ],
     )
     write_jsonl(
-        tmp_path / "policy_predictions.jsonl",
+        tmp_path / "views" / "predictions.jsonl",
         [
             {
                 "dataset": "gsm8k",
@@ -182,16 +182,16 @@ def test_selective_comm_validation_contract(tmp_path: Path) -> None:
             },
         ],
     )
-    write_json(tmp_path / "policy_metrics.json", {"summary": [{"dataset": "gsm8k"}]})
+    write_json(tmp_path / "views" / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
     write_json(
-        tmp_path / "policy_diagnostics.json",
+        tmp_path / "diagnostics" / "policy_diagnostics.json",
         {
             "voc_policy_rows": [],
             "recommended_next_default_policy": {"selected_policy": "voc_trigger_v2"},
         },
     )
-    write_json(tmp_path / "oracle_trigger_eval.json", {"summary_rows": []})
-    write_json(tmp_path / "policy_reference_summary.json", {"run_id": "seed", "overall_policies": {}})
+    write_json(tmp_path / "diagnostics" / "oracle_trigger_eval.json", {"summary_rows": []})
+    write_json(tmp_path / "exports" / "policy_reference_summary.json", {"run_id": "seed", "overall_policies": {}})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
     touch_figure_contract(tmp_path)
 
@@ -200,12 +200,12 @@ def test_selective_comm_validation_contract(tmp_path: Path) -> None:
 
 
 def test_cue_validation_contract(tmp_path: Path) -> None:
-    write_json(tmp_path / "manifest.json", {})
-    write_jsonl(tmp_path / "stage_a_turns.jsonl", [{"output_status": "ok"}])
-    write_jsonl(tmp_path / "communication_turns.jsonl", [])
-    write_jsonl(tmp_path / "audit_turns.jsonl", [])
+    write_registered_family_manifest(tmp_path / "manifest.json", family_name="cue")
+    write_jsonl(tmp_path / "turns" / "stage_a_turns.jsonl", [{"output_status": "ok"}])
+    write_jsonl(tmp_path / "turns" / "communication_turns.jsonl", [])
+    write_jsonl(tmp_path / "turns" / "audit_turns.jsonl", [])
     write_jsonl(
-        tmp_path / "policy_predictions.jsonl",
+        tmp_path / "views" / "predictions.jsonl",
         [
             {
                 "dataset": "gsm8k",
@@ -221,9 +221,9 @@ def test_cue_validation_contract(tmp_path: Path) -> None:
             },
         ],
     )
-    write_json(tmp_path / "policy_metrics.json", {"summary": [{"dataset": "gsm8k"}]})
-    write_json(tmp_path / "policy_diagnostics.json", {"policy_rows": []})
-    write_json(tmp_path / "oracle_trigger_eval.json", {"summary_rows": []})
+    write_json(tmp_path / "views" / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
+    write_json(tmp_path / "diagnostics" / "policy_diagnostics.json", {"policy_rows": []})
+    write_json(tmp_path / "diagnostics" / "oracle_trigger_eval.json", {"summary_rows": []})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
     touch_figure_contract(tmp_path)
 
@@ -242,7 +242,7 @@ def test_selective_comm_resume_seed_state_keeps_only_complete_samples(tmp_path: 
         ]
     )
     controls = load_control_catalog("configs/families/selective_comm/controls/trigger_equal_budget.toml")
-    write_json(tmp_path / "manifest.json", {"run_id": "seed-run"})
+    write_registered_family_manifest(tmp_path / "manifest.json", family_name="selective_comm", run_id="seed-run")
 
     stage_a_rows = [
         {"dataset": "gsm8k", "sample_id": "ok", "output_status": "ok"},
@@ -325,11 +325,11 @@ def test_selective_comm_resume_seed_state_keeps_only_complete_samples(tmp_path: 
         }
     )
 
-    write_jsonl(tmp_path / "stage_a_turns.jsonl", stage_a_rows)
-    write_jsonl(tmp_path / "stage_b_turns.jsonl", stage_b_rows)
-    write_jsonl(tmp_path / "control_turns.jsonl", control_rows)
-    write_jsonl(tmp_path / "trigger_decisions.jsonl", trigger_rows)
-    write_jsonl(tmp_path / "policy_predictions.jsonl", prediction_rows)
+    write_jsonl(tmp_path / "turns" / "stage_a_turns.jsonl", stage_a_rows)
+    write_jsonl(tmp_path / "turns" / "stage_b_turns.jsonl", stage_b_rows)
+    write_jsonl(tmp_path / "turns" / "control_turns.jsonl", control_rows)
+    write_jsonl(tmp_path / "turns" / "trigger_decisions.jsonl", trigger_rows)
+    write_jsonl(tmp_path / "views" / "predictions.jsonl", prediction_rows)
 
     state = _load_resume_seed_state(tmp_path, protocol, policies, controls)
     assert state.source_run_id == "seed-run"
@@ -375,14 +375,13 @@ def test_selective_comm_reasoning_fallback_recovers_hotpot_answer() -> None:
 
 
 def test_budget_comm_validation_contract(tmp_path: Path) -> None:
-    write_json(
+    write_registered_family_manifest(
         tmp_path / "manifest.json",
-        {
-            "context_view": {"track_name": "split_context"},
-        },
+        family_name="budget_comm",
+        payload={"context_view": {"track_name": "split_context"}},
     )
     write_jsonl(
-        tmp_path / "sample_views.jsonl",
+        tmp_path / "turns" / "sample_views.jsonl",
         [
             {
                 "dataset": "strategyqa",
@@ -416,9 +415,9 @@ def test_budget_comm_validation_contract(tmp_path: Path) -> None:
             },
         ],
     )
-    write_jsonl(tmp_path / "stage_a_turns.jsonl", [{"output_status": "ok", "stage_name": "stage_a", "method_name": "shared_stage_a", "dataset": "strategyqa", "sample_id": "s1"}])
+    write_jsonl(tmp_path / "turns" / "stage_a_turns.jsonl", [{"output_status": "ok", "stage_name": "stage_a", "method_name": "shared_stage_a", "dataset": "strategyqa", "sample_id": "s1"}])
     write_jsonl(
-        tmp_path / "candidate_packets.jsonl",
+        tmp_path / "turns" / "candidate_packets.jsonl",
         [
             {"dataset": "strategyqa", "sample_id": "s1", "method_name": "dala_lite", "agent_id": 1, "density_score": 0.1, "dala_assigned_mode": "keywords", "selected_mode": "keywords", "selected_packet_tokens": 1, "candidate_cost": 1},
             {"dataset": "strategyqa", "sample_id": "s1", "method_name": "dala_lite", "agent_id": 2, "density_score": 0.2, "dala_assigned_mode": "summary", "selected_mode": "summary", "selected_packet_tokens": 1, "candidate_cost": 1},
@@ -426,7 +425,7 @@ def test_budget_comm_validation_contract(tmp_path: Path) -> None:
         ],
     )
     write_jsonl(
-        tmp_path / "auction_decisions.jsonl",
+        tmp_path / "turns" / "auction_decisions.jsonl",
         [
             {
                 "dataset": "strategyqa",
@@ -463,9 +462,9 @@ def test_budget_comm_validation_contract(tmp_path: Path) -> None:
             },
         ],
     )
-    write_jsonl(tmp_path / "belief_updates.jsonl", [{"output_status": "ok", "stage_name": "stage_b", "method_name": "all_to_all_full", "dataset": "strategyqa", "sample_id": "s1"}])
+    write_jsonl(tmp_path / "turns" / "belief_updates.jsonl", [{"output_status": "ok", "stage_name": "stage_b", "method_name": "all_to_all_full", "dataset": "strategyqa", "sample_id": "s1"}])
     write_jsonl(
-        tmp_path / "final_predictions.jsonl",
+        tmp_path / "views" / "predictions.jsonl",
         [
             {"dataset": "strategyqa", "sample_id": "s1", "method_name": "mv_3"},
             {"dataset": "strategyqa", "sample_id": "s1", "method_name": "all_to_all_full"},
@@ -474,29 +473,31 @@ def test_budget_comm_validation_contract(tmp_path: Path) -> None:
             {"dataset": "strategyqa", "sample_id": "s1", "method_name": "dala_lite"},
         ],
     )
-    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "overall"}]})
-    write_json(tmp_path / "budget_diagnostics.json", {"full_dala_gate": {"ready_for_full_dala": False}})
+    write_json(tmp_path / "views" / "metrics.json", {"summary": [{"dataset": "overall"}]})
+    write_json(tmp_path / "diagnostics" / "budget_diagnostics.json", {"full_dala_gate": {"ready_for_full_dala": False}})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
     touch_figure_contract(tmp_path)
-    (tmp_path / "paper_summary.csv").write_text("dataset,track_name,model_name,method_name,accuracy_mean,communication_tokens_mean,total_tokens_mean,calls_per_question_mean,acc_per_1k_tokens\n", encoding="utf-8")
+    (tmp_path / "exports").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "exports" / "paper_summary.csv").write_text("dataset,track_name,model_name,method_name,accuracy_mean,communication_tokens_mean,total_tokens_mean,calls_per_question_mean,acc_per_1k_tokens\n", encoding="utf-8")
 
     assert summarize_budget(tmp_path)["row_count"] == 1
     assert validate_budget(tmp_path)["passed"] is True
 
 
 def test_sid_lite_validation_contract(tmp_path: Path) -> None:
-    write_json(
+    write_registered_family_manifest(
         tmp_path / "manifest.json",
-        {"methods": ["mv_3", "always_full", "compression_only", "sid_lite"]},
+        family_name="sid_lite",
+        payload={"methods": ["mv_3", "always_full", "compression_only", "sid_lite"]},
     )
-    write_jsonl(tmp_path / "stage_a_turns.jsonl", [{"output_status": "ok"}])
+    write_jsonl(tmp_path / "turns" / "stage_a_turns.jsonl", [{"output_status": "ok"}])
     write_jsonl(
-        tmp_path / "message_packets.jsonl",
+        tmp_path / "turns" / "message_packets.jsonl",
         [{"dataset": "gsm8k", "sample_id": "s1", "agent_id": 1, "approx_packet_tokens": 5, "token_cap": 10}],
     )
-    write_jsonl(tmp_path / "belief_updates.jsonl", [{"output_status": "ok"}])
+    write_jsonl(tmp_path / "turns" / "belief_updates.jsonl", [{"output_status": "ok"}])
     write_jsonl(
-        tmp_path / "final_predictions.jsonl",
+        tmp_path / "views" / "predictions.jsonl",
         [
             {
                 "dataset": "gsm8k",
@@ -510,8 +511,10 @@ def test_sid_lite_validation_contract(tmp_path: Path) -> None:
             for method in ["mv_3", "always_full", "compression_only", "sid_lite"]
         ],
     )
-    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "overall"}]})
-    write_json(tmp_path / "diagnostics.json", {"sid_early_exit_rate": 1.0})
+    write_json(tmp_path / "views" / "metrics.json", {"summary": [{"dataset": "overall"}]})
+    write_json(tmp_path / "diagnostics" / "diagnostics.json", {"sid_early_exit_rate": 1.0})
+    (tmp_path / "exports").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "exports" / "paper_summary.csv").write_text("dataset,method_name,accuracy_mean\n", encoding="utf-8")
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
     touch_figure_contract(tmp_path)
 
@@ -520,9 +523,10 @@ def test_sid_lite_validation_contract(tmp_path: Path) -> None:
 
 
 def test_free_mad_lite_validation_contract(tmp_path: Path) -> None:
-    write_json(
+    write_registered_family_manifest(
         tmp_path / "manifest.json",
-        {
+        family_name="free_mad_lite",
+        payload={
             "methods": [
                 "mv_3",
                 "vanilla_mad_r1_final_vote",
@@ -533,14 +537,14 @@ def test_free_mad_lite_validation_contract(tmp_path: Path) -> None:
             "anti_conformity_prompt_hash": "hash",
         },
     )
-    write_jsonl(tmp_path / "agent_turns.jsonl", [{"output_status": "ok", "role": "initial"}])
-    write_jsonl(tmp_path / "debate_messages.jsonl", [{"x": 1}])
+    write_jsonl(tmp_path / "turns" / "agent_turns.jsonl", [{"output_status": "ok", "role": "initial"}])
+    write_jsonl(tmp_path / "turns" / "debate_messages.jsonl", [{"x": 1}])
     write_jsonl(
-        tmp_path / "trajectory_scores.jsonl",
+        tmp_path / "exports" / "trajectory_scores.jsonl",
         [{"dataset": "gsm8k", "sample_id": "s1", "output_status": "ok", "judge_fallback_used": False}],
     )
     write_jsonl(
-        tmp_path / "final_predictions.jsonl",
+        tmp_path / "views" / "predictions.jsonl",
         [
             {
                 "dataset": "gsm8k",
@@ -556,8 +560,10 @@ def test_free_mad_lite_validation_contract(tmp_path: Path) -> None:
             ]
         ],
     )
-    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "overall"}]})
-    write_json(tmp_path / "diagnostics.json", {"judge_fallback_rate": 0.0})
+    write_json(tmp_path / "views" / "metrics.json", {"summary": [{"dataset": "overall"}]})
+    write_json(tmp_path / "diagnostics" / "diagnostics.json", {"judge_fallback_rate": 0.0})
+    (tmp_path / "exports").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "exports" / "paper_summary.csv").write_text("dataset,method_name,accuracy_mean\n", encoding="utf-8")
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
     touch_figure_contract(tmp_path)
 
@@ -573,16 +579,17 @@ def test_comm_necessary_validation_contract(tmp_path: Path) -> None:
         "evidence_exchange",
         "full_packet_exchange",
     ]
-    write_json(
+    write_registered_family_manifest(
         tmp_path / "manifest.json",
-        {
+        family_name="comm_necessary",
+        payload={
             "methods": methods,
             "requests_per_minute_limit": STANDARD_REQUESTS_PER_MINUTE_LIMIT,
             "tokens_per_minute_limit": STANDARD_TOKENS_PER_MINUTE_LIMIT,
         },
     )
     write_jsonl(
-        tmp_path / "sample_views.jsonl",
+        tmp_path / "turns" / "sample_views.jsonl",
         [
             {
                 "dataset": "hotpotqa",
@@ -631,7 +638,7 @@ def test_comm_necessary_validation_contract(tmp_path: Path) -> None:
         ],
     )
     write_jsonl(
-        tmp_path / "stage_a_turns.jsonl",
+        tmp_path / "turns" / "stage_a_turns.jsonl",
         [
             {
                 "dataset": "hotpotqa",
@@ -647,7 +654,7 @@ def test_comm_necessary_validation_contract(tmp_path: Path) -> None:
         ],
     )
     write_jsonl(
-        tmp_path / "message_packets.jsonl",
+        tmp_path / "turns" / "message_packets.jsonl",
         [
             {
                 "dataset": "hotpotqa",
@@ -660,7 +667,7 @@ def test_comm_necessary_validation_contract(tmp_path: Path) -> None:
         ],
     )
     write_jsonl(
-        tmp_path / "stage_b_turns.jsonl",
+        tmp_path / "turns" / "stage_b_turns.jsonl",
         [
             {
                 "dataset": "hotpotqa",
@@ -675,7 +682,7 @@ def test_comm_necessary_validation_contract(tmp_path: Path) -> None:
         ],
     )
     write_jsonl(
-        tmp_path / "final_predictions.jsonl",
+        tmp_path / "views" / "predictions.jsonl",
         [
             {
                 "dataset": "hotpotqa",
@@ -687,12 +694,13 @@ def test_comm_necessary_validation_contract(tmp_path: Path) -> None:
             for method in methods
         ],
     )
-    write_json(tmp_path / "metrics.json", {"summary": [{"dataset": "overall"}]})
-    write_json(tmp_path / "diagnostics.json", {"key_deltas": []})
+    write_json(tmp_path / "views" / "metrics.json", {"summary": [{"dataset": "overall"}]})
+    write_json(tmp_path / "diagnostics" / "diagnostics.json", {"key_deltas": []})
     (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
     touch_figure_contract(tmp_path)
-    (tmp_path / "paper_summary.csv").write_text("dataset,model_name,method_name,answer_em_mean\n", encoding="utf-8")
-    hotpot_dir = tmp_path / "hotpot_predictions"
+    (tmp_path / "exports").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "exports" / "paper_summary.csv").write_text("dataset,model_name,method_name,answer_em_mean\n", encoding="utf-8")
+    hotpot_dir = tmp_path / "exports" / "hotpot_predictions"
     hotpot_dir.mkdir()
     for method in methods:
         write_json(hotpot_dir / f"{method}.json", {"answer": {"h1": "alpha"}, "sp": {"h1": [["A", 0], ["B", 0]]}})
