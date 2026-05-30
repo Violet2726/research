@@ -4,7 +4,7 @@
 
 ## 入口
 
-- CLI：`research_cli family dmad`
+- CLI：`research_cli experiment --family dmad`
 - 配置：`configs/families/dmad/`
 - 默认运行目录：`local/runs/dmad/<experiment>/<phase>/<run_id>/`
 
@@ -30,7 +30,7 @@
 ## 常用命令
 
 ```powershell
-uv run research_cli family dmad inspect-experiment --experiment configs/families/dmad/experiments/dmad_reasoning_main.toml
-uv run research_cli family dmad run --experiment configs/families/dmad/experiments/dmad_reasoning_main.toml --phase count20 --model xiaomimimo/mimo-v2.5
-uv run research_cli family dmad render-report --run-dir local/runs/dmad/dmad_reasoning_main/count20/<run_id>
+uv run research_cli experiment --family dmad inspect-experiment --experiment configs/families/dmad/experiments/dmad_reasoning_main.toml
+uv run research_cli experiment --family dmad run --experiment configs/families/dmad/experiments/dmad_reasoning_main.toml --phase count20 --model xiaomimimo/mimo-v2.5
+uv run research_cli experiment --family dmad render-report --run-dir local/runs/dmad/dmad_reasoning_main/count20/<run_id>
 ```

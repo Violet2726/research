@@ -80,9 +80,9 @@ $env:PYTHONUTF8 = "1"
 ## 常用命令
 
 ```powershell
-uv run research_cli family single_agent inspect-experiment --experiment configs/families/single_agent/experiments/same_context_core_benchmarks.toml
-uv run research_cli family single_agent run --experiment configs/families/single_agent/experiments/same_context_core_benchmarks.toml --phase count20 --model xiaomimimo/mimo-v2.5
-uv run research_cli family single_agent render-report --run-dir local/runs/single_agent/same_context_core_benchmarks/count20/<run_id>
+uv run research_cli experiment --family single_agent inspect-experiment --experiment configs/families/single_agent/experiments/same_context_core_benchmarks.toml
+uv run research_cli experiment --family single_agent run --experiment configs/families/single_agent/experiments/same_context_core_benchmarks.toml --phase count20 --model xiaomimimo/mimo-v2.5
+uv run research_cli experiment --family single_agent render-report --run-dir local/runs/single_agent/same_context_core_benchmarks/count20/<run_id>
 ```
 
 ```powershell

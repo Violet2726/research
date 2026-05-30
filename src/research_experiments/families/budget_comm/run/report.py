@@ -10,6 +10,7 @@ from research_experiments.families.shared.report_common import (
     render_family_report_bundle,
     render_family_scientific_report,
 )
+from research_experiments.families.shared.standard_method_names import MV_3
 from research_experiments.reporting.analysis_reports import render_frontier_report
 from research_experiments.reporting.report_pipeline import SupplementalReport
 from research_experiments.reporting.report_statistics import (
@@ -248,7 +249,7 @@ def _render_markdown(
                     [
                         f"`{row.display_name}`",
                         format_float(row.number("winner_set_size_mean")),
-                        "-" if row.method_name in {"mv_3", "all_to_all_full"} else format_float(row.budget_utilization_mean),
+                        "-" if row.method_name in {MV_3, "all_to_all_full"} else format_float(row.budget_utilization_mean),
                         format_float(row.full_ratio_mean),
                         format_float(row.summary_ratio_mean),
                         format_float(row.keywords_ratio_mean),
@@ -390,7 +391,7 @@ def _budget_evidence_rows(predictions: list[dict[str, Any]]) -> list[dict[str, A
                 comparison_id="dala_lite_vs_mv_3",
                 label="dala_lite vs mv_3",
                 method_a="dala_lite",
-                method_b="mv_3",
+                method_b=MV_3,
             ),
         ],
     )

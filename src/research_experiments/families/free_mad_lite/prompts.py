@@ -8,7 +8,11 @@ from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.prompts.dataset_contracts import build_json_system_prompt, dataset_instruction_for_sample
 from research_experiments.families.shared.vanilla_mad_prompting import (
     CONTROLLED_PROMPT_VERSION,
+)
+from research_experiments.families.shared.vanilla_mad_prompting import (
     build_debate_messages as build_standard_mad_debate_messages,
+)
+from research_experiments.families.shared.vanilla_mad_prompting import (
     build_initial_messages as build_standard_mad_initial_messages,
 )
 

@@ -9,6 +9,7 @@ from research_experiments.families.shared.report_common import (
     render_family_report_bundle,
     render_family_scientific_report,
 )
+from research_experiments.families.shared.standard_method_names import MV_3, MV_6, SC_6
 from research_experiments.reporting.analysis_reports import (
     render_frontier_report,
     render_trigger_diagnostic_report,
@@ -35,14 +36,14 @@ from research_experiments.reporting.scientific_report import (
 from research_experiments.workspace.layout import default_reports_root
 
 METHOD_ORDER = [
-    "mv_3",
+    MV_3,
     "always_communicate",
     "disagreement_triggered",
     "confidence_triggered",
     "hybrid_trigger",
     "voc_trigger_v2",
-    "mv_6",
-    "sc_6",
+    MV_6,
+    SC_6,
 ]
 
 

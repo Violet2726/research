@@ -19,6 +19,7 @@ from research_experiments.core.execution.rate_limits import (
     STANDARD_REQUESTS_PER_MINUTE_LIMIT,
     STANDARD_TOKENS_PER_MINUTE_LIMIT,
 )
+from research_experiments.families.artifacts import load_metrics_payload
 from research_experiments.families.registry import get_family_spec, validator_map
 from research_experiments.matrix.faithful_acceptance import render_acceptance_summary
 from research_experiments.matrix.faithful_analysis import render_faithful_analysis
@@ -256,11 +257,10 @@ def review_run_health(run_dir: str | Path, family: str) -> ReviewResult:
     if not bool(validation.get("passed")):
         return ReviewResult(False, "validation_not_passed")
 
-    metrics_name = "policy_metrics.json" if family in {"cue", "selective_comm"} else "metrics.json"
-    metrics_payload = _safe_load_json(root / metrics_name) or {}
+    metrics_payload = load_metrics_payload(root, family_name=family) or {}
     summary_rows = metrics_payload.get("summary", []) if isinstance(metrics_payload, dict) else []
     if not summary_rows:
-        return ReviewResult(False, f"missing_summary_rows:{metrics_name}")
+        return ReviewResult(False, "missing_summary_rows")
 
     question_counts = [
         int(

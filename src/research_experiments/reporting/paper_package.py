@@ -9,6 +9,8 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from research_experiments.families.artifacts import load_metrics_payload, load_prediction_records
+from research_experiments.families.shared.standard_method_names import COT_1, SC_5
 from research_experiments.matrix.matrix_specs import (
     EVIDENCE_DIAGNOSTIC,
     EVIDENCE_HEADLINE,
@@ -27,24 +29,17 @@ from research_experiments.reporting.report_views import (
     StatisticComparisonTableView,
     SummaryRowView,
     load_json_payload,
-    load_jsonl_rows,
 )
 from research_experiments.reporting.run_figures import (
-    _render_points_csv,
-    _render_svg,
     append_figure_gallery_markdown,
     build_grouped_bar_figure_spec,
     build_interval_figure_spec,
     build_scatter_figure_spec,
+    render_figure_points_csv,
+    render_figure_svg,
     write_figure_bundle,
 )
 from research_experiments.workspace.layout import default_reports_root
-
-PREDICTION_FILE_CANDIDATES = (
-    "policy_predictions.jsonl",
-    "final_predictions.jsonl",
-    "predictions.jsonl",
-)
 
 FIGURE_LABEL_OVERRIDES = {
     "local_auditing_ablation": "SPARC audit",
@@ -224,8 +219,8 @@ def _build_budget_matched_single_agent_references(
         target_tokens = _as_float(row.total_tokens_mean)
         target_calls = _as_float(row.calls_per_question_mean)
         for baseline_name, method_name in (
-            ("budget_matched_long_cot", "cot_1"),
-            ("budget_matched_sc", "sc_5"),
+            ("budget_matched_long_cot", COT_1),
+            ("budget_matched_sc", SC_5),
         ):
             reference = _nearest_single_agent_row(
                 single_agent_rows,
@@ -303,7 +298,7 @@ def _collect_single_agent_summary_rows(entries: list[MatrixStateEntryView]) -> l
         if entry.family != "single_agent":
             continue
         run_dir = Path(entry.run_dir)
-        payload = load_json_payload(run_dir / "metrics.json")
+        payload = load_metrics_payload(run_dir, family_name=entry.family)
         for row in payload.get("summary", []) if isinstance(payload, dict) else []:
             if isinstance(row, dict):
                 enriched = dict(row)
@@ -385,7 +380,7 @@ def _build_helpful_harmful_breakdown(entries: list[MatrixStateEntryView]) -> lis
             continue
         prediction_rows = [
             row
-            for row in _load_prediction_rows(Path(entry.run_dir))
+            for row in _load_prediction_rows(Path(entry.run_dir), family_name=entry.family)
             if row.get("method_name") == spec.primary_method_name
         ]
         if not prediction_rows:
@@ -529,8 +524,8 @@ def _write_external_figure_bundle(
             "dataset_scope": str(spec.get("dataset_scope") or ""),
             "primary_metric": str(spec.get("primary_metric") or ""),
         }
-        (figure_dir / f"{figure_id}.svg").write_text(_render_svg(spec), encoding="utf-8")
-        (figure_dir / f"{figure_id}.csv").write_text(_render_points_csv(spec.get("data", [])), encoding="utf-8")
+        (figure_dir / f"{figure_id}.svg").write_text(render_figure_svg(spec), encoding="utf-8")
+        (figure_dir / f"{figure_id}.csv").write_text(render_figure_points_csv(spec.get("data", [])), encoding="utf-8")
         rows.append(normalized)
 
     manifest = {
@@ -741,12 +736,12 @@ def _display(value: Any) -> str:
     return str(value)
 
 
-def _load_prediction_rows(run_dir: Path) -> list[dict[str, Any]]:
-    for filename in PREDICTION_FILE_CANDIDATES:
-        path = run_dir / filename
-        if path.exists():
-            return load_jsonl_rows(path)
-    return []
+def _load_prediction_rows(
+    run_dir: Path,
+    *,
+    family_name: str | None,
+) -> list[dict[str, Any]]:
+    return [row.model_dump() for row in load_prediction_records(run_dir, family_name=family_name)]
 
 
 def _resolve_state_path(state_path_or_root: str | Path) -> Path:

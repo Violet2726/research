@@ -4,7 +4,7 @@
 
 ## 入口
 
-- CLI：`research_cli family econ`
+- CLI：`research_cli experiment --family econ`
 - 配置：`configs/families/econ/`
 - 默认运行目录：`local/runs/econ/<experiment>/<phase>/<run_id>/`
 - 默认报告目录：`local/reports/econ/`
@@ -12,9 +12,9 @@
 ## 常用命令
 
 ```powershell
-uv run research_cli family econ inspect-experiment --experiment configs/families/econ/experiments/econ_same_context_main.toml
-uv run research_cli family econ run --experiment configs/families/econ/experiments/econ_same_context_main.toml --phase count20 --model xiaomimimo/mimo-v2.5
-uv run research_cli family econ render-report --run-dir local/runs/econ/econ_same_context_main/count20/<run_id>
+uv run research_cli experiment --family econ inspect-experiment --experiment configs/families/econ/experiments/econ_same_context_main.toml
+uv run research_cli experiment --family econ run --experiment configs/families/econ/experiments/econ_same_context_main.toml --phase count20 --model xiaomimimo/mimo-v2.5
+uv run research_cli experiment --family econ render-report --run-dir local/runs/econ/econ_same_context_main/count20/<run_id>
 ```
 
 ## 当前口径

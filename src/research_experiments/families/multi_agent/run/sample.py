@@ -12,7 +12,7 @@ from functools import partial
 from typing import Any
 
 from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples
-from research_experiments.core.data.evaluation import aggregate_majority, normalize_prediction, score_prediction
+from research_experiments.core.data.evaluation import normalize_prediction
 from research_experiments.core.execution.cache import RequestCache
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
 from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
@@ -30,7 +30,6 @@ from research_experiments.families.multi_agent.config import (
     load_protocol_config,
     load_roster_config,
 )
-from research_experiments.families.multi_agent.prompts import build_debate_messages, build_initial_messages
 from research_experiments.families.shared.common import resolve_phase_split_name
 from research_experiments.families.shared.comparator_impls import (
     build_shared_vanilla_mad_prediction,
@@ -219,175 +218,59 @@ def _run_mad_sample(
     prompt_version: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     """运行单个样本上的 Vanilla MAD 协议。"""
-    turn_rows: list[dict[str, Any]] = []
-    debate_rows: list[dict[str, Any]] = []
-
-    initial_turns: list[dict[str, Any]] = []
-    for agent_id in range(1, roster.agent_count + 1):
-        messages = build_initial_messages(sample, agent_id, prompt_version=prompt_version)
-        initial_turns.append(
-            _execute_turn(
-                run_id=run_id,
-                dataset=benchmark_slug,
-                split_name=split_name,
-                sample=sample,
-                method_name=setup.name,
-                method_type="mad",
-                round_index=0,
-                agent_id=agent_id,
-                role="initial",
-                visible_peer_count=0,
-                messages=messages,
-                backbone=backbone,
-                provider=provider,
-                cache=cache,
-                limiter=limiter,
-                temperature=protocol.initial_temperature,
-                top_p=protocol.top_p,
-                max_output_tokens=protocol.max_output_tokens,
-                seed=global_seed + agent_id,
-            )
-        )
-    turn_rows.extend(initial_turns)
-    previous_round = initial_turns
-
-    for round_index in range(1, protocol.debate_rounds + 1):
-        current_round: list[dict[str, Any]] = []
-        for recipient_id in range(1, roster.agent_count + 1):
-            recipient_previous = previous_round[recipient_id - 1]
-            peer_messages: list[dict[str, str]] = []
-            for sender in previous_round:
-                if sender["agent_id"] == recipient_id:
-                    continue
-                peer_messages.append(
-                    {
-                        "agent": f"agent_{sender['agent_id']}",
-                        "answer": str(sender["validated_output"].get("final_answer", "")).strip(),
-                        "reasoning": str(sender["validated_output"].get("reasoning", "")).strip(),
-                    }
-                )
-                debate_rows.append(
-                    asdict(
-                        DebateMessageRecord(
-                            run_id=run_id,
-                            dataset=benchmark_slug,
-                            split=split_name,
-                            sample_id=sample.sample_id,
-                            method_name=setup.name,
-                            round_index=round_index,
-                            sender_agent_id=sender["agent_id"],
-                            recipient_agent_id=recipient_id,
-                            sender_answer=str(sender["validated_output"].get("final_answer", "")).strip(),
-                            sender_reasoning=str(sender["validated_output"].get("reasoning", "")).strip(),
-                        )
-                    )
-                )
-            messages = build_debate_messages(
-                sample=sample,
-                agent_id=recipient_id,
-                round_index=round_index,
-                previous_reasoning=str(recipient_previous["validated_output"].get("reasoning", "")).strip(),
-                previous_answer=str(recipient_previous["validated_output"].get("final_answer", "")).strip(),
-                peer_messages=peer_messages,
-                prompt_version=prompt_version,
-            )
-            current_round.append(
-                _execute_turn(
-                    run_id=run_id,
-                    dataset=benchmark_slug,
-                    split_name=split_name,
-                    sample=sample,
-                    method_name=setup.name,
-                    method_type="mad",
-                    round_index=round_index,
-                    agent_id=recipient_id,
-                    role="debate",
-                    visible_peer_count=len(peer_messages),
-                    messages=messages,
-                    backbone=backbone,
-                    provider=provider,
-                    cache=cache,
-                    limiter=limiter,
-                    temperature=protocol.debate_temperature,
-                    top_p=protocol.top_p,
-                    max_output_tokens=protocol.max_output_tokens,
-                    seed=global_seed + recipient_id + round_index * 100,
-                )
-            )
-        turn_rows.extend(current_round)
-        previous_round = current_round
-
-    initial_answers = [row["normalized_answer"] for row in initial_turns]
-    final_answers = [row["normalized_answer"] for row in previous_round]
-    initial_vote, initial_vote_counts = aggregate_majority(initial_answers)
-    final_vote, final_vote_counts = aggregate_majority(final_answers)
-    initial_vote_score = score_prediction(benchmark_slug, initial_vote, sample.reference_answer)
-    final_vote_score = score_prediction(benchmark_slug, final_vote, sample.reference_answer)
-    initial_consensus = len(set(initial_answers)) == 1
-    final_consensus = len(set(final_answers)) == 1
-    initial_disagreement = len(set(initial_answers)) > 1
-    initial_prompt_tokens = sum(float(row["prompt_tokens"]) for row in initial_turns)
-    initial_completion_tokens = sum(float(row["completion_tokens"]) for row in initial_turns)
-    initial_total_tokens = sum(float(row["total_tokens"]) for row in initial_turns)
-    initial_latency = sum(float(row["latency_ms"]) for row in initial_turns)
-    debate_turns = [row for row in turn_rows if row["role"] == "debate"]
-    debate_prompt_tokens = sum(float(row["prompt_tokens"]) for row in debate_turns)
-    debate_completion_tokens = sum(float(row["completion_tokens"]) for row in debate_turns)
-    debate_total_tokens = sum(float(row["total_tokens"]) for row in debate_turns)
-    debate_latency = sum(float(row["latency_ms"]) for row in debate_turns)
-    question_prompt_tokens = initial_prompt_tokens + debate_prompt_tokens
-    question_completion_tokens = initial_completion_tokens + debate_completion_tokens
-    question_total_tokens = initial_total_tokens + debate_total_tokens
-    question_latency = initial_latency + debate_latency
-    corrected_by_debate = initial_vote_score < 1.0 and final_vote_score == 1.0
-    harmed_by_debate = initial_vote_score == 1.0 and final_vote_score < 1.0
-    unchanged_correct = initial_vote_score == 1.0 and final_vote_score == 1.0
-    unchanged_wrong = initial_vote_score < 1.0 and final_vote_score < 1.0
-    prediction_row = asdict(
-        FinalPredictionRecord(
+    shared_result = run_shared_vanilla_mad_rounds(
+        sample=sample,
+        run_id=run_id,
+        dataset=benchmark_slug,
+        split_name=split_name,
+        method_name=setup.name,
+        agent_count=roster.agent_count,
+        debate_rounds=protocol.debate_rounds,
+        initial_temperature=protocol.initial_temperature,
+        debate_temperature=protocol.debate_temperature,
+        top_p=protocol.top_p,
+        max_output_tokens=protocol.max_output_tokens,
+        global_seed=global_seed,
+        prompt_version=prompt_version,
+        execute_turn=lambda **kwargs: _execute_turn(
             run_id=run_id,
             dataset=benchmark_slug,
-            split=split_name,
-            sample_id=sample.sample_id,
+            split_name=split_name,
+            sample=sample,
             method_name=setup.name,
             method_type="mad",
-            model_name=backbone.name,
-            prediction=final_vote,
-            gold=sample.reference_answer,
-            score=final_vote_score,
-            initial_vote_prediction=initial_vote,
-            initial_vote_score=initial_vote_score,
-            initial_vote_counts=initial_vote_counts,
-            initial_consensus=initial_consensus,
-            final_vote_prediction=final_vote,
-            final_vote_score=final_vote_score,
-            final_vote_counts=final_vote_counts,
-            prompt_tokens_per_question=question_prompt_tokens,
-            completion_tokens_per_question=question_completion_tokens,
-            total_tokens_per_question=question_total_tokens,
-            latency_ms_per_question=question_latency,
-            initial_prompt_tokens_per_question=initial_prompt_tokens,
-            initial_completion_tokens_per_question=initial_completion_tokens,
-            initial_total_tokens_per_question=initial_total_tokens,
-            initial_latency_ms_per_question=initial_latency,
-            debate_prompt_tokens_per_question=debate_prompt_tokens,
-            debate_completion_tokens_per_question=debate_completion_tokens,
-            debate_total_tokens_per_question=debate_total_tokens,
-            debate_latency_ms_per_question=debate_latency,
-            calls_per_question=roster.agent_count * (1 + protocol.debate_rounds),
-            debate_rounds=protocol.debate_rounds,
-            agent_count=roster.agent_count,
-            final_consensus=final_consensus,
-            initial_disagreement=initial_disagreement,
-            vote_flipped=initial_vote != final_vote,
-            corrected_by_debate=corrected_by_debate,
-            harmed_by_debate=harmed_by_debate,
-            unchanged_correct=unchanged_correct,
-            unchanged_wrong=unchanged_wrong,
-        )
+            backbone=backbone,
+            provider=provider,
+            cache=cache,
+            limiter=limiter,
+            **kwargs,
+        ),
+        build_debate_row=lambda sender, recipient_id, round_index: asdict(
+            DebateMessageRecord(
+                run_id=run_id,
+                dataset=benchmark_slug,
+                split=split_name,
+                sample_id=sample.sample_id,
+                method_name=setup.name,
+                round_index=round_index,
+                sender_agent_id=sender["agent_id"],
+                recipient_agent_id=recipient_id,
+                sender_answer=str(sender["validated_output"].get("final_answer", "")).strip(),
+                sender_reasoning=str(sender["validated_output"].get("reasoning", "")).strip(),
+            )
+        ),
     )
-    prediction_row["vote_counts"] = final_vote_counts
-    return turn_rows, debate_rows, prediction_row
+    prediction_row = build_shared_vanilla_mad_prediction(
+        run_id=run_id,
+        dataset=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        method_name=setup.name,
+        method_type="mad",
+        model_name=backbone.name,
+        result=shared_result,
+    )
+    return shared_result["turn_rows"], shared_result["debate_rows"], prediction_row
 
 
 def _build_control_prediction_row(
@@ -685,82 +568,6 @@ def _resolve_split_name(experiment: MultiAgentExperimentConfig, phase_name: str,
 def _load_selected_samples(benchmark, split_name: str) -> list[DatasetSample]:
     """按冻结 split 选择本轮要跑的样本。"""
     return select_samples(benchmark, split_name)
-
-
-def _run_mad_sample_shared(
-    sample: DatasetSample,
-    *,
-    run_id: str,
-    benchmark_slug: str,
-    split_name: str,
-    setup: ExperimentSetup,
-    protocol: ProtocolConfig,
-    roster: RosterConfig,
-    backbone,
-    provider: OpenAICompatibleProvider,
-    cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
-    global_seed: int,
-    prompt_version: str,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-    shared_result = run_shared_vanilla_mad_rounds(
-        sample=sample,
-        run_id=run_id,
-        dataset=benchmark_slug,
-        split_name=split_name,
-        method_name=setup.name,
-        agent_count=roster.agent_count,
-        debate_rounds=protocol.debate_rounds,
-        initial_temperature=protocol.initial_temperature,
-        debate_temperature=protocol.debate_temperature,
-        top_p=protocol.top_p,
-        max_output_tokens=protocol.max_output_tokens,
-        global_seed=global_seed,
-        prompt_version=prompt_version,
-        execute_turn=lambda **kwargs: _execute_turn(
-            run_id=run_id,
-            dataset=benchmark_slug,
-            split_name=split_name,
-            sample=sample,
-            method_name=setup.name,
-            method_type="mad",
-            backbone=backbone,
-            provider=provider,
-            cache=cache,
-            limiter=limiter,
-            **kwargs,
-        ),
-        build_debate_row=lambda sender, recipient_id, round_index: asdict(
-            DebateMessageRecord(
-                run_id=run_id,
-                dataset=benchmark_slug,
-                split=split_name,
-                sample_id=sample.sample_id,
-                method_name=setup.name,
-                round_index=round_index,
-                sender_agent_id=sender["agent_id"],
-                recipient_agent_id=recipient_id,
-                sender_answer=str(sender["validated_output"].get("final_answer", "")).strip(),
-                sender_reasoning=str(sender["validated_output"].get("reasoning", "")).strip(),
-            )
-        ),
-    )
-    prediction_row = build_shared_vanilla_mad_prediction(
-        run_id=run_id,
-        dataset=benchmark_slug,
-        split_name=split_name,
-        sample=sample,
-        method_name=setup.name,
-        method_type="mad",
-        model_name=backbone.name,
-        result=shared_result,
-    )
-    return shared_result["turn_rows"], shared_result["debate_rows"], prediction_row
-
-
-_run_mad_sample = _run_mad_sample_shared
-
-
 
 
 def _ratio(numerator: int, denominator: int) -> float:

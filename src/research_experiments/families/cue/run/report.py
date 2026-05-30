@@ -9,6 +9,7 @@ from research_experiments.families.shared.report_common import (
     render_family_report_bundle,
     render_family_scientific_report,
 )
+from research_experiments.families.shared.standard_method_names import MV_3, MV_6, SC_6
 from research_experiments.reporting.analysis_reports import render_frontier_report
 from research_experiments.reporting.report_pipeline import SupplementalReport
 from research_experiments.reporting.report_views import DiagnosticTableView, SummaryTableView, load_json_payload
@@ -27,13 +28,13 @@ from research_experiments.reporting.scientific_report import (
 from research_experiments.workspace.layout import default_reports_root
 
 METHOD_ORDER = [
-    "mv_3",
+    MV_3,
     "always_communicate",
     "disagreement_triggered",
     "consensus_freeze",
     "cue_v1",
-    "mv_6",
-    "sc_6",
+    MV_6,
+    SC_6,
 ]
 
 

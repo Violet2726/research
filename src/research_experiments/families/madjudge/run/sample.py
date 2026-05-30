@@ -19,7 +19,6 @@ from research_experiments.core.data.evaluation import normalize_prediction, scor
 from research_experiments.core.execution.runner_common import execute_cached_turn, run_indexed_batch
 from research_experiments.core.structured_outputs import (
     SCHEMA_ANSWER_CORE,
-    validate_or_recover_structured_output,
 )
 from research_experiments.families.madjudge.algorithms import (
     BetaBinomialParams,

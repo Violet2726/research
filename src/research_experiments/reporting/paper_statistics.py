@@ -16,11 +16,8 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
-PREDICTION_FILE_CANDIDATES = (
-    "policy_predictions.jsonl",
-    "final_predictions.jsonl",
-    "predictions.jsonl",
-)
+from research_experiments.families.artifacts import load_prediction_records
+from research_experiments.families.shared.standard_method_names import MV_6, SC_6
 
 
 @dataclass(frozen=True)
@@ -36,8 +33,8 @@ class MethodComparison:
 
 FIXED_COMPARISONS: tuple[MethodComparison, ...] = (
     MethodComparison("hybrid_trigger_vs_always_communicate", "trigger_early_exit_main", "hybrid_trigger", "always_communicate"),
-    MethodComparison("hybrid_trigger_vs_sc_6", "trigger_early_exit_main", "hybrid_trigger", "sc_6"),
-    MethodComparison("voc_trigger_v2_vs_mv_6", "voc_trigger_main", "voc_trigger_v2", "mv_6"),
+    MethodComparison("hybrid_trigger_vs_sc_6", "trigger_early_exit_main", "hybrid_trigger", SC_6),
+    MethodComparison("voc_trigger_v2_vs_mv_6", "voc_trigger_main", "voc_trigger_v2", MV_6),
     MethodComparison("dala_same_vs_all_to_all_full", "dala_lite_same_context_main", "dala_lite", "all_to_all_full"),
     MethodComparison("hotpot_split_comm_necessity_vs_split_no_comm_mv3", "hotpotqa_split_context_communication_necessity", "full_packet_exchange", "split_no_comm_mv3"),
     MethodComparison("dala_split_vs_all_to_all_full", "dala_lite_split_context_main", "dala_lite", "all_to_all_full"),
@@ -107,7 +104,10 @@ def build_paper_statistics(
             comparisons.append(skipped)
             continue
 
-        prediction_rows = _load_prediction_rows(Path(entry["run_dir"]))
+        prediction_rows = _load_prediction_rows(
+            Path(entry["run_dir"]),
+            family_name=str(entry.get("family") or "") or None,
+        )
         paired = _paired_scores(
             prediction_rows,
             method_a=comparison.method_a,
@@ -323,12 +323,12 @@ def _score_value(row: dict[str, Any]) -> Any:
     return None
 
 
-def _load_prediction_rows(run_dir: Path) -> list[dict[str, Any]]:
-    for filename in PREDICTION_FILE_CANDIDATES:
-        path = run_dir / filename
-        if path.exists():
-            return _load_jsonl(path)
-    return []
+def _load_prediction_rows(
+    run_dir: Path,
+    *,
+    family_name: str | None,
+) -> list[dict[str, Any]]:
+    return [row.model_dump() for row in load_prediction_records(run_dir, family_name=family_name)]
 
 
 def _resolve_state_path(state_path_or_root: str | Path) -> Path:
@@ -342,16 +342,6 @@ def _resolve_state_path(state_path_or_root: str | Path) -> Path:
 
 def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            stripped = line.strip()
-            if stripped:
-                rows.append(json.loads(stripped))
-    return rows
 
 
 def _as_optional_float(value: Any) -> float | None:

@@ -1,13 +1,12 @@
-"""Selective communication run validation.
+"""选择性通信运行校验。
 
-Validates both engineering correctness and experiment design correctness:
-key files, request success rate, shared hashes, always/disagreement rules,
-early-exit zero-comm constraint, and invalid confidence ratio.
+同时覆盖工程正确性与实验设计正确性：
+关键产物、请求成功率、共享哈希、一致/分歧规则、
+early-exit 零通信约束，以及无效置信度比例。
 """
 
 from __future__ import annotations
 
-import json
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any

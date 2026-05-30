@@ -570,7 +570,7 @@ def _run_sample(
             stage_a_vote=stage_a_vote,
             stage_a_score=stage_a_score,
             stage_a_trace_hash=stage_a_trace_hash,
-            vote_counts=vote_counts,
+            vote_counts=stage_a_vote_counts,
             method_kind="control",
             extra_fields={
                 "triggered": False,

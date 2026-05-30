@@ -73,6 +73,18 @@ def write_figure_bundle(run_dir: str | Path, figure_specs: list[dict[str, Any]])
     }
 
 
+def render_figure_svg(spec: dict[str, Any]) -> str:
+    """渲染单个图规格对应的 SVG 文本。"""
+
+    return _render_svg(spec)
+
+
+def render_figure_points_csv(points: list[dict[str, Any]]) -> str:
+    """把图点数据渲染成 CSV 文本。"""
+
+    return _render_points_csv(points)
+
+
 def append_figure_gallery_markdown(
     markdown: str,
     figures: list[dict[str, Any]],

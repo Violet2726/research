@@ -4,7 +4,7 @@
 
 ## 入口
 
-- CLI：`research_cli family macnet`
+- CLI：`research_cli experiment --family macnet`
 - 配置：`configs/families/macnet/`
 - 默认运行目录：`local/runs/macnet/<experiment>/<phase>/<run_id>/`
 - 默认报告目录：`local/reports/macnet/`
@@ -12,9 +12,9 @@
 ## 常用命令
 
 ```powershell
-uv run research_cli family macnet inspect-experiment --experiment configs/families/macnet/experiments/macnet_paper_main.toml
-uv run research_cli family macnet run --experiment configs/families/macnet/experiments/macnet_paper_main.toml --phase count20 --model xiaomimimo/mimo-v2.5
-uv run research_cli family macnet render-report --run-dir local/runs/macnet/macnet_paper_main/count20/<run_id>
+uv run research_cli experiment --family macnet inspect-experiment --experiment configs/families/macnet/experiments/macnet_paper_main.toml
+uv run research_cli experiment --family macnet run --experiment configs/families/macnet/experiments/macnet_paper_main.toml --phase count20 --model xiaomimimo/mimo-v2.5
+uv run research_cli experiment --family macnet render-report --run-dir local/runs/macnet/macnet_paper_main/count20/<run_id>
 ```
 
 ## 当前口径

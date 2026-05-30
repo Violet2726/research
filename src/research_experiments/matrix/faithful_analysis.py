@@ -7,6 +7,7 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from research_experiments.families.artifacts import load_metrics_payload, load_prediction_records
 from research_experiments.matrix.matrix_specs import get_experiment_matrix_spec
 from research_experiments.reporting.report_views import (
     MatrixAnalysisRowView,
@@ -15,16 +16,9 @@ from research_experiments.reporting.report_views import (
     SummaryRowView,
     SummaryTableView,
     load_json_payload,
-    load_jsonl_rows,
 )
 from research_experiments.workspace.layout import default_reports_root
 
-POLICY_METRIC_FAMILIES = {"cue", "selective_comm"}
-PREDICTION_FILE_CANDIDATES = (
-    "policy_predictions.jsonl",
-    "final_predictions.jsonl",
-    "predictions.jsonl",
-)
 STAGE_SCORE_KEYS = (
     "score",
     "round_1_score",
@@ -110,7 +104,7 @@ def build_faithful_analysis(
             summary.rows,
             tuple({row.method_name for row in summary.rows if row.method_name}),
         )
-        prediction_rows = _load_prediction_rows(run_dir)
+        prediction_rows = _load_prediction_rows(run_dir, family=entry.family)
 
         experiments.append(
             {
@@ -328,17 +322,12 @@ def _resolve_state_path(state_path_or_root: str | Path) -> Path:
 
 
 def _load_summary_rows(run_dir: Path, family: str) -> SummaryTableView:
-    metric_name = "policy_metrics.json" if family in POLICY_METRIC_FAMILIES else "metrics.json"
-    payload = load_json_payload(run_dir / metric_name)
+    payload = load_metrics_payload(run_dir, family_name=family)
     return SummaryTableView.from_metrics_payload(payload)
 
 
-def _load_prediction_rows(run_dir: Path) -> list[dict[str, Any]]:
-    for filename in PREDICTION_FILE_CANDIDATES:
-        target = run_dir / filename
-        if target.exists():
-            return load_jsonl_rows(target)
-    return []
+def _load_prediction_rows(run_dir: Path, *, family: str) -> list[dict[str, Any]]:
+    return [row.model_dump() for row in load_prediction_records(run_dir, family_name=family)]
 
 
 def _pick_reference_method(summary_rows: list[SummaryRowView], candidates: tuple[str, ...]) -> str | None:

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from research_experiments.families.shared.report_common import render_family_report_bundle
+from research_experiments.families.shared.standard_method_names import MAD_FIXED_R1, MAD_FIXED_R3, MV_6
 from research_experiments.reporting.report_views import SummaryTableView, load_json_payload
 from research_experiments.reporting.run_figures import (
     build_efficiency_rank_figure_spec,
@@ -50,10 +51,10 @@ def render_report(
     overall_rows = [row.raw for row in summary.overall_rows()]
 
     adaptive_row = _overall_row(overall_rows, "imad_adaptive")
-    fixed_r1_row = _overall_row(overall_rows, "mad_fixed_r1")
+    fixed_r1_row = _overall_row(overall_rows, MAD_FIXED_R1)
     fixed_r2_row = _overall_row(overall_rows, "mad_fixed_r2")
-    fixed_r3_row = _overall_row(overall_rows, "mad_fixed_r3")
-    mv6_row = _overall_row(overall_rows, "mv_6")
+    fixed_r3_row = _overall_row(overall_rows, MAD_FIXED_R3)
+    mv6_row = _overall_row(overall_rows, MV_6)
     key_comparisons = _build_key_comparisons(
         adaptive_row=adaptive_row,
         fixed_r1_row=fixed_r1_row,

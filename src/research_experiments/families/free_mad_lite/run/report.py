@@ -12,6 +12,7 @@ from research_experiments.families.shared.report_common import (
     render_family_report_bundle,
     render_family_scientific_report,
 )
+from research_experiments.families.shared.standard_method_names import VANILLA_MAD_R1_FINAL_VOTE
 from research_experiments.reporting.analysis_reports import render_frontier_report
 from research_experiments.reporting.report_pipeline import SupplementalReport
 from research_experiments.reporting.report_views import SummaryTableView, load_json_payload, load_jsonl_rows
@@ -153,7 +154,7 @@ def _render_markdown(
     overall_rows = _ordered_rows(summary.overall_rows())
     best_row = summary.best_by("accuracy_mean", rows=overall_rows)
     best_efficiency_row = summary.best_by("acc_per_1k_tokens", rows=overall_rows)
-    ci_text = _bootstrap_ci_text(predictions, "free_mad_lite_llm_trajectory", "vanilla_mad_r1_final_vote")
+    ci_text = _bootstrap_ci_text(predictions, "free_mad_lite_llm_trajectory", VANILLA_MAD_R1_FINAL_VOTE)
 
     abstract: list[str] = []
     if best_row is not None:

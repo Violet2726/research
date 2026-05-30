@@ -26,7 +26,8 @@ def test_single_agent_inspect_cli() -> None:
     payload = run_cli_json(
         [
             "research_cli",
-            "family",
+            "experiment",
+            "--family",
             "single_agent",
             "inspect-experiment",
             "--experiment",
@@ -72,7 +73,8 @@ def test_imad_inspect_cli() -> None:
     payload = run_cli_json(
         [
             "research_cli",
-            "family",
+            "experiment",
+            "--family",
             "imad",
             "inspect-experiment",
             "--experiment",
@@ -88,7 +90,8 @@ def test_dmad_inspect_cli() -> None:
     payload = run_cli_json(
         [
             "research_cli",
-            "family",
+            "experiment",
+            "--family",
             "dmad",
             "inspect-experiment",
             "--experiment",
@@ -106,7 +109,8 @@ def test_econ_inspect_cli() -> None:
     payload = run_cli_json(
         [
             "research_cli",
-            "family",
+            "experiment",
+            "--family",
             "econ",
             "inspect-experiment",
             "--experiment",
@@ -122,7 +126,8 @@ def test_colmad_inspect_cli() -> None:
     payload = run_cli_json(
         [
             "research_cli",
-            "family",
+            "experiment",
+            "--family",
             "colmad",
             "inspect-experiment",
             "--experiment",
@@ -138,7 +143,8 @@ def test_macnet_inspect_cli() -> None:
     payload = run_cli_json(
         [
             "research_cli",
-            "family",
+            "experiment",
+            "--family",
             "macnet",
             "inspect-experiment",
             "--experiment",
@@ -198,7 +204,8 @@ def test_multi_agent_inspect_cli() -> None:
     payload = run_cli_json(
         [
             "research_cli",
-            "family",
+            "experiment",
+            "--family",
             "multi_agent",
             "inspect-experiment",
             "--experiment",
@@ -212,7 +219,8 @@ def test_selective_comm_inspect_cli() -> None:
     payload = run_cli_json(
         [
             "research_cli",
-            "family",
+            "experiment",
+            "--family",
             "selective_comm",
             "inspect-experiment",
             "--experiment",
@@ -227,7 +235,8 @@ def test_selective_comm_voc_v2_inspect_cli() -> None:
     payload = run_cli_json(
         [
             "research_cli",
-            "family",
+            "experiment",
+            "--family",
             "selective_comm",
             "inspect-experiment",
             "--experiment",
@@ -247,7 +256,8 @@ def test_budget_comm_inspect_cli() -> None:
     payload = run_cli_json(
         [
             "research_cli",
-            "family",
+            "experiment",
+            "--family",
             "budget_comm",
             "inspect-experiment",
             "--experiment",
@@ -263,7 +273,8 @@ def test_sid_lite_inspect_cli() -> None:
     payload = run_cli_json(
         [
             "research_cli",
-            "family",
+            "experiment",
+            "--family",
             "sid_lite",
             "inspect-experiment",
             "--experiment",
@@ -279,7 +290,8 @@ def test_free_mad_lite_inspect_cli() -> None:
     payload = run_cli_json(
         [
             "research_cli",
-            "family",
+            "experiment",
+            "--family",
             "free_mad_lite",
             "inspect-experiment",
             "--experiment",
@@ -301,7 +313,8 @@ def test_comm_necessary_inspect_cli() -> None:
     payload = run_cli_json(
         [
             "research_cli",
-            "family",
+            "experiment",
+            "--family",
             "comm_necessary",
             "inspect-experiment",
             "--experiment",
@@ -323,7 +336,8 @@ def test_cue_inspect_cli() -> None:
     payload = run_cli_json(
         [
             "research_cli",
-            "family",
+            "experiment",
+            "--family",
             "cue",
             "inspect-experiment",
             "--experiment",

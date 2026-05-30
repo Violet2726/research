@@ -13,6 +13,7 @@ import httpx
 
 from research_experiments.core.config import ResolvedModelConfig
 from research_experiments.core.execution.providers.normalization import (
+    ProviderRequestError,
     ProviderResponse,
     estimate_usage,
     extract_finish_reason,
@@ -35,7 +36,6 @@ class _SharedClientHandle:
     client: httpx.Client
     refcount: int = 0
     retired_clients: list[httpx.Client] = field(default_factory=list)
-
 
 class OpenAICompatibleProvider:
     """最小可用的 OpenAI-compatible provider 包装器。"""
@@ -140,7 +140,6 @@ class OpenAICompatibleProvider:
             handle.retired_clients.append(failed_client)
             handle.client = _build_http_client()
 
-
 def execute_completion_request(
     provider: OpenAICompatibleProvider,
     payload: dict[str, Any],
@@ -148,15 +147,16 @@ def execute_completion_request(
     limiter: SlidingWindowRateLimiter | None = None,
 ) -> dict[str, Any]:
     """统一执行一次 provider 请求，含重试。
-    
+
     每次重试都经过限流器排队，确保 API 实际收到的请求数
     与限流器记账一致。
     """
     active_payload = payload
     sanitized_retry_used = False
     last_error: Exception | None = None
+    max_retries = int(getattr(getattr(provider, "config", None), "max_retries", 0))
 
-    for attempt in range(provider.config.max_retries + 1):
+    for attempt in range(max_retries + 1):
         reservation: RateLimitReservation | None = None
         if limiter is not None:
             reservation = limiter.acquire(estimate_request_tokens(active_payload))
@@ -189,10 +189,9 @@ def execute_completion_request(
             return response_payload
         except httpx.HTTPStatusError as exc:
             last_error = exc
-            is_429 = exc.response.status_code == 429
             if limiter is not None and reservation is not None:
                 limiter.settle(reservation, 0, http_status=exc.response.status_code)
-            if exc.response.status_code not in {408, 409, 429, 500, 502, 503, 504} or attempt == provider.config.max_retries:
+            if exc.response.status_code not in {408, 409, 429, 500, 502, 503, 504} or attempt == max_retries:
                 response_text = exc.response.text
                 provider_request_id = (
                     exc.response.headers.get("x-request-id")
@@ -218,7 +217,7 @@ def execute_completion_request(
             provider._reset_shared_client(provider._client_handle.client)
             if limiter is not None and reservation is not None:
                 limiter.settle(reservation, 0)
-            if attempt == provider.config.max_retries:
+            if attempt == max_retries:
                 return {
                     "http_status": None,
                     "raw_payload": {"error": f"Provider connection error after retries: {exc}"},
@@ -234,6 +233,24 @@ def execute_completion_request(
                     "request_error": f"Provider connection error after retries: {exc}",
                 }
             time.sleep(min(2**attempt, 8))
+        except ProviderRequestError as exc:
+            last_error = exc
+            if limiter is not None and reservation is not None:
+                limiter.settle(reservation, 0, http_status=exc.http_status)
+            return {
+                "http_status": exc.http_status,
+                "raw_payload": {"error": exc.message},
+                "assistant_text": "",
+                "provider_reasoning_text": "",
+                "finish_reason": None,
+                "usage_reported": None,
+                "usage_estimated": None,
+                "usage_source": "missing",
+                "latency_ms": 0.0,
+                "provider_request_id": exc.provider_request_id,
+                "response_id": None,
+                "request_error": exc.message,
+            }
 
     return {
         "http_status": None,
@@ -249,7 +266,6 @@ def execute_completion_request(
         "response_id": None,
         "request_error": f"API request failed after retries: {last_error}",
     }
-
 
 def _build_http_client() -> httpx.Client:
     """构造统一的长生命周期 HTTP client。"""

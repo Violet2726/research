@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.families.shared.comparator_impls import (
-    build_stage_a_mv3_prediction,
     build_shared_vanilla_mad_prediction,
+    build_stage_a_mv3_prediction,
     run_shared_vanilla_mad_rounds,
 )
 

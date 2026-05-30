@@ -12,6 +12,7 @@ dependencies = [
   "huggingface_hub>=0.32.0,<1.0.0",
   "httpx>=0.27.0,<1.0.0",
   "numpy>=1.24.0,<3.0.0",
+  "pydantic>=2.9.0,<3.0.0",
   "pyarrow>=18.0.0,<22.0.0",
   "python-dotenv>=1.0.0,<2.0.0",
   "scipy>=1.10.0,<2.0.0",
@@ -21,6 +22,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+  "mypy>=1.11.0,<2.0.0",
   "pytest>=8.0.0,<9.0.0",
   "ruff>=0.4.0,<1.0.0",
 ]
@@ -35,6 +37,28 @@ ignore = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["research_experiments"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_configs = true
+pretty = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["research_experiments.*"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = [
+  "research_experiments.cli",
+  "research_experiments.core.contracts",
+  "research_experiments.core.contracts.*",
+  "research_experiments.core.engine",
+  "research_experiments.core.engine.*",
+  "research_experiments.families.artifacts",
+  "research_experiments.families.registry",
+]
+ignore_errors = false
 
 [project.scripts]
 research_cli = "research_experiments.cli:main"

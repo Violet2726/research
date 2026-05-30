@@ -14,6 +14,7 @@ from research_experiments.families.shared.report_common import (
     render_family_report_bundle,
     render_family_scientific_report,
 )
+from research_experiments.families.shared.standard_method_names import MV_6
 from research_experiments.reporting.report_views import SummaryTableView, load_json_payload
 from research_experiments.reporting.reporting_utils import resolve_manifest_model_name
 from research_experiments.reporting.run_figures import (
@@ -309,7 +310,7 @@ def _build_dataset_analysis_bullets(
         worst_acc = float(worst.get("accuracy_mean", 0))
 
         # MV_6 基线
-        mv6 = next((r for r in ds_controls if r.get("method_name") == "mv_6"), None)
+        mv6 = next((r for r in ds_controls if r.get("method_name") == MV_6), None)
         mv6_acc = float(mv6.get("accuracy_mean", 0)) if mv6 else 0
 
         bullets.append(
@@ -358,7 +359,7 @@ def _build_conclusions(
                 continue
             ds = r.get("dataset", "")
             acc = float(r.get("accuracy_mean", 0))
-            mv6 = next((c for c in control_rows if c.get("dataset") == ds and c.get("method_name") == "mv_6"), None)
+            mv6 = next((c for c in control_rows if c.get("dataset") == ds and c.get("method_name") == MV_6), None)
             if mv6:
                 gains.append(acc - float(mv6.get("accuracy_mean", 0)))
         method_gains[method] = sum(gains) / len(gains) if gains else 0

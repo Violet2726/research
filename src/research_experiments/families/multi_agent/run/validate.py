@@ -1,22 +1,24 @@
-"""Multi-agent run result validation.
+"""多智能体运行结果校验。
 
-The goal is to quickly confirm whether a multi-agent run has the minimum
-conditions for continued analysis: key files present, no request/format
-failures, non-empty question-level predictions, and paired analysis report.
+目标是快速确认一次多智能体运行是否满足继续分析的最低条件：
+关键产物齐全、无请求或格式失败、题级预测非空，并且配对分析报告已经生成。
 """
 
 from __future__ import annotations
 
-import json
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.validate_common import load_jsonl, summarize_turn_statuses, validate_shared_contracts
+from research_experiments.families.shared.validate_common import (
+    load_jsonl,
+    summarize_turn_statuses,
+    validate_shared_contracts,
+)
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
-    """Check whether key artifacts in a multi-agent run directory are present and basically usable."""
+    """检查多智能体运行目录中的关键产物是否齐全且基本可用。"""
     root = Path(run_dir)
     required = [
         "manifest.json",
@@ -59,9 +61,3 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "figure_contract": figure_contract,
         "archive_contract": archive_contract,
     }
-
-
-def load_jsonl(path: Path) -> list[dict[str, Any]]:
-    """Read a UTF-8 JSONL file."""
-    with path.open("r", encoding="utf-8") as handle:
-        return [json.loads(line) for line in handle if line.strip()]

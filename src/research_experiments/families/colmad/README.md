@@ -4,7 +4,7 @@
 
 ## 入口
 
-- CLI：`research_cli family colmad`
+- CLI：`research_cli experiment --family colmad`
 - 配置：`configs/families/colmad/`
 - 默认运行目录：`local/runs/colmad/<experiment>/<phase>/<run_id>/`
 - 默认报告目录：`local/reports/colmad/`
@@ -12,9 +12,9 @@
 ## 常用命令
 
 ```powershell
-uv run research_cli family colmad inspect-experiment --experiment configs/families/colmad/experiments/colmad_realmistake_main.toml
-uv run research_cli family colmad run --experiment configs/families/colmad/experiments/colmad_realmistake_main.toml --phase count20 --model xiaomimimo/mimo-v2.5
-uv run research_cli family colmad render-report --run-dir local/runs/colmad/colmad_realmistake_main/count20/<run_id>
+uv run research_cli experiment --family colmad inspect-experiment --experiment configs/families/colmad/experiments/colmad_realmistake_main.toml
+uv run research_cli experiment --family colmad run --experiment configs/families/colmad/experiments/colmad_realmistake_main.toml --phase count20 --model xiaomimimo/mimo-v2.5
+uv run research_cli experiment --family colmad render-report --run-dir local/runs/colmad/colmad_realmistake_main/count20/<run_id>
 ```
 
 ## 当前口径

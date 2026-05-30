@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from functools import partial
 from typing import Any
@@ -163,6 +164,84 @@ def _run_consensagent_sample(
     prompt_version: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     """运行单个样本上的 CONSENSAGENT 协议。"""
+    if protocol.method_type == "mad":
+        shared_result = run_shared_vanilla_mad_rounds(
+            sample=sample,
+            run_id=run_id,
+            dataset=benchmark_slug,
+            split_name=split_name,
+            method_name=setup.name,
+            agent_count=roster.agent_count,
+            debate_rounds=protocol.max_debate_rounds,
+            initial_temperature=protocol.initial_temperature,
+            debate_temperature=protocol.debate_temperature,
+            top_p=protocol.top_p,
+            max_output_tokens=protocol.max_output_tokens,
+            global_seed=global_seed,
+            prompt_version=prompt_version,
+            execute_turn=lambda **kwargs: _execute_turn(
+                run_id=run_id,
+                dataset=benchmark_slug,
+                split_name=split_name,
+                sample=sample,
+                method_name=setup.name,
+                method_type=protocol.method_type,
+                backbone=backbone,
+                provider=provider,
+                cache=cache,
+                limiter=limiter,
+                **kwargs,
+            ),
+            build_debate_row=lambda sender, recipient_id, round_index: asdict(
+                DebateMessageRecord(
+                    run_id=run_id,
+                    dataset=benchmark_slug,
+                    split=split_name,
+                    sample_id=sample.sample_id,
+                    method_name=setup.name,
+                    round_index=round_index,
+                    sender_agent_id=sender["agent_id"],
+                    recipient_agent_id=recipient_id,
+                    sender_answer=str(sender["validated_output"].get("final_answer", "")).strip(),
+                    sender_reasoning=str(sender["validated_output"].get("reasoning", "")).strip(),
+                    sender_confidence=float(sender["validated_output"].get("confidence", 0.5)),
+                )
+            ),
+        )
+
+        initial_answers = [
+            str(row["validated_output"].get("final_answer", "")).strip()
+            for row in shared_result["initial_turns"]
+        ]
+        final_answers = [
+            str(row["validated_output"].get("final_answer", "")).strip()
+            for row in shared_result["final_round_turns"]
+        ]
+        initial_consistency = compute_consistency_score(initial_answers)
+        final_consistency = compute_consistency_score(final_answers)
+        prediction_row = build_shared_vanilla_mad_prediction(
+            run_id=run_id,
+            dataset=benchmark_slug,
+            split_name=split_name,
+            sample=sample,
+            method_name=setup.name,
+            method_type=protocol.method_type,
+            model_name=backbone.name,
+            result=shared_result,
+            extra_fields={
+                "weighted_prediction": shared_result["final_vote_prediction"],
+                "weighted_score": shared_result["final_vote_score"],
+                "weighted_vote_counts": shared_result["final_vote_counts"],
+                "actual_debate_rounds": protocol.max_debate_rounds,
+                "trigger_type": None,
+                "trigger_round": None,
+                "sycophancy_rate": 0.0,
+                "initial_consistency_score": initial_consistency,
+                "final_consistency_score": final_consistency,
+            },
+        )
+        return shared_result["turn_rows"], shared_result["debate_rows"], prediction_row
+
     turn_rows: list[dict[str, Any]] = []
     debate_rows: list[dict[str, Any]] = []
     method_type = protocol.method_type
@@ -829,10 +908,8 @@ def _validate_consensagent_output(assistant_text: str, provider_reasoning_text: 
         payload.get("reasoning") or payload.get("explanation") or ""
     ).strip()
     confidence = 0.5
-    try:
+    with suppress(ValueError, TypeError):
         confidence = max(0.0, min(1.0, float(payload.get("confidence", 0.5))))
-    except (ValueError, TypeError):
-        pass
 
     if not final_answer:
         list_val = payload.get("list") or payload.get("answers") or payload.get("titles")
@@ -843,6 +920,7 @@ def _validate_consensagent_output(assistant_text: str, provider_reasoning_text: 
         raise ValueError("Could not extract answer from JSON output.")
 
     return {"final_answer": final_answer, "reasoning": reasoning, "confidence": confidence}
+
 
 def _try_parse_json(text: str) -> dict[str, Any] | None:
     """尝试多种方式解析 JSON。"""
@@ -1049,116 +1127,3 @@ def _format_optimized_debate_prompt(
         f"Update your response if the refined prompt leads you to a different conclusion.\n"
         "Return exactly one JSON object with keys \"final_answer\", \"reasoning\", and \"confidence\". Return JSON only."
     )
-
-
-_run_consensagent_sample_original = _run_consensagent_sample
-
-
-def _run_consensagent_sample(
-    sample: DatasetSample,
-    *,
-    run_id: str,
-    benchmark_slug: str,
-    split_name: str,
-    setup: ExperimentSetup,
-    protocol: ProtocolConfig,
-    roster: RosterConfig,
-    backbone,
-    provider,
-    cache,
-    limiter,
-    global_seed: int,
-    prompt_version: str,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-    if protocol.method_type != "mad":
-        return _run_consensagent_sample_original(
-            sample,
-            run_id=run_id,
-            benchmark_slug=benchmark_slug,
-            split_name=split_name,
-            setup=setup,
-            protocol=protocol,
-            roster=roster,
-            backbone=backbone,
-            provider=provider,
-            cache=cache,
-            limiter=limiter,
-            global_seed=global_seed,
-            prompt_version=prompt_version,
-        )
-
-    shared_result = run_shared_vanilla_mad_rounds(
-        sample=sample,
-        run_id=run_id,
-        dataset=benchmark_slug,
-        split_name=split_name,
-        method_name=setup.name,
-        agent_count=roster.agent_count,
-        debate_rounds=protocol.max_debate_rounds,
-        initial_temperature=protocol.initial_temperature,
-        debate_temperature=protocol.debate_temperature,
-        top_p=protocol.top_p,
-        max_output_tokens=protocol.max_output_tokens,
-        global_seed=global_seed,
-        execute_turn=lambda **kwargs: _execute_turn(
-            run_id=run_id,
-            dataset=benchmark_slug,
-            split_name=split_name,
-            sample=sample,
-            method_name=setup.name,
-            method_type=protocol.method_type,
-            backbone=backbone,
-            provider=provider,
-            cache=cache,
-            limiter=limiter,
-            **kwargs,
-        ),
-        build_debate_row=lambda sender, recipient_id, round_index: asdict(
-            DebateMessageRecord(
-                run_id=run_id,
-                dataset=benchmark_slug,
-                split=split_name,
-                sample_id=sample.sample_id,
-                method_name=setup.name,
-                round_index=round_index,
-                sender_agent_id=sender["agent_id"],
-                recipient_agent_id=recipient_id,
-                sender_answer=str(sender["validated_output"].get("final_answer", "")).strip(),
-                sender_reasoning=str(sender["validated_output"].get("reasoning", "")).strip(),
-                sender_confidence=float(sender["validated_output"].get("confidence", 0.5)),
-            )
-        ),
-    )
-
-    initial_answers = [
-        str(row["validated_output"].get("final_answer", "")).strip()
-        for row in shared_result["initial_turns"]
-    ]
-    final_answers = [
-        str(row["validated_output"].get("final_answer", "")).strip()
-        for row in shared_result["final_round_turns"]
-    ]
-    initial_consistency = compute_consistency_score(initial_answers)
-    final_consistency = compute_consistency_score(final_answers)
-    prediction_row = build_shared_vanilla_mad_prediction(
-        run_id=run_id,
-        dataset=benchmark_slug,
-        split_name=split_name,
-        sample=sample,
-        method_name=setup.name,
-        method_type=protocol.method_type,
-        model_name=backbone.name,
-        result=shared_result,
-        extra_fields={
-            "weighted_prediction": shared_result["final_vote_prediction"],
-            "weighted_score": shared_result["final_vote_score"],
-            "weighted_vote_counts": shared_result["final_vote_counts"],
-            "actual_debate_rounds": protocol.max_debate_rounds,
-            "trigger_type": None,
-            "trigger_round": None,
-            "sycophancy_rate": 0.0,
-            "initial_consistency_score": initial_consistency,
-            "final_consistency_score": final_consistency,
-        },
-    )
-    return shared_result["turn_rows"], shared_result["debate_rows"], prediction_row

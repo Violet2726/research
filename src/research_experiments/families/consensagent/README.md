@@ -29,8 +29,11 @@
 
 ```bash
 # 运行实验
-uv run research_cli family consensagent run --experiment configs/families/consensagent/experiments/consensagent_main.toml --phase count20
+uv run research_cli experiment --family consensagent run --experiment configs/families/consensagent/experiments/consensagent_main.toml --phase count20
 
 # 查看实验配置
-uv run research_cli family consensagent inspect-experiment --experiment configs/families/consensagent/experiments/consensagent_main.toml
+uv run research_cli experiment --family consensagent inspect-experiment --experiment configs/families/consensagent/experiments/consensagent_main.toml
+
+# 渲染正式报告
+uv run research_cli experiment --family consensagent render-report --run-dir local/runs/consensagent/consensagent_main/count20/<run_id>
 ```

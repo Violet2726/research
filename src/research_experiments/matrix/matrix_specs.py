@@ -148,6 +148,17 @@ def get_experiment_matrix_spec(config_path: str, matrix_id: str = DEFAULT_MATRIX
     raise KeyError(f"Missing matrix spec for config {config_path} in matrix {matrix_id}")
 
 
+def referenced_method_names(spec: ExperimentMatrixSpec) -> tuple[str, ...]:
+    """返回某个矩阵条目显式引用的方法名。"""
+
+    names: list[str] = [spec.primary_method_name, *spec.best_no_comm_candidates]
+    if spec.full_comm_reference:
+        names.append(spec.full_comm_reference)
+    if spec.full_context_reference:
+        names.append(spec.full_context_reference)
+    return tuple(names)
+
+
 def all_matrix_ids() -> tuple[str, ...]:
     """返回当前支持的矩阵 profile 列表。"""
 

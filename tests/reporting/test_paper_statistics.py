@@ -24,6 +24,7 @@ def test_build_paper_statistics_pairs_binary_predictions(tmp_path: Path) -> None
     state_payload = {
         "semantic_entries": [
             {
+                "family": "selective_comm",
                 "status": "completed",
                 "experiment_name": "trigger_early_exit_main",
                 "run_dir": run_dir.as_posix(),
@@ -58,6 +59,7 @@ def test_render_paper_statistics_writes_fixed_artifacts(tmp_path: Path) -> None:
             {
                 "semantic_entries": [
                     {
+                        "family": "budget_comm",
                         "status": "completed",
                         "experiment_name": "dala_lite_same_context_main",
                         "run_dir": run_dir.as_posix(),
@@ -76,4 +78,3 @@ def test_render_paper_statistics_writes_fixed_artifacts(tmp_path: Path) -> None:
     assert Path(paths["paired_win_loss"]).exists()
     assert Path(paths["mcnemar_tests"]).exists()
     assert Path(paths["dataset_breakdown"]).exists()
-

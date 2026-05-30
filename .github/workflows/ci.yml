@@ -41,5 +41,11 @@ jobs:
       - name: Compile sources
         run: uv run python -m compileall src tests
 
+      - name: Run Ruff
+        run: uv run ruff check src tests
+
+      - name: Run Mypy
+        run: uv run mypy src
+
       - name: Run test suite
         run: uv run pytest

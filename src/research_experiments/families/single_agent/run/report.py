@@ -9,6 +9,7 @@ from research_experiments.families.shared.report_common import (
     render_family_report_bundle,
     render_family_scientific_report,
 )
+from research_experiments.families.shared.standard_method_names import COT_1, SC_5
 from research_experiments.reporting.report_statistics import (
     PairwiseComparisonSpec,
     build_pairwise_comparison_rows,
@@ -72,7 +73,7 @@ def export_paper_tables(run_dir: str | Path, output_path: str | Path) -> Path:
     """导出论文表格风格的 Markdown 摘要。"""
     metrics = load_metrics(run_dir)
     rows = metrics.get("summary", [])
-    lower_bound_rows = [row for row in rows if row["method_name"] == "cot_1"]
+    lower_bound_rows = [row for row in rows if row["method_name"] == COT_1]
     self_consistency_rows = [row for row in rows if row["method_name"].startswith("sc_")]
 
     lines: list[str] = []
@@ -244,7 +245,7 @@ def _render_markdown(
     evidence_rows = _single_agent_evidence_rows(predictions)
     if evidence_rows:
         abstract.append(
-            f"`sc_5` 相对 `cot_1` 的配对 95% CI 为 {format_pairwise_ci_text(evidence_rows, 'sc_5_vs_cot_1')}。"
+            f"`{SC_5}` 相对 `{COT_1}` 的配对 95% CI 为 {format_pairwise_ci_text(evidence_rows, 'sc_5_vs_cot_1')}。"
         )
     sections = [
         {
@@ -347,12 +348,12 @@ def _render_markdown(
 def _single_agent_evidence_rows(predictions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     methods = sorted({str(row.get("method_name")) for row in predictions if str(row.get("method_name")).startswith("sc_")})
     comparisons = [
-        PairwiseComparisonSpec(
-            comparison_id=f"{method}_vs_cot_1",
-            label=f"{method} vs cot_1",
-            method_a=method,
-            method_b="cot_1",
-        )
+            PairwiseComparisonSpec(
+                comparison_id=f"{method}_vs_cot_1",
+                label=f"{method} vs cot_1",
+                method_a=method,
+                method_b=COT_1,
+            )
         for method in methods
     ]
     return build_pairwise_comparison_rows(predictions, comparisons)

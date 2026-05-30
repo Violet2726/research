@@ -6,7 +6,11 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.shared.validate_common import load_jsonl, summarize_turn_statuses, validate_shared_contracts
+from research_experiments.families.shared.validate_common import (
+    load_jsonl,
+    summarize_turn_statuses,
+    validate_shared_contracts,
+)
 
 REQUIRED_PREDICTION_FIELDS = {
     "task_name",

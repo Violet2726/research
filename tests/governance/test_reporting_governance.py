@@ -10,12 +10,14 @@ from research_experiments.cli import build_parser as build_root_parser
 from research_experiments.families.budget_comm.spec import build_parser as build_budget_parser
 from research_experiments.families.colmad.spec import build_parser as build_colmad_parser
 from research_experiments.families.comm_necessary.spec import build_parser as build_comm_necessary_parser
+from research_experiments.families.consensagent.spec import build_parser as build_consensagent_parser
 from research_experiments.families.cue.spec import build_parser as build_cue_parser
 from research_experiments.families.dmad.spec import build_parser as build_dmad_parser
 from research_experiments.families.econ.spec import build_parser as build_econ_parser
 from research_experiments.families.free_mad_lite.spec import build_parser as build_free_mad_parser
 from research_experiments.families.imad.spec import build_parser as build_imad_parser
 from research_experiments.families.macnet.spec import build_parser as build_macnet_parser
+from research_experiments.families.madjudge.spec import build_parser as build_madjudge_parser
 from research_experiments.families.multi_agent.spec import build_parser as build_multi_agent_parser
 from research_experiments.families.selective_comm.spec import build_parser as build_selective_parser
 from research_experiments.families.sid_lite.spec import build_parser as build_sid_parser
@@ -35,12 +37,14 @@ MARKDOWN_DOCS = [
     ROOT / "src" / "research_experiments" / "families" / "budget_comm" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "colmad" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "comm_necessary" / "README.md",
+    ROOT / "src" / "research_experiments" / "families" / "consensagent" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "cue" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "dmad" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "econ" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "free_mad_lite" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "imad" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "macnet" / "README.md",
+    ROOT / "src" / "research_experiments" / "families" / "madjudge" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "multi_agent" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "selective_comm" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "sid_lite" / "README.md",
@@ -50,7 +54,7 @@ MARKDOWN_DOCS = [
 
 def test_all_family_clis_expose_render_report() -> None:
     root_parser = build_root_parser()
-    assert _subcommands(root_parser) == {"family", "matrix", "tools"}
+    assert _subcommands(root_parser) == {"experiment", "matrix", "tools"}
 
     parsers = [
         build_single_agent_parser(),
@@ -58,10 +62,12 @@ def test_all_family_clis_expose_render_report() -> None:
         build_selective_parser(),
         build_budget_parser(),
         build_colmad_parser(),
+        build_consensagent_parser(),
         build_sid_parser(),
         build_free_mad_parser(),
         build_imad_parser(),
         build_macnet_parser(),
+        build_madjudge_parser(),
         build_comm_necessary_parser(),
         build_cue_parser(),
         build_dmad_parser(),
@@ -91,6 +97,7 @@ def test_family_readmes_use_render_report_example() -> None:
     for path in family_readmes:
         text = path.read_text(encoding="utf-8")
         assert "render-report --run-dir" in text, f"{path} is missing unified render-report example"
+        assert "research_cli experiment --family " in text, f"{path} 未使用新的 experiment CLI 入口"
 
 
 def _subcommands(parser: argparse.ArgumentParser) -> set[str]:

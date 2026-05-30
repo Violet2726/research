@@ -38,10 +38,13 @@
 
 ```bash
 # 运行实验
-uv run research_cli family madjudge run --experiment configs/families/madjudge/experiments/madjudge_main.toml --phase count20
+uv run research_cli experiment --family madjudge run --experiment configs/families/madjudge/experiments/madjudge_main.toml --phase count20
 
 # 查看实验配置
-uv run research_cli family madjudge inspect-experiment --experiment configs/families/madjudge/experiments/madjudge_main.toml
+uv run research_cli experiment --family madjudge inspect-experiment --experiment configs/families/madjudge/experiments/madjudge_main.toml
+
+# 渲染正式报告
+uv run research_cli experiment --family madjudge render-report --run-dir local/runs/madjudge/madjudge_main/count20/<run_id>
 ```
 
 ## 算法流程

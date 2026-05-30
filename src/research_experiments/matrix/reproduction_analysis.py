@@ -8,6 +8,7 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from research_experiments.families.artifacts import load_metrics_payload
 from research_experiments.matrix.matrix_specs import (
     ANALYSIS_MODE_SCALING_SUMMARY,
     get_experiment_matrix_spec,
@@ -19,8 +20,6 @@ from research_experiments.reporting.report_views import (
     load_json_payload,
 )
 from research_experiments.workspace.layout import default_reports_root
-
-POLICY_METRIC_FAMILIES = {"cue", "selective_comm"}
 
 
 def render_reproduction_analysis(
@@ -246,8 +245,7 @@ def _metric_value_from_row(row: SummaryRowView, metric_field: str) -> float | No
 
 
 def _load_metrics(run_dir: Path, family: str) -> dict[str, Any]:
-    metric_name = "policy_metrics.json" if family in POLICY_METRIC_FAMILIES else "metrics.json"
-    return load_json_payload(run_dir / metric_name)
+    return load_metrics_payload(run_dir, family_name=family)
 
 
 def _resolve_state_path(path_or_root: str | Path) -> Path:

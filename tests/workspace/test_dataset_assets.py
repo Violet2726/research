@@ -14,7 +14,6 @@ from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.workspace.dataset_assets import (
     _download_source_file,
     build_primary_dataset_specs,
-    build_runtime_support_dataset_specs,
     build_supplementary_dataset_specs,
     discover_used_benchmark_config_paths,
     write_dataset_inventory_files,
