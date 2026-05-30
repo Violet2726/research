@@ -4,7 +4,7 @@ agent_count = 7
 max_debate_rounds = 10
 temperature = 1.0
 top_p = 1.0
-max_output_tokens = 512
+max_output_tokens = 1024
 method_type = "madjudge"
 
 [stability]
