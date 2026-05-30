@@ -11,6 +11,9 @@ STANDARD_MAX_CONCURRENT_REQUESTS = 90
 STANDARD_REQUESTS_PER_MINUTE_LIMIT = 95
 STANDARD_TOKENS_PER_MINUTE_LIMIT = 9000000
 
+# Adaptive rate limiting constants
+ADAPTIVE_MIN_RPM = 3
+
 
 def standard_runtime_limits() -> dict[str, int]:
     """返回项目统一执行限流基线。"""
@@ -53,6 +56,10 @@ class SlidingWindowRateLimiter:
         self.token_events: deque[_TokenEvent] = deque()
         self.condition = threading.Condition()
         self.last_request_admission: float | None = None
+        # Adaptive state
+        self._target_rpm = requests_per_minute
+        self._effective_rpm: float | None = float(requests_per_minute) if requests_per_minute else None
+        self._last_429_time: float | None = None
         self.request_spacing_seconds = self._compute_request_spacing_seconds()
 
     def acquire(self, estimated_tokens: int) -> RateLimitReservation:
@@ -60,6 +67,7 @@ class SlidingWindowRateLimiter:
         with self.condition:
             while True:
                 now = time.monotonic()
+                self._maybe_recover(now)
                 self._evict_expired(now)
                 request_wait = self._request_wait_seconds(now)
                 token_wait = self._token_wait_seconds(now, estimated_tokens)
@@ -79,13 +87,14 @@ class SlidingWindowRateLimiter:
                     )
                 self.condition.wait(timeout=wait_seconds)
 
-    def settle(self, reservation: RateLimitReservation, actual_tokens: int) -> None:
-        """按真实 usage 回写这次请求的 token 消耗。"""
+    def settle(self, reservation: RateLimitReservation, actual_tokens: int, *, http_status: int | None = None) -> None:
+        """按实际 usage 回写 token 消耗，429 时触发自适应降速。"""
         actual = max(0, int(actual_tokens))
         with self.condition:
             reservation.token_event.tokens = actual
+            if http_status == 429:
+                self._on_rate_limit_hit(time.monotonic())
             self.condition.notify_all()
-
     def _compute_request_spacing_seconds(self) -> float:
         if not self.requests_per_minute:
             return 0.0
@@ -93,6 +102,38 @@ class SlidingWindowRateLimiter:
         if self.requests_per_minute > 10:
             effective_requests_per_minute = max(1, self.requests_per_minute - 2)
         return self.window_seconds / effective_requests_per_minute
+
+    def _on_rate_limit_hit(self, now: float) -> None:
+        """429 回调：有效 RPM 减半，重置间距。"""
+        if self._effective_rpm is not None:
+            self._effective_rpm = max(ADAPTIVE_MIN_RPM, self._effective_rpm / 2)
+        self._last_429_time = now
+        self.request_spacing_seconds = self._recompute_spacing()
+        self.condition.notify_all()
+
+    def _maybe_recover(self, now: float) -> None:
+        """距上次 429 超过一个窗口后，逐步恢复到目标 RPM。"""
+        if self._last_429_time is None or self._target_rpm is None:
+            return
+        if self._effective_rpm is not None and self._effective_rpm >= self._target_rpm:
+            self._effective_rpm = float(self._target_rpm)
+            self._last_429_time = None
+            self.request_spacing_seconds = self._compute_request_spacing_seconds()
+            return
+        elapsed = now - self._last_429_time
+        if elapsed >= self.window_seconds and self._effective_rpm is not None:
+            recovery = max(1.0, self._effective_rpm * 0.2)
+            self._effective_rpm = min(float(self._target_rpm), self._effective_rpm + recovery)
+            self._last_429_time = now
+            self.request_spacing_seconds = self._recompute_spacing()
+
+    def _recompute_spacing(self) -> float:
+        """基于当前 effective_rpm 计算请求间距。"""
+        rpm = self._effective_rpm
+        if not rpm:
+            return self.window_seconds / ADAPTIVE_MIN_RPM
+        effective = max(1, rpm - 2) if rpm > 10 else rpm
+        return self.window_seconds / effective
 
     def _evict_expired(self, now: float) -> None:
         while self.request_events and now - self.request_events[0] >= self.window_seconds:
@@ -104,9 +145,10 @@ class SlidingWindowRateLimiter:
         spacing_wait = 0.0
         if self.last_request_admission is not None and self.request_spacing_seconds > 0:
             spacing_wait = max(0.0, self.request_spacing_seconds - (now - self.last_request_admission))
-        if not self.requests_per_minute:
+        effective_rpm = int(self._effective_rpm) if self._effective_rpm else self.requests_per_minute
+        if not effective_rpm:
             return spacing_wait
-        if len(self.request_events) < self.requests_per_minute:
+        if len(self.request_events) < effective_rpm:
             return spacing_wait
         oldest = self.request_events[0]
         window_wait = max(0.0, self.window_seconds - (now - oldest))
