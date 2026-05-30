@@ -17,12 +17,12 @@ from research_experiments.core.execution.runner_common import execute_cached_tur
 from research_experiments.core.structured_outputs import SCHEMA_ANSWER_CORE
 from research_experiments.families.imad.config import DebateMethodSpec, ImadExperimentConfig, ProtocolConfig
 from research_experiments.families.imad.prompts import build_debate_messages, build_initial_messages
-from research_experiments.core.families.common import resolve_phase_split_name
-from research_experiments.core.families.comparator_impls import (
+from research_experiments.family_runtime.common import resolve_phase_split_name
+from research_experiments.family_runtime.comparator_impls import (
     build_shared_vanilla_mad_prediction,
     run_shared_vanilla_mad_rounds,
 )
-from research_experiments.core.families.vanilla_mad_prompting import CONTROLLED_PROMPT_VERSION
+from research_experiments.family_runtime.vanilla_mad_prompting import CONTROLLED_PROMPT_VERSION
 
 
 def _active_methods(experiment: ImadExperimentConfig) -> list[DebateMethodSpec]:

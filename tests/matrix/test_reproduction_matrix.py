@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from research_experiments.matrix.faithful_matrix import RuntimeOverrides, build_run_matrix
+from research_experiments.matrix.orchestrator import RuntimeOverrides, build_run_matrix
 
 
 def test_build_run_matrix_counts_expected_for_reproduction() -> None:

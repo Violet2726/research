@@ -27,7 +27,7 @@ from research_experiments.families.econ.prompts import (
     build_belief_update_messages,
     build_single_agent_messages,
 )
-from research_experiments.core.families.common import (
+from research_experiments.family_runtime.common import (
     build_question_preview,
     resolve_phase_split_name,
     safe_mean,

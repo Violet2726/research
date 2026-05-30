@@ -15,11 +15,11 @@ from research_experiments.families.madjudge.config import (
 from research_experiments.families.madjudge.run.execute import run_experiment
 from research_experiments.families.madjudge.run.report import render_report, summarize_run
 from research_experiments.families.madjudge.run.validate import validate_run
-from research_experiments.families.registration_helpers import (
+from research_experiments.family_runtime.registration import (
     build_backbone_run_from_cli,
     make_family_registration,
 )
-from research_experiments.core.families.config_loading import load_benchmarks, resolve_model
+from research_experiments.family_runtime.config_helpers import load_benchmarks, resolve_model
 from research_experiments.workspace.layout import workspace_defaults
 
 
@@ -64,6 +64,16 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
     return payload
 
 
+ARTIFACT_ALIASES = {
+    "run_root": ".",
+"turns_path": "turns/turns.jsonl",
+"debate_messages_path": "turns/debate_messages.jsonl",
+"predictions_path": "views/predictions.jsonl",
+"metrics_path": "views/metrics.json",
+"debate_diagnostics_path": "diagnostics/debate_diagnostics.json",
+"cost_breakdown_path": "diagnostics/cost_breakdown.json",
+}
+
 REGISTRATION = make_family_registration(
     family_name="madjudge",
     prototype="debate_rounds",
@@ -87,6 +97,7 @@ REGISTRATION = make_family_registration(
     summarize_run=summarize_run,
     validate_run=validate_run,
     render_report=render_report,
+    artifact_aliases=ARTIFACT_ALIASES,
     metrics_view_path="views/metrics.json",
     prediction_records_path="views/predictions.jsonl",
     turn_record_paths=('turns/turns.jsonl', 'turns/debate_messages.jsonl'),

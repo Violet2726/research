@@ -24,13 +24,13 @@ from research_experiments.families.dmad.prompts import (
     build_self_contrast_checklist_messages,
     build_self_contrast_revision_messages,
 )
-from research_experiments.core.families.common import resolve_phase_split_name, safe_mean, safe_ratio
-from research_experiments.core.families.pot_execution import (
+from research_experiments.family_runtime.common import resolve_phase_split_name, safe_mean, safe_ratio
+from research_experiments.family_runtime.pot_execution import (
     build_pot_answer_artifact,
     build_pot_process_artifact,
     is_pot_reasoning,
 )
-from research_experiments.core.families.reasoning_methods import normalize_reasoning_method_name
+from research_experiments.family_runtime.reasoning_methods import normalize_reasoning_method_name
 
 
 @dataclass(frozen=True)

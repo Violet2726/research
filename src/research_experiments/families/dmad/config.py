@@ -6,11 +6,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from research_experiments.core.families.config_loading import (
+from research_experiments.family_runtime.config_helpers import (
     load_toml,
     optional_int,
 )
-from research_experiments.core.families.method_catalog import MethodConfig, load_method_catalog
+from research_experiments.family_runtime.method_catalog import MethodConfig, load_method_catalog
 
 
 @dataclass(frozen=True)

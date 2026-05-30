@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from research_experiments.core.families.config_loading import (
+from research_experiments.family_runtime.config_helpers import (
     load_toml,
     optional_int,
 )

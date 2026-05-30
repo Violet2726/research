@@ -9,11 +9,11 @@ from research_experiments.families.colmad.config import load_experiment_config, 
 from research_experiments.families.colmad.run.execute import run_experiment
 from research_experiments.families.colmad.run.report import render_report, summarize_run
 from research_experiments.families.colmad.run.validate import validate_run
-from research_experiments.families.registration_helpers import (
+from research_experiments.family_runtime.registration import (
     build_backbone_run_from_cli,
     make_family_registration,
 )
-from research_experiments.core.families.config_loading import load_benchmarks, phase_metadata, resolve_model
+from research_experiments.family_runtime.config_helpers import load_benchmarks, phase_metadata, resolve_model
 from research_experiments.workspace.layout import workspace_defaults
 
 
@@ -44,6 +44,14 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
     }
 
 
+ARTIFACT_ALIASES = {
+    "debate_trace": "turns/debate_trace.jsonl",
+"judge_trace": "turns/judge_trace.jsonl",
+"final_predictions": "views/predictions.jsonl",
+"protocol_diagnostics": "diagnostics/protocol_diagnostics.json",
+"run_validation": "run_validation.json",
+}
+
 REGISTRATION = make_family_registration(
     family_name="colmad",
     prototype="topology_or_graph",
@@ -67,6 +75,7 @@ REGISTRATION = make_family_registration(
     summarize_run=summarize_run,
     validate_run=validate_run,
     render_report=render_report,
+    artifact_aliases=ARTIFACT_ALIASES,
     metrics_view_path="views/metrics.json",
     prediction_records_path="views/predictions.jsonl",
     turn_record_paths=('turns/debate_trace.jsonl', 'turns/judge_trace.jsonl'),

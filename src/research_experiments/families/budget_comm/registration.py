@@ -14,11 +14,11 @@ from research_experiments.families.budget_comm.config import (
 from research_experiments.families.budget_comm.run.execute import run_experiment
 from research_experiments.families.budget_comm.run.report import render_report, summarize_run
 from research_experiments.families.budget_comm.run.validate import validate_run
-from research_experiments.families.registration_helpers import (
+from research_experiments.family_runtime.registration import (
     build_backbone_run_from_cli,
     make_family_registration,
 )
-from research_experiments.core.families.config_loading import load_benchmarks, phase_metadata, resolve_model
+from research_experiments.family_runtime.config_helpers import load_benchmarks, phase_metadata, resolve_model
 from research_experiments.workspace.layout import workspace_defaults
 
 
@@ -57,6 +57,19 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
     }
 
 
+ARTIFACT_ALIASES = {
+    "sample_views": "turns/sample_views.jsonl",
+"stage_a_turns": "turns/stage_a_turns.jsonl",
+"candidate_packets": "turns/candidate_packets.jsonl",
+"auction_decisions": "turns/auction_decisions.jsonl",
+"belief_updates": "turns/belief_updates.jsonl",
+"final_predictions": "views/predictions.jsonl",
+"budget_diagnostics": "diagnostics/budget_diagnostics.json",
+"run_validation": "run_validation.json",
+"report_markdown": "report.md",
+"paper_summary": "exports/paper_summary.csv",
+}
+
 REGISTRATION = make_family_registration(
     family_name="budget_comm",
     prototype="packet_belief_update",
@@ -80,6 +93,7 @@ REGISTRATION = make_family_registration(
     summarize_run=summarize_run,
     validate_run=validate_run,
     render_report=render_report,
+    artifact_aliases=ARTIFACT_ALIASES,
     metrics_view_path="views/metrics.json",
     prediction_records_path="views/predictions.jsonl",
     turn_record_paths=('turns/sample_views.jsonl', 'turns/stage_a_turns.jsonl', 'turns/candidate_packets.jsonl', 'turns/auction_decisions.jsonl', 'turns/belief_updates.jsonl'),

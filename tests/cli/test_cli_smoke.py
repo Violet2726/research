@@ -391,7 +391,7 @@ def test_archive_runs_publish_uses_repo_env(monkeypatch, tmp_path) -> None:
     (tmp_path / "manifest.json").write_text(json.dumps({"run_id": "test-run"}, ensure_ascii=False, indent=2), encoding="utf-8")
     monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
     monkeypatch.setattr(
-        "research_experiments.tools.archive_runs.publish_run_to_hub",
+        "research_experiments.cli.tools.archive_runs.publish_run_to_hub",
         lambda run_root, repo_id, token, create_repo: {
             "run_root": str(run_root),
             "remote_repo": repo_id,
@@ -419,7 +419,7 @@ def test_archive_runs_publish_uses_repo_env(monkeypatch, tmp_path) -> None:
 def test_archive_runs_fetch_accepts_run_prefix(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
     monkeypatch.setattr(
-        "research_experiments.tools.archive_runs.fetch_run_from_hub",
+        "research_experiments.cli.tools.archive_runs.fetch_run_from_hub",
         lambda run_id, repo_id, remote_prefix, token, target_root: {
             "run_id": run_id,
             "remote_repo": repo_id,
@@ -450,7 +450,7 @@ def test_archive_runs_fetch_accepts_run_prefix(monkeypatch, tmp_path) -> None:
 def test_cache_archive_push_uses_repo_env(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
     monkeypatch.setattr(
-        "research_experiments.tools.cache_archive.push_latest_cache_snapshot",
+        "research_experiments.cli.tools.cache_archive.push_latest_cache_snapshot",
         lambda cache_root, repo_id, token, create_repo, private, shard_filters=None: {
             "cache_root": str(cache_root),
             "remote_repo": repo_id,
@@ -479,7 +479,7 @@ def test_cache_archive_push_uses_repo_env(monkeypatch, tmp_path) -> None:
 def test_cache_archive_pull_accepts_cache_shard(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
     monkeypatch.setattr(
-        "research_experiments.tools.cache_archive.pull_latest_cache_snapshot",
+        "research_experiments.cli.tools.cache_archive.pull_latest_cache_snapshot",
         lambda target, repo_id, token, shard_filters=None: {
             "target_root": str(target),
             "remote_repo": repo_id,
@@ -509,7 +509,7 @@ def test_hf_sync_push_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
     monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
     monkeypatch.setattr(
-        "research_experiments.tools.hf_sync.push_workspace_to_hub",
+        "research_experiments.cli.tools.hf_sync.push_workspace_to_hub",
         lambda **kwargs: {
             "runs_repo": kwargs["runs_repo_id"],
             "cache_repo": kwargs["cache_repo_id"],
@@ -550,7 +550,7 @@ def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
     monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
     monkeypatch.setattr(
-        "research_experiments.tools.hf_sync.pull_workspace_from_hub",
+        "research_experiments.cli.tools.hf_sync.pull_workspace_from_hub",
         lambda **kwargs: {
             "runs_repo": kwargs["runs_repo_id"],
             "cache_repo": kwargs["cache_repo_id"],

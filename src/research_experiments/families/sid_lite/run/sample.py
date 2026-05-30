@@ -27,13 +27,13 @@ from research_experiments.core.structured_outputs import (
     SCHEMA_BELIEF_UPDATE_DELTA,
     validate_or_recover_structured_output,
 )
-from research_experiments.core.families.common import (
+from research_experiments.family_runtime.common import (
     resolve_phase_split_name,
     safe_mean,
     stable_trace_hash,
     summarize_row_cost,
 )
-from research_experiments.core.families.comparator_impls import build_stage_a_mv3_prediction
+from research_experiments.family_runtime.comparator_impls import build_stage_a_mv3_prediction
 from research_experiments.families.sid_lite.algorithms import (
     apply_belief_update,
     compression_ratio,

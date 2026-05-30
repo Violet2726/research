@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src" / "research_experiments"
 FAMILIES_SRC = SRC / "families"
 CORE_SRC = SRC / "core"
-TOOLS_SRC = SRC / "tools"
+CLI_TOOLS_SRC = SRC / "cli" / "tools"
 EXPERIMENT_PACKAGES = set(registered_family_names())
 
 
@@ -88,12 +88,12 @@ def test_no_legacy_family_entrypoint_files_remain() -> None:
 
 def test_no_python_modules_remain_under_families_shared() -> None:
     shared_root = FAMILIES_SRC / "shared"
-    assert not any(shared_root.rglob("*.py"))
+    assert not shared_root.exists()
 
 
-def test_tools_do_not_import_concrete_family_modules() -> None:
+def test_cli_tools_do_not_import_concrete_family_modules() -> None:
     violations: list[str] = []
-    for path in TOOLS_SRC.rglob("*.py"):
+    for path in CLI_TOOLS_SRC.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -110,6 +110,15 @@ def test_tools_do_not_import_concrete_family_modules() -> None:
                 if family_name in EXPERIMENT_PACKAGES:
                     violations.append(f"{path}: {name}")
     assert not violations, "\n".join(violations)
+
+
+def test_removed_legacy_structure_files_do_not_exist() -> None:
+    assert not (SRC / "tools").exists()
+    assert not (CORE_SRC / "engine").exists()
+    assert not (SRC / "matrix" / "faithful_matrix.py").exists()
+    assert not (SRC / "matrix" / "profile_registry.py").exists()
+    assert not (SRC / "family_runtime" / "standard_method_names.py").exists()
+    assert not any(FAMILIES_SRC.rglob("io.py"))
 
 
 def test_export_only_package_init_modules() -> None:
@@ -133,7 +142,8 @@ def test_no_legacy_matrix_cli_entrypoint() -> None:
     assert "count20_matrix_cli" not in scripts
 
 
-def test_matrix_cli_does_not_import_faithful_matrix_directly() -> None:
+def test_matrix_cli_does_not_import_removed_matrix_shells() -> None:
     cli_path = SRC / "matrix" / "cli.py"
     text = cli_path.read_text(encoding="utf-8")
     assert "matrix.faithful_matrix" not in text
+    assert "matrix.profile_registry" not in text

@@ -11,7 +11,7 @@ import pyarrow.parquet as pq
 
 from research_experiments.core.config import load_benchmark_config
 from research_experiments.core.data.datasets import DatasetSample
-from research_experiments.workspace.dataset_assets import (
+from research_experiments.workspace.datasets.service import (
     _download_source_file,
     build_primary_dataset_specs,
     build_supplementary_dataset_specs,
@@ -123,7 +123,7 @@ def test_write_dataset_inventory_files_writes_local_manifest_and_repo_readme(tmp
     )
 
     monkeypatch.setattr(
-        "research_experiments.workspace.dataset_assets.load_samples",
+        "research_experiments.workspace.datasets.service.load_samples",
         lambda _benchmark: [
             DatasetSample(
                 dataset="math500",
@@ -253,7 +253,7 @@ def test_download_source_file_falls_back_to_hf_parquet_for_competition_math(tmp_
             return fallback_parquet.as_posix()
         raise AssertionError(f"Unexpected repo_id: {repo_id}")
 
-    monkeypatch.setattr("research_experiments.workspace.dataset_assets.hf_hub_download", _fake_hf_hub_download)
+    monkeypatch.setattr("research_experiments.workspace.datasets.service.hf_hub_download", _fake_hf_hub_download)
 
     packaged_path = _download_source_file(spec, tmp_path / "MATH.zip")
 

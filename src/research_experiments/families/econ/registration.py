@@ -9,11 +9,11 @@ from research_experiments.families.econ.config import load_experiment_config, lo
 from research_experiments.families.econ.run.execute import run_experiment
 from research_experiments.families.econ.run.report import render_report, summarize_run
 from research_experiments.families.econ.run.validate import validate_run
-from research_experiments.families.registration_helpers import (
+from research_experiments.family_runtime.registration import (
     build_backbone_run_from_cli,
     make_family_registration,
 )
-from research_experiments.core.families.config_loading import load_benchmarks, resolve_model
+from research_experiments.family_runtime.config_helpers import load_benchmarks, resolve_model
 from research_experiments.workspace.layout import workspace_defaults
 
 
@@ -41,6 +41,15 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
     }
 
 
+ARTIFACT_ALIASES = {
+    "agent_turns": "turns/agent_turns.jsonl",
+"belief_trace": "turns/belief_trace.jsonl",
+"equilibrium_trace": "turns/equilibrium_trace.jsonl",
+"communication_trace": "turns/communication_trace.jsonl",
+"final_predictions": "views/predictions.jsonl",
+"run_validation": "run_validation.json",
+}
+
 REGISTRATION = make_family_registration(
     family_name="econ",
     prototype="packet_belief_update",
@@ -64,6 +73,7 @@ REGISTRATION = make_family_registration(
     summarize_run=summarize_run,
     validate_run=validate_run,
     render_report=render_report,
+    artifact_aliases=ARTIFACT_ALIASES,
     metrics_view_path="views/metrics.json",
     prediction_records_path="views/predictions.jsonl",
     turn_record_paths=('turns/agent_turns.jsonl', 'turns/belief_trace.jsonl', 'turns/equilibrium_trace.jsonl', 'turns/communication_trace.jsonl'),

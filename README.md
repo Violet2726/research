@@ -19,13 +19,14 @@
 ```text
 src/
   research_experiments/
-    cli_support/      CLI 输出与终端编码支持
+    cli/              根 CLI 与工具命令入口
+    cli_support/      UTF-8 终端输出支持
     core/             共享核心能力
+    family_runtime/   跨 family 共享的运行骨架与 artifact 语义
     families/         各实验家族
-    matrix/           faithful matrix 编排
+    matrix/           矩阵编排、恢复与分析
     reporting/        共享报告与论文包能力
-    tools/            归档、缓存、数据集等工具
-    workspace/        工作区布局、归档、同步与数据集资产
+    workspace/        工作区、归档、同步与数据集资产服务
 
 configs/
   core/
@@ -45,7 +46,8 @@ tests/                自动化测试
 
 ## 仓库约定
 
-- 共享能力只放在 `src/research_experiments/core/`
+- 通用基础设施只放在 `src/research_experiments/core/`
+- 跨 family 共享的运行骨架统一放在 `src/research_experiments/family_runtime/`
 - family 之间不直接互相导入
 - 公开配置字段统一使用 `primary_model_ref`
 - faithful matrix 规格统一放在 `configs/core/matrix/faithful_matrix.toml`
@@ -187,6 +189,7 @@ uv run research_cli tools hf-sync pull-workspace
 
 - [src/README.md](/d:/user/research/src/README.md)
 - [src/research_experiments/core/README.md](/d:/user/research/src/research_experiments/core/README.md)
+- [src/research_experiments/family_runtime/__init__.py](/d:/user/research/src/research_experiments/family_runtime/__init__.py)
 - [docs/README.md](/d:/user/research/docs/README.md)
 - [docs/project_structure.md](/d:/user/research/docs/project_structure.md)
 - [docs/run_report_pipeline.md](/d:/user/research/docs/run_report_pipeline.md)

@@ -21,7 +21,7 @@ from research_experiments.families.imad.config import (
     load_control_catalog,
     load_protocol_config,
 )
-from research_experiments.families.imad.run.io import prepare_run_layout
+from research_experiments.family_runtime.layout import prepare_registered_run_layout
 from research_experiments.families.imad.run.report import render_report, summarize_run
 from research_experiments.families.imad.run.sample import (
     _active_methods,
@@ -37,8 +37,8 @@ from research_experiments.families.imad.run.sample import (
     _write_sample_outputs,
 )
 from research_experiments.families.imad.run.validate import validate_run
-from research_experiments.families.run_manifest import finalize_family_manifest
-from research_experiments.core.families.config_loading import load_benchmarks
+from research_experiments.family_runtime.manifest import finalize_family_manifest
+from research_experiments.family_runtime.config_helpers import load_benchmarks
 from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 
@@ -66,7 +66,7 @@ def run_experiment(
         tokens_per_minute=experiment.tokens_per_minute_limit,
     )
     run_id = build_run_id(backbone.name)
-    run_paths = prepare_run_layout(run_root, experiment.name, phase_name, run_id)
+    run_paths = prepare_registered_run_layout('imad', run_root, experiment.name, phase_name, run_id)
     total_calls, total_predictions = _estimate_work(experiment, phase_name, benchmarks, protocol, methods, controls)
     progress = RunProgressTracker(
         run_paths.progress,

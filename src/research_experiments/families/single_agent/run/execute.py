@@ -34,10 +34,10 @@ from research_experiments.core.execution.runtime import RunProgressTracker, buil
 from research_experiments.core.structured_outputs import (
     ARTIFACT_VERSION,
 )
-from research_experiments.core.families.config_loading import phase_metadata
-from research_experiments.core.families.method_catalog import load_method_catalog
+from research_experiments.family_runtime.config_helpers import phase_metadata
+from research_experiments.family_runtime.method_catalog import load_method_catalog
 from research_experiments.families.single_agent.config import ExperimentConfig
-from research_experiments.families.single_agent.run.io import prepare_run_layout
+from research_experiments.family_runtime.layout import prepare_registered_run_layout
 from research_experiments.families.single_agent.run.report import export_paper_tables, render_report, summarize_run
 from research_experiments.families.single_agent.run.sample import (
     _aggregate_metrics,
@@ -51,7 +51,7 @@ from research_experiments.families.single_agent.run.sample import (
     _write_leaderboard,
 )
 from research_experiments.families.single_agent.run.validate import validate_run
-from research_experiments.families.run_manifest import finalize_family_manifest
+from research_experiments.family_runtime.manifest import finalize_family_manifest
 from research_experiments.workspace.layout import (
     default_cache_root,
     default_reports_root,
@@ -80,7 +80,7 @@ def run_experiment(
     methods = _phase_methods(experiment, phase_name, method_catalog)
     primary_model = models[0] if models else None
     run_id = build_run_id(primary_model.name if primary_model is not None else "")
-    run_paths = prepare_run_layout(run_root, experiment.name, phase_name, run_id)
+    run_paths = prepare_registered_run_layout('single_agent', run_root, experiment.name, phase_name, run_id)
     cache_router = RequestCacheRouter(cache_root)
     rate_limiter = SlidingWindowRateLimiter(
         requests_per_minute=experiment.requests_per_minute_limit,

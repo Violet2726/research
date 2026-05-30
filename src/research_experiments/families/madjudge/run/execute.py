@@ -30,7 +30,7 @@ from research_experiments.families.madjudge.config import (
     load_roster_config,
     phase_metadata,
 )
-from research_experiments.families.madjudge.run.io import prepare_run_layout
+from research_experiments.family_runtime.layout import prepare_registered_run_layout
 from research_experiments.families.madjudge.run.report import render_report, summarize_run
 from research_experiments.families.madjudge.run.sample import (
     _active_setups,
@@ -46,8 +46,8 @@ from research_experiments.families.madjudge.run.sample import (
     _write_sample_outputs,
 )
 from research_experiments.families.madjudge.run.validate import validate_run
-from research_experiments.families.run_manifest import finalize_family_manifest
-from research_experiments.core.families.config_loading import load_benchmarks
+from research_experiments.family_runtime.manifest import finalize_family_manifest
+from research_experiments.family_runtime.config_helpers import load_benchmarks
 from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 
@@ -77,7 +77,7 @@ def run_experiment(
         tokens_per_minute=experiment.tokens_per_minute_limit,
     )
     run_id = build_run_id(backbone.name)
-    paths = prepare_run_layout(resolved_run_root, experiment.name, phase_name, run_id)
+    paths = prepare_registered_run_layout("madjudge", resolved_run_root, experiment.name, phase_name, run_id)
 
     total_calls, total_predictions = _estimate_work(
         experiment, phase_name, benchmarks, setups, matched_control_names, controls,

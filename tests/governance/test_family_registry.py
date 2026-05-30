@@ -16,7 +16,7 @@ from research_experiments.families.registry import (
     registered_family_registrations,
     validator_map,
 )
-from research_experiments.tools.artifact_cleanup import RUN_VALIDATORS
+from research_experiments.workspace.artifact_cleanup import RUN_VALIDATORS
 
 ROOT = Path(__file__).resolve().parents[2]
 FAMILIES_SRC = ROOT / "src" / "research_experiments" / "families"
@@ -62,7 +62,14 @@ def test_every_family_exports_registration_and_family_test_directory() -> None:
         assert (FAMILIES_SRC / family_name / "registration.py").exists()
         assert not (FAMILIES_SRC / family_name / "spec.py").exists()
         assert not (FAMILIES_SRC / family_name / "family_manifest.py").exists()
+        assert not (FAMILIES_SRC / family_name / "run" / "io.py").exists()
         assert (ROOT / "tests" / "families" / family_name).is_dir()
+
+
+def test_every_family_registration_declares_artifact_aliases() -> None:
+    for registration in registered_family_registrations():
+        assert isinstance(registration.artifact_aliases, dict)
+        assert registration.artifact_aliases
 
 
 def test_artifact_cleanup_validator_registry_stays_in_sync() -> None:
@@ -115,3 +122,23 @@ def test_tracked_text_files_are_utf8_and_only_powershell_keeps_bom() -> None:
 
     assert not non_utf8, non_utf8
     assert not unexpected_bom, unexpected_bom
+
+
+def test_active_shared_packages_default_to_chinese_module_docstrings() -> None:
+    targets = [
+        ROOT / "src" / "research_experiments" / "cli",
+        ROOT / "src" / "research_experiments" / "family_runtime",
+        ROOT / "src" / "research_experiments" / "matrix",
+        ROOT / "src" / "research_experiments" / "workspace" / "datasets",
+    ]
+    missing: list[str] = []
+    for root in targets:
+        for path in root.rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            if not text.lstrip().startswith('"""'):
+                missing.append(path.relative_to(ROOT).as_posix())
+                continue
+            docstring = text.split('"""', 2)[1]
+            if not any("\u4e00" <= char <= "\u9fff" for char in docstring):
+                missing.append(path.relative_to(ROOT).as_posix())
+    assert not missing, missing

@@ -14,11 +14,11 @@ from research_experiments.families.cue.config import (
 from research_experiments.families.cue.run.execute import run_experiment
 from research_experiments.families.cue.run.report import render_report, summarize_run
 from research_experiments.families.cue.run.validate import validate_run
-from research_experiments.families.registration_helpers import (
+from research_experiments.family_runtime.registration import (
     build_backbone_run_from_cli,
     make_family_registration,
 )
-from research_experiments.core.families.config_loading import load_benchmarks, resolve_model
+from research_experiments.family_runtime.config_helpers import load_benchmarks, resolve_model
 from research_experiments.workspace.layout import workspace_defaults
 
 
@@ -49,6 +49,19 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
     }
 
 
+ARTIFACT_ALIASES = {
+    "stage_a_turns": "turns/stage_a_turns.jsonl",
+"communication_turns": "turns/communication_turns.jsonl",
+"audit_turns": "turns/audit_turns.jsonl",
+"control_turns": "turns/control_turns.jsonl",
+"policy_predictions": "views/predictions.jsonl",
+"policy_metrics": "views/metrics.json",
+"policy_diagnostics": "diagnostics/policy_diagnostics.json",
+"oracle_trigger_eval": "diagnostics/oracle_trigger_eval.json",
+"run_validation": "run_validation.json",
+"cue_report": "report.md",
+}
+
 REGISTRATION = make_family_registration(
     family_name="cue",
     prototype="shared_stage_policy",
@@ -72,6 +85,7 @@ REGISTRATION = make_family_registration(
     summarize_run=summarize_run,
     validate_run=validate_run,
     render_report=render_report,
+    artifact_aliases=ARTIFACT_ALIASES,
     metrics_view_path="views/metrics.json",
     prediction_records_path="views/predictions.jsonl",
     turn_record_paths=('turns/stage_a_turns.jsonl', 'turns/communication_turns.jsonl', 'turns/audit_turns.jsonl', 'turns/control_turns.jsonl'),

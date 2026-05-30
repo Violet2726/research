@@ -39,7 +39,7 @@ from research_experiments.families.madjudge.prompts import (
     build_debate_messages,
     build_initial_messages,
 )
-from research_experiments.core.families.common import resolve_phase_split_name, safe_mean, safe_ratio
+from research_experiments.family_runtime.common import resolve_phase_split_name, safe_mean, safe_ratio
 
 
 @dataclass(frozen=True)

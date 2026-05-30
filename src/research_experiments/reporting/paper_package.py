@@ -9,8 +9,8 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
-from research_experiments.core.families.artifacts import load_metrics_payload, load_prediction_records
-from research_experiments.core.families.comparator_registry import COT_1, SC_5
+from research_experiments.family_runtime.artifact_index import load_metrics_payload, load_prediction_records
+from research_experiments.family_runtime.comparators import COT_1, SC_5
 from research_experiments.matrix.matrix_specs import (
     EVIDENCE_DIAGNOSTIC,
     EVIDENCE_HEADLINE,

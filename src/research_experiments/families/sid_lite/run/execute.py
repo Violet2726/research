@@ -25,12 +25,12 @@ from research_experiments.core.execution.runtime import RunProgressTracker, buil
 from research_experiments.core.structured_outputs import (
     ARTIFACT_VERSION,
 )
-from research_experiments.core.families.config_loading import load_benchmarks, phase_metadata
+from research_experiments.family_runtime.config_helpers import load_benchmarks, phase_metadata
 from research_experiments.families.sid_lite.config import (
     SidLiteExperimentConfig,
     load_protocol_config,
 )
-from research_experiments.families.sid_lite.run.io import prepare_run_layout
+from research_experiments.family_runtime.layout import prepare_registered_run_layout
 from research_experiments.families.sid_lite.run.metrics import (
     build_diagnostics_payload as build_sid_diagnostics_payload,
 )
@@ -47,7 +47,7 @@ from research_experiments.families.sid_lite.run.sample import (
     _run_sample_batch,
 )
 from research_experiments.families.sid_lite.run.validate import validate_run
-from research_experiments.families.run_manifest import finalize_family_manifest
+from research_experiments.family_runtime.manifest import finalize_family_manifest
 from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 
@@ -72,7 +72,7 @@ def run_experiment(
         tokens_per_minute=experiment.tokens_per_minute_limit,
     )
     run_id = build_run_id(backbone.name)
-    run_paths = prepare_run_layout(run_root, experiment.name, phase_name, run_id)
+    run_paths = prepare_registered_run_layout('sid_lite', run_root, experiment.name, phase_name, run_id)
     total_calls, total_predictions = _estimate_work(experiment, phase_name, benchmarks, protocol)
     progress = RunProgressTracker(run_paths.progress, total_calls, total_predictions)
 

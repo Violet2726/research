@@ -37,7 +37,7 @@ from research_experiments.families.budget_comm.config import (
     load_context_view_config,
     load_protocol_config,
 )
-from research_experiments.families.budget_comm.run.io import prepare_run_layout
+from research_experiments.family_runtime.layout import prepare_registered_run_layout
 from research_experiments.families.budget_comm.run.sample import (
     _build_budget_diagnostics,
     _build_metrics,
@@ -48,8 +48,8 @@ from research_experiments.families.budget_comm.run.sample import (
     _run_sample_batch,
     _write_sample_results,
 )
-from research_experiments.families.run_manifest import finalize_family_manifest
-from research_experiments.core.families.config_loading import load_benchmarks, phase_metadata
+from research_experiments.family_runtime.manifest import finalize_family_manifest
+from research_experiments.family_runtime.config_helpers import load_benchmarks, phase_metadata
 from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 
@@ -109,7 +109,7 @@ def run_experiment(
     )
 
     run_id = build_run_id(backbone.name)
-    run_paths = prepare_run_layout(run_root, experiment.name, phase_name, run_id)
+    run_paths = prepare_registered_run_layout('budget_comm', run_root, experiment.name, phase_name, run_id)
     total_calls, total_predictions = _estimate_work(experiment, phase_name, benchmarks, protocol)
     progress = RunProgressTracker(run_paths.progress, total_calls, total_predictions)
 

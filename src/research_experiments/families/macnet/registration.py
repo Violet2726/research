@@ -9,11 +9,11 @@ from research_experiments.families.macnet.config import load_experiment_config, 
 from research_experiments.families.macnet.run.execute import run_experiment
 from research_experiments.families.macnet.run.report import render_report, summarize_run
 from research_experiments.families.macnet.run.validate import validate_run
-from research_experiments.families.registration_helpers import (
+from research_experiments.family_runtime.registration import (
     build_backbone_run_from_cli,
     make_family_registration,
 )
-from research_experiments.core.families.config_loading import load_benchmarks, resolve_model
+from research_experiments.family_runtime.config_helpers import load_benchmarks, resolve_model
 from research_experiments.workspace.layout import workspace_defaults
 
 
@@ -48,6 +48,18 @@ def _serialize_protocol(protocol) -> dict[str, object]:
     return payload
 
 
+ARTIFACT_ALIASES = {
+    "artifact_trace": "turns/artifact_trace.jsonl",
+"instruction_trace": "turns/instruction_trace.jsonl",
+"final_predictions": "views/predictions.jsonl",
+"topology_manifest": "exports/topology_manifest.json",
+"scaling_summary": "diagnostics/scaling_summary.json",
+"report": "report.md",
+"figure_manifest": "figure_manifest.json",
+"archive_manifest": "archive_manifest.json",
+"run_validation": "run_validation.json",
+}
+
 REGISTRATION = make_family_registration(
     family_name="macnet",
     prototype="topology_or_graph",
@@ -71,6 +83,7 @@ REGISTRATION = make_family_registration(
     summarize_run=summarize_run,
     validate_run=validate_run,
     render_report=render_report,
+    artifact_aliases=ARTIFACT_ALIASES,
     metrics_view_path="views/metrics.json",
     prediction_records_path="views/predictions.jsonl",
     turn_record_paths=('turns/artifact_trace.jsonl', 'turns/instruction_trace.jsonl'),

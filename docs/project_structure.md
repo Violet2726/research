@@ -2,15 +2,17 @@
 
 ## 1. 总体分层
 
-仓库分为四层：
+仓库分为五层：
 
 1. `src/research_experiments/core/`
    共享基础设施层，负责 provider、缓存、数据集加载、评测、结构化输出、归档与运行时工具。
-2. `src/research_experiments/families/<family>/`
+2. `src/research_experiments/family_runtime/`
+   跨 family 共享的运行骨架层，负责 artifact 合同读取、layout、比较器、报告包装与校验辅助。
+3. `src/research_experiments/families/<family>/`
    具体实验实现层。每个 family 只依赖共享核心，不互相依赖。
-3. `configs/core/` 与 `configs/families/`
+4. `configs/core/` 与 `configs/families/`
    配置层。共享配置放在 `configs/core/shared/`，矩阵 profile 放在 `configs/core/matrix/`，实验专属配置放在各自 family 目录。
-4. `datasets/`、`files/`、`local/`
+5. `datasets/`、`files/`、`local/`
    数据与工作区层。`datasets/` 只保留恢复说明，真实原始数据放在 `local/datasets/`。
 
 ## 2. 关键目录职责
@@ -23,27 +25,35 @@
 - `prompts/`：题型指令与提示词契约
 - `controls/`：跨实验复用的控制逻辑
 - `structured_outputs/`：共享结构化输出校验与恢复
+- `contracts/`：平台级公开合同与记录模型
+
+### `src/research_experiments/family_runtime/`
+
+- `artifact_index.py`：按 manifest 解析 family 正式产物索引
+- `layout.py`：统一构造 family 运行目录布局
+- `manifest.py`：补齐正式 run manifest 的稳定合同字段
+- `registration.py`：family 注册对象构造辅助
+- `comparators.py` / `comparator_impls.py`：共享比较器常量与复用实现
+- `report_bundle.py` / `validation.py`：共享报告包装与校验辅助
 
 ### `src/research_experiments/families/`
 
 - `<family>/config.py`：实验配置解析
 - `<family>/prompts.py`：提示词模板
 - `<family>/algorithms.py` / `dataset_views.py`：family 机制逻辑
+- `<family>/registration.py`：family 注册定义、artifact alias 与 inspect/run 入口
 - `<family>/run/execute.py`：顶层运行编排
-- `<family>/run/io.py`：运行目录与落盘路径
 - `<family>/run/sample.py`：样本级执行链路与私有辅助逻辑
 - `<family>/run/report.py`：汇总与报告
 - `<family>/run/validate.py`：运行校验
-- `<family>/registration.py`：family 注册定义与 inspect/run 入口
 
 ### 其他共享目录
 
-- `src/research_experiments/core/families/`：跨 family 共享的 artifact 合同、配置加载、比较器、报告包装与校验工具
-- `src/research_experiments/matrix/`：矩阵内核、faithful/reproduction profile 编排与分析
+- `src/research_experiments/cli/`：根 CLI、family CLI 接入层与工具命令包装
+- `src/research_experiments/matrix/`：矩阵 registry、状态模型、执行与分析入口
 - `src/research_experiments/reporting/`：科研报告、图资产、论文包与统计输出
-- `src/research_experiments/workspace/`：工作区布局、归档、HF 同步、数据集资产
+- `src/research_experiments/workspace/`：工作区布局、归档、HF 同步、清理与数据集资产服务
 - `src/research_experiments/cli_support/`：命令行输出与 UTF-8 编码支持
-- `src/research_experiments/tools/`：缓存检查、归档、数据集与清理工具
 
 ## 3. 默认工作区
 

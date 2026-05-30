@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from research_experiments.core.config import ResolvedModelConfig
-from research_experiments.core.families.reference_runs import (
+from research_experiments.family_runtime.reference_runs import (
     TriggerReferenceConfig,
     resolve_trigger_reference_selection,
     write_policy_reference_summary,

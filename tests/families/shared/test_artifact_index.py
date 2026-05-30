@@ -8,7 +8,7 @@ from pathlib import Path
 from testsupport.filesystem import write_json
 
 from research_experiments.core.contracts import FamilyArtifactSchema
-from research_experiments.core.families.artifacts import (
+from research_experiments.family_runtime.artifact_index import (
     load_metrics_payload,
     load_prediction_records,
     resolve_run_artifact_index,

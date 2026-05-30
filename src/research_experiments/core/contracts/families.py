@@ -130,6 +130,7 @@ class FamilyRegistration:
     prototype: FamilyPrototype
     cli_help: FamilyCliHelp
     artifact_schema: FamilyArtifactSchema
+    artifact_aliases: dict[str, str]
     load_experiment: Callable[[str | Path], Any]
     resolve_model: Callable[[str], Any]
     invoke_runner: Callable[..., Path]

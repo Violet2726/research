@@ -6,11 +6,6 @@
 
 - `contracts/`
   平台级公开合同，如 `FamilyRegistration`、`RunArtifactIndex` 与规范记录模型。
-- `artifacts/`
-  平台级运行产物读模型与索引。
-- `engine/`
-  平台级分发与执行辅助入口。
-
 - `config/`
   provider、model、benchmark 的共享配置加载与解析。
 - `data/`
@@ -36,11 +31,10 @@
   统一管理进度、`run_id` 与 run 收尾流程。
 - `reporting/report_pipeline.py`
   统一输出本地报告、图资产与附录报告。
-- `matrix/faithful_matrix.py`
-  统一矩阵命令入口；当前同时承接 `faithful_matrix` 与 `reproduction_matrix` 两套 profile 的编排、恢复与矩阵级摘要输出。
 
 ## 维护约定
 
 - 新共享能力只进入 `research_experiments/core`
+- 跨 family 共享的运行骨架统一进入 `research_experiments/family_runtime`
 - 工作区、归档、同步与数据集资产统一进入 `research_experiments/workspace`
 - `runs/` 与 `cache/` 的正式远程归档统一走 Hugging Face dataset repo，不再发明实验家族私有同步逻辑

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from research_experiments.core.families.comparator_registry import (
+from research_experiments.family_runtime.comparators import (
     COT_1,
     MAD_3A_R1,
     MAD_FIXED_R3,

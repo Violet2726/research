@@ -16,8 +16,8 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
-from research_experiments.core.families.artifacts import load_prediction_records
-from research_experiments.core.families.comparator_registry import MV_6, SC_6
+from research_experiments.family_runtime.artifact_index import load_prediction_records
+from research_experiments.family_runtime.comparators import MV_6, SC_6
 
 
 @dataclass(frozen=True)

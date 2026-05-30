@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from research_experiments.core.families.pot_execution import (
+from research_experiments.family_runtime.pot_execution import (
     build_pot_answer_artifact,
     execute_pot_program,
     extract_python_program,

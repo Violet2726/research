@@ -1,4 +1,4 @@
-"""FamilyRegistration 构造辅助函数。"""
+"""family 注册对象的共享构造辅助。"""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from research_experiments.core.contracts import (
     FamilyRegistration,
     FamilyRunRequest,
 )
-from research_experiments.core.families.config_loading import load_benchmarks
+from research_experiments.family_runtime.config_helpers import load_benchmarks
 
 
 def build_backbone_run_from_cli(
@@ -76,6 +76,7 @@ def make_family_registration(
     summarize_run,
     validate_run,
     render_report,
+    artifact_aliases: dict[str, str],
     metrics_view_path: str,
     prediction_records_path: str,
     turn_record_paths: tuple[str, ...] = (),
@@ -92,6 +93,7 @@ def make_family_registration(
         family_name=family_name,
         prototype=prototype,
         cli_help=cli_help,
+        artifact_aliases=artifact_aliases,
         load_experiment=load_experiment,
         resolve_model=resolve_model,
         invoke_runner=invoke_runner,

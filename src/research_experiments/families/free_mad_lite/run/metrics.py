@@ -8,7 +8,7 @@ from typing import Any
 
 from research_experiments.families.free_mad_lite.algorithms import METHOD_ORDER
 from research_experiments.families.free_mad_lite.prompts import anti_conformity_prompt_hash
-from research_experiments.core.families.common import safe_mean
+from research_experiments.family_runtime.common import safe_mean
 
 
 def build_metrics_payload(prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:

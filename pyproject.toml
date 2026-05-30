@@ -59,7 +59,7 @@ module = [
 ignore_errors = false
 
 [project.scripts]
-research_cli = "research_experiments.cli:main"
+research_cli = "research_experiments.cli.main:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

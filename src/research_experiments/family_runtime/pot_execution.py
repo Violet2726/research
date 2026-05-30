@@ -11,7 +11,7 @@ import tempfile
 from dataclasses import dataclass
 
 from research_experiments.core.structured_outputs import SCHEMA_ANSWER_CORE, validate_or_recover_structured_output
-from research_experiments.core.families.reasoning_methods import normalize_reasoning_method_name
+from research_experiments.family_runtime.reasoning_methods import normalize_reasoning_method_name
 
 ALLOWED_IMPORT_ROOTS = {
     "collections",

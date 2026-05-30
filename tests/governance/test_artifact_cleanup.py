@@ -6,7 +6,7 @@ from pathlib import Path
 
 from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl, write_registered_family_manifest
 
-from research_experiments.tools.artifact_cleanup import (
+from research_experiments.workspace.artifact_cleanup import (
     build_parser,
     cleanup_invalid_artifacts,
     collect_report_statuses,
@@ -175,7 +175,7 @@ def test_collect_run_statuses_recognizes_cue_family(tmp_path: Path) -> None:
     assert status.reason is None
 
 def _fake_run_status(passed: bool):
-    from research_experiments.tools.artifact_cleanup import RunStatus
+    from research_experiments.workspace.artifact_cleanup import RunStatus
 
     return RunStatus(
         family_name="multi_agent",

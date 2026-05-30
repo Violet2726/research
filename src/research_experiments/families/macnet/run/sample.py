@@ -18,7 +18,7 @@ from research_experiments.families.macnet.prompts import (
     validate_instruction_output,
 )
 from research_experiments.families.macnet.topologies import TopologySpec, build_topology
-from research_experiments.core.families.common import build_question_preview, resolve_phase_split_name, safe_mean
+from research_experiments.family_runtime.common import build_question_preview, resolve_phase_split_name, safe_mean
 
 METHOD_ORDER = (
     "single_agent_cot",

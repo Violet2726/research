@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from research_experiments.core.data.datasets import DatasetSample
-from research_experiments.core.families.comparator_impls import (
+from research_experiments.family_runtime.comparator_impls import (
     build_shared_vanilla_mad_prediction,
     build_stage_a_mv3_prediction,
     run_shared_vanilla_mad_rounds,
 )
-from research_experiments.core.families.vanilla_mad_prompting import CONTROLLED_PROMPT_VERSION
+from research_experiments.family_runtime.vanilla_mad_prompting import CONTROLLED_PROMPT_VERSION
 
 
 def _sample() -> DatasetSample:

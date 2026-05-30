@@ -6,12 +6,12 @@ import argparse
 from dataclasses import asdict
 
 from research_experiments.core.contracts import FamilyCliHelp
-from research_experiments.families.registration_helpers import (
+from research_experiments.family_runtime.registration import (
     build_single_agent_run_from_cli,
     make_family_registration,
 )
-from research_experiments.core.families.config_loading import load_benchmarks, resolve_model
-from research_experiments.core.families.method_catalog import load_method_catalog
+from research_experiments.family_runtime.config_helpers import load_benchmarks, resolve_model
+from research_experiments.family_runtime.method_catalog import load_method_catalog
 from research_experiments.families.single_agent.config import (
     load_experiment_config,
     required_benchmark_tags,
@@ -72,6 +72,13 @@ def configure_parser(parser) -> None:
     raise RuntimeError("Parser is missing subcommands.")
 
 
+ARTIFACT_ALIASES = {
+    "raw_responses": "turns/raw_responses.jsonl",
+"report_markdown": "report.md",
+"run_validation": "run_validation.json",
+"paper_tables": "exports/paper_tables.md",
+}
+
 REGISTRATION = make_family_registration(
     family_name="single_agent",
     prototype="independent_sampling",
@@ -97,6 +104,7 @@ REGISTRATION = make_family_registration(
     render_report=render_report,
     configure_parser=configure_parser,
     validate_from_cli=validate_from_cli,
+    artifact_aliases=ARTIFACT_ALIASES,
     metrics_view_path="views/metrics.json",
     prediction_records_path="views/predictions.jsonl",
     turn_record_paths=('turns/raw_responses.jsonl',),

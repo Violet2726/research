@@ -52,7 +52,7 @@ from research_experiments.families.comm_necessary.dataset_views import (
     serialize_view_row,
 )
 from research_experiments.families.comm_necessary.prompts import build_belief_update_messages, build_solver_messages
-from research_experiments.core.families.common import resolve_phase_split_name
+from research_experiments.family_runtime.common import resolve_phase_split_name
 
 
 @dataclass(frozen=True)

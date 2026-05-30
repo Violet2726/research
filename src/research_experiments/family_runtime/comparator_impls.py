@@ -7,13 +7,13 @@ from typing import Any
 
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.data.evaluation import aggregate_majority, score_prediction
-from research_experiments.core.families.vanilla_mad_prompting import (
+from research_experiments.family_runtime.vanilla_mad_prompting import (
     CONTROLLED_PROMPT_VERSION,
 )
-from research_experiments.core.families.vanilla_mad_prompting import (
+from research_experiments.family_runtime.vanilla_mad_prompting import (
     build_debate_messages as build_standard_mad_debate_messages,
 )
-from research_experiments.core.families.vanilla_mad_prompting import (
+from research_experiments.family_runtime.vanilla_mad_prompting import (
     build_initial_messages as build_standard_mad_initial_messages,
 )
 

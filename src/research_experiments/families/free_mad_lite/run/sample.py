@@ -41,7 +41,7 @@ from research_experiments.families.free_mad_lite.prompts import (
     build_initial_messages,
     build_trajectory_judge_messages,
 )
-from research_experiments.core.families.common import (
+from research_experiments.family_runtime.common import (
     resolve_phase_split_name,
     safe_mean,
     stable_trace_hash,

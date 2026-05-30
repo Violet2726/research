@@ -7,7 +7,7 @@ import argparse
 from dotenv import load_dotenv
 
 from research_experiments.cli_support.output import configure_utf8_stdio, emit_json
-from research_experiments.workspace.dataset_assets import (
+from research_experiments.workspace.datasets import (
     build_primary_dataset_specs,
     build_runtime_support_dataset_specs,
     build_supplementary_dataset_specs,

@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from research_experiments.core.contracts import FamilyCliHelp
-from research_experiments.families.registration_helpers import (
+from research_experiments.family_runtime.registration import (
     build_backbone_run_from_cli,
     make_family_registration,
 )
-from research_experiments.core.families.config_loading import load_benchmarks, phase_metadata, resolve_model
+from research_experiments.family_runtime.config_helpers import load_benchmarks, phase_metadata, resolve_model
 from research_experiments.families.sid_lite.config import load_experiment_config, load_protocol_config
 from research_experiments.families.sid_lite.run.execute import run_experiment
 from research_experiments.families.sid_lite.run.report import render_report, summarize_run
@@ -48,6 +48,16 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
     }
 
 
+ARTIFACT_ALIASES = {
+    "stage_a_turns": "turns/stage_a_turns.jsonl",
+"message_packets": "turns/message_packets.jsonl",
+"belief_updates": "turns/belief_updates.jsonl",
+"final_predictions": "views/predictions.jsonl",
+"diagnostics": "diagnostics/diagnostics.json",
+"run_validation": "run_validation.json",
+"paper_summary": "exports/paper_summary.csv",
+}
+
 REGISTRATION = make_family_registration(
     family_name="sid_lite",
     prototype="packet_belief_update",
@@ -71,6 +81,7 @@ REGISTRATION = make_family_registration(
     summarize_run=summarize_run,
     validate_run=validate_run,
     render_report=render_report,
+    artifact_aliases=ARTIFACT_ALIASES,
     metrics_view_path="views/metrics.json",
     prediction_records_path="views/predictions.jsonl",
     turn_record_paths=('turns/stage_a_turns.jsonl', 'turns/message_packets.jsonl', 'turns/belief_updates.jsonl'),

@@ -1,4 +1,4 @@
-"""Canonical family run layout builder."""
+"""family 运行目录布局的共享构造器。"""
 
 from __future__ import annotations
 
@@ -7,11 +7,12 @@ from pathlib import Path
 
 from research_experiments.core.contracts import FamilyArtifactSchema
 from research_experiments.core.execution.runner_common import prepare_run_root
+from research_experiments.families.registry import get_family_registration
 
 
 @dataclass(frozen=True)
 class FamilyRunLayout:
-    """Resolved canonical paths for one family run."""
+    """描述某个 family 单次运行的规范产物路径集合。"""
 
     root: Path
     schema: FamilyArtifactSchema
@@ -54,7 +55,7 @@ def prepare_family_run_layout(
     artifact_schema: FamilyArtifactSchema,
     aliases: dict[str, str] | None = None,
 ) -> FamilyRunLayout:
-    """Create the run root and resolve all canonical family artifact paths."""
+    """创建运行目录并解析规范产物路径。"""
 
     root = prepare_run_root(run_root, experiment_name, phase_name, run_id)
     paths = artifact_schema.build_paths(root)
@@ -80,7 +81,29 @@ def prepare_family_run_layout(
     return layout
 
 
+def prepare_registered_run_layout(
+    family_name: str,
+    run_root: str | Path,
+    experiment_name: str,
+    phase_name: str,
+    run_id: str,
+) -> FamilyRunLayout:
+    """按 family 注册信息构造运行目录布局。"""
+
+    registration = get_family_registration(family_name)
+    return prepare_family_run_layout(
+        run_root,
+        experiment_name,
+        phase_name,
+        run_id,
+        artifact_schema=registration.artifact_schema,
+        aliases=registration.artifact_aliases,
+    )
+
+
 def _ensure_layout_directories(layout: FamilyRunLayout) -> None:
+    """提前创建布局涉及的全部父目录。"""
+
     required_dirs = {
         layout.root,
         layout.metrics.parent,

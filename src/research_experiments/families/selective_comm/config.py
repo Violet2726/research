@@ -7,13 +7,13 @@ from pathlib import Path
 from typing import Any
 
 from research_experiments.core.config import BenchmarkConfig, ResolvedModelConfig
-from research_experiments.core.families.config_loading import (
+from research_experiments.family_runtime.config_helpers import (
     load_benchmarks,
     load_toml,
     optional_float,
     optional_int,
 )
-from research_experiments.core.families.method_catalog import MethodConfig, load_method_catalog
+from research_experiments.family_runtime.method_catalog import MethodConfig, load_method_catalog
 
 GENERAL_QA_BENCHMARKS = {"strategyqa", "hotpotqa"}
 

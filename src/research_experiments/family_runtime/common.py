@@ -11,7 +11,7 @@ from collections.abc import Iterable
 from hashlib import sha256
 from typing import Any
 
-from research_experiments.core.families.config_loading import SupportsRawPhases, phase_metadata
+from research_experiments.family_runtime.config_helpers import SupportsRawPhases, phase_metadata
 
 
 def resolve_phase_split_name(experiment: SupportsRawPhases, phase_name: str, benchmark_slug: str) -> str:

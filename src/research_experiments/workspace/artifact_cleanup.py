@@ -90,7 +90,7 @@ def main(argv: list[str] | None = None) -> None:
         revalidate_runs=args.revalidate_runs,
     )
     if args.json:
-        emit_json(_summary_to_dict(summary))
+        emit_json(summary_to_dict(summary))
         return
     _print_summary(summary, workspace_root)
 
@@ -297,7 +297,7 @@ def _load_persisted_validation(run_dir: Path) -> dict[str, bool | str | None] | 
     return {"passed": passed, "reason": reason}
 
 
-def _summary_to_dict(summary: CleanupSummary) -> dict[str, object]:
+def summary_to_dict(summary: CleanupSummary) -> dict[str, object]:
     """把清理汇总转换为 JSON 友好的结构。"""
     return {
         "dry_run": summary.dry_run,

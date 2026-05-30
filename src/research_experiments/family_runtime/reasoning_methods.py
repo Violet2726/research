@@ -1,3 +1,5 @@
+"""共享推理方法语义与名称归一化。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

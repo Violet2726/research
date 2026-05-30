@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 from research_experiments.cli import build_parser as build_root_parser
-from research_experiments.families.cli_runtime import build_family_parser
+from research_experiments.cli.family import build_family_parser
 from research_experiments.families.registry import (
     get_family_registration,
     registered_family_names,
@@ -81,7 +81,7 @@ def test_family_readmes_use_render_report_example() -> None:
 
 
 def test_active_project_docs_do_not_reference_removed_families() -> None:
-    removed_markers = ("`sparc`", "sparc_v1", "families/shared")
+    removed_markers = ("`sparc`", "sparc_v1", "families/shared", "core/families", "research_experiments/tools", "run/io.py")
     for path in ACTIVE_PROJECT_DOCS:
         text = path.read_text(encoding="utf-8")
         for marker in removed_markers:

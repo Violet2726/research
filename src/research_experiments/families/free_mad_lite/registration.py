@@ -10,11 +10,11 @@ from research_experiments.families.free_mad_lite.prompts import anti_conformity_
 from research_experiments.families.free_mad_lite.run.execute import run_experiment
 from research_experiments.families.free_mad_lite.run.report import render_report, summarize_run
 from research_experiments.families.free_mad_lite.run.validate import validate_run
-from research_experiments.families.registration_helpers import (
+from research_experiments.family_runtime.registration import (
     build_backbone_run_from_cli,
     make_family_registration,
 )
-from research_experiments.core.families.config_loading import load_benchmarks, phase_metadata, resolve_model
+from research_experiments.family_runtime.config_helpers import load_benchmarks, phase_metadata, resolve_model
 from research_experiments.workspace.layout import workspace_defaults
 
 
@@ -50,6 +50,16 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
     }
 
 
+ARTIFACT_ALIASES = {
+    "agent_turns": "turns/agent_turns.jsonl",
+"debate_messages": "turns/debate_messages.jsonl",
+"trajectory_scores": "exports/trajectory_scores.jsonl",
+"final_predictions": "views/predictions.jsonl",
+"diagnostics": "diagnostics/diagnostics.json",
+"run_validation": "run_validation.json",
+"paper_summary": "exports/paper_summary.csv",
+}
+
 REGISTRATION = make_family_registration(
     family_name="free_mad_lite",
     prototype="debate_rounds",
@@ -73,6 +83,7 @@ REGISTRATION = make_family_registration(
     summarize_run=summarize_run,
     validate_run=validate_run,
     render_report=render_report,
+    artifact_aliases=ARTIFACT_ALIASES,
     metrics_view_path="views/metrics.json",
     prediction_records_path="views/predictions.jsonl",
     turn_record_paths=('turns/agent_turns.jsonl', 'turns/debate_messages.jsonl'),

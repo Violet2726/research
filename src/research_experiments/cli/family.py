@@ -1,4 +1,4 @@
-"""family 注册驱动的统一 CLI 运行时。"""
+"""family 注册驱动的统一命令分发层。"""
 
 from __future__ import annotations
 

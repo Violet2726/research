@@ -16,7 +16,7 @@ from research_experiments.families.single_agent.config import (
     load_experiment_config as load_single_agent_experiment_config,
 )
 from research_experiments.families.single_agent.config import required_model_tags
-from research_experiments.matrix.faithful_matrix import (
+from research_experiments.matrix.orchestrator import (
     MATRIX_EXPERIMENT_KIND,
     RuntimeOverrides,
     _prepare_orchestrator_paths,
@@ -205,31 +205,31 @@ def test_resume_faithful_matrix_continues_rerun_needed_and_pending_entries(
         run_dir.mkdir(parents=True, exist_ok=True)
         return run_dir
 
-    monkeypatch.setattr("research_experiments.matrix.faithful_matrix._execute_entry", _fake_execute_entry)
-    monkeypatch.setattr("research_experiments.matrix.faithful_matrix._validate_entry", lambda family, run_dir: {"passed": True})
+    monkeypatch.setattr("research_experiments.matrix.orchestrator._execute_entry", _fake_execute_entry)
+    monkeypatch.setattr("research_experiments.matrix.orchestrator._validate_entry", lambda family, run_dir: {"passed": True})
     monkeypatch.setattr(
-        "research_experiments.matrix.faithful_matrix.review_run_health",
+        "research_experiments.matrix.orchestrator.review_run_health",
         lambda run_dir, family: type("Review", (), {"passed": True, "notes": "validation_passed_and_metrics_nonempty"})(),
     )
     monkeypatch.setattr(
-        "research_experiments.matrix.faithful_matrix.render_faithful_analysis",
+        "research_experiments.matrix.orchestrator.render_faithful_analysis",
         lambda *args, **kwargs: {},
     )
     monkeypatch.setattr(
-        "research_experiments.matrix.faithful_matrix.render_acceptance_summary",
+        "research_experiments.matrix.orchestrator.render_acceptance_summary",
         lambda *args, **kwargs: {},
     )
     monkeypatch.setattr(
-        "research_experiments.matrix.faithful_matrix.render_paper_statistics",
+        "research_experiments.matrix.orchestrator.render_paper_statistics",
         lambda *args, **kwargs: {},
     )
     monkeypatch.setattr(
-        "research_experiments.matrix.faithful_matrix.render_paper_package",
+        "research_experiments.matrix.orchestrator.render_paper_package",
         lambda *args, **kwargs: {},
     )
     landscape_calls: list[tuple[object, ...]] = []
     monkeypatch.setattr(
-        "research_experiments.matrix.faithful_matrix.render_family_landscape",
+        "research_experiments.matrix.orchestrator.render_family_landscape",
         lambda *args, **kwargs: landscape_calls.append(args) or {},
     )
 

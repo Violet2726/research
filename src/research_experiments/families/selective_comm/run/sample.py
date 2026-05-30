@@ -35,7 +35,7 @@ from research_experiments.core.execution.runtime import RunProgressTracker
 from research_experiments.core.structured_outputs import (
     SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE,
 )
-from research_experiments.core.families.artifacts import named_turn_record_paths, resolve_run_artifact_index
+from research_experiments.family_runtime.artifact_index import named_turn_record_paths, resolve_run_artifact_index
 from research_experiments.families.selective_comm.config import (
     SelectiveCommExperimentConfig,
     SharedDebateProtocolConfig,
@@ -43,15 +43,15 @@ from research_experiments.families.selective_comm.config import (
     load_policies,
 )
 from research_experiments.families.selective_comm.prompts import build_debate_messages, build_initial_messages
-from research_experiments.core.families.common import (
+from research_experiments.family_runtime.common import (
     build_question_preview,
     resolve_phase_split_name,
     safe_mean,
     safe_ratio,
     stable_trace_hash,
 )
-from research_experiments.core.families.comparator_impls import build_stage_a_mv3_prediction
-from research_experiments.core.families.method_catalog import MethodConfig
+from research_experiments.family_runtime.comparator_impls import build_stage_a_mv3_prediction
+from research_experiments.family_runtime.method_catalog import MethodConfig
 
 DISPLAY_NAME_MAP = {
     "always_communicate": "always",
