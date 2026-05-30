@@ -32,6 +32,10 @@ from research_experiments.families.multi_agent.config import (
 )
 from research_experiments.families.multi_agent.prompts import build_debate_messages, build_initial_messages
 from research_experiments.families.shared.common import resolve_phase_split_name
+from research_experiments.families.shared.comparator_impls import (
+    build_shared_vanilla_mad_prediction,
+    run_shared_vanilla_mad_rounds,
+)
 from research_experiments.families.shared.config_loading import phase_metadata
 
 
@@ -681,6 +685,80 @@ def _resolve_split_name(experiment: MultiAgentExperimentConfig, phase_name: str,
 def _load_selected_samples(benchmark, split_name: str) -> list[DatasetSample]:
     """按冻结 split 选择本轮要跑的样本。"""
     return select_samples(benchmark, split_name)
+
+
+def _run_mad_sample_shared(
+    sample: DatasetSample,
+    *,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    setup: ExperimentSetup,
+    protocol: ProtocolConfig,
+    roster: RosterConfig,
+    backbone,
+    provider: OpenAICompatibleProvider,
+    cache: RequestCache,
+    limiter: SlidingWindowRateLimiter,
+    global_seed: int,
+    prompt_version: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    shared_result = run_shared_vanilla_mad_rounds(
+        sample=sample,
+        run_id=run_id,
+        dataset=benchmark_slug,
+        split_name=split_name,
+        method_name=setup.name,
+        agent_count=roster.agent_count,
+        debate_rounds=protocol.debate_rounds,
+        initial_temperature=protocol.initial_temperature,
+        debate_temperature=protocol.debate_temperature,
+        top_p=protocol.top_p,
+        max_output_tokens=protocol.max_output_tokens,
+        global_seed=global_seed,
+        prompt_version=prompt_version,
+        execute_turn=lambda **kwargs: _execute_turn(
+            run_id=run_id,
+            dataset=benchmark_slug,
+            split_name=split_name,
+            sample=sample,
+            method_name=setup.name,
+            method_type="mad",
+            backbone=backbone,
+            provider=provider,
+            cache=cache,
+            limiter=limiter,
+            **kwargs,
+        ),
+        build_debate_row=lambda sender, recipient_id, round_index: asdict(
+            DebateMessageRecord(
+                run_id=run_id,
+                dataset=benchmark_slug,
+                split=split_name,
+                sample_id=sample.sample_id,
+                method_name=setup.name,
+                round_index=round_index,
+                sender_agent_id=sender["agent_id"],
+                recipient_agent_id=recipient_id,
+                sender_answer=str(sender["validated_output"].get("final_answer", "")).strip(),
+                sender_reasoning=str(sender["validated_output"].get("reasoning", "")).strip(),
+            )
+        ),
+    )
+    prediction_row = build_shared_vanilla_mad_prediction(
+        run_id=run_id,
+        dataset=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        method_name=setup.name,
+        method_type="mad",
+        model_name=backbone.name,
+        result=shared_result,
+    )
+    return shared_result["turn_rows"], shared_result["debate_rows"], prediction_row
+
+
+_run_mad_sample = _run_mad_sample_shared
 
 
 

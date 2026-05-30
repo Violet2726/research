@@ -6,6 +6,11 @@ from hashlib import sha256
 
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.prompts.dataset_contracts import build_json_system_prompt, dataset_instruction_for_sample
+from research_experiments.families.shared.vanilla_mad_prompting import (
+    CONTROLLED_PROMPT_VERSION,
+    build_debate_messages as build_standard_mad_debate_messages,
+    build_initial_messages as build_standard_mad_initial_messages,
+)
 
 DEFAULT_PROMPT_VERSION = "free_mad_lite_v1_json"
 
@@ -18,21 +23,11 @@ def build_initial_messages(
 ) -> list[dict[str, str]]:
     """构造 Stage A 的独立求解提示词。"""
     _ensure_prompt_version(prompt_version)
-    user_prompt = (
-        f"You are agent_{agent_id} in a Free-MAD-lite experiment.\n"
-        f"{_dataset_instruction(sample)}\n"
-        f"Question:\n{sample.question.strip()}\n\n"
+    return build_standard_mad_initial_messages(
+        sample,
+        agent_id,
+        prompt_version=CONTROLLED_PROMPT_VERSION,
     )
-    if sample.prompt_context:
-        user_prompt += f"Context:\n{sample.prompt_context}\n\n"
-    user_prompt += (
-        'Return exactly one JSON object with keys "final_answer", "reasoning", and "confidence_raw". '
-        "Keep reasoning concise. confidence_raw should be numeric in [0, 1]. Return JSON only."
-    )
-    return [
-        {"role": "system", "content": _base_system_prompt()},
-        {"role": "user", "content": user_prompt},
-    ]
 
 
 def build_debate_messages(
@@ -49,6 +44,16 @@ def build_debate_messages(
     _ensure_prompt_version(prompt_version)
     if mode not in {"vanilla", "anti_conformity"}:
         raise ValueError(f"Unsupported Free-MAD-lite debate mode: {mode}")
+    if mode == "vanilla":
+        return build_standard_mad_debate_messages(
+            sample=sample,
+            agent_id=agent_id,
+            round_index=1,
+            previous_reasoning=previous_reasoning,
+            previous_answer=previous_answer,
+            peer_messages=peer_messages,
+            prompt_version=CONTROLLED_PROMPT_VERSION,
+        )
     peer_block = "\n\n".join(
         f"{item['agent']} answer: {item['answer']}\n{item['agent']} reasoning: {item['reasoning']}"
         for item in peer_messages

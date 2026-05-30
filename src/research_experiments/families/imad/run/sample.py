@@ -18,6 +18,10 @@ from research_experiments.core.structured_outputs import SCHEMA_ANSWER_CORE
 from research_experiments.families.imad.config import DebateMethodSpec, ImadExperimentConfig, ProtocolConfig
 from research_experiments.families.imad.prompts import build_debate_messages, build_initial_messages
 from research_experiments.families.shared.common import resolve_phase_split_name
+from research_experiments.families.shared.comparator_impls import (
+    build_shared_vanilla_mad_prediction,
+    run_shared_vanilla_mad_rounds,
+)
 
 
 def _active_methods(experiment: ImadExperimentConfig) -> list[DebateMethodSpec]:
@@ -869,3 +873,179 @@ def _optional_mean(values) -> float | None:
     if not materialized:
         return None
     return round(sum(materialized) / len(materialized), 6)
+
+
+_run_method_sample_original = _run_method_sample
+
+
+def _run_method_sample(
+    sample: DatasetSample,
+    *,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    method: DebateMethodSpec,
+    protocol: ProtocolConfig,
+    backbone,
+    provider: OpenAICompatibleProvider,
+    cache: RequestCache,
+    limiter: SlidingWindowRateLimiter,
+    global_seed: int,
+    prompt_version: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    if method.mode != "fixed":
+        return _run_method_sample_original(
+            sample,
+            run_id=run_id,
+            benchmark_slug=benchmark_slug,
+            split_name=split_name,
+            method=method,
+            protocol=protocol,
+            backbone=backbone,
+            provider=provider,
+            cache=cache,
+            limiter=limiter,
+            global_seed=global_seed,
+            prompt_version=prompt_version,
+        )
+
+    shared_result = run_shared_vanilla_mad_rounds(
+        sample=sample,
+        run_id=run_id,
+        dataset=benchmark_slug,
+        split_name=split_name,
+        method_name=method.name,
+        agent_count=protocol.agent_count,
+        debate_rounds=method.round_limit,
+        initial_temperature=protocol.initial_temperature,
+        debate_temperature=protocol.debate_temperature,
+        top_p=protocol.top_p,
+        max_output_tokens=protocol.max_output_tokens,
+        global_seed=global_seed,
+        execute_turn=lambda **kwargs: _execute_turn(
+            run_id=run_id,
+            dataset=benchmark_slug,
+            split_name=split_name,
+            sample=sample,
+            method_name=method.name,
+            method_type="mad",
+            method_mode=method.mode,
+            backbone=backbone,
+            provider=provider,
+            cache=cache,
+            limiter=limiter,
+            **kwargs,
+        ),
+        build_debate_row=lambda sender, recipient_id, round_index: {
+            "run_id": run_id,
+            "dataset": benchmark_slug,
+            "split": split_name,
+            "sample_id": sample.sample_id,
+            "method_name": method.name,
+            "method_mode": method.mode,
+            "round_index": round_index,
+            "sender_agent_id": sender["agent_id"],
+            "recipient_agent_id": recipient_id,
+            "sender_answer": str(sender["validated_output"].get("final_answer", "")).strip(),
+            "sender_reasoning": str(sender["validated_output"].get("reasoning", "")).strip(),
+        },
+    )
+
+    round_scores: dict[int, float | None] = {1: None, 2: None, 3: None}
+    round_diagnostics: list[dict[str, Any]] = []
+    previous_top_answer = shared_result["initial_vote_prediction"]
+    initial_support_count = int(shared_result["initial_vote_counts"].get(previous_top_answer, 0))
+    previous_posterior_samples = _beta_posterior_samples(
+        support_count=initial_support_count,
+        agent_count=protocol.agent_count,
+        sample_count=protocol.posterior_sample_count,
+        seed=_posterior_seed(
+            sample_id=sample.sample_id,
+            method_name=method.name,
+            round_index=0,
+            global_seed=global_seed,
+        ),
+    )
+    last_ks_statistic: float | None = None
+    last_posterior_mean: float | None = None
+    for round_index in range(1, method.round_limit + 1):
+        current_round = [
+            row
+            for row in shared_result["turn_rows"]
+            if row.get("role") == "debate" and int(row.get("round_index") or 0) == round_index
+        ]
+        round_answers = [row["normalized_answer"] for row in current_round]
+        round_vote, round_vote_counts = aggregate_majority(round_answers)
+        round_score = score_prediction(benchmark_slug, round_vote, sample.reference_answer)
+        round_scores[round_index] = round_score
+        support_count = int(round_vote_counts.get(round_vote, 0))
+        posterior_mean = _posterior_mean(support_count=support_count, agent_count=protocol.agent_count)
+        posterior_samples = _beta_posterior_samples(
+            support_count=support_count,
+            agent_count=protocol.agent_count,
+            sample_count=protocol.posterior_sample_count,
+            seed=_posterior_seed(
+                sample_id=sample.sample_id,
+                method_name=method.name,
+                round_index=round_index,
+                global_seed=global_seed,
+            ),
+        )
+        ks_statistic, stability_gate_passed = assess_stability_gate(
+            previous_top_answer=previous_top_answer,
+            current_top_answer=round_vote,
+            previous_posterior_samples=previous_posterior_samples,
+            current_posterior_samples=posterior_samples,
+            posterior_mean=posterior_mean,
+            ks_threshold=protocol.stability_ks_threshold,
+            stable_posterior_mean_threshold=protocol.stable_posterior_mean_threshold,
+        )
+        round_diagnostics.append(
+            {
+                "run_id": run_id,
+                "dataset": benchmark_slug,
+                "split": split_name,
+                "sample_id": sample.sample_id,
+                "method_name": method.name,
+                "method_mode": method.mode,
+                "round_index": round_index,
+                "round_limit": method.round_limit,
+                "top_answer": round_vote,
+                "support_count": support_count,
+                "support_rate": round(support_count / protocol.agent_count, 6),
+                "posterior_mean": posterior_mean,
+                "ks_statistic": ks_statistic,
+                "same_top_as_previous": previous_top_answer == round_vote if previous_top_answer is not None else False,
+                "stability_gate_passed": stability_gate_passed,
+                "round_score": round_score,
+                "stop_triggered": False,
+            }
+        )
+        previous_top_answer = round_vote
+        previous_posterior_samples = posterior_samples
+        last_ks_statistic = ks_statistic
+        last_posterior_mean = posterior_mean
+
+    prediction_row = build_shared_vanilla_mad_prediction(
+        run_id=run_id,
+        dataset=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        method_name=method.name,
+        method_type="mad",
+        model_name=backbone.name,
+        result=shared_result,
+        extra_fields={
+            "method_mode": method.mode,
+            "configured_round_limit": method.round_limit,
+            "executed_round_count": method.round_limit,
+            "stopped_early": False,
+            "stop_reason": f"fixed_round_limit_r{method.round_limit}",
+            "ks_statistic_last": last_ks_statistic,
+            "posterior_mean_last": last_posterior_mean,
+            "round_1_score": round_scores[1],
+            "round_2_score": round_scores[2],
+            "round_3_score": round_scores[3],
+        },
+    )
+    return shared_result["turn_rows"], shared_result["debate_rows"], round_diagnostics, prediction_row

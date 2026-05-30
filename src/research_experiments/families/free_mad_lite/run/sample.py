@@ -263,7 +263,7 @@ def _run_debate_round(
                 temperature=protocol.debate_temperature,
                 top_p=protocol.top_p,
                 max_output_tokens=protocol.max_output_tokens,
-                seed=global_seed + recipient_id + (1000 if mode == "vanilla" else 2000),
+                seed=global_seed + recipient_id + (100 if mode == "vanilla" else 2000),
                 extra_fields={"debate_mode": mode, "visible_peer_count": len(peer_messages)},
             )
         )
