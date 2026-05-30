@@ -809,90 +809,36 @@ def _load_selected_samples(benchmark, split_name: str) -> list[DatasetSample]:
 
 
 def _validate_consensagent_output(assistant_text: str, provider_reasoning_text: str) -> dict[str, Any]:
-    """解析论文 ##Answer/##Explanation/##Confidence 标记格式，带 JSON fallback。"""
+    """解析 JSON 格式输出。"""
     text = str(assistant_text or "").strip() or str(provider_reasoning_text or "").strip()
     if not text:
         raise ValueError("Model output is empty.")
 
-    # 尝试从 JSON 外壳中提取内嵌的 ##Answer 格式（MIMO 在 json_object 模式下会嵌套）
-    inner_text = _extract_inner_text(text)
-
-    # 优先解析论文标记格式
-    answer_match = re.search(r"##Answer\s*\n?\s*(.*?)(?=\s*##|\s*$)", inner_text, re.DOTALL | re.IGNORECASE)
-    explanation_match = re.search(r"##Explanation\s*\n?\s*(.*?)(?=\s*##|\s*$)", inner_text, re.DOTALL | re.IGNORECASE)
-    confidence_match = re.search(r"##Confidence\s*\n?\s*(.*?)(?=\s*##|\s*$)", inner_text, re.DOTALL | re.IGNORECASE)
-
-    if answer_match:
-        validated = {
-            "final_answer": answer_match.group(1).strip(),
-            "reasoning": explanation_match.group(1).strip() if explanation_match else "",
-        }
-        if confidence_match:
-            try:
-                validated["confidence"] = max(0.0, min(1.0, float(confidence_match.group(1).strip())))
-            except (ValueError, TypeError):
-                validated["confidence"] = 0.5
-        else:
-            validated["confidence"] = 0.5
-        return validated
-
-    # JSON fallback
     payload = _try_parse_json(text)
-    if payload is None:
-        raise ValueError("Failed to parse model output: neither ##Answer format nor JSON found.")
+    if payload is None or not isinstance(payload, dict):
+        raise ValueError("Failed to parse model output as JSON.")
 
-    if not isinstance(payload, dict):
-        raise ValueError("Model output is not a JSON object.")
-
-    # 支持多种 key 名
     final_answer = str(
         payload.get("final_answer") or payload.get("answer") or payload.get("prediction") or ""
     ).strip()
     reasoning = str(
         payload.get("reasoning") or payload.get("explanation") or ""
     ).strip()
+    confidence = 0.5
+    try:
+        confidence = max(0.0, min(1.0, float(payload.get("confidence", 0.5))))
+    except (ValueError, TypeError):
+        pass
 
-    # 处理 MIMO 常见的 list 格式（无 answer/explanation key）
     if not final_answer:
         list_val = payload.get("list") or payload.get("answers") or payload.get("titles")
         if isinstance(list_val, list):
             final_answer = ", ".join(str(item).strip() for item in list_val if str(item).strip())
 
     if not final_answer:
-        raise ValueError("Could not extract answer from model output.")
+        raise ValueError("Could not extract answer from JSON output.")
 
-    validated = {
-        "final_answer": final_answer,
-        "reasoning": reasoning,
-    }
-    raw_confidence = payload.get("confidence")
-    if raw_confidence is not None:
-        try:
-            validated["confidence"] = max(0.0, min(1.0, float(raw_confidence)))
-        except (ValueError, TypeError):
-            validated["confidence"] = 0.5
-    else:
-        validated["confidence"] = 0.5
-    return validated
-
-
-def _extract_inner_text(text: str) -> str:
-    """如果 text 是 JSON 且包含内嵌的 ##Answer 格式，提取内部文本。"""
-    if not text.startswith("{"):
-        return text
-    try:
-        payload = json.loads(text)
-    except Exception:
-        return text
-    if not isinstance(payload, dict):
-        return text
-    # 检查常见 key 中是否包含 ##Answer
-    for key in ("answer", "response", "text", "content", "output"):
-        val = payload.get(key)
-        if isinstance(val, str) and "##Answer" in val:
-            return val
-    return text
-
+    return {"final_answer": final_answer, "reasoning": reasoning, "confidence": confidence}
 
 def _try_parse_json(text: str) -> dict[str, Any] | None:
     """尝试多种方式解析 JSON。"""
@@ -902,7 +848,6 @@ def _try_parse_json(text: str) -> dict[str, Any] | None:
             return result
     except Exception:
         pass
-    # 尝试从文本中提取 JSON 块
     match = re.search(r'\{[^{}]*(?:"final_answer"|"answer"|"list"|"explanation")[^{}]*\}', text, re.DOTALL)
     if match:
         try:
@@ -1098,6 +1043,5 @@ def _format_optimized_debate_prompt(
         f"Your previous confidence: {previous_confidence:.2f}\n\n"
         f"Other agents' responses:\n{peer_block}\n\n"
         f"Update your response if the refined prompt leads you to a different conclusion.\n"
-        f"Provide your answer after '##Answer', explanation after '##Explanation', "
-        f"and confidence after '##Confidence'."
+        "Return exactly one JSON object with keys \"final_answer\", \"reasoning\", and \"confidence\". Return JSON only."
     )
