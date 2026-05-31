@@ -15,7 +15,7 @@ from research_experiments.core.data.datasets import select_samples
 from research_experiments.core.execution.artifacts import BufferedJsonlWriter
 from research_experiments.core.execution.cache import RequestCacheRouter
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from research_experiments.core.structured_outputs import (
     ARTIFACT_VERSION,
@@ -60,14 +60,22 @@ def run_experiment(
     controls = load_control_catalog(experiment.control_catalog)
     provider = OpenAICompatibleProvider(backbone)
     cache_router = RequestCacheRouter(cache_root)
-    limiter = SlidingWindowRateLimiter(
+    throttle = RequestThrottle.for_model(
+        backbone,
+        max_concurrent_requests=experiment.max_concurrent_requests,
         requests_per_minute=experiment.requests_per_minute_limit,
         tokens_per_minute=experiment.tokens_per_minute_limit,
     )
     run_id = build_run_id(backbone.name)
     run_paths = prepare_registered_run_layout('cue', run_root, experiment.name, phase_name, run_id)
     total_calls, total_predictions = _estimate_work(experiment, phase_name, benchmarks, protocol, controls, policies)
-    progress = RunProgressTracker(run_paths.progress, total_calls, total_predictions)
+    progress = RunProgressTracker(
+        run_paths.progress,
+        total_calls,
+        total_predictions,
+        target_network_rpm=experiment.requests_per_minute_limit,
+        rate_limit_snapshot_provider=throttle.snapshot,
+    )
 
     manifest = {
         "run_id": run_id,
@@ -103,72 +111,75 @@ def run_experiment(
     all_control_turns: list[dict[str, Any]] = []
     all_prediction_rows: list[dict[str, Any]] = []
 
-    with (
-        run_paths.stage_a_turns.open("w", encoding="utf-8") as stage_a_handle,
-        run_paths.communication_turns.open("w", encoding="utf-8") as communication_handle,
-        run_paths.audit_turns.open("w", encoding="utf-8") as audit_handle,
-        run_paths.control_turns.open("w", encoding="utf-8") as control_handle,
-        run_paths.policy_predictions.open("w", encoding="utf-8") as prediction_handle,
-    ):
-        stage_a_writer = BufferedJsonlWriter(stage_a_handle)
-        communication_writer = BufferedJsonlWriter(communication_handle)
-        audit_writer = BufferedJsonlWriter(audit_handle)
-        control_writer = BufferedJsonlWriter(control_handle)
-        prediction_writer = BufferedJsonlWriter(prediction_handle)
-        for benchmark in benchmarks:
-            cache = cache_router.for_request_target(
-                provider=backbone.provider,
-                request_model=backbone.model_id,
-                dataset=benchmark.cache_namespace or benchmark.slug,
-            )
-            split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
-            samples = select_samples(benchmark, split_name)
-            print(
-                f"[cue] start dataset={benchmark.slug} split={split_name} sample_count={len(samples)}",
-                flush=True,
-            )
-            _run_sample_batch(
-                run_id=run_id,
-                benchmark_slug=benchmark.slug,
-                split_name=split_name,
-                samples=samples,
-                protocol=protocol,
-                policies=policies,
-                controls=controls,
-                experiment=experiment,
-                backbone=backbone,
-                provider=provider,
-                cache=cache,
-                limiter=limiter,
-                on_complete=partial(
-                    _write_sample_result,
-                    stage_a_handle=stage_a_writer,
-                    communication_handle=communication_writer,
-                    audit_handle=audit_writer,
-                    control_handle=control_writer,
-                    prediction_handle=prediction_writer,
-                    progress=progress,
-                    all_stage_a_turns=all_stage_a_turns,
-                    all_communication_turns=all_communication_turns,
-                    all_audit_turns=all_audit_turns,
-                    all_control_turns=all_control_turns,
-                    all_prediction_rows=all_prediction_rows,
-                ),
-            )
+    try:
+        with (
+            run_paths.stage_a_turns.open("w", encoding="utf-8") as stage_a_handle,
+            run_paths.communication_turns.open("w", encoding="utf-8") as communication_handle,
+            run_paths.audit_turns.open("w", encoding="utf-8") as audit_handle,
+            run_paths.control_turns.open("w", encoding="utf-8") as control_handle,
+            run_paths.policy_predictions.open("w", encoding="utf-8") as prediction_handle,
+        ):
+            stage_a_writer = BufferedJsonlWriter(stage_a_handle)
+            communication_writer = BufferedJsonlWriter(communication_handle)
+            audit_writer = BufferedJsonlWriter(audit_handle)
+            control_writer = BufferedJsonlWriter(control_handle)
+            prediction_writer = BufferedJsonlWriter(prediction_handle)
+            for benchmark in benchmarks:
+                cache = cache_router.for_request_target(
+                    provider=backbone.provider,
+                    request_model=backbone.model_id,
+                    dataset=benchmark.slug,
+                )
+                split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
+                samples = select_samples(benchmark, split_name)
+                print(
+                    f"[cue] start dataset={benchmark.slug} split={split_name} sample_count={len(samples)}",
+                    flush=True,
+                )
+                _run_sample_batch(
+                    run_id=run_id,
+                    benchmark_slug=benchmark.slug,
+                    split_name=split_name,
+                    samples=samples,
+                    protocol=protocol,
+                    policies=policies,
+                    controls=controls,
+                    experiment=experiment,
+                    backbone=backbone,
+                    provider=provider,
+                    cache=cache,
+                    throttle=throttle,
+                    on_complete=partial(
+                        _write_sample_result,
+                        stage_a_handle=stage_a_writer,
+                        communication_handle=communication_writer,
+                        audit_handle=audit_writer,
+                        control_handle=control_writer,
+                        prediction_handle=prediction_writer,
+                        progress=progress,
+                        all_stage_a_turns=all_stage_a_turns,
+                        all_communication_turns=all_communication_turns,
+                        all_audit_turns=all_audit_turns,
+                        all_control_turns=all_control_turns,
+                        all_prediction_rows=all_prediction_rows,
+                    ),
+                )
 
-    metrics_payload = _build_metrics_payload(all_prediction_rows)
-    oracle_payload = _build_oracle_payload(all_prediction_rows)
-    diagnostics_payload = _build_policy_diagnostics(all_prediction_rows, oracle_payload)
-    run_paths.policy_metrics.write_text(json.dumps(metrics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    run_paths.oracle_trigger_eval.write_text(json.dumps(oracle_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    run_paths.policy_diagnostics.write_text(json.dumps(diagnostics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    render_report(run_paths.root)
-    finalize_run_outputs(
-        run_paths.root,
-        validator=validate_run,
-        validation_path=run_paths.run_validation,
-    )
-    progress.mark_completed()
-    provider.close()
-    cache_router.close()
-    return run_paths.root
+        metrics_payload = _build_metrics_payload(all_prediction_rows)
+        oracle_payload = _build_oracle_payload(all_prediction_rows)
+        diagnostics_payload = _build_policy_diagnostics(all_prediction_rows, oracle_payload)
+        run_paths.policy_metrics.write_text(json.dumps(metrics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        run_paths.oracle_trigger_eval.write_text(json.dumps(oracle_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        run_paths.policy_diagnostics.write_text(json.dumps(diagnostics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        render_report(run_paths.root)
+        finalize_run_outputs(
+            run_paths.root,
+            validator=validate_run,
+            validation_path=run_paths.run_validation,
+        )
+        progress.mark_completed()
+        return run_paths.root
+    finally:
+        progress.close()
+        provider.close()
+        cache_router.close()

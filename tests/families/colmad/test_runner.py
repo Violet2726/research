@@ -229,7 +229,6 @@ def test_colmad_run_experiment_executes_minimal_flow(monkeypatch, tmp_path: Path
         supports_response_format=True,
         response_format="json_object",
         timeout_seconds=30,
-        max_retries=1,
         tags=["test"],
     )
     monkeypatch.setenv("API_KEY", "test-key")

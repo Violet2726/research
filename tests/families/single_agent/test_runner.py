@@ -8,7 +8,7 @@ import pytest
 
 from research_experiments.core.execution.cache import RequestCache, build_request_cache_key
 from research_experiments.core.execution.providers import ProviderRequestError, ProviderResponse
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.families.single_agent.run.sample import CallSpec, _execute_call
 
 
@@ -72,8 +72,12 @@ def _response(*, assistant_text: str) -> ProviderResponse:
     )
 
 
-def _limiter() -> SlidingWindowRateLimiter:
-    return SlidingWindowRateLimiter(requests_per_minute=10_000, tokens_per_minute=10_000_000)
+def _throttle() -> RequestThrottle:
+    return RequestThrottle(
+        max_concurrent_requests=8,
+        requests_per_minute=10_000,
+        tokens_per_minute=10_000_000,
+    )
 
 
 def test_execute_call_caches_only_after_successful_parse(tmp_path) -> None:
@@ -84,7 +88,7 @@ def test_execute_call_caches_only_after_successful_parse(tmp_path) -> None:
         spec,
         _ProviderStub(_response(assistant_text='{"final_answer":"4","reasoning":"basic arithmetic"}')),
         cache,
-        _limiter(),
+        _throttle(),
     )
 
     assert first_row["output_status"] == "ok"
@@ -95,7 +99,7 @@ def test_execute_call_caches_only_after_successful_parse(tmp_path) -> None:
         spec,
         _ProviderStub(AssertionError("cache hit should skip provider call")),
         cache,
-        _limiter(),
+        _throttle(),
     )
 
     assert second_row["output_status"] == "ok"
@@ -118,7 +122,7 @@ def test_execute_call_does_not_cache_request_failures(tmp_path) -> None:
             )
         ),
         cache,
-        _limiter(),
+        _throttle(),
     )
 
     assert row["output_status"] == "request_fail"
@@ -143,7 +147,7 @@ def test_execute_call_does_not_cache_schema_failures(tmp_path, monkeypatch: pyte
         spec,
         _ProviderStub(_response(assistant_text='{"final_answer":"4","reasoning":"basic arithmetic"}')),
         cache,
-        _limiter(),
+        _throttle(),
     )
 
     assert row["output_status"] == "schema_fail"

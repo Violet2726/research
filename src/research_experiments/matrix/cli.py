@@ -25,6 +25,7 @@ from research_experiments.matrix.orchestrator import (
 )
 from research_experiments.matrix.registry import build_run_matrix
 from research_experiments.matrix.reproduction_analysis import render_reproduction_analysis
+from research_experiments.matrix.state import collect_blocking_entries
 from research_experiments.reporting.family_landscape import render_family_landscape
 from research_experiments.reporting.paper_package import render_paper_package
 from research_experiments.reporting.paper_statistics import render_paper_statistics
@@ -42,8 +43,9 @@ def build_parser() -> argparse.ArgumentParser:
     inspect_cmd = subparsers.add_parser("inspect-matrix", help="输出当前矩阵的解析结果。")
     run_cmd = subparsers.add_parser("run", help="顺序执行矩阵中的待运行条目。")
     resume_cmd = subparsers.add_parser("resume", help="恢复一个已有矩阵运行。")
+    assert_cmd = subparsers.add_parser("assert-success", help="断言矩阵运行已全部成功完成。")
     analyze_cmd = subparsers.add_parser("analyze-faithful", help="渲染 faithful 矩阵分析结果。")
-    analyze_matrix_cmd = subparsers.add_parser("analyze-matrix", help="按矩阵 profile 渲染分析结果。")
+    analyze_matrix_cmd = subparsers.add_parser("analyze-matrix", help="按矩阵类型渲染分析结果。")
     acceptance_cmd = subparsers.add_parser("evaluate-acceptance", help="渲染 faithful 矩阵验收摘要。")
     statistics_cmd = subparsers.add_parser("render-statistics", help="渲染统计产物。")
     paper_cmd = subparsers.add_parser("render-paper-package", help="渲染论文包产物。")
@@ -63,6 +65,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_cmd.add_argument("--reference-state-path")
     resume_cmd.add_argument("--state-path", required=True)
     resume_cmd.add_argument("--reference-state-path")
+    assert_cmd.add_argument("--state-path", required=True)
+    assert_cmd.add_argument("--json", action="store_true")
     analyze_cmd.add_argument("--state-path", required=True)
     analyze_cmd.add_argument("--reference-state-path")
     analyze_matrix_cmd.add_argument("--state-path", required=True)
@@ -77,7 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> None:
-    """命令行入口。"""
+    """矩阵命令入口。"""
 
     configure_utf8_stdio()
     parser = build_parser()
@@ -124,8 +128,28 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.command == "resume":
-        run_dir = resume_matrix(args.state_path, reference_state_path_or_root=args.reference_state_path)
+        run_dir = resume_matrix(
+            args.state_path,
+            reference_state_path_or_root=args.reference_state_path,
+        )
         print(run_dir.as_posix())
+        return
+
+    if args.command == "assert-success":
+        blocking_entries = collect_blocking_entries(args.state_path)
+        payload = {
+            "passed": not blocking_entries,
+            "blocking_entries": blocking_entries,
+        }
+        if args.json:
+            emit_json(payload)
+        elif blocking_entries:
+            for entry in blocking_entries:
+                print(f"{entry['family']}/{entry['config']} {entry['status']}: {entry['notes']}")
+        else:
+            print("matrix succeeded")
+        if blocking_entries:
+            raise SystemExit(1)
         return
 
     if args.command == "analyze-faithful":
@@ -176,4 +200,3 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     parser.error(f"Unsupported command: {args.command}")
-

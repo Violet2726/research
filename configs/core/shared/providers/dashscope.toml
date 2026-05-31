@@ -16,4 +16,3 @@ supports_response_format = true
 response_format = "json_object"
 # 单次请求超时与最大重试次数。
 timeout_seconds = 120
-max_retries = 4

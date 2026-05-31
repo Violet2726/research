@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
 from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples
 from research_experiments.core.data.evaluation import normalize_prediction, score_prediction
-from research_experiments.core.execution.runner_common import execute_cached_turn, run_indexed_batch
+from research_experiments.core.execution.runner_common import execute_cached_turn, iter_indexed_batch
 from research_experiments.core.structured_outputs import (
     SCHEMA_ANSWER_WITH_PROXY_SIGNALS_BUDGET,
     SCHEMA_BELIEF_UPDATE_DELTA,
@@ -109,8 +110,8 @@ def _run_sample_batch(
     backbone,
     provider,
     cache,
-    limiter,
-) -> list[SampleResult]:
+    throttle,
+) -> Iterable[SampleResult]:
     """并发执行同一数据集下的一整批样本，并保持原始样本顺序。"""
 
     worker = partial(
@@ -123,16 +124,14 @@ def _run_sample_batch(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
     )
-    return [
-        result
-        for _, result in run_indexed_batch(
-            samples,
-            worker=worker,
-            max_concurrent_requests=experiment.max_concurrent_requests,
-        )
-    ]
+    for _, result in iter_indexed_batch(
+        samples,
+        worker=worker,
+        max_concurrent_requests=experiment.max_concurrent_requests,
+    ):
+        yield result
 
 
 def _run_sample(
@@ -146,7 +145,7 @@ def _run_sample(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
 ) -> SampleResult:
     """执行单题上的全部 ECON 方法。"""
 
@@ -173,7 +172,7 @@ def _run_sample(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         temperature=protocol.initial_temperature,
         top_p=protocol.top_p,
         max_output_tokens=protocol.max_output_tokens,
@@ -209,7 +208,7 @@ def _run_sample(
             backbone=backbone,
             provider=provider,
             cache=cache,
-            limiter=limiter,
+            throttle=throttle,
             temperature=protocol.initial_temperature,
             top_p=protocol.top_p,
             max_output_tokens=protocol.max_output_tokens,
@@ -295,7 +294,7 @@ def _run_sample(
         packets_by_agent=full_packets_by_agent,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         experiment=experiment,
         question_preview=question_preview,
         sample_seed=sample_seed,
@@ -329,7 +328,7 @@ def _run_sample(
         packets_by_agent=bne_packets_by_agent,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         experiment=experiment,
         question_preview=question_preview,
         sample_seed=sample_seed,
@@ -365,7 +364,7 @@ def _run_coordination_method(
     packets_by_agent: dict[int, list[dict[str, Any]]],
     provider,
     cache,
-    limiter,
+    throttle,
     experiment: EconExperimentConfig,
     question_preview: str,
     sample_seed: int,
@@ -406,7 +405,7 @@ def _run_coordination_method(
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
-                limiter=limiter,
+                throttle=throttle,
                 temperature=protocol.belief_temperature,
                 top_p=protocol.top_p,
                 max_output_tokens=protocol.max_output_tokens,
@@ -746,7 +745,7 @@ def _execute_turn(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     temperature: float,
     top_p: float,
     max_output_tokens: int,
@@ -759,7 +758,7 @@ def _execute_turn(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         messages=messages,
         temperature=temperature,
         top_p=top_p,

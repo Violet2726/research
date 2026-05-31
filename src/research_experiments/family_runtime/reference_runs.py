@@ -81,7 +81,8 @@ def write_policy_reference_summary(
             for row in overall_rows
         },
     }
-    output_path = root / "policy_reference_summary.json"
+    output_path = root / "exports" / "policy_reference_summary.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
 

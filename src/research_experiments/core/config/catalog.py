@@ -33,7 +33,6 @@ class ProviderConfig:
     supports_response_format: bool
     response_format: str | None
     timeout_seconds: int
-    max_retries: int
 
 
 @dataclass(frozen=True)
@@ -47,7 +46,6 @@ class ModelCatalogEntry:
     response_format: str | None
     default_max_output_tokens: int | None
     timeout_seconds: int | None
-    max_retries: int | None
 
 
 @dataclass(frozen=True)
@@ -67,7 +65,6 @@ class ResolvedModelConfig:
     supports_response_format: bool
     response_format: str | None
     timeout_seconds: int
-    max_retries: int
     tags: list[str]
 
 
@@ -123,7 +120,6 @@ def load_provider_config(path: str | Path) -> ProviderConfig:
         supports_response_format=bool(payload["supports_response_format"]),
         response_format=payload.get("response_format"),
         timeout_seconds=int(payload["timeout_seconds"]),
-        max_retries=int(payload["max_retries"]),
     )
 
 
@@ -146,7 +142,6 @@ def load_model_catalog(path: str | Path = DEFAULT_MODEL_CATALOG_PATH) -> dict[st
             response_format=item.get("response_format"),
             default_max_output_tokens=_optional_int(item, "default_max_output_tokens"),
             timeout_seconds=_optional_int(item, "timeout_seconds"),
-            max_retries=_optional_int(item, "max_retries"),
         )
         for model_ref, item in models.items()
     }
@@ -216,11 +211,6 @@ def resolve_model_ref(
             catalog_entry.timeout_seconds
             if catalog_entry and catalog_entry.timeout_seconds is not None
             else provider.timeout_seconds
-        ),
-        max_retries=(
-            catalog_entry.max_retries
-            if catalog_entry and catalog_entry.max_retries is not None
-            else provider.max_retries
         ),
         tags=list(catalog_entry.tags) if catalog_entry is not None else [],
     )

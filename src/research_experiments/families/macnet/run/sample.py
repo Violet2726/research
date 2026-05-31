@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
 from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples
 from research_experiments.core.data.evaluation import normalize_prediction, score_prediction
-from research_experiments.core.execution.runner_common import execute_cached_turn, run_indexed_batch
+from research_experiments.core.execution.runner_common import execute_cached_turn, iter_indexed_batch
 from research_experiments.families.macnet.config import MacnetExperimentConfig, MacnetMethodSpec, ProtocolConfig
 from research_experiments.families.macnet.profiles import pick_profile_text
 from research_experiments.families.macnet.prompts import (
@@ -125,9 +126,9 @@ def _run_sample_batch(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     profile_bank: dict[str, list[str]],
-) -> list[SampleResult]:
+) -> Iterable[SampleResult]:
     worker = partial(
         _run_sample,
         run_id=run_id,
@@ -139,10 +140,11 @@ def _run_sample_batch(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         profile_bank=profile_bank,
     )
-    return [result for _, result in run_indexed_batch(samples, worker=worker, max_concurrent_requests=experiment.max_concurrent_requests)]
+    for _, result in iter_indexed_batch(samples, worker=worker, max_concurrent_requests=experiment.max_concurrent_requests):
+        yield result
 
 
 def _run_sample(
@@ -157,7 +159,7 @@ def _run_sample(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     profile_bank: dict[str, list[str]],
 ) -> SampleResult:
     artifact_rows: list[dict[str, Any]] = []
@@ -202,7 +204,7 @@ def _run_sample(
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
-                limiter=limiter,
+                throttle=throttle,
                 protocol=protocol,
                 experiment=experiment,
                 sample_seed=experiment.global_seed + _stable_sample_seed(sample.sample_id),
@@ -223,7 +225,7 @@ def _run_sample(
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
-                limiter=limiter,
+                throttle=throttle,
                 protocol=protocol,
                 experiment=experiment,
                 profile_bank=profile_bank,
@@ -246,7 +248,7 @@ def _run_sample(
             backbone=backbone,
             provider=provider,
             cache=cache,
-            limiter=limiter,
+            throttle=throttle,
             protocol=protocol,
             experiment=experiment,
             sample_seed=experiment.global_seed + _stable_sample_seed(sample.sample_id),
@@ -316,7 +318,7 @@ def _run_single_agent_method(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     protocol: ProtocolConfig,
     experiment: MacnetExperimentConfig,
     sample_seed: int,
@@ -338,7 +340,7 @@ def _run_single_agent_method(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         temperature=protocol.actor_temperature,
         top_p=protocol.top_p,
         max_output_tokens=protocol.max_output_tokens,
@@ -388,7 +390,7 @@ def _run_topology_method(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     protocol: ProtocolConfig,
     experiment: MacnetExperimentConfig,
     profile_bank: dict[str, list[str]],
@@ -425,7 +427,7 @@ def _run_topology_method(
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
-                limiter=limiter,
+                throttle=throttle,
                 temperature=protocol.critic_temperature,
                 top_p=protocol.top_p,
                 max_output_tokens=min(512, protocol.max_output_tokens),
@@ -456,7 +458,7 @@ def _run_topology_method(
             backbone=backbone,
             provider=provider,
             cache=cache,
-            limiter=limiter,
+            throttle=throttle,
             temperature=protocol.actor_temperature,
             top_p=protocol.top_p,
             max_output_tokens=protocol.max_output_tokens,
@@ -490,7 +492,7 @@ def _run_topology_method(
             backbone=backbone,
             provider=provider,
             cache=cache,
-            limiter=limiter,
+            throttle=throttle,
             temperature=protocol.terminal_fuse_temperature,
             top_p=protocol.top_p,
             max_output_tokens=protocol.max_output_tokens,
@@ -557,7 +559,7 @@ def _run_control_method(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     protocol: ProtocolConfig,
     experiment: MacnetExperimentConfig,
     sample_seed: int,
@@ -581,7 +583,7 @@ def _run_control_method(
             backbone=backbone,
             provider=provider,
             cache=cache,
-            limiter=limiter,
+            throttle=throttle,
             temperature=protocol.actor_temperature,
             top_p=protocol.top_p,
             max_output_tokens=protocol.max_output_tokens,
@@ -753,7 +755,7 @@ def _execute_actor_turn(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     temperature: float,
     top_p: float,
     max_output_tokens: int,
@@ -763,7 +765,7 @@ def _execute_actor_turn(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         messages=build_actor_messages(
             sample,
             node_id=node_id,
@@ -823,7 +825,7 @@ def _execute_instruction_turn(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     temperature: float,
     top_p: float,
     max_output_tokens: int,
@@ -833,7 +835,7 @@ def _execute_instruction_turn(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         messages=build_instruction_messages(
             sample,
             source_node_id=source_node_id,

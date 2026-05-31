@@ -13,6 +13,12 @@ SRC = ROOT / "src" / "research_experiments"
 FAMILIES_SRC = SRC / "families"
 CORE_SRC = SRC / "core"
 CLI_TOOLS_SRC = SRC / "cli" / "tools"
+ROOT_SCRIPT_FILES = [
+    ROOT / "run_all_phases.ps1",
+    ROOT / "run_all_phases.sh",
+    ROOT / "run_reproduction_phases.ps1",
+    ROOT / "run_reproduction_phases.sh",
+]
 EXPERIMENT_PACKAGES = set(registered_family_names())
 
 
@@ -147,3 +153,40 @@ def test_matrix_cli_does_not_import_removed_matrix_shells() -> None:
     text = cli_path.read_text(encoding="utf-8")
     assert "matrix.faithful_matrix" not in text
     assert "matrix.profile_registry" not in text
+
+
+def test_root_run_scripts_do_not_import_removed_matrix_modules() -> None:
+    for path in ROOT_SCRIPT_FILES:
+        text = path.read_text(encoding="utf-8")
+        assert "matrix.faithful_matrix" not in text, path
+        assert "cache_archive_cli" not in text, path
+
+
+def test_family_execute_layers_do_not_use_cache_namespace_as_dataset_name() -> None:
+    violations: list[str] = []
+    for path in FAMILIES_SRC.rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        if "dataset=benchmark.cache_namespace or benchmark.slug" in text:
+            violations.append(str(path))
+    assert not violations, "\n".join(violations)
+
+
+def test_family_runners_use_streaming_sample_batches() -> None:
+    violations: list[str] = []
+    forbidden_markers = (
+        "run_indexed_batch",
+        "list(iter_indexed_batch",
+    )
+    for path in FAMILIES_SRC.rglob("run/*.py"):
+        text = path.read_text(encoding="utf-8")
+        for marker in forbidden_markers:
+            if marker in text:
+                violations.append(f"{path}: {marker}")
+    assert not violations, "\n".join(violations)
+
+
+def test_core_runner_does_not_reintroduce_list_batch_helper() -> None:
+    runner_common = CORE_SRC / "execution" / "runner_common.py"
+    text = runner_common.read_text(encoding="utf-8")
+    assert "def iter_indexed_batch" in text
+    assert "def run_indexed_batch" not in text

@@ -14,6 +14,27 @@ from research_experiments.core.contracts import (
 )
 from research_experiments.family_runtime.config_helpers import load_benchmarks
 
+_RESERVED_LAYOUT_ATTRIBUTE_NAMES = {
+    "root",
+    "schema",
+    "manifest",
+    "progress",
+    "validation",
+    "report",
+    "figure_manifest",
+    "archive_manifest",
+    "metrics",
+    "predictions",
+    "run_summary",
+    "turns",
+    "diagnostics",
+    "exports",
+    "aliases",
+    "turn_path",
+    "diagnostic_path",
+    "export_path",
+}
+
 
 def build_backbone_run_from_cli(
     *,
@@ -88,6 +109,12 @@ def make_family_registration(
     render_from_cli=None,
 ) -> FamilyRegistration:
     """按统一默认值构造一个 family registration。"""
+
+    reserved_aliases = sorted(set(artifact_aliases) & _RESERVED_LAYOUT_ATTRIBUTE_NAMES)
+    if reserved_aliases:
+        raise ValueError(
+            f"{family_name} artifact aliases shadow FamilyRunLayout attributes: {reserved_aliases}"
+        )
 
     return FamilyRegistration(
         family_name=family_name,

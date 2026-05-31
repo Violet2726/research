@@ -4,8 +4,13 @@
 from __future__ import annotations
 
 import time
+from types import SimpleNamespace
 
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.rate_limits import (
+    PersistentSlidingWindowRateLimiter,
+    RequestThrottle,
+    SlidingWindowRateLimiter,
+)
 
 
 def test_rate_limiter_without_waiting() -> None:
@@ -14,6 +19,7 @@ def test_rate_limiter_without_waiting() -> None:
     limiter.acquire(10)
     limiter.acquire(10)
     assert time.monotonic() - started < 1.0
+
 
 def test_rate_limiter_settle_releases_reserved_tokens() -> None:
     limiter = SlidingWindowRateLimiter(
@@ -39,4 +45,92 @@ def test_rate_limiter_uses_full_configured_rpm_without_extra_headroom() -> None:
     limiter.acquire(1)
     elapsed = time.monotonic() - started
     assert 0.45 <= elapsed < 0.58
+
+
+def test_rate_limiter_records_429_without_changing_configured_rpm() -> None:
+    limiter = SlidingWindowRateLimiter(
+        requests_per_minute=100,
+        tokens_per_minute=None,
+        window_seconds=0.05,
+    )
+    first = limiter.acquire(1)
+    limiter.settle(first, 1, http_status=429)
+    first_snapshot = limiter.snapshot()
+
+    second = limiter.acquire(1)
+    limiter.settle(second, 1, http_status=429)
+    second_snapshot = limiter.snapshot()
+
+    assert first_snapshot["effective_network_rpm_limit"] == 100
+    assert second_snapshot["effective_network_rpm_limit"] == 100
+    assert second_snapshot["rate_limit_429_count"] == 2
+
+
+def test_request_throttle_for_model_shares_provider_window_across_instances(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("RESEARCH_CACHE_ROOT", str(tmp_path / "cache"))
+    model = SimpleNamespace(provider="demo-provider", model_id=f"demo-model-{time.monotonic_ns()}")
+    first = RequestThrottle.for_model(
+        model,
+        max_concurrent_requests=2,
+        requests_per_minute=1,
+        tokens_per_minute=None,
+        window_seconds=0.05,
+    )
+    second = RequestThrottle.for_model(
+        model,
+        max_concurrent_requests=2,
+        requests_per_minute=1,
+        tokens_per_minute=None,
+        window_seconds=0.05,
+    )
+
+    with first.reserve(1) as reservation:
+        first.settle(reservation, 1)
+
+    started = time.monotonic()
+    with second.reserve(1) as reservation:
+        second.settle(reservation, 1)
+
+    assert time.monotonic() - started >= 0.04
+
+
+def test_persistent_rate_limiter_shares_window_across_instances(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("RESEARCH_CACHE_ROOT", str(tmp_path / "cache"))
+    scope_key = f"demo-provider:demo-model-{time.monotonic_ns()}"
+    first = PersistentSlidingWindowRateLimiter(
+        scope_key=scope_key,
+        requests_per_minute=1,
+        tokens_per_minute=None,
+        window_seconds=0.05,
+    )
+    second = PersistentSlidingWindowRateLimiter(
+        scope_key=scope_key,
+        requests_per_minute=1,
+        tokens_per_minute=None,
+        window_seconds=0.05,
+    )
+
+    first_reservation = first.acquire(1)
+    first.settle(first_reservation, 1)
+
+    started = time.monotonic()
+    second_reservation = second.acquire(1)
+    second.settle(second_reservation, 1)
+
+    assert time.monotonic() - started >= 0.04
+
+
+def test_retry_after_sets_shared_cooldown() -> None:
+    throttle = RequestThrottle(
+        max_concurrent_requests=2,
+        requests_per_minute=None,
+        tokens_per_minute=None,
+    )
+    throttle.note_retry_after(0.05)
+
+    started = time.monotonic()
+    with throttle.reserve(1) as reservation:
+        throttle.settle(reservation, 1)
+
+    assert time.monotonic() - started >= 0.04
 

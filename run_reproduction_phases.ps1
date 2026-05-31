@@ -1,24 +1,11 @@
+[CmdletBinding()]
+param(
+    [string[]]$Phases = @("count20", "count100", "count300"),
+    [string]$InitialReferenceStatePath = ""
+)
+
 $ErrorActionPreference = "Stop"
-
-function Get-StandardRuntimeLimits {
-    $pythonScript = @'
-import json
-
-from research_experiments.core.execution.rate_limits import standard_runtime_limits
-
-print(json.dumps(standard_runtime_limits(), ensure_ascii=False))
-'@
-    $output = @($pythonScript | uv run python -)
-    if (-not $output) {
-        throw "未能读取共享限流配置。"
-    }
-    return (($output | Select-Object -Last 1) | ConvertFrom-Json)
-}
-
-$RuntimeLimits = Get-StandardRuntimeLimits
-$ReproMaxConcurrentRequests = [int]$RuntimeLimits.max_concurrent_requests
-$ReproRequestsPerMinuteLimit = [int]$RuntimeLimits.requests_per_minute_limit
-$ReproTokensPerMinuteLimit = [int]$RuntimeLimits.tokens_per_minute_limit
+Set-StrictMode -Version Latest
 
 function Import-DotEnvLocal {
     param(
@@ -57,74 +44,60 @@ function Invoke-ReproductionPhase {
         [string]$ReferenceStatePath = ""
     )
 
-    $env:REPRO_PHASE = $Phase
-    $env:REPRO_MAX_CONCURRENT_REQUESTS = "$ReproMaxConcurrentRequests"
-    $env:REPRO_REQUESTS_PER_MINUTE_LIMIT = "$ReproRequestsPerMinuteLimit"
-    $env:REPRO_TOKENS_PER_MINUTE_LIMIT = "$ReproTokensPerMinuteLimit"
-    if ($ReferenceStatePath) {
-        $env:REPRO_REFERENCE_STATE = $ReferenceStatePath
-    } else {
-        Remove-Item -Path Env:REPRO_REFERENCE_STATE -ErrorAction SilentlyContinue
+    $cliArgs = @("research_cli", "matrix", "run", "--matrix", "reproduction", "--phase", $Phase)
+    if (-not [string]::IsNullOrWhiteSpace($ReferenceStatePath)) {
+        $cliArgs += @("--reference-state-path", $ReferenceStatePath)
     }
 
-    $pythonScript = @'
-import os
-
-from research_experiments.matrix.faithful_matrix import RuntimeOverrides, assert_matrix_succeeded, run_matrix
-
-kwargs = {}
-reference_state = os.environ.get("REPRO_REFERENCE_STATE")
-if reference_state:
-    kwargs["reference_state_path_or_root"] = reference_state
-
-run_dir = run_matrix(
-    "reproduction",
-    RuntimeOverrides(
-        phase_name=os.environ["REPRO_PHASE"],
-        max_concurrent_requests=int(os.environ["REPRO_MAX_CONCURRENT_REQUESTS"]),
-        requests_per_minute_limit=int(os.environ["REPRO_REQUESTS_PER_MINUTE_LIMIT"]),
-        tokens_per_minute_limit=int(os.environ["REPRO_TOKENS_PER_MINUTE_LIMIT"]),
-    ),
-    **kwargs,
-)
-assert_matrix_succeeded(run_dir)
-print(run_dir.as_posix())
-'@
-
-    $output = @($pythonScript | uv run python -)
+    $output = @(uv run @cliArgs)
     if (-not $output) {
-        throw "未能获取阶段输出目录。"
+        throw "Failed to resolve matrix run directory."
     }
-    return ($output | Select-Object -Last 1).Trim()
+
+    $runDir = ($output | Select-Object -Last 1).Trim()
+    @(uv run research_cli matrix assert-success --state-path $runDir --json) | Out-Null
+    return $runDir
+}
+
+function Invoke-OptionalCachePush {
+    $autoPushCache = if ([string]::IsNullOrWhiteSpace($env:RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT)) {
+        ""
+    } else {
+        $env:RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT.ToLowerInvariant()
+    }
+    if (
+        ($autoPushCache -notin @("1", "true", "yes", "on")) -or
+        [string]::IsNullOrWhiteSpace($env:RESEARCH_CACHE_HF_REPO)
+    ) {
+        return
+    }
+
+    $cacheRoot = if ([string]::IsNullOrWhiteSpace($env:RESEARCH_CACHE_ROOT)) {
+        "local/cache"
+    } else {
+        $env:RESEARCH_CACHE_ROOT
+    }
+    Write-Host "[$(Get-Date -Format s)] Pushing latest cache snapshot to Hugging Face: $cacheRoot"
+    $pushOutput = uv run research_cli tools cache-archive push-latest --cache-root $cacheRoot --repo $env:RESEARCH_CACHE_HF_REPO --json
+    $pushSummary = ($pushOutput -join "`n") | ConvertFrom-Json
+    Write-Host "[$(Get-Date -Format s)] Cache snapshot push completed: $($pushSummary.remote_repo)"
 }
 
 Import-DotEnvLocal
 
-Write-Host "开始运行 reproduction_matrix 三个阶段..."
-Write-Host "使用限流: max_concurrent_requests=$ReproMaxConcurrentRequests, requests_per_minute_limit=$ReproRequestsPerMinuteLimit, tokens_per_minute_limit=$ReproTokensPerMinuteLimit"
+Write-Host "Starting reproduction_matrix phase sequence..."
 
-Write-Host "[$(Get-Date -Format s)] 开始运行 count20 阶段..."
-$count20Dir = Invoke-ReproductionPhase -Phase "count20"
-Write-Host "[$(Get-Date -Format s)] count20 阶段完成: $count20Dir"
-
-Write-Host "[$(Get-Date -Format s)] 开始运行 count100 阶段..."
-$count100Dir = Invoke-ReproductionPhase -Phase "count100" -ReferenceStatePath $count20Dir
-Write-Host "[$(Get-Date -Format s)] count100 阶段完成: $count100Dir"
-
-Write-Host "[$(Get-Date -Format s)] 开始运行 count300 阶段..."
-$count300Dir = Invoke-ReproductionPhase -Phase "count300" -ReferenceStatePath $count100Dir
-Write-Host "[$(Get-Date -Format s)] count300 阶段完成: $count300Dir"
-
-$autoPushCache = if ([string]::IsNullOrWhiteSpace($env:RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT)) { "" } else { $env:RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT.ToLowerInvariant() }
-if (
-    ($autoPushCache -in @("1", "true", "yes", "on")) -and
-    -not [string]::IsNullOrWhiteSpace($env:RESEARCH_CACHE_HF_REPO)
-) {
-    $cacheRoot = if ([string]::IsNullOrWhiteSpace($env:RESEARCH_CACHE_ROOT)) { "local/cache" } else { $env:RESEARCH_CACHE_ROOT }
-    Write-Host "[$(Get-Date -Format s)] 开始推送 cache 最新快照到 Hugging Face: $cacheRoot"
-    $pushOutput = uv run cache_archive_cli push-latest --cache-root $cacheRoot --repo $env:RESEARCH_CACHE_HF_REPO --json
-    $pushSummary = ($pushOutput -join "`n") | ConvertFrom-Json
-    Write-Host "[$(Get-Date -Format s)] cache 快照推送完成: $($pushSummary.remote_repo)"
+$previousRunDir = $InitialReferenceStatePath
+foreach ($phase in $Phases) {
+    Write-Host "[$(Get-Date -Format s)] Starting phase $phase ..."
+    if ([string]::IsNullOrWhiteSpace($previousRunDir)) {
+        $previousRunDir = Invoke-ReproductionPhase -Phase $phase
+    } else {
+        $previousRunDir = Invoke-ReproductionPhase -Phase $phase -ReferenceStatePath $previousRunDir
+    }
+    Write-Host "[$(Get-Date -Format s)] Phase $phase completed: $previousRunDir"
 }
 
-Write-Host "[$(Get-Date -Format s)] 所有阶段运行完成。"
+Invoke-OptionalCachePush
+
+Write-Host "[$(Get-Date -Format s)] All phases completed."

@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import io
 import json
+from contextlib import redirect_stdout
 from pathlib import Path
 
+import pytest
 from testsupport.cli import run_cli_json
 from testsupport.filesystem import write_json
 
+from research_experiments.cli import main as research_main
 from research_experiments.core.execution.cache import CachedResponse, RequestCacheRouter, json_dump
 from research_experiments.core.execution.rate_limits import (
     STANDARD_MAX_CONCURRENT_REQUESTS,
@@ -67,6 +71,96 @@ def test_reproduction_matrix_inspect_cli() -> None:
     assert payload["matrix_id"] == "reproduction"
     assert payload["matrix_kind"] == "reproduction_matrix"
     assert payload["counts"]["semantic_unique_targets"] == 4
+
+
+def test_matrix_assert_success_cli(tmp_path: Path) -> None:
+    write_json(
+        tmp_path / "state.json",
+        {
+            "matrix_id": "faithful",
+            "matrix_kind": "faithful_matrix",
+            "overrides": {
+                "phase_name": "count20",
+                "model_ref": "xiaomimimo/mimo-v2.5",
+                "max_concurrent_requests": STANDARD_MAX_CONCURRENT_REQUESTS,
+                "requests_per_minute_limit": STANDARD_REQUESTS_PER_MINUTE_LIMIT,
+                "tokens_per_minute_limit": STANDARD_TOKENS_PER_MINUTE_LIMIT,
+            },
+            "counts": {"completed": 0, "semantic_unique_targets": 0},
+            "entries": [],
+            "semantic_entries": [],
+        },
+    )
+
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "matrix",
+            "assert-success",
+            "--state-path",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+    assert payload["passed"] is True
+    assert payload["blocking_entries"] == []
+
+
+def test_matrix_assert_success_cli_exit_code_for_blockers(tmp_path: Path) -> None:
+    write_json(
+        tmp_path / "state.json",
+        {
+            "matrix_id": "faithful",
+            "matrix_kind": "faithful_matrix",
+            "overrides": {
+                "phase_name": "count20",
+                "model_ref": "xiaomimimo/mimo-v2.5",
+                "max_concurrent_requests": STANDARD_MAX_CONCURRENT_REQUESTS,
+                "requests_per_minute_limit": STANDARD_REQUESTS_PER_MINUTE_LIMIT,
+                "tokens_per_minute_limit": STANDARD_TOKENS_PER_MINUTE_LIMIT,
+            },
+            "counts": {"failed": 1, "semantic_unique_targets": 1},
+            "entries": [
+                {
+                    "family": "selective_comm",
+                    "config_path": "configs/families/selective_comm/experiments/trigger_early_exit_main.toml",
+                    "experiment_name": "trigger_early_exit_main",
+                    "description": "demo",
+                    "phase_name": "count20",
+                    "status": "failed",
+                    "review_notes": "runner_error:demo",
+                }
+            ],
+            "semantic_entries": [
+                {
+                    "family": "selective_comm",
+                    "config_path": "configs/families/selective_comm/experiments/trigger_early_exit_main.toml",
+                    "experiment_name": "trigger_early_exit_main",
+                    "description": "demo",
+                    "phase_name": "count20",
+                    "status": "failed",
+                    "review_notes": "runner_error:demo",
+                }
+            ],
+        },
+    )
+
+    buffer = io.StringIO()
+    with redirect_stdout(buffer), pytest.raises(SystemExit) as exc_info:
+        research_main(
+            [
+                "matrix",
+                "assert-success",
+                "--state-path",
+                str(tmp_path),
+                "--json",
+            ]
+        )
+
+    assert exc_info.value.code == 1
+    payload = json.loads(buffer.getvalue())
+    assert payload["passed"] is False
+    assert payload["blocking_entries"][0]["family"] == "selective_comm"
 
 
 def test_imad_inspect_cli() -> None:
@@ -385,6 +479,41 @@ def test_cache_inspector_summarize_cli(tmp_path) -> None:
     assert payload["providers"][0]["provider"] == "deepseek"
     assert payload["providers"][0]["model_count"] == 1
     assert payload["providers"][0]["dataset_count"] == 1
+
+
+def test_cache_inspector_normalize_layout_cli(tmp_path: Path) -> None:
+    router = RequestCacheRouter(tmp_path)
+    cache = router.for_request_target(
+        provider="xiaomimimo",
+        request_model="mimo-v2.5",
+        dataset="gsm8k/test",
+    )
+    cache.put(
+        CachedResponse(
+            cache_key="legacy",
+            payload_json=json_dump({"request": "legacy"}),
+            response_json=json_dump({"ok": True}),
+            http_status=200,
+            latency_ms=10.0,
+            provider_request_id="req_legacy",
+        )
+    )
+    router.close()
+
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "tools",
+            "cache-inspector",
+            "normalize-layout",
+            "--cache-root",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+    assert payload["candidate_count"] == 1
+    assert payload["candidates"][0]["source_dataset"] == "gsm8k/test"
+    assert payload["candidates"][0]["target_dataset"] == "gsm8k"
 
 
 def test_archive_runs_publish_uses_repo_env(monkeypatch, tmp_path) -> None:

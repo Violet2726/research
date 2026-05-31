@@ -84,15 +84,16 @@ def run_from_cli(request) -> object:
 
 ARTIFACT_ALIASES = {
     "stage_a_turns": "turns/stage_a_turns.jsonl",
-"stage_b_turns": "turns/stage_b_turns.jsonl",
-"control_turns": "turns/control_turns.jsonl",
-"trigger_decisions": "turns/trigger_decisions.jsonl",
-"policy_predictions": "views/predictions.jsonl",
-"policy_metrics": "views/metrics.json",
-"policy_diagnostics": "diagnostics/policy_diagnostics.json",
-"oracle_trigger_eval": "diagnostics/oracle_trigger_eval.json",
-"run_validation": "run_validation.json",
-"trigger_report": "report.md",
+    "stage_b_turns": "turns/stage_b_turns.jsonl",
+    "control_turns": "turns/control_turns.jsonl",
+    "trigger_decisions": "turns/trigger_decisions.jsonl",
+    "policy_predictions": "views/predictions.jsonl",
+    "policy_metrics": "views/metrics.json",
+    "policy_diagnostics": "diagnostics/policy_diagnostics.json",
+    "oracle_trigger_eval": "diagnostics/oracle_trigger_eval.json",
+    "run_validation": "run_validation.json",
+    "trigger_report": "report.md",
+    "policy_reference_summary": "exports/policy_reference_summary.json",
 }
 
 REGISTRATION = make_family_registration(
@@ -120,6 +121,6 @@ REGISTRATION = make_family_registration(
     prediction_records_path="views/predictions.jsonl",
     turn_record_paths=('turns/stage_a_turns.jsonl', 'turns/stage_b_turns.jsonl', 'turns/control_turns.jsonl', 'turns/trigger_decisions.jsonl'),
     diagnostic_paths=('diagnostics/oracle_trigger_eval.json', 'diagnostics/policy_diagnostics.json'),
-    export_paths=(),
+    export_paths=("exports/policy_reference_summary.json",),
 )
 

@@ -28,7 +28,7 @@ from research_experiments.core.execution.providers import (
     build_payload,
     execute_completion_request,
 )
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.structured_outputs import SchemaId, validate_or_recover_structured_output
 
 T = TypeVar("T")
@@ -36,7 +36,7 @@ R = TypeVar("R")
 
 TurnValidator = Callable[[str, str], dict[str, Any]]
 TurnRequestExecutor = Callable[
-    [dict[str, Any], OpenAICompatibleProvider, SlidingWindowRateLimiter | None],
+    [dict[str, Any], OpenAICompatibleProvider, RequestThrottle | None],
     dict[str, Any],
 ]
 TurnResponseHook = Callable[[dict[str, Any], dict[str, Any]], None]
@@ -76,26 +76,23 @@ def prompt_hash(messages: list[dict[str, Any]]) -> str:
     return sha256(json.dumps(messages, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def run_indexed_batch[T, R](
+def iter_indexed_batch[T, R](
     items: Iterable[T],
     *,
     worker: Callable[[T], R],
     max_concurrent_requests: int,
-) -> list[tuple[int, R]]:
-    """并发执行带索引批次，并按输入顺序返回结果。"""
+) -> Iterable[tuple[int, R]]:
+    """按完成顺序流式产出带索引的样本结果。"""
 
     indexed_items = list(enumerate(items))
     max_workers = max(1, min(max_concurrent_requests, len(indexed_items) or 1))
-    completed: list[tuple[int, R]] = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_index = {
             executor.submit(worker, item): index
             for index, item in indexed_items
         }
         for future in as_completed(future_to_index):
-            completed.append((future_to_index[future], future.result()))
-    completed.sort(key=lambda item: item[0])
-    return completed
+            yield (future_to_index[future], future.result())
 
 
 def execute_cached_turn(
@@ -103,7 +100,7 @@ def execute_cached_turn(
     backbone: ResolvedModelConfig,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter | None,
+    throttle: RequestThrottle | None,
     messages: list[dict[str, str]],
     temperature: float,
     top_p: float,
@@ -140,9 +137,9 @@ def execute_cached_turn(
     cached = cache.get(cache_key)
     if cached is None:
         response_payload = (
-            request_executor(payload, provider, limiter)
+            request_executor(payload, provider, throttle)
             if request_executor is not None
-            else execute_completion_request(provider, payload, limiter=limiter)
+            else execute_completion_request(provider, payload, throttle=throttle)
         )
         response_payload = dict(response_payload)
         if response_hook is not None:

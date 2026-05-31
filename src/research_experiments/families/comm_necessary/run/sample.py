@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
@@ -21,10 +22,10 @@ from research_experiments.core.data.datasets import DatasetSample, load_split_id
 from research_experiments.core.data.evaluation import normalize_prediction
 from research_experiments.core.execution.cache import RequestCache
 from research_experiments.core.execution.providers import OpenAICompatibleProvider, estimate_request_tokens
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.execution.runner_common import (
     execute_cached_turn,
-    run_indexed_batch,
+    iter_indexed_batch,
 )
 from research_experiments.core.structured_outputs import (
     SCHEMA_SPLIT_CONTEXT_BELIEF,
@@ -78,11 +79,11 @@ def _run_sample_batch(
     backbone: ResolvedModelConfig,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
     global_seed: int,
     prompt_version: str,
     max_concurrent_requests: int,
-) -> list[SampleResult]:
+) -> Iterable[SampleResult]:
     """样本级并发；单题内部保持 Stage A -> packet -> Stage B 顺序。"""
     worker = partial(
         _run_sample,
@@ -93,18 +94,16 @@ def _run_sample_batch(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         global_seed=global_seed,
         prompt_version=prompt_version,
     )
-    return [
-        result
-        for _, result in run_indexed_batch(
-            samples,
-            worker=worker,
-            max_concurrent_requests=max_concurrent_requests,
-        )
-    ]
+    for _, result in iter_indexed_batch(
+        samples,
+        worker=worker,
+        max_concurrent_requests=max_concurrent_requests,
+    ):
+        yield result
 
 
 def _run_sample(
@@ -117,7 +116,7 @@ def _run_sample(
     backbone: ResolvedModelConfig,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
     global_seed: int,
     prompt_version: str,
 ) -> SampleResult:
@@ -142,7 +141,7 @@ def _run_sample(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         temperature=protocol.initial_temperature,
         top_p=protocol.top_p,
         max_output_tokens=protocol.max_output_tokens,
@@ -167,7 +166,7 @@ def _run_sample(
             backbone=backbone,
             provider=provider,
             cache=cache,
-            limiter=limiter,
+            throttle=throttle,
             temperature=protocol.initial_temperature,
             top_p=protocol.top_p,
             max_output_tokens=protocol.max_output_tokens,
@@ -212,7 +211,7 @@ def _run_sample(
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
-                limiter=limiter,
+                throttle=throttle,
                 global_seed=global_seed,
                 prompt_version=prompt_version,
             )
@@ -287,7 +286,7 @@ def _run_belief_updates(
     backbone: ResolvedModelConfig,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
     global_seed: int,
     prompt_version: str,
 ) -> list[dict[str, Any]]:
@@ -330,7 +329,7 @@ def _run_belief_updates(
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
-                limiter=limiter,
+                throttle=throttle,
                 temperature=protocol.update_temperature,
                 top_p=protocol.top_p,
                 max_output_tokens=protocol.max_output_tokens,
@@ -568,7 +567,7 @@ def _execute_turn(
     backbone: ResolvedModelConfig,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
     temperature: float,
     top_p: float,
     max_output_tokens: int,
@@ -585,7 +584,7 @@ def _execute_turn(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         messages=messages,
         temperature=temperature,
         top_p=top_p,

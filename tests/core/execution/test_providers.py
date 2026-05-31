@@ -14,7 +14,7 @@ from research_experiments.core.execution.providers import (
     build_payload,
     execute_completion_request,
 )
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.rate_limits import RequestThrottle
 
 
 def test_build_payload_maps_thinking_control_by_provider() -> None:
@@ -101,7 +101,8 @@ def test_execute_completion_request_reconciles_usage() -> None:
                 response_id="resp_test",
             )
 
-    limiter = SlidingWindowRateLimiter(
+    throttle = RequestThrottle(
+        max_concurrent_requests=2,
         requests_per_minute=None,
         tokens_per_minute=200,
         window_seconds=0.05,
@@ -110,10 +111,47 @@ def test_execute_completion_request_reconciles_usage() -> None:
         "messages": [{"role": "user", "content": "hello"}],
         "max_tokens": 512,
     }
-    response_payload = execute_completion_request(FakeProvider(), payload, limiter=limiter)
+    response_payload = execute_completion_request(FakeProvider(), payload, throttle=throttle)
     assert response_payload["request_error"] is None
     assert response_payload["usage_reported"]["total_tokens"] == 20
-    assert sum(event.tokens for event in limiter.token_events) == 20
+    assert sum(event.tokens for event in throttle.limiter.token_events) == 20
+
+
+def test_execute_completion_request_does_not_retry_429() -> None:
+    request = httpx.Request("POST", "https://provider.test/chat")
+    response = httpx.Response(
+        429,
+        request=request,
+        headers={"retry-after": "0.05"},
+        text='{"error":{"message":"Too many requests"}}',
+    )
+
+    class FakeProvider:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def chat_completion(self, payload: dict[str, object]) -> ProviderResponse:
+            self.calls += 1
+            raise httpx.HTTPStatusError("Too many requests", request=request, response=response)
+
+    provider = FakeProvider()
+    throttle = RequestThrottle(
+        max_concurrent_requests=2,
+        requests_per_minute=None,
+        tokens_per_minute=None,
+    )
+    response_payload = execute_completion_request(
+        provider,
+        {"messages": [{"role": "user", "content": "hello"}]},
+        throttle=throttle,
+    )
+
+    assert provider.calls == 1
+    assert response_payload["http_status"] == 429
+    assert response_payload["request_error"].startswith("Provider returned HTTP 429")
+    snapshot = throttle.snapshot()
+    assert snapshot["rate_limit_429_count"] == 1
+    assert snapshot["cooldown_remaining_seconds"] > 0
 
 def test_provider_reuses_shared_http_client(monkeypatch: pytest.MonkeyPatch) -> None:
     created_clients: list[object] = []

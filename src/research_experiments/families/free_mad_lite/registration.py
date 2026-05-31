@@ -55,7 +55,7 @@ ARTIFACT_ALIASES = {
 "debate_messages": "turns/debate_messages.jsonl",
 "trajectory_scores": "exports/trajectory_scores.jsonl",
 "final_predictions": "views/predictions.jsonl",
-"diagnostics": "diagnostics/diagnostics.json",
+"diagnostics_path": "diagnostics/diagnostics.json",
 "run_validation": "run_validation.json",
 "paper_summary": "exports/paper_summary.csv",
 }

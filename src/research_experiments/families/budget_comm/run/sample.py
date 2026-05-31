@@ -13,6 +13,7 @@ from __future__ import annotations
 import csv
 import math
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -23,10 +24,10 @@ from research_experiments.core.data.datasets import DatasetSample, load_split_id
 from research_experiments.core.data.evaluation import aggregate_majority, normalize_prediction, score_prediction
 from research_experiments.core.execution.cache import RequestCache, RequestCacheRouter
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.execution.runner_common import (
     execute_cached_turn,
-    run_indexed_batch,
+    iter_indexed_batch,
 )
 from research_experiments.core.execution.runtime import RunProgressTracker
 from research_experiments.core.structured_outputs import (
@@ -87,7 +88,7 @@ def _calibrate_budgets(
     backbone,
     provider: OpenAICompatibleProvider,
     cache_router: RequestCacheRouter,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
 ) -> dict[str, Any]:
     """先做少量 `all_to_all_full` 校准，再冻结每个数据集的预算。
 
@@ -117,7 +118,7 @@ def _calibrate_budgets(
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
-                limiter=limiter,
+                throttle=throttle,
             )
             all_to_all = build_all_to_all_full_decision(prepared["shared_candidates"])
             _, prediction_row = _run_stage_b_method(
@@ -158,8 +159,8 @@ def _run_sample_batch(
     backbone,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
-) -> list[SampleResult]:
+    throttle: RequestThrottle,
+) -> Iterable[SampleResult]:
     """并发执行同一数据集下的一整批样本，并保持原始样本顺序。"""
     worker = partial(
         _run_sample,
@@ -174,21 +175,19 @@ def _run_sample_batch(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
     )
-    return [
-        result
-        for _, result in run_indexed_batch(
-            samples,
-            worker=worker,
-            max_concurrent_requests=experiment.max_concurrent_requests,
-        )
-    ]
+    for _, result in iter_indexed_batch(
+        samples,
+        worker=worker,
+        max_concurrent_requests=experiment.max_concurrent_requests,
+    ):
+        yield result
 
 
 def _write_sample_results(
     *,
-    sample_results: list[SampleResult],
+    sample_results: Iterable[SampleResult],
     dataset_slug: str,
     progress: RunProgressTracker,
     sample_view_handle,
@@ -243,7 +242,7 @@ def _run_sample(
     backbone,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
 ) -> SampleResult:
     """执行单题上的全部预算通信方法。
 
@@ -267,7 +266,7 @@ def _run_sample(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
     )
     candidate_rows: list[dict[str, Any]] = []
     auction_rows: list[dict[str, Any]] = []
@@ -359,7 +358,7 @@ def _prepare_shared_context(
     backbone,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
 ) -> dict[str, Any]:
     """准备单题共享上下文。
 
@@ -402,7 +401,7 @@ def _prepare_shared_context(
             backbone=backbone,
             provider=provider,
             cache=cache,
-            limiter=limiter,
+            throttle=throttle,
             temperature=protocol.initial_temperature,
             top_p=protocol.top_p,
             max_output_tokens=protocol.max_output_tokens,
@@ -436,7 +435,7 @@ def _prepare_shared_context(
         "backbone": backbone,
         "provider": provider,
         "cache": cache,
-        "limiter": limiter,
+        "throttle": throttle,
         "stage_a_turns": stage_a_turns,
         "stage_a_trace_hash": stage_a_trace_hash,
         "stage_a_vote": stage_a_vote,
@@ -502,7 +501,7 @@ def _run_stage_b_method(
             backbone=shared_context["backbone"],
             provider=shared_context["provider"],
             cache=shared_context["cache"],
-            limiter=shared_context["limiter"],
+            throttle=shared_context["throttle"],
             temperature=shared_context["protocol"].debate_temperature,
             top_p=shared_context["protocol"].top_p,
             max_output_tokens=shared_context["protocol"].max_output_tokens,
@@ -801,7 +800,7 @@ def _execute_turn(
     backbone,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
     temperature: float,
     top_p: float,
     max_output_tokens: int,
@@ -817,7 +816,7 @@ def _execute_turn(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         messages=messages,
         temperature=temperature,
         top_p=top_p,

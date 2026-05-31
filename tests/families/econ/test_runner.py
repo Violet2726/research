@@ -246,7 +246,6 @@ def test_econ_run_experiment_executes_minimal_flow(monkeypatch, tmp_path: Path) 
         supports_response_format=True,
         response_format="json_object",
         timeout_seconds=30,
-        max_retries=1,
         tags=["test"],
     )
     monkeypatch.setenv("API_KEY", "test-key")
@@ -267,7 +266,7 @@ def test_econ_run_experiment_executes_minimal_flow(monkeypatch, tmp_path: Path) 
         ).render_report(run_dir, publish_dir=tmp_path / "published"),
     )
 
-    def _fake_completion(provider, payload, limiter=None):
+    def _fake_completion(provider, payload, throttle=None):
         user_text = str(payload["messages"][-1]["content"])
         if "Selected coordination action" in user_text:
             if "agent_1" in user_text:

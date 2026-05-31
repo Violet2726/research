@@ -22,7 +22,7 @@ from research_experiments.core.data.datasets import select_samples
 from research_experiments.core.execution.artifacts import BufferedJsonlWriter
 from research_experiments.core.execution.cache import RequestCacheRouter
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from research_experiments.core.structured_outputs import (
     ARTIFACT_VERSION,
@@ -77,7 +77,9 @@ def run_experiment(
     context_view_config = load_context_view_config(experiment.context_view)
     provider = OpenAICompatibleProvider(backbone)
     cache_router = RequestCacheRouter(cache_root)
-    limiter = SlidingWindowRateLimiter(
+    throttle = RequestThrottle.for_model(
+        backbone,
+        max_concurrent_requests=experiment.max_concurrent_requests,
         requests_per_minute=experiment.requests_per_minute_limit,
         tokens_per_minute=experiment.tokens_per_minute_limit,
     )
@@ -105,13 +107,19 @@ def run_experiment(
         backbone=backbone,
         provider=provider,
         cache_router=cache_router,
-        limiter=limiter,
+        throttle=throttle,
     )
 
     run_id = build_run_id(backbone.name)
     run_paths = prepare_registered_run_layout('budget_comm', run_root, experiment.name, phase_name, run_id)
     total_calls, total_predictions = _estimate_work(experiment, phase_name, benchmarks, protocol)
-    progress = RunProgressTracker(run_paths.progress, total_calls, total_predictions)
+    progress = RunProgressTracker(
+        run_paths.progress,
+        total_calls,
+        total_predictions,
+        target_network_rpm=experiment.requests_per_minute_limit,
+        rate_limit_snapshot_provider=throttle.snapshot,
+    )
 
     # manifest 记录“本次真正落地使用了什么配置与预算”，
     # 是后续分析、复现与审计的第一入口。
@@ -153,73 +161,76 @@ def run_experiment(
     all_belief_updates: list[dict[str, Any]] = []
     all_prediction_rows: list[dict[str, Any]] = []
 
-    with (
-        run_paths.sample_views.open("w", encoding="utf-8") as sample_view_handle,
-        run_paths.stage_a_turns.open("w", encoding="utf-8") as stage_a_handle,
-        run_paths.candidate_packets.open("w", encoding="utf-8") as candidate_handle,
-        run_paths.auction_decisions.open("w", encoding="utf-8") as auction_handle,
-        run_paths.belief_updates.open("w", encoding="utf-8") as belief_handle,
-        run_paths.final_predictions.open("w", encoding="utf-8") as prediction_handle,
-    ):
-        sample_view_writer = BufferedJsonlWriter(sample_view_handle)
-        stage_a_writer = BufferedJsonlWriter(stage_a_handle)
-        candidate_writer = BufferedJsonlWriter(candidate_handle)
-        auction_writer = BufferedJsonlWriter(auction_handle)
-        belief_writer = BufferedJsonlWriter(belief_handle)
-        prediction_writer = BufferedJsonlWriter(prediction_handle)
-        for benchmark in benchmarks:
-            cache = cache_router.for_request_target(
-                provider=backbone.provider,
-                request_model=backbone.model_id,
-                dataset=benchmark.cache_namespace or benchmark.slug,
-            )
-            split_name = benchmark_to_split[benchmark.slug]
-            round_budget_tokens = int(calibration["datasets"][benchmark.slug]["round_budget_tokens"])
-            sample_results = _run_sample_batch(
-                run_id=run_id,
-                benchmark_slug=benchmark.slug,
-                split_name=split_name,
-                samples=benchmark_to_samples[benchmark.slug],
-                protocol=protocol,
-                auction_policy=auction_policy,
-                context_view_config=context_view_config,
-                round_budget_tokens=round_budget_tokens,
-                experiment=experiment,
-                backbone=backbone,
-                provider=provider,
-                cache=cache,
-                limiter=limiter,
-            )
-            _write_sample_results(
-                sample_results=sample_results,
-                dataset_slug=benchmark.slug,
-                progress=progress,
-                sample_view_handle=sample_view_writer,
-                stage_a_handle=stage_a_writer,
-                candidate_handle=candidate_writer,
-                auction_handle=auction_writer,
-                belief_handle=belief_writer,
-                prediction_handle=prediction_writer,
-                all_sample_views=all_sample_views,
-                all_stage_a_turns=all_stage_a_turns,
-                all_candidate_packets=all_candidate_packets,
-                all_auction_decisions=all_auction_decisions,
-                all_belief_updates=all_belief_updates,
-                all_prediction_rows=all_prediction_rows,
-            )
+    try:
+        with (
+            run_paths.sample_views.open("w", encoding="utf-8") as sample_view_handle,
+            run_paths.stage_a_turns.open("w", encoding="utf-8") as stage_a_handle,
+            run_paths.candidate_packets.open("w", encoding="utf-8") as candidate_handle,
+            run_paths.auction_decisions.open("w", encoding="utf-8") as auction_handle,
+            run_paths.belief_updates.open("w", encoding="utf-8") as belief_handle,
+            run_paths.final_predictions.open("w", encoding="utf-8") as prediction_handle,
+        ):
+            sample_view_writer = BufferedJsonlWriter(sample_view_handle)
+            stage_a_writer = BufferedJsonlWriter(stage_a_handle)
+            candidate_writer = BufferedJsonlWriter(candidate_handle)
+            auction_writer = BufferedJsonlWriter(auction_handle)
+            belief_writer = BufferedJsonlWriter(belief_handle)
+            prediction_writer = BufferedJsonlWriter(prediction_handle)
+            for benchmark in benchmarks:
+                cache = cache_router.for_request_target(
+                    provider=backbone.provider,
+                    request_model=backbone.model_id,
+                    dataset=benchmark.slug,
+                )
+                split_name = benchmark_to_split[benchmark.slug]
+                round_budget_tokens = int(calibration["datasets"][benchmark.slug]["round_budget_tokens"])
+                sample_results = _run_sample_batch(
+                    run_id=run_id,
+                    benchmark_slug=benchmark.slug,
+                    split_name=split_name,
+                    samples=benchmark_to_samples[benchmark.slug],
+                    protocol=protocol,
+                    auction_policy=auction_policy,
+                    context_view_config=context_view_config,
+                    round_budget_tokens=round_budget_tokens,
+                    experiment=experiment,
+                    backbone=backbone,
+                    provider=provider,
+                    cache=cache,
+                    throttle=throttle,
+                )
+                _write_sample_results(
+                    sample_results=sample_results,
+                    dataset_slug=benchmark.slug,
+                    progress=progress,
+                    sample_view_handle=sample_view_writer,
+                    stage_a_handle=stage_a_writer,
+                    candidate_handle=candidate_writer,
+                    auction_handle=auction_writer,
+                    belief_handle=belief_writer,
+                    prediction_handle=prediction_writer,
+                    all_sample_views=all_sample_views,
+                    all_stage_a_turns=all_stage_a_turns,
+                    all_candidate_packets=all_candidate_packets,
+                    all_auction_decisions=all_auction_decisions,
+                    all_belief_updates=all_belief_updates,
+                    all_prediction_rows=all_prediction_rows,
+                )
 
-    metrics_payload = _build_metrics(all_prediction_rows)
-    diagnostics_payload = _build_budget_diagnostics(metrics_payload, calibration, context_view_config.track_name)
-    run_paths.metrics.write_text(json.dumps(metrics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    run_paths.budget_diagnostics.write_text(json.dumps(diagnostics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    _export_paper_summary(run_paths.paper_summary, metrics_payload["summary"])
-    render_report(run_paths.root)
-    finalize_run_outputs(
-        run_paths.root,
-        validator=validate_run,
-        validation_path=run_paths.run_validation,
-    )
-    progress.mark_completed()
-    provider.close()
-    cache_router.close()
-    return run_paths.root
+        metrics_payload = _build_metrics(all_prediction_rows)
+        diagnostics_payload = _build_budget_diagnostics(metrics_payload, calibration, context_view_config.track_name)
+        run_paths.metrics.write_text(json.dumps(metrics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        run_paths.budget_diagnostics.write_text(json.dumps(diagnostics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        _export_paper_summary(run_paths.paper_summary, metrics_payload["summary"])
+        render_report(run_paths.root)
+        finalize_run_outputs(
+            run_paths.root,
+            validator=validate_run,
+            validation_path=run_paths.run_validation,
+        )
+        progress.mark_completed()
+        return run_paths.root
+    finally:
+        progress.close()
+        provider.close()
+        cache_router.close()

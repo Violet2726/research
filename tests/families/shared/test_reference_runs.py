@@ -67,7 +67,7 @@ def test_write_policy_reference_summary_writes_machine_readable_payload(tmp_path
     assert payload["run_id"] == "20260511T010203Z-demo"
     assert set(payload["overall_policies"]) == {"always_communicate", "hybrid_trigger"}
 
-    written = json.loads((tmp_path / "policy_reference_summary.json").read_text(encoding="utf-8"))
+    written = json.loads((tmp_path / "exports" / "policy_reference_summary.json").read_text(encoding="utf-8"))
     assert written["model_name"] == "deepseek/deepseek-v4-flash"
 
 
@@ -194,7 +194,9 @@ def _write_reference_summary(
             },
         },
     }
-    (run_dir / "policy_reference_summary.json").write_text(
+    output_path = run_dir / "exports" / "policy_reference_summary.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
@@ -215,7 +217,6 @@ def _resolved_model(name: str, provider: str, model_id: str) -> ResolvedModelCon
         supports_response_format=True,
         response_format="json_object",
         timeout_seconds=30,
-        max_retries=2,
         tags=["general_qa"],
     )
 

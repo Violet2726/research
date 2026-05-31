@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from research_experiments.core.execution.artifacts import BufferedJsonlWriter
 from research_experiments.core.execution.cache import RequestCacheRouter
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from research_experiments.families.econ.config import EconExperimentConfig, load_protocol_config
 from research_experiments.families.econ.run.report import render_report
@@ -49,7 +49,9 @@ def run_experiment(
     protocol = load_protocol_config(experiment.protocol)
     provider = OpenAICompatibleProvider(backbone)
     cache_router = RequestCacheRouter(cache_root)
-    limiter = SlidingWindowRateLimiter(
+    throttle = RequestThrottle.for_model(
+        backbone,
+        max_concurrent_requests=experiment.max_concurrent_requests,
         requests_per_minute=experiment.requests_per_minute_limit,
         tokens_per_minute=experiment.tokens_per_minute_limit,
     )
@@ -60,6 +62,8 @@ def run_experiment(
         run_paths.progress,
         total_calls,
         total_predictions,
+        target_network_rpm=experiment.requests_per_minute_limit,
+        rate_limit_snapshot_provider=throttle.snapshot,
         planned_calls_are_upper_bound=True,
     )
 
@@ -91,64 +95,67 @@ def run_experiment(
     all_communication_rows: list[dict[str, object]] = []
     final_predictions: list[dict[str, object]] = []
 
-    with (
-        run_paths.agent_turns.open("w", encoding="utf-8") as turn_handle_raw,
-        run_paths.belief_trace.open("w", encoding="utf-8") as belief_handle_raw,
-        run_paths.equilibrium_trace.open("w", encoding="utf-8") as equilibrium_handle_raw,
-        run_paths.communication_trace.open("w", encoding="utf-8") as communication_handle_raw,
-        run_paths.final_predictions.open("w", encoding="utf-8") as prediction_handle_raw,
-    ):
-        turn_handle = BufferedJsonlWriter(turn_handle_raw)
-        belief_handle = BufferedJsonlWriter(belief_handle_raw)
-        equilibrium_handle = BufferedJsonlWriter(equilibrium_handle_raw)
-        communication_handle = BufferedJsonlWriter(communication_handle_raw)
-        prediction_handle = BufferedJsonlWriter(prediction_handle_raw)
-        for benchmark in benchmarks:
-            cache = cache_router.for_request_target(
-                provider=backbone.provider,
-                request_model=backbone.model_id,
-                dataset=benchmark.cache_namespace or benchmark.slug,
-            )
-            split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
-            samples = _load_selected_samples(benchmark, split_name)
-            sample_results = _run_sample_batch(
-                run_id=run_id,
-                benchmark_slug=benchmark.slug,
-                split_name=split_name,
-                samples=samples,
-                protocol=protocol,
-                experiment=experiment,
-                backbone=backbone,
-                provider=provider,
-                cache=cache,
-                limiter=limiter,
-            )
-            _write_sample_outputs(
-                sample_results=sample_results,
-                dataset_slug=benchmark.slug,
-                progress=progress,
-                turn_handle=turn_handle,
-                belief_handle=belief_handle,
-                equilibrium_handle=equilibrium_handle,
-                communication_handle=communication_handle,
-                prediction_handle=prediction_handle,
-                all_turns=all_turns,
-                all_belief_rows=all_belief_rows,
-                all_equilibrium_rows=all_equilibrium_rows,
-                all_communication_rows=all_communication_rows,
-                final_predictions=final_predictions,
-            )
+    try:
+        with (
+            run_paths.agent_turns.open("w", encoding="utf-8") as turn_handle_raw,
+            run_paths.belief_trace.open("w", encoding="utf-8") as belief_handle_raw,
+            run_paths.equilibrium_trace.open("w", encoding="utf-8") as equilibrium_handle_raw,
+            run_paths.communication_trace.open("w", encoding="utf-8") as communication_handle_raw,
+            run_paths.final_predictions.open("w", encoding="utf-8") as prediction_handle_raw,
+        ):
+            turn_handle = BufferedJsonlWriter(turn_handle_raw)
+            belief_handle = BufferedJsonlWriter(belief_handle_raw)
+            equilibrium_handle = BufferedJsonlWriter(equilibrium_handle_raw)
+            communication_handle = BufferedJsonlWriter(communication_handle_raw)
+            prediction_handle = BufferedJsonlWriter(prediction_handle_raw)
+            for benchmark in benchmarks:
+                cache = cache_router.for_request_target(
+                    provider=backbone.provider,
+                    request_model=backbone.model_id,
+                    dataset=benchmark.slug,
+                )
+                split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
+                samples = _load_selected_samples(benchmark, split_name)
+                sample_results = _run_sample_batch(
+                    run_id=run_id,
+                    benchmark_slug=benchmark.slug,
+                    split_name=split_name,
+                    samples=samples,
+                    protocol=protocol,
+                    experiment=experiment,
+                    backbone=backbone,
+                    provider=provider,
+                    cache=cache,
+                    throttle=throttle,
+                )
+                _write_sample_outputs(
+                    sample_results=sample_results,
+                    dataset_slug=benchmark.slug,
+                    progress=progress,
+                    turn_handle=turn_handle,
+                    belief_handle=belief_handle,
+                    equilibrium_handle=equilibrium_handle,
+                    communication_handle=communication_handle,
+                    prediction_handle=prediction_handle,
+                    all_turns=all_turns,
+                    all_belief_rows=all_belief_rows,
+                    all_equilibrium_rows=all_equilibrium_rows,
+                    all_communication_rows=all_communication_rows,
+                    final_predictions=final_predictions,
+                )
 
-    metrics = _build_metrics(final_predictions, methods, model_name=backbone.name)
-    run_paths.metrics.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
-    render_report(run_paths.root)
-    finalize_run_outputs(
-        run_paths.root,
-        validator=validate_run,
-        validation_path=run_paths.run_validation,
-    )
-    progress.mark_completed()
-    provider.close()
-    cache_router.close()
-    return run_paths.root
+        metrics = _build_metrics(final_predictions, methods, model_name=backbone.name)
+        run_paths.metrics.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
+        render_report(run_paths.root)
+        finalize_run_outputs(
+            run_paths.root,
+            validator=validate_run,
+            validation_path=run_paths.run_validation,
+        )
+        progress.mark_completed()
+        return run_paths.root
+    finally:
+        progress.close()
+        provider.close()
+        cache_router.close()
 

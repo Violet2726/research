@@ -18,15 +18,13 @@ from research_experiments.core.execution.providers.normalization import (
     estimate_usage,
     extract_finish_reason,
     extract_message_channels,
-    looks_like_provider_soft_rejection,
-    retry_delay_seconds,
-    sanitize_payload_messages,
+    provider_cooldown_seconds,
 )
 from research_experiments.core.execution.providers.payloads import (
     estimate_request_tokens,
     realized_total_tokens,
 )
-from research_experiments.core.execution.rate_limits import RateLimitReservation, SlidingWindowRateLimiter
+from research_experiments.core.execution.rate_limits import RateLimitReservation, RequestThrottle
 
 
 @dataclass
@@ -78,7 +76,7 @@ class OpenAICompatibleProvider:
         self._closed = True
 
     def chat_completion(self, payload: dict[str, Any]) -> ProviderResponse:
-        """执行一次 chat completion 请求（不含重试，重试由调用方控制）。"""
+        """执行一次 chat completion 请求；传输层断连时换连接再发一次。"""
 
         if self._closed:
             raise RuntimeError("Provider client has already been closed.")
@@ -155,128 +153,98 @@ def execute_completion_request(
     provider: OpenAICompatibleProvider,
     payload: dict[str, Any],
     *,
-    limiter: SlidingWindowRateLimiter | None = None,
+    throttle: RequestThrottle | None = None,
 ) -> dict[str, Any]:
-    """统一执行一次 provider 请求，含重试。
+    """统一执行一次 provider 请求。
 
-    每次重试都经过限流器排队，确保 API 实际收到的请求数
-    与限流器记账一致。
+    HTTP 429 不在这里重试。重试会把同一个限流事件放大成请求风暴；
+    provider 返回的 Retry-After 只用于推进共享限流器的全局冷却窗口。
     """
-    active_payload = payload
-    sanitized_retry_used = False
-    last_error: Exception | None = None
-    max_retries = int(getattr(getattr(provider, "config", None), "max_retries", 0))
-
-    for attempt in range(max_retries + 1):
-        reservation: RateLimitReservation | None = None
-        if limiter is not None:
-            reservation = limiter.acquire(estimate_request_tokens(active_payload))
-        try:
-            response = provider.chat_completion(active_payload)
-            # Check for soft rejection
-            if looks_like_provider_soft_rejection(response.assistant_text) and not sanitized_retry_used:
-                active_payload = sanitize_payload_messages(active_payload)
-                sanitized_retry_used = True
-                if limiter is not None and reservation is not None:
-                    limiter.settle(reservation, realized_total_tokens({"usage_reported": response.usage_reported}))
-                time.sleep(retry_delay_seconds(None, attempt))
-                continue
-            response_payload = {
-                "http_status": response.http_status,
-                "raw_payload": response.raw_payload,
-                "assistant_text": response.assistant_text,
-                "provider_reasoning_text": response.provider_reasoning_text,
-                "finish_reason": response.finish_reason,
-                "usage_reported": response.usage_reported,
-                "usage_estimated": response.usage_estimated,
-                "usage_source": response.usage_source,
-                "latency_ms": response.latency_ms,
-                "provider_request_id": response.provider_request_id,
-                "response_id": response.response_id,
-                "request_error": None,
-            }
-            if limiter is not None and reservation is not None:
-                limiter.settle(reservation, realized_total_tokens(response_payload))
-            return response_payload
-        except httpx.HTTPStatusError as exc:
-            last_error = exc
-            if limiter is not None and reservation is not None:
-                limiter.settle(reservation, 0, http_status=exc.response.status_code)
-            if exc.response.status_code not in {408, 409, 429, 500, 502, 503, 504} or attempt == max_retries:
-                response_text = exc.response.text
-                provider_request_id = (
-                    exc.response.headers.get("x-request-id")
-                    or exc.response.headers.get("x-b3-traceid")
-                )
-                return {
-                    "http_status": exc.response.status_code,
-                    "raw_payload": {"error": f"Provider returned HTTP {exc.response.status_code}: {response_text}"},
-                    "assistant_text": "",
-                    "provider_reasoning_text": "",
-                    "finish_reason": None,
-                    "usage_reported": None,
-                    "usage_estimated": None,
-                    "usage_source": "missing",
-                    "latency_ms": 0.0,
-                    "provider_request_id": provider_request_id,
-                    "response_id": None,
-                    "request_error": f"Provider returned HTTP {exc.response.status_code}: {response_text}",
-                }
-            time.sleep(retry_delay_seconds(exc.response, attempt))
-        except httpx.TransportError as exc:
-            last_error = exc
-            provider._reset_shared_client(provider._client_handle.client)
-            if limiter is not None and reservation is not None:
-                limiter.settle(reservation, 0)
-            if attempt == max_retries:
-                return {
-                    "http_status": None,
-                    "raw_payload": {"error": f"Provider connection error after retries: {exc}"},
-                    "assistant_text": "",
-                    "provider_reasoning_text": "",
-                    "finish_reason": None,
-                    "usage_reported": None,
-                    "usage_estimated": None,
-                    "usage_source": "missing",
-                    "latency_ms": 0.0,
-                    "provider_request_id": None,
-                    "response_id": None,
-                    "request_error": f"Provider connection error after retries: {exc}",
-                }
-            time.sleep(min(2**attempt, 8))
-        except ProviderRequestError as exc:
-            last_error = exc
-            if limiter is not None and reservation is not None:
-                limiter.settle(reservation, 0, http_status=exc.http_status)
-            return {
-                "http_status": exc.http_status,
-                "raw_payload": {"error": exc.message},
-                "assistant_text": "",
-                "provider_reasoning_text": "",
-                "finish_reason": None,
-                "usage_reported": None,
-                "usage_estimated": None,
-                "usage_source": "missing",
-                "latency_ms": 0.0,
-                "provider_request_id": exc.provider_request_id,
-                "response_id": None,
-                "request_error": exc.message,
-            }
-
-    return {
-        "http_status": None,
-        "raw_payload": {"error": f"API request failed after retries: {last_error}"},
-        "assistant_text": "",
-        "provider_reasoning_text": "",
-        "finish_reason": None,
-        "usage_reported": None,
-        "usage_estimated": None,
-        "usage_source": "missing",
-        "latency_ms": 0.0,
-        "provider_request_id": None,
-        "response_id": None,
-        "request_error": f"API request failed after retries: {last_error}",
-    }
+    reservation: RateLimitReservation | None = None
+    throttle_context = throttle.reserve(estimate_request_tokens(payload)) if throttle is not None else None
+    try:
+        if throttle_context is not None:
+            reservation = throttle_context.__enter__()
+        response = provider.chat_completion(payload)
+        response_payload = {
+            "http_status": response.http_status,
+            "raw_payload": response.raw_payload,
+            "assistant_text": response.assistant_text,
+            "provider_reasoning_text": response.provider_reasoning_text,
+            "finish_reason": response.finish_reason,
+            "usage_reported": response.usage_reported,
+            "usage_estimated": response.usage_estimated,
+            "usage_source": response.usage_source,
+            "latency_ms": response.latency_ms,
+            "provider_request_id": response.provider_request_id,
+            "response_id": response.response_id,
+            "request_error": None,
+        }
+        if throttle is not None and reservation is not None:
+            throttle.settle(reservation, realized_total_tokens(response_payload))
+        return response_payload
+    except httpx.HTTPStatusError as exc:
+        if throttle is not None and exc.response.status_code == 429:
+            throttle.note_retry_after(provider_cooldown_seconds(exc.response))
+        if throttle is not None and reservation is not None:
+            throttle.settle(reservation, 0, http_status=exc.response.status_code)
+        response_text = exc.response.text
+        provider_request_id = (
+            exc.response.headers.get("x-request-id")
+            or exc.response.headers.get("x-b3-traceid")
+        )
+        return {
+            "http_status": exc.response.status_code,
+            "raw_payload": {"error": f"Provider returned HTTP {exc.response.status_code}: {response_text}"},
+            "assistant_text": "",
+            "provider_reasoning_text": "",
+            "finish_reason": None,
+            "usage_reported": None,
+            "usage_estimated": None,
+            "usage_source": "missing",
+            "latency_ms": 0.0,
+            "provider_request_id": provider_request_id,
+            "response_id": None,
+            "request_error": f"Provider returned HTTP {exc.response.status_code}: {response_text}",
+        }
+    except httpx.TransportError as exc:
+        provider._reset_shared_client(provider._client_handle.client)
+        if throttle is not None and reservation is not None:
+            throttle.settle(reservation, 0)
+        return {
+            "http_status": None,
+            "raw_payload": {"error": f"Provider connection error: {exc}"},
+            "assistant_text": "",
+            "provider_reasoning_text": "",
+            "finish_reason": None,
+            "usage_reported": None,
+            "usage_estimated": None,
+            "usage_source": "missing",
+            "latency_ms": 0.0,
+            "provider_request_id": None,
+            "response_id": None,
+            "request_error": f"Provider connection error: {exc}",
+        }
+    except ProviderRequestError as exc:
+        if throttle is not None and reservation is not None:
+            throttle.settle(reservation, 0, http_status=exc.http_status)
+        return {
+            "http_status": exc.http_status,
+            "raw_payload": {"error": exc.message},
+            "assistant_text": "",
+            "provider_reasoning_text": "",
+            "finish_reason": None,
+            "usage_reported": None,
+            "usage_estimated": None,
+            "usage_source": "missing",
+            "latency_ms": 0.0,
+            "provider_request_id": exc.provider_request_id,
+            "response_id": None,
+            "request_error": exc.message,
+        }
+    finally:
+        if throttle_context is not None:
+            throttle_context.__exit__(None, None, None)
 
 def _build_http_client() -> httpx.Client:
     """构造统一的长生命周期 HTTP client。"""

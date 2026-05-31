@@ -14,7 +14,7 @@ from research_experiments.core.controls.no_comm_controls import run_unified_cont
 from research_experiments.core.execution.artifacts import BufferedJsonlWriter
 from research_experiments.core.execution.cache import RequestCacheRouter
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from research_experiments.families.imad.config import (
     ImadExperimentConfig,
@@ -61,7 +61,9 @@ def run_experiment(
     protocol = load_protocol_config(experiment.protocol)
     provider = OpenAICompatibleProvider(backbone)
     cache_router = RequestCacheRouter(cache_root)
-    limiter = SlidingWindowRateLimiter(
+    throttle = RequestThrottle.for_model(
+        backbone,
+        max_concurrent_requests=experiment.max_concurrent_requests,
         requests_per_minute=experiment.requests_per_minute_limit,
         tokens_per_minute=experiment.tokens_per_minute_limit,
     )
@@ -72,6 +74,8 @@ def run_experiment(
         run_paths.progress,
         total_calls,
         total_predictions,
+        target_network_rpm=experiment.requests_per_minute_limit,
+        rate_limit_snapshot_provider=throttle.snapshot,
         planned_calls_are_upper_bound=True,
     )
 
@@ -102,103 +106,106 @@ def run_experiment(
     all_round_diagnostics: list[dict[str, Any]] = []
     final_predictions: list[dict[str, Any]] = []
 
-    with (
-        run_paths.agent_turns.open("w", encoding="utf-8") as turn_handle_raw,
-        run_paths.debate_messages.open("w", encoding="utf-8") as debate_handle_raw,
-        run_paths.round_diagnostics.open("w", encoding="utf-8") as round_handle_raw,
-        run_paths.final_predictions.open("w", encoding="utf-8") as prediction_handle_raw,
-    ):
-        turn_handle = BufferedJsonlWriter(turn_handle_raw)
-        debate_handle = BufferedJsonlWriter(debate_handle_raw)
-        round_handle = BufferedJsonlWriter(round_handle_raw)
-        prediction_handle = BufferedJsonlWriter(prediction_handle_raw)
-        for benchmark in benchmarks:
-            cache = cache_router.for_request_target(
-                provider=backbone.provider,
-                request_model=backbone.model_id,
-                dataset=benchmark.cache_namespace or benchmark.slug,
-            )
-            split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
-            samples = _load_selected_samples(benchmark, split_name)
-
-            for method in methods:
-                method_results = _run_method_batch(
-                    run_id=run_id,
-                    benchmark_slug=benchmark.slug,
-                    split_name=split_name,
-                    samples=samples,
-                    method=method,
-                    protocol=protocol,
-                    backbone=backbone,
-                    provider=provider,
-                    cache=cache,
-                    limiter=limiter,
-                    global_seed=experiment.global_seed,
-                    prompt_version=experiment.prompt_version,
-                    max_concurrent_requests=experiment.max_concurrent_requests,
+    try:
+        with (
+            run_paths.agent_turns.open("w", encoding="utf-8") as turn_handle_raw,
+            run_paths.debate_messages.open("w", encoding="utf-8") as debate_handle_raw,
+            run_paths.round_diagnostics.open("w", encoding="utf-8") as round_handle_raw,
+            run_paths.final_predictions.open("w", encoding="utf-8") as prediction_handle_raw,
+        ):
+            turn_handle = BufferedJsonlWriter(turn_handle_raw)
+            debate_handle = BufferedJsonlWriter(debate_handle_raw)
+            round_handle = BufferedJsonlWriter(round_handle_raw)
+            prediction_handle = BufferedJsonlWriter(prediction_handle_raw)
+            for benchmark in benchmarks:
+                cache = cache_router.for_request_target(
+                    provider=backbone.provider,
+                    request_model=backbone.model_id,
+                    dataset=benchmark.slug,
                 )
-                _write_sample_outputs(
-                    sample_results=method_results,
-                    dataset_slug=benchmark.slug,
-                    progress=progress,
-                    turn_handle=turn_handle,
-                    debate_handle=debate_handle,
-                    round_handle=round_handle,
-                    prediction_handle=prediction_handle,
-                    all_turns=all_turns,
-                    all_round_diagnostics=all_round_diagnostics,
-                    final_predictions=final_predictions,
-                )
+                split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
+                samples = _load_selected_samples(benchmark, split_name)
 
-            for control_name in control_names:
-                control_results = run_unified_control_batch(
-                    samples=samples,
-                    control_name=control_name,
-                    method=controls[control_name],
-                    run_id=run_id,
-                    benchmark_slug=benchmark.slug,
-                    split_name=split_name,
-                    backbone=backbone,
-                    provider=provider,
-                    cache=cache,
-                    limiter=limiter,
-                    global_seed=experiment.global_seed,
-                    max_concurrent_requests=experiment.max_concurrent_requests,
-                    execute_turn=_execute_turn,
-                    build_prediction_row=_build_control_prediction_row,
-                )
-                control_results_with_rounds = [
-                    (sample_index, turn_rows, debate_rows, [], prediction_row)
-                    for sample_index, turn_rows, debate_rows, prediction_row in control_results
-                ]
-                _write_sample_outputs(
-                    sample_results=control_results_with_rounds,
-                    dataset_slug=benchmark.slug,
-                    progress=progress,
-                    turn_handle=turn_handle,
-                    debate_handle=debate_handle,
-                    round_handle=round_handle,
-                    prediction_handle=prediction_handle,
-                    all_turns=all_turns,
-                    all_round_diagnostics=all_round_diagnostics,
-                    final_predictions=final_predictions,
-                )
+                for method in methods:
+                    method_results = _run_method_batch(
+                        run_id=run_id,
+                        benchmark_slug=benchmark.slug,
+                        split_name=split_name,
+                        samples=samples,
+                        method=method,
+                        protocol=protocol,
+                        backbone=backbone,
+                        provider=provider,
+                        cache=cache,
+                        throttle=throttle,
+                        global_seed=experiment.global_seed,
+                        prompt_version=experiment.prompt_version,
+                        max_concurrent_requests=experiment.max_concurrent_requests,
+                    )
+                    _write_sample_outputs(
+                        sample_results=method_results,
+                        dataset_slug=benchmark.slug,
+                        progress=progress,
+                        turn_handle=turn_handle,
+                        debate_handle=debate_handle,
+                        round_handle=round_handle,
+                        prediction_handle=prediction_handle,
+                        all_turns=all_turns,
+                        all_round_diagnostics=all_round_diagnostics,
+                        final_predictions=final_predictions,
+                    )
 
-    metrics = _build_metrics(final_predictions, methods)
-    stability_diagnostics = _build_stability_diagnostics(final_predictions, all_round_diagnostics)
-    cost_breakdown = _build_cost_breakdown(all_turns)
+                for control_name in control_names:
+                    control_results = run_unified_control_batch(
+                        samples=samples,
+                        control_name=control_name,
+                        method=controls[control_name],
+                        run_id=run_id,
+                        benchmark_slug=benchmark.slug,
+                        split_name=split_name,
+                        backbone=backbone,
+                        provider=provider,
+                        cache=cache,
+                        throttle=throttle,
+                        global_seed=experiment.global_seed,
+                        max_concurrent_requests=experiment.max_concurrent_requests,
+                        execute_turn=_execute_turn,
+                        build_prediction_row=_build_control_prediction_row,
+                    )
+                    control_results_with_rounds = (
+                        (sample_index, turn_rows, debate_rows, [], prediction_row)
+                        for sample_index, turn_rows, debate_rows, prediction_row in control_results
+                    )
+                    _write_sample_outputs(
+                        sample_results=control_results_with_rounds,
+                        dataset_slug=benchmark.slug,
+                        progress=progress,
+                        turn_handle=turn_handle,
+                        debate_handle=debate_handle,
+                        round_handle=round_handle,
+                        prediction_handle=prediction_handle,
+                        all_turns=all_turns,
+                        all_round_diagnostics=all_round_diagnostics,
+                        final_predictions=final_predictions,
+                    )
 
-    run_paths.metrics.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
-    run_paths.stability_diagnostics.write_text(json.dumps(stability_diagnostics, ensure_ascii=False, indent=2), encoding="utf-8")
-    run_paths.cost_breakdown.write_text(json.dumps(cost_breakdown, ensure_ascii=False, indent=2), encoding="utf-8")
-    run_paths.run_summary.write_text(json.dumps(summarize_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
-    render_report(run_paths.root)
-    finalize_run_outputs(
-        run_paths.root,
-        validator=validate_run,
-        validation_path=run_paths.run_validation,
-    )
-    progress.mark_completed()
-    provider.close()
-    cache_router.close()
-    return run_paths.root
+        metrics = _build_metrics(final_predictions, methods)
+        stability_diagnostics = _build_stability_diagnostics(final_predictions, all_round_diagnostics)
+        cost_breakdown = _build_cost_breakdown(all_turns)
+
+        run_paths.metrics.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
+        run_paths.stability_diagnostics.write_text(json.dumps(stability_diagnostics, ensure_ascii=False, indent=2), encoding="utf-8")
+        run_paths.cost_breakdown.write_text(json.dumps(cost_breakdown, ensure_ascii=False, indent=2), encoding="utf-8")
+        run_paths.run_summary.write_text(json.dumps(summarize_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
+        render_report(run_paths.root)
+        finalize_run_outputs(
+            run_paths.root,
+            validator=validate_run,
+            validation_path=run_paths.run_validation,
+        )
+        progress.mark_completed()
+        return run_paths.root
+    finally:
+        progress.close()
+        provider.close()
+        cache_router.close()

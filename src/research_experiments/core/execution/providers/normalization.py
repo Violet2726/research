@@ -51,40 +51,8 @@ def extract_message_channels(body: dict[str, Any]) -> tuple[str, str]:
     return assistant_text, provider_reasoning_text
 
 
-def looks_like_provider_soft_rejection(text: str) -> bool:
-    """判断 assistant 文本是否像 provider 的软拒答。"""
-
-    normalized = " ".join((text or "").split()).lower()
-    if not normalized:
-        return False
-    return normalized in {
-        "the request was rejected because it was considered high risk",
-        "request rejected because it was considered high risk",
-    }
-
-
-def sanitize_payload_messages(payload: dict[str, Any]) -> dict[str, Any]:
-    """把消息裁剪为更保守的 ASCII 版本，供软拒答后重试。"""
-
-    messages = payload.get("messages", [])
-    sanitized_messages: list[dict[str, Any]] = []
-    for message in messages:
-        if not isinstance(message, dict):
-            continue
-        content = str(message.get("content", ""))
-        ascii_content = content.encode("ascii", "ignore").decode("ascii")
-        ascii_content = " ".join(ascii_content.split())
-        sanitized_messages.append(
-            {
-                "role": str(message.get("role", "user")),
-                "content": ascii_content,
-            }
-        )
-    return {**payload, "messages": sanitized_messages}
-
-
-def retry_delay_seconds(response, attempt: int) -> float:
-    """计算下一次重试前的等待时间。"""
+def provider_cooldown_seconds(response) -> float:
+    """读取 provider 建议的冷却时间。"""
 
     if response is not None:
         retry_after = response.headers.get("retry-after")
@@ -93,7 +61,7 @@ def retry_delay_seconds(response, attempt: int) -> float:
                 return max(float(retry_after), 0.0)
             except ValueError:
                 pass
-    return min(2**attempt, 8)
+    return 8.0
 
 
 def extract_text_field(content: object) -> str:

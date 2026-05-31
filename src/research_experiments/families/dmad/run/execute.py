@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from research_experiments.core.execution.artifacts import BufferedJsonlWriter
 from research_experiments.core.execution.cache import RequestCacheRouter
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from research_experiments.families.dmad.config import (
     DmadExperimentConfig,
@@ -64,7 +64,9 @@ def run_experiment(
     }
     provider = OpenAICompatibleProvider(backbone)
     cache_router = RequestCacheRouter(cache_root)
-    limiter = SlidingWindowRateLimiter(
+    throttle = RequestThrottle.for_model(
+        backbone,
+        max_concurrent_requests=experiment.max_concurrent_requests,
         requests_per_minute=experiment.requests_per_minute_limit,
         tokens_per_minute=experiment.tokens_per_minute_limit,
     )
@@ -80,7 +82,13 @@ def run_experiment(
         controls,
         splits_root,
     )
-    progress = RunProgressTracker(run_paths.progress, total_calls, total_predictions)
+    progress = RunProgressTracker(
+        run_paths.progress,
+        total_calls,
+        total_predictions,
+        target_network_rpm=experiment.requests_per_minute_limit,
+        rate_limit_snapshot_provider=throttle.snapshot,
+    )
 
     manifest = {
         "run_id": run_id,
@@ -121,66 +129,69 @@ def run_experiment(
     all_debate_messages: list[dict[str, object]] = []
     final_predictions: list[dict[str, object]] = []
 
-    with (
-        run_paths.agent_turns.open("w", encoding="utf-8") as turn_handle_raw,
-        run_paths.debate_messages.open("w", encoding="utf-8") as debate_handle_raw,
-        run_paths.final_predictions.open("w", encoding="utf-8") as prediction_handle_raw,
-    ):
-        turn_handle = BufferedJsonlWriter(turn_handle_raw)
-        debate_handle = BufferedJsonlWriter(debate_handle_raw)
-        prediction_handle = BufferedJsonlWriter(prediction_handle_raw)
-        for benchmark in benchmarks:
-            cache = cache_router.for_request_target(
-                provider=backbone.provider,
-                request_model=backbone.model_id,
-                dataset=benchmark.cache_namespace or benchmark.slug,
-            )
-            split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
-            samples = _load_selected_samples(benchmark, split_name, splits_root)
-            sample_results = _run_sample_batch(
-                run_id=run_id,
-                benchmark_slug=benchmark.slug,
-                split_name=split_name,
-                samples=samples,
-                protocol=protocol,
-                methods=methods,
-                rosters=rosters,
-                controls=controls,
-                experiment=experiment,
-                backbone=backbone,
-                provider=provider,
-                cache=cache,
-                limiter=limiter,
-            )
-            _write_sample_outputs(
-                sample_results=sample_results,
-                dataset_slug=benchmark.slug,
-                progress=progress,
-                turn_handle=turn_handle,
-                debate_handle=debate_handle,
-                prediction_handle=prediction_handle,
-                all_turns=all_turns,
-                debate_messages=all_debate_messages,
-                final_predictions=final_predictions,
-            )
+    try:
+        with (
+            run_paths.agent_turns.open("w", encoding="utf-8") as turn_handle_raw,
+            run_paths.debate_messages.open("w", encoding="utf-8") as debate_handle_raw,
+            run_paths.final_predictions.open("w", encoding="utf-8") as prediction_handle_raw,
+        ):
+            turn_handle = BufferedJsonlWriter(turn_handle_raw)
+            debate_handle = BufferedJsonlWriter(debate_handle_raw)
+            prediction_handle = BufferedJsonlWriter(prediction_handle_raw)
+            for benchmark in benchmarks:
+                cache = cache_router.for_request_target(
+                    provider=backbone.provider,
+                    request_model=backbone.model_id,
+                    dataset=benchmark.slug,
+                )
+                split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
+                samples = _load_selected_samples(benchmark, split_name, splits_root)
+                sample_results = _run_sample_batch(
+                    run_id=run_id,
+                    benchmark_slug=benchmark.slug,
+                    split_name=split_name,
+                    samples=samples,
+                    protocol=protocol,
+                    methods=methods,
+                    rosters=rosters,
+                    controls=controls,
+                    experiment=experiment,
+                    backbone=backbone,
+                    provider=provider,
+                    cache=cache,
+                    throttle=throttle,
+                )
+                _write_sample_outputs(
+                    sample_results=sample_results,
+                    dataset_slug=benchmark.slug,
+                    progress=progress,
+                    turn_handle=turn_handle,
+                    debate_handle=debate_handle,
+                    prediction_handle=prediction_handle,
+                    all_turns=all_turns,
+                    debate_messages=all_debate_messages,
+                    final_predictions=final_predictions,
+                )
 
-    metrics = _build_metrics(final_predictions, model_name=backbone.name)
-    diagnostics = _build_strategy_diagnostics(final_predictions, evaluation_scope=experiment.evaluation_scope)
-    cost_breakdown = _build_cost_breakdown(all_turns)
-    paper_tables = _build_paper_tables(final_predictions, evaluation_scope=experiment.evaluation_scope)
+        metrics = _build_metrics(final_predictions, model_name=backbone.name)
+        diagnostics = _build_strategy_diagnostics(final_predictions, evaluation_scope=experiment.evaluation_scope)
+        cost_breakdown = _build_cost_breakdown(all_turns)
+        paper_tables = _build_paper_tables(final_predictions, evaluation_scope=experiment.evaluation_scope)
 
-    run_paths.metrics.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
-    run_paths.strategy_diagnostics.write_text(json.dumps(diagnostics, ensure_ascii=False, indent=2), encoding="utf-8")
-    run_paths.cost_breakdown.write_text(json.dumps(cost_breakdown, ensure_ascii=False, indent=2), encoding="utf-8")
-    run_paths.paper_tables.write_text(json.dumps(paper_tables, ensure_ascii=False, indent=2), encoding="utf-8")
-    run_paths.run_summary.write_text(json.dumps(summarize_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
-    render_report(run_paths.root)
-    finalize_run_outputs(
-        run_paths.root,
-        validator=validate_run,
-        validation_path=run_paths.run_validation,
-    )
-    progress.mark_completed()
-    provider.close()
-    cache_router.close()
-    return run_paths.root
+        run_paths.metrics.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
+        run_paths.strategy_diagnostics.write_text(json.dumps(diagnostics, ensure_ascii=False, indent=2), encoding="utf-8")
+        run_paths.cost_breakdown.write_text(json.dumps(cost_breakdown, ensure_ascii=False, indent=2), encoding="utf-8")
+        run_paths.paper_tables.write_text(json.dumps(paper_tables, ensure_ascii=False, indent=2), encoding="utf-8")
+        run_paths.run_summary.write_text(json.dumps(summarize_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
+        render_report(run_paths.root)
+        finalize_run_outputs(
+            run_paths.root,
+            validator=validate_run,
+            validation_path=run_paths.run_validation,
+        )
+        progress.mark_completed()
+        return run_paths.root
+    finally:
+        progress.close()
+        provider.close()
+        cache_router.close()

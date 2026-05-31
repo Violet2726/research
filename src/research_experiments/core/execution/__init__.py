@@ -25,15 +25,16 @@ from research_experiments.core.execution.rate_limits import (
     STANDARD_REQUESTS_PER_MINUTE_LIMIT,
     STANDARD_TOKENS_PER_MINUTE_LIMIT,
     RateLimitReservation,
+    RequestThrottle,
     SlidingWindowRateLimiter,
     standard_runtime_limits,
 )
 from research_experiments.core.execution.runner_common import (
     CachedTurnResult,
     execute_cached_turn,
+    iter_indexed_batch,
     prepare_run_root,
     prompt_hash,
-    run_indexed_batch,
 )
 from research_experiments.core.execution.runtime import (
     RunProgressTracker,
@@ -60,6 +61,7 @@ __all__ = [
     "format_bytes",
     "repair_cache_shard",
     "RateLimitReservation",
+    "RequestThrottle",
     "SlidingWindowRateLimiter",
     "STANDARD_MAX_CONCURRENT_REQUESTS",
     "STANDARD_REQUESTS_PER_MINUTE_LIMIT",
@@ -68,7 +70,7 @@ __all__ = [
     "CachedTurnResult",
     "prepare_run_root",
     "prompt_hash",
-    "run_indexed_batch",
+    "iter_indexed_batch",
     "execute_cached_turn",
     "RunProgressTracker",
     "build_run_id",

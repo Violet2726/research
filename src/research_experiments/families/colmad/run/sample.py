@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import partial
 from typing import Any
@@ -10,8 +11,8 @@ from research_experiments.core.data.datasets import DatasetSample, load_split_id
 from research_experiments.core.data.evaluation import normalize_prediction, score_prediction
 from research_experiments.core.execution.cache import RequestCache
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
-from research_experiments.core.execution.runner_common import execute_cached_turn, run_indexed_batch
+from research_experiments.core.execution.rate_limits import RequestThrottle
+from research_experiments.core.execution.runner_common import execute_cached_turn, iter_indexed_batch
 from research_experiments.families.colmad.config import ColmadExperimentConfig, ColmadMethodSpec, ProtocolConfig
 from research_experiments.families.colmad.prompts import (
     build_debater_opening_messages,
@@ -82,8 +83,8 @@ def _run_sample_batch(
     backbone,
     provider,
     cache,
-    limiter,
-) -> list[SampleResult]:
+    throttle,
+) -> Iterable[SampleResult]:
     worker = partial(
         _run_sample,
         run_id=run_id,
@@ -94,9 +95,10 @@ def _run_sample_batch(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
     )
-    return [result for _, result in run_indexed_batch(samples, worker=worker, max_concurrent_requests=experiment.max_concurrent_requests)]
+    for _, result in iter_indexed_batch(samples, worker=worker, max_concurrent_requests=experiment.max_concurrent_requests):
+        yield result
 
 
 def _run_sample(
@@ -110,7 +112,7 @@ def _run_sample(
     backbone,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
 ) -> SampleResult:
     debate_rows: list[dict[str, Any]] = []
     judge_rows: list[dict[str, Any]] = []
@@ -129,7 +131,7 @@ def _run_sample(
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
-                limiter=limiter,
+                throttle=throttle,
                 seed=experiment.global_seed + _stable_sample_seed(sample.sample_id),
             )
             debate_rows.append(detector_turn)
@@ -148,7 +150,7 @@ def _run_sample(
             backbone=backbone,
             provider=provider,
             cache=cache,
-            limiter=limiter,
+            throttle=throttle,
             seed=experiment.global_seed + _stable_sample_seed(sample.sample_id),
         )
         debate_rows.extend(debate_chunk)
@@ -180,7 +182,7 @@ def _run_single_agent_method(
     backbone,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
     seed: int,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     turn_row = _execute_structured_turn(
@@ -198,7 +200,7 @@ def _run_single_agent_method(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         temperature=protocol.opening_temperature,
         top_p=protocol.top_p,
         max_output_tokens=protocol.max_output_tokens,
@@ -241,7 +243,7 @@ def _run_debate_method(
     backbone,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
     seed: int,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
     debate_rows: list[dict[str, Any]] = []
@@ -264,7 +266,7 @@ def _run_debate_method(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         temperature=protocol.opening_temperature,
         top_p=protocol.top_p,
         max_output_tokens=protocol.max_output_tokens,
@@ -290,7 +292,7 @@ def _run_debate_method(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         temperature=protocol.opening_temperature,
         top_p=protocol.top_p,
         max_output_tokens=protocol.max_output_tokens,
@@ -326,7 +328,7 @@ def _run_debate_method(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         temperature=protocol.reply_temperature,
         top_p=protocol.top_p,
         max_output_tokens=protocol.max_output_tokens,
@@ -358,7 +360,7 @@ def _run_debate_method(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         temperature=protocol.reply_temperature,
         top_p=protocol.top_p,
         max_output_tokens=protocol.max_output_tokens,
@@ -377,7 +379,7 @@ def _run_debate_method(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         temperature=protocol.judge_temperature,
         top_p=protocol.top_p,
         max_output_tokens=protocol.max_output_tokens,
@@ -447,7 +449,7 @@ def _execute_structured_turn(
     backbone,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
     temperature: float,
     top_p: float,
     max_output_tokens: int,
@@ -457,7 +459,7 @@ def _execute_structured_turn(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         messages=messages,
         temperature=temperature,
         top_p=top_p,

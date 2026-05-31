@@ -29,7 +29,7 @@ from research_experiments.core.execution.cache import (
 from research_experiments.core.execution.providers import (
     OpenAICompatibleProvider,
 )
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from research_experiments.core.structured_outputs import (
     ARTIFACT_VERSION,
@@ -82,9 +82,19 @@ def run_experiment(
     run_id = build_run_id(primary_model.name if primary_model is not None else "")
     run_paths = prepare_registered_run_layout('single_agent', run_root, experiment.name, phase_name, run_id)
     cache_router = RequestCacheRouter(cache_root)
-    rate_limiter = SlidingWindowRateLimiter(
-        requests_per_minute=experiment.requests_per_minute_limit,
-        tokens_per_minute=experiment.tokens_per_minute_limit,
+    rate_throttle = (
+        RequestThrottle.for_model(
+            primary_model,
+            max_concurrent_requests=experiment.max_concurrent_requests,
+            requests_per_minute=experiment.requests_per_minute_limit,
+            tokens_per_minute=experiment.tokens_per_minute_limit,
+        )
+        if primary_model is not None
+        else RequestThrottle(
+            max_concurrent_requests=experiment.max_concurrent_requests,
+            requests_per_minute=experiment.requests_per_minute_limit,
+            tokens_per_minute=experiment.tokens_per_minute_limit,
+        )
     )
     total_planned_calls, total_planned_predictions = _estimate_run_work(
         experiment=experiment,
@@ -98,6 +108,8 @@ def run_experiment(
         progress_path=run_paths.progress,
         total_planned_calls=total_planned_calls,
         total_planned_predictions=total_planned_predictions,
+        target_network_rpm=experiment.requests_per_minute_limit,
+        rate_limit_snapshot_provider=rate_throttle.snapshot,
     )
 
     # manifest 记录的是“这次运行最终使用了什么配置”，它是最重要的审计入口。
@@ -128,68 +140,77 @@ def run_experiment(
     run_paths.manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     all_predictions: list[dict[str, Any]] = []
-    with (
-        run_paths.raw_responses.open("w", encoding="utf-8") as raw_handle,
-        run_paths.predictions.open("w", encoding="utf-8") as pred_handle,
-    ):
-        raw_writer = BufferedJsonlWriter(raw_handle)
-        prediction_writer = BufferedJsonlWriter(pred_handle)
-        for model in models:
-            if not _model_is_allowed(experiment, phase_name, model):
-                continue
-            provider = OpenAICompatibleProvider(model)
-            for benchmark in benchmarks:
-                if not _benchmark_is_allowed(experiment, phase_name, model, benchmark.slug):
+    provider: OpenAICompatibleProvider | None = None
+    try:
+        with (
+            run_paths.raw_responses.open("w", encoding="utf-8") as raw_handle,
+            run_paths.predictions.open("w", encoding="utf-8") as pred_handle,
+        ):
+            raw_writer = BufferedJsonlWriter(raw_handle)
+            prediction_writer = BufferedJsonlWriter(pred_handle)
+            for model in models:
+                if not _model_is_allowed(experiment, phase_name, model):
                     continue
-                cache = cache_router.for_request_target(
-                    provider=model.provider,
-                    request_model=model.model_id,
-                    dataset=benchmark.cache_namespace or benchmark.slug,
-                )
-                split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
-                selected_samples = select_samples(benchmark, split_name)
-
-                for method in methods:
-                    # CoT 是单次确定性求解；其余方法通过多次调用形成同预算对比。
-                    reruns = (
-                        1 if method.family == "cot"
-                        else int(phase.get("reruns_override", experiment.reruns_per_method))
-                    )
-                    for rerun_index in range(reruns):
-                        batch_predictions = _run_method_batch(
-                            run_id=run_id,
-                            phase_name=phase_name,
-                            experiment=experiment,
-                            benchmark=benchmark,
-                            model=model,
-                            method=method,
-                            samples=selected_samples,
-                            provider=provider,
-                            cache=cache,
-                            rate_limiter=rate_limiter,
-                            progress=progress,
-                            rerun_index=rerun_index,
-                            raw_writer=raw_writer,
+                provider = OpenAICompatibleProvider(model)
+                try:
+                    for benchmark in benchmarks:
+                        if not _benchmark_is_allowed(experiment, phase_name, model, benchmark.slug):
+                            continue
+                        cache = cache_router.for_request_target(
+                            provider=model.provider,
+                            request_model=model.model_id,
+                            dataset=benchmark.slug,
                         )
-                        for record in batch_predictions:
-                            prediction_writer.write_row(record)
-                        all_predictions.extend(batch_predictions)
-            provider.close()
+                        split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
+                        selected_samples = select_samples(benchmark, split_name)
 
-    metrics_payload = _aggregate_metrics(all_predictions)
-    run_paths.metrics.write_text(json.dumps(metrics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    _write_leaderboard(Path(default_reports_root("single_agent")) / "leaderboard.csv", all_predictions)
-    run_paths.run_summary.write_text(
-        json.dumps(summarize_run(run_paths.root), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    render_report(run_paths.root)
-    export_paper_tables(run_paths.root, run_paths.paper_tables)
-    finalize_run_outputs(
-        run_paths.root,
-        validator=validate_run,
-        validation_path=run_paths.run_validation,
-    )
-    progress.mark_completed()
-    cache_router.close()
-    return run_paths.root
+                        for method in methods:
+                            # CoT ???????????????????????????
+                            reruns = (
+                                1 if method.family == "cot"
+                                else int(phase.get("reruns_override", experiment.reruns_per_method))
+                            )
+                            for rerun_index in range(reruns):
+                                batch_predictions = _run_method_batch(
+                                    run_id=run_id,
+                                    phase_name=phase_name,
+                                    experiment=experiment,
+                                    benchmark=benchmark,
+                                    model=model,
+                                    method=method,
+                                    samples=selected_samples,
+                                    provider=provider,
+                                    cache=cache,
+                                    rate_throttle=rate_throttle,
+                                    progress=progress,
+                                    rerun_index=rerun_index,
+                                    raw_writer=raw_writer,
+                                )
+                                for record in batch_predictions:
+                                    prediction_writer.write_row(record)
+                                all_predictions.extend(batch_predictions)
+                finally:
+                    provider.close()
+                    provider = None
+
+        metrics_payload = _aggregate_metrics(all_predictions)
+        run_paths.metrics.write_text(json.dumps(metrics_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        _write_leaderboard(Path(default_reports_root("single_agent")) / "leaderboard.csv", all_predictions)
+        run_paths.run_summary.write_text(
+            json.dumps(summarize_run(run_paths.root), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        render_report(run_paths.root)
+        export_paper_tables(run_paths.root, run_paths.paper_tables)
+        finalize_run_outputs(
+            run_paths.root,
+            validator=validate_run,
+            validation_path=run_paths.run_validation,
+        )
+        progress.mark_completed()
+        return run_paths.root
+    finally:
+        progress.close()
+        if provider is not None:
+            provider.close()
+        cache_router.close()

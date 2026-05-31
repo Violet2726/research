@@ -12,10 +12,10 @@ from research_experiments.core.data.evaluation import aggregate_majority as eval
 from research_experiments.core.data.evaluation import normalize_prediction, score_prediction
 from research_experiments.core.execution.cache import RequestCache
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.execution.runner_common import (
     execute_cached_turn,
-    run_indexed_batch,
+    iter_indexed_batch,
 )
 from research_experiments.core.execution.runtime import RunProgressTracker
 from research_experiments.core.structured_outputs import (
@@ -109,7 +109,7 @@ def _run_sample_batch(
     backbone,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
     on_complete=None,
 ) -> None:
     worker = partial(
@@ -124,9 +124,9 @@ def _run_sample_batch(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
     )
-    for _, result in run_indexed_batch(
+    for _, result in iter_indexed_batch(
         samples,
         worker=worker,
         max_concurrent_requests=experiment.max_concurrent_requests,
@@ -177,7 +177,7 @@ def _run_sample(
     backbone,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
 ) -> SampleResult:
     question_preview = _question_preview(sample.question)
     stage_a_specs = [
@@ -196,7 +196,7 @@ def _run_sample(
             "backbone": backbone,
             "provider": provider,
             "cache": cache,
-            "limiter": limiter,
+            "throttle": throttle,
             "temperature": protocol.initial_temperature,
             "top_p": protocol.top_p,
             "max_output_tokens": protocol.max_output_tokens,
@@ -248,7 +248,7 @@ def _run_sample(
             backbone=backbone,
             provider=provider,
             cache=cache,
-            limiter=limiter,
+            throttle=throttle,
             question_preview=question_preview,
             stage_a_turns=stage_a_turns,
             stage_a_vote=stage_a_vote,
@@ -408,7 +408,7 @@ def _run_sample(
             backbone=backbone,
             provider=provider,
             cache=cache,
-            limiter=limiter,
+            throttle=throttle,
             question_preview=question_preview,
         )
         control_turns.extend(control_result["turn_rows"])
@@ -434,7 +434,7 @@ def _run_shared_communication(
     backbone,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
     question_preview: str,
     stage_a_turns: list[dict[str, Any]],
     stage_a_vote: str,
@@ -489,7 +489,7 @@ def _run_shared_communication(
                 "backbone": backbone,
                 "provider": provider,
                 "cache": cache,
-                "limiter": limiter,
+                "throttle": throttle,
                 "temperature": protocol.debate_temperature,
                 "top_p": protocol.top_p,
                 "max_output_tokens": protocol.max_output_tokens,
@@ -540,7 +540,7 @@ def _run_shared_communication(
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
-                limiter=limiter,
+                throttle=throttle,
                 temperature=0.0,
                 top_p=1.0,
                 max_output_tokens=protocol.audit_token_cap,
@@ -590,7 +590,7 @@ def _run_control_method(
     backbone,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
     question_preview: str,
 ) -> dict[str, Any]:
     turn_specs = [
@@ -609,7 +609,7 @@ def _run_control_method(
             "backbone": backbone,
             "provider": provider,
             "cache": cache,
-            "limiter": limiter,
+            "throttle": throttle,
             "temperature": control.temperature,
             "top_p": control.top_p,
             "max_output_tokens": control.max_output_tokens,
@@ -706,7 +706,7 @@ def _execute_turn(
     backbone,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
     temperature: float,
     top_p: float,
     max_output_tokens: int,
@@ -718,7 +718,7 @@ def _execute_turn(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         messages=messages,
         temperature=temperature,
         top_p=top_p,

@@ -53,7 +53,7 @@ ARTIFACT_ALIASES = {
 "message_packets": "turns/message_packets.jsonl",
 "belief_updates": "turns/belief_updates.jsonl",
 "final_predictions": "views/predictions.jsonl",
-"diagnostics": "diagnostics/diagnostics.json",
+"diagnostics_path": "diagnostics/diagnostics.json",
 "run_validation": "run_validation.json",
 "paper_summary": "exports/paper_summary.csv",
 }

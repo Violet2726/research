@@ -38,10 +38,10 @@ from research_experiments.core.execution.providers import (
     build_payload,
     execute_completion_request,
 )
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.execution.runner_common import (
     execute_cached_turn,
-    run_indexed_batch,
+    iter_indexed_batch,
 )
 from research_experiments.core.execution.runner_common import (
     prompt_hash as build_prompt_hash,
@@ -112,7 +112,7 @@ def _run_method_batch(
     samples: list[DatasetSample],
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    rate_limiter: SlidingWindowRateLimiter,
+    rate_throttle: RequestThrottle,
     progress: RunProgressTracker,
     rerun_index: int,
     raw_writer: BufferedJsonlWriter,
@@ -129,7 +129,7 @@ def _run_method_batch(
             samples=samples,
             provider=provider,
             cache=cache,
-            rate_limiter=rate_limiter,
+            rate_throttle=rate_throttle,
             progress=progress,
             rerun_index=rerun_index,
             raw_writer=raw_writer,
@@ -164,7 +164,7 @@ def _run_method_batch(
             call_specs.append(
                 CallSpec(
                     run_id=run_id,
-                    dataset=benchmark.cache_namespace or benchmark.slug,
+                    dataset=benchmark.slug,
                     split_name=split_name,
                     sample_id=sample.sample_id,
                     sample_order=sample_order,
@@ -193,10 +193,10 @@ def _run_method_batch(
         _execute_call,
         provider=provider,
         cache=cache,
-        rate_limiter=rate_limiter,
+        rate_throttle=rate_throttle,
     )
     call_logs: list[dict[str, Any]] = []
-    for _, call_log in run_indexed_batch(
+    for _, call_log in iter_indexed_batch(
         call_specs,
         worker=worker,
         max_concurrent_requests=experiment.max_concurrent_requests,
@@ -259,7 +259,7 @@ def _run_shared_no_comm_batch(
     samples: list[DatasetSample],
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    rate_limiter: SlidingWindowRateLimiter,
+    rate_throttle: RequestThrottle,
     progress: RunProgressTracker,
     rerun_index: int,
     raw_writer: BufferedJsonlWriter,
@@ -276,14 +276,14 @@ def _run_shared_no_comm_batch(
         model=model,
         provider=provider,
         cache=cache,
-        rate_limiter=rate_limiter,
+        rate_throttle=rate_throttle,
         global_seed=experiment.global_seed + rerun_index,
         rerun_index=rerun_index,
         sample_order_by_id=sample_order_by_id,
     )
 
     predictions: list[dict[str, Any]] = []
-    for _, (turn_rows, prediction_row) in run_indexed_batch(
+    for _, (turn_rows, prediction_row) in iter_indexed_batch(
         samples,
         worker=worker,
         max_concurrent_requests=experiment.max_concurrent_requests,
@@ -307,7 +307,7 @@ def _run_shared_no_comm_sample(
     model: ResolvedModelConfig,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    rate_limiter: SlidingWindowRateLimiter,
+    rate_throttle: RequestThrottle,
     global_seed: int,
     rerun_index: int,
     sample_order_by_id: dict[str, int],
@@ -323,7 +323,7 @@ def _run_shared_no_comm_sample(
         backbone=model,
         provider=provider,
         cache=cache,
-        limiter=rate_limiter,
+        throttle=rate_throttle,
         global_seed=global_seed,
         execute_turn=partial(
             _execute_shared_no_comm_turn,
@@ -354,7 +354,7 @@ def _execute_shared_no_comm_turn(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     temperature: float,
     top_p: float,
     max_output_tokens: int,
@@ -369,7 +369,7 @@ def _execute_shared_no_comm_turn(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         messages=messages,
         temperature=temperature,
         top_p=top_p,
@@ -457,7 +457,7 @@ def _execute_call(
     spec: CallSpec,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    rate_limiter: SlidingWindowRateLimiter,
+    rate_throttle: RequestThrottle,
 ) -> dict[str, Any]:
     """执行一次实际调用，必要时命中缓存，并整理成统一日志结构。"""
     if (
@@ -471,7 +471,7 @@ def _execute_call(
             backbone=spec.backbone,
             provider=provider,
             cache=cache,
-            limiter=rate_limiter,
+            throttle=rate_throttle,
             messages=spec.messages,
             temperature=spec.temperature,
             top_p=spec.top_p,
@@ -485,7 +485,7 @@ def _execute_call(
             response_payload = execute_completion_request(
                 provider,
                 spec.payload,
-                limiter=rate_limiter,
+                throttle=rate_throttle,
             )
             cache_hit = False
         else:

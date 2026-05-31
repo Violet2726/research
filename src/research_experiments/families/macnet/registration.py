@@ -54,9 +54,9 @@ ARTIFACT_ALIASES = {
 "final_predictions": "views/predictions.jsonl",
 "topology_manifest": "exports/topology_manifest.json",
 "scaling_summary": "diagnostics/scaling_summary.json",
-"report": "report.md",
-"figure_manifest": "figure_manifest.json",
-"archive_manifest": "archive_manifest.json",
+"report_path": "report.md",
+"figure_manifest_path": "figure_manifest.json",
+"archive_manifest_path": "archive_manifest.json",
 "run_validation": "run_validation.json",
 }
 

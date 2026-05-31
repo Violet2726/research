@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from functools import partial
 from typing import Any
 
 from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples
 from research_experiments.core.data.evaluation import aggregate_majority, normalize_prediction, score_prediction
-from research_experiments.core.execution.runner_common import execute_cached_turn, run_indexed_batch
+from research_experiments.core.execution.runner_common import execute_cached_turn, iter_indexed_batch
 from research_experiments.core.structured_outputs import ARTIFACT_VERSION, SCHEMA_ANSWER_CORE
 from research_experiments.families.dmad.config import DmadExperimentConfig, DmadMethodSpec, ProtocolConfig, RosterConfig
 from research_experiments.families.dmad.prompts import (
@@ -247,8 +248,8 @@ def _run_sample_batch(
     backbone,
     provider,
     cache,
-    limiter,
-) -> list[tuple[int, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]]:
+    throttle,
+) -> Iterator[tuple[int, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]]:
     worker = partial(
         _run_sample,
         run_id=run_id,
@@ -262,16 +263,14 @@ def _run_sample_batch(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
     )
-    return [
-        (sample_index, *result)
-        for sample_index, result in run_indexed_batch(
-            samples,
-            worker=worker,
-            max_concurrent_requests=experiment.max_concurrent_requests,
-        )
-    ]
+    for sample_index, result in iter_indexed_batch(
+        samples,
+        worker=worker,
+        max_concurrent_requests=experiment.max_concurrent_requests,
+    ):
+        yield (sample_index, *result)
 
 
 def _write_sample_outputs(
@@ -314,7 +313,7 @@ def _run_sample(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     turn_rows: list[dict[str, Any]] = []
     debate_rows: list[dict[str, Any]] = []
@@ -331,7 +330,7 @@ def _run_sample(
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
-                limiter=limiter,
+                throttle=throttle,
                 experiment=experiment,
                 protocol=protocol,
                 seed_offset=method_index * 10_000,
@@ -349,7 +348,7 @@ def _run_sample(
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
-                limiter=limiter,
+                throttle=throttle,
                 experiment=experiment,
                 protocol=protocol,
                 seed_offset=method_index * 10_000,
@@ -367,7 +366,7 @@ def _run_sample(
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
-                limiter=limiter,
+                throttle=throttle,
                 experiment=experiment,
                 protocol=protocol,
                 seed_offset=method_index * 10_000,
@@ -385,7 +384,7 @@ def _run_sample(
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
-                limiter=limiter,
+                throttle=throttle,
                 experiment=experiment,
                 protocol=protocol,
                 seed_offset=method_index * 10_000,
@@ -403,7 +402,7 @@ def _run_sample(
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
-                limiter=limiter,
+                throttle=throttle,
                 experiment=experiment,
                 protocol=protocol,
                 seed_offset=method_index * 10_000,
@@ -421,7 +420,7 @@ def _run_sample(
             backbone=backbone,
             provider=provider,
             cache=cache,
-            limiter=limiter,
+            throttle=throttle,
             experiment=experiment,
             protocol=protocol,
             seed_offset=method_index * 10_000,
@@ -442,7 +441,7 @@ def _run_single_reasoning(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     experiment: DmadExperimentConfig,
     protocol: ProtocolConfig,
     seed_offset: int,
@@ -466,7 +465,7 @@ def _run_single_reasoning(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         temperature=0.0,
         top_p=1.0,
         max_output_tokens=256,
@@ -506,7 +505,7 @@ def _run_single_agent_reflection(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     experiment: DmadExperimentConfig,
     protocol: ProtocolConfig,
     seed_offset: int,
@@ -530,7 +529,7 @@ def _run_single_agent_reflection(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         temperature=0.0,
         top_p=1.0,
         max_output_tokens=256,
@@ -559,7 +558,7 @@ def _run_single_agent_reflection(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         temperature=0.0,
         top_p=1.0,
         max_output_tokens=160,
@@ -589,7 +588,7 @@ def _run_single_agent_reflection(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         temperature=0.0,
         top_p=1.0,
         max_output_tokens=256,
@@ -629,7 +628,7 @@ def _run_self_consistency(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     experiment: DmadExperimentConfig,
     protocol: ProtocolConfig,
     seed_offset: int,
@@ -657,7 +656,7 @@ def _run_self_consistency(
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
-                limiter=limiter,
+                throttle=throttle,
                 temperature=0.7,
                 top_p=1.0,
                 max_output_tokens=256,
@@ -698,7 +697,7 @@ def _run_self_contrast(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     experiment: DmadExperimentConfig,
     protocol: ProtocolConfig,
     seed_offset: int,
@@ -726,7 +725,7 @@ def _run_self_contrast(
             backbone=backbone,
             provider=provider,
             cache=cache,
-            limiter=limiter,
+            throttle=throttle,
             temperature=0.0,
             top_p=1.0,
             max_output_tokens=256,
@@ -758,7 +757,7 @@ def _run_self_contrast(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         temperature=0.0,
         top_p=1.0,
         max_output_tokens=256,
@@ -787,7 +786,7 @@ def _run_self_contrast(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         temperature=0.0,
         top_p=1.0,
         max_output_tokens=256,
@@ -828,7 +827,7 @@ def _run_mrp(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     experiment: DmadExperimentConfig,
     protocol: ProtocolConfig,
     seed_offset: int,
@@ -845,7 +844,7 @@ def _run_mrp(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         seed=experiment.global_seed + seed_offset,
         prompt_version=experiment.prompt_version,
     )
@@ -868,7 +867,7 @@ def _run_mrp(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         temperature=0.0,
         top_p=1.0,
         max_output_tokens=256,
@@ -910,7 +909,7 @@ def _run_mad_method(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     experiment: DmadExperimentConfig,
     protocol: ProtocolConfig,
     seed_offset: int,
@@ -977,7 +976,7 @@ def _run_mad_method(
                     backbone=backbone,
                     provider=provider,
                     cache=cache,
-                    limiter=limiter,
+                    throttle=throttle,
                     temperature=_joint_round_temperature(protocol, round_index=round_index),
                     top_p=protocol.top_p,
                     max_output_tokens=_joint_round_max_output_tokens(protocol),
@@ -1026,7 +1025,7 @@ def _run_mad_method(
                     backbone=backbone,
                     provider=provider,
                     cache=cache,
-                    limiter=limiter,
+                    throttle=throttle,
                     temperature=protocol.initial_temperature if round_index == 1 else protocol.debate_temperature,
                     top_p=protocol.top_p,
                     max_output_tokens=protocol.max_output_tokens,
@@ -1064,7 +1063,7 @@ def _run_mad_method(
                     backbone=backbone,
                     provider=provider,
                     cache=cache,
-                    limiter=limiter,
+                    throttle=throttle,
                     temperature=0.0,
                     top_p=protocol.top_p,
                     max_output_tokens=min(128, protocol.max_output_tokens),
@@ -1684,7 +1683,7 @@ def _execute_process_turn(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     temperature: float,
     top_p: float,
     max_output_tokens: int,
@@ -1700,7 +1699,7 @@ def _execute_process_turn(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         messages=messages,
         temperature=temperature,
         top_p=top_p,
@@ -1766,7 +1765,7 @@ def _execute_feedback_turn(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     temperature: float,
     top_p: float,
     max_output_tokens: int,
@@ -1776,7 +1775,7 @@ def _execute_feedback_turn(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         messages=messages,
         temperature=temperature,
         top_p=top_p,
@@ -1839,7 +1838,7 @@ def _execute_reasoning_answer_turn(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     temperature: float,
     top_p: float,
     max_output_tokens: int,
@@ -1864,7 +1863,7 @@ def _execute_reasoning_answer_turn(
             backbone=backbone,
             provider=provider,
             cache=cache,
-            limiter=limiter,
+            throttle=throttle,
             temperature=temperature,
             top_p=top_p,
             max_output_tokens=max_output_tokens,
@@ -1874,7 +1873,7 @@ def _execute_reasoning_answer_turn(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         messages=messages,
         temperature=temperature,
         top_p=top_p,
@@ -1937,7 +1936,7 @@ def _execute_method_selection_turn(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     seed: int,
     prompt_version: str,
 ) -> dict[str, Any]:
@@ -1945,7 +1944,7 @@ def _execute_method_selection_turn(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         messages=build_mrp_method_selection_messages(
             sample,
             candidate_methods,
@@ -2014,7 +2013,7 @@ def _execute_turn(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     temperature: float,
     top_p: float,
     max_output_tokens: int,
@@ -2024,7 +2023,7 @@ def _execute_turn(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         messages=messages,
         temperature=temperature,
         top_p=top_p,

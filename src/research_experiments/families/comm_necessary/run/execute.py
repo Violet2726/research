@@ -20,7 +20,7 @@ from research_experiments.core.data.datasets import select_samples
 from research_experiments.core.execution.artifacts import BufferedJsonlWriter
 from research_experiments.core.execution.cache import RequestCacheRouter
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from research_experiments.families.comm_necessary.config import (
     CommNecessaryExperimentConfig,
@@ -59,7 +59,9 @@ def run_experiment(
     benchmarks = load_benchmarks(experiment)
     provider = OpenAICompatibleProvider(backbone)
     cache_router = RequestCacheRouter(cache_root)
-    limiter = SlidingWindowRateLimiter(
+    throttle = RequestThrottle.for_model(
+        backbone,
+        max_concurrent_requests=experiment.max_concurrent_requests,
         requests_per_minute=experiment.requests_per_minute_limit,
         tokens_per_minute=experiment.tokens_per_minute_limit,
     )
@@ -67,7 +69,13 @@ def run_experiment(
     run_id = build_run_id(backbone.name)
     paths = prepare_registered_run_layout('comm_necessary', run_root, experiment.name, phase_name, run_id)
     total_calls, total_predictions = _estimate_work(experiment, phase_name, benchmarks, protocol)
-    progress = RunProgressTracker(paths.progress, total_calls, total_predictions)
+    progress = RunProgressTracker(
+        paths.progress,
+        total_calls,
+        total_predictions,
+        target_network_rpm=experiment.requests_per_minute_limit,
+        rate_limit_snapshot_provider=throttle.snapshot,
+    )
 
     manifest = {
         "run_id": run_id,
@@ -115,20 +123,20 @@ def run_experiment(
                 cache = cache_router.for_request_target(
                     provider=backbone.provider,
                     request_model=backbone.model_id,
-                    dataset=benchmark.cache_namespace or benchmark.slug,
+                    dataset=benchmark.slug,
                 )
                 split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
                 samples = select_samples(benchmark, split_name)
                 results = _run_sample_batch(
                     run_id=run_id,
-                    dataset=benchmark.cache_namespace or benchmark.slug,
+                    dataset=benchmark.slug,
                     split_name=split_name,
                     samples=samples,
                     protocol=protocol,
                     backbone=backbone,
                     provider=provider,
                     cache=cache,
-                    limiter=limiter,
+                    throttle=throttle,
                     global_seed=experiment.global_seed,
                     prompt_version=experiment.prompt_version,
                     max_concurrent_requests=experiment.max_concurrent_requests,
@@ -156,7 +164,7 @@ def run_experiment(
         metrics = _build_metrics(all_predictions)
         diagnostics = _build_diagnostics(all_predictions, all_views)
         paths.metrics.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
-        paths.diagnostics.write_text(json.dumps(diagnostics, ensure_ascii=False, indent=2), encoding="utf-8")
+        paths.diagnostics_path.write_text(json.dumps(diagnostics, ensure_ascii=False, indent=2), encoding="utf-8")
         _write_hotpot_predictions(paths.hotpot_predictions, all_predictions)
         _write_paper_summary(paths.paper_summary, metrics)
         render_report(paths.root)
@@ -168,5 +176,6 @@ def run_experiment(
         progress.mark_completed()
         return paths.root
     finally:
+        progress.close()
         provider.close()
         cache_router.close()

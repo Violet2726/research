@@ -55,7 +55,7 @@ ARTIFACT_ALIASES = {
 "stage_b_turns": "turns/stage_b_turns.jsonl",
 "final_predictions": "views/predictions.jsonl",
 "hotpot_predictions": "exports/hotpot_predictions",
-"diagnostics": "diagnostics/diagnostics.json",
+"diagnostics_path": "diagnostics/diagnostics.json",
 "run_validation": "run_validation.json",
 "report_markdown": "report.md",
 "paper_summary": "exports/paper_summary.csv",

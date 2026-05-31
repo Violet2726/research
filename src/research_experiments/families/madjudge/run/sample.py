@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable, Iterator
 from dataclasses import asdict, dataclass
 from functools import partial
 from typing import Any
 
 from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples
 from research_experiments.core.data.evaluation import normalize_prediction, score_prediction
-from research_experiments.core.execution.runner_common import execute_cached_turn, run_indexed_batch
+from research_experiments.core.execution.runner_common import execute_cached_turn, iter_indexed_batch
 from research_experiments.core.structured_outputs import (
     SCHEMA_ANSWER_CORE,
 )
@@ -147,7 +148,7 @@ def _run_madjudge_sample(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     global_seed: int,
     prompt_version: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
@@ -188,7 +189,7 @@ def _run_madjudge_sample(
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
-                limiter=limiter,
+                throttle=throttle,
                 temperature=agent_temp,
                 top_p=protocol.top_p,
                 max_output_tokens=protocol.max_output_tokens,
@@ -272,7 +273,7 @@ def _run_madjudge_sample(
                     backbone=backbone,
                     provider=provider,
                     cache=cache,
-                    limiter=limiter,
+                    throttle=throttle,
                     temperature=agent_temp,
                     top_p=protocol.top_p,
                     max_output_tokens=protocol.max_output_tokens,
@@ -433,7 +434,7 @@ def _run_initial_round_for_samples(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     global_seed: int,
     prompt_version: str,
     max_concurrent_requests: int,
@@ -441,7 +442,7 @@ def _run_initial_round_for_samples(
     """为所有样本并行运行初始轮（round 0）。"""
     from functools import partial
 
-    from research_experiments.core.execution.runner_common import run_indexed_batch
+    from research_experiments.core.execution.runner_common import iter_indexed_batch
 
     def _run_initial_single(sample: DatasetSample) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         turn_rows: list[dict[str, Any]] = []
@@ -475,7 +476,7 @@ def _run_initial_round_for_samples(
                     backbone=backbone,
                     provider=provider,
                     cache=cache,
-                    limiter=limiter,
+                    throttle=throttle,
                     temperature=agent_temp,
                     top_p=protocol.top_p,
                     max_output_tokens=protocol.max_output_tokens,
@@ -488,10 +489,12 @@ def _run_initial_round_for_samples(
     worker = partial(
         _run_initial_single,
     )
-    results = list(run_indexed_batch(samples, worker=worker, max_concurrent_requests=max_concurrent_requests))
-
     states: list[SampleState] = []
-    for idx, (turn_rows, initial_turns) in results:
+    for idx, (turn_rows, initial_turns) in iter_indexed_batch(
+        samples,
+        worker=worker,
+        max_concurrent_requests=max_concurrent_requests,
+    ):
         sample = samples[idx]
         # 检查初始共识
         initial_answers = [str(t["validated_output"].get("final_answer", "")).strip() for t in initial_turns]
@@ -522,7 +525,7 @@ def _run_debate_round_for_samples(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     global_seed: int,
     prompt_version: str,
     max_concurrent_requests: int,
@@ -530,7 +533,7 @@ def _run_debate_round_for_samples(
     """为所有未停止的样本运行一轮辩论。"""
     from functools import partial
 
-    from research_experiments.core.execution.runner_common import run_indexed_batch
+    from research_experiments.core.execution.runner_common import iter_indexed_batch
 
     # 只处理未停止的样本
     active_indices = [i for i, s in enumerate(states) if not s.stopped]
@@ -607,7 +610,7 @@ def _run_debate_round_for_samples(
                     backbone=backbone,
                     provider=provider,
                     cache=cache,
-                    limiter=limiter,
+                    throttle=throttle,
                     temperature=agent_temp,
                     top_p=protocol.top_p,
                     max_output_tokens=protocol.max_output_tokens,
@@ -618,13 +621,15 @@ def _run_debate_round_for_samples(
         return turn_rows, debate_rows, current_round
 
     worker = partial(_run_debate_single)
-    results = list(run_indexed_batch(
-        active_indices, worker=worker, max_concurrent_requests=max_concurrent_requests,
-    ))
+    result_iter = iter_indexed_batch(
+        active_indices,
+        worker=worker,
+        max_concurrent_requests=max_concurrent_requests,
+    )
 
     # 更新状态
     new_states = list(states)
-    for idx_in_active, (turn_rows, debate_rows, current_round) in results:
+    for idx_in_active, (turn_rows, debate_rows, current_round) in result_iter:
         real_idx = active_indices[idx_in_active]
         old_state = states[real_idx]
 
@@ -656,7 +661,7 @@ def _finalize_samples(
     backbone,
     ks_statistic: float,
     stable_rounds: int,
-) -> list[tuple[int, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]]:
+) -> Iterator[tuple[int, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]]:
     """为所有样本生成最终预测记录。"""
     results: list[tuple[int, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]] = []
 
@@ -756,7 +761,7 @@ def _run_madjudge_batch_round_by_round(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     global_seed: int,
     prompt_version: str,
     max_concurrent_requests: int,
@@ -780,7 +785,7 @@ def _run_madjudge_batch_round_by_round(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         global_seed=global_seed,
         prompt_version=prompt_version,
         max_concurrent_requests=max_concurrent_requests,
@@ -813,7 +818,7 @@ def _run_madjudge_batch_round_by_round(
             backbone=backbone,
             provider=provider,
             cache=cache,
-            limiter=limiter,
+            throttle=throttle,
             global_seed=global_seed,
             prompt_version=prompt_version,
             max_concurrent_requests=max_concurrent_requests,
@@ -880,7 +885,7 @@ def _execute_turn(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     temperature: float,
     top_p: float,
     max_output_tokens: int,
@@ -891,7 +896,7 @@ def _execute_turn(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         messages=messages,
         temperature=temperature,
         top_p=top_p,
@@ -1221,7 +1226,7 @@ def _run_madjudge_batch(
     backbone,
     provider,
     cache,
-    limiter,
+    throttle,
     global_seed: int,
     prompt_version: str,
     max_concurrent_requests: int,
@@ -1238,22 +1243,20 @@ def _run_madjudge_batch(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         global_seed=global_seed,
         prompt_version=prompt_version,
     )
-    return [
-        (sample_index, *result)
-        for sample_index, result in run_indexed_batch(
-            samples,
-            worker=worker,
-            max_concurrent_requests=max_concurrent_requests,
-        )
-    ]
+    for sample_index, result in iter_indexed_batch(
+        samples,
+        worker=worker,
+        max_concurrent_requests=max_concurrent_requests,
+    ):
+        yield (sample_index, *result)
 
 
 def _write_sample_outputs(
-    sample_results: list[tuple[int, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]],
+    sample_results: Iterable[tuple[int, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]],
     dataset_slug: str,
     progress,
     turn_handle,

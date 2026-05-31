@@ -26,10 +26,10 @@ from research_experiments.core.data.datasets import DatasetSample, load_split_id
 from research_experiments.core.data.evaluation import aggregate_majority, normalize_prediction, score_prediction
 from research_experiments.core.execution.cache import RequestCache
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
-from research_experiments.core.execution.rate_limits import SlidingWindowRateLimiter
+from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.execution.runner_common import (
     execute_cached_turn,
-    run_indexed_batch,
+    iter_indexed_batch,
 )
 from research_experiments.core.execution.runtime import RunProgressTracker
 from research_experiments.core.structured_outputs import (
@@ -243,7 +243,7 @@ def _run_sample_batch(
     backbone,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
     on_complete: Callable[[SampleResult], None] | None = None,
 ) -> None:
     """并发执行同一 benchmark 下的全部样本。"""
@@ -259,9 +259,9 @@ def _run_sample_batch(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
     )
-    for _, result in run_indexed_batch(
+    for _, result in iter_indexed_batch(
         samples,
         worker=worker,
         max_concurrent_requests=experiment.max_concurrent_requests,
@@ -319,7 +319,7 @@ def _run_sample(
     backbone,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
 ) -> SampleResult:
     """运行单题上的共享前缀、策略决策与控制方法。"""
     question_preview = _question_preview(sample.question)
@@ -342,7 +342,7 @@ def _run_sample(
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
-                limiter=limiter,
+                throttle=throttle,
                 temperature=protocol.initial_temperature,
                 top_p=protocol.top_p,
                 max_output_tokens=protocol.max_output_tokens,
@@ -424,7 +424,7 @@ def _run_sample(
                     backbone=backbone,
                     provider=provider,
                     cache=cache,
-                    limiter=limiter,
+                    throttle=throttle,
                     temperature=protocol.debate_temperature,
                     top_p=protocol.top_p,
                     max_output_tokens=protocol.max_output_tokens,
@@ -615,7 +615,7 @@ def _run_sample(
             backbone=backbone,
             provider=provider,
             cache=cache,
-            limiter=limiter,
+            throttle=throttle,
             question_preview=question_preview,
         )
         control_turns.extend(control_result["turn_rows"])
@@ -641,7 +641,7 @@ def _run_control_method(
     backbone,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
     question_preview: str,
 ) -> dict[str, Any]:
     """运行一个独立控制方法。"""
@@ -655,7 +655,7 @@ def _run_control_method(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         global_seed=experiment.global_seed,
         execute_turn=partial(
             _execute_turn,
@@ -763,19 +763,20 @@ def _execute_turn(
     backbone,
     provider: OpenAICompatibleProvider,
     cache: RequestCache,
-    limiter: SlidingWindowRateLimiter,
+    throttle: RequestThrottle,
     temperature: float,
     top_p: float,
     max_output_tokens: int,
     seed: int,
     question_preview: str,
+    method_type: str | None = None,
 ) -> dict[str, Any]:
     """执行单次 turn，并解析结构化字段。"""
     result = execute_cached_turn(
         backbone=backbone,
         provider=provider,
         cache=cache,
-        limiter=limiter,
+        throttle=throttle,
         messages=messages,
         temperature=temperature,
         top_p=top_p,
@@ -802,6 +803,7 @@ def _execute_turn(
         "question_preview": question_preview,
         "stage_name": stage_name,
         "method_name": method_name,
+        "method_type": method_type or stage_name,
         "role": role,
         "round_index": round_index,
         "agent_id": agent_id,

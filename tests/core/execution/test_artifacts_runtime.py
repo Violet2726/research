@@ -62,3 +62,65 @@ def test_run_progress_tracker_heartbeat_refreshes_snapshot(tmp_path: Path) -> No
     assert updated["last_updated_at"] != initial["last_updated_at"]
     assert "seconds_since_last_progress_event" in updated
 
+
+def test_run_progress_tracker_close_stops_heartbeat(tmp_path: Path) -> None:
+    progress_path = tmp_path / "progress.json"
+    tracker = RunProgressTracker(
+        progress_path,
+        total_planned_calls=10,
+        total_planned_predictions=2,
+        write_interval_seconds=0.01,
+        heartbeat_interval_seconds=0.05,
+    )
+    time.sleep(0.08)
+    tracker.close()
+    frozen = json.loads(progress_path.read_text(encoding="utf-8"))
+    time.sleep(0.10)
+    after_close = json.loads(progress_path.read_text(encoding="utf-8"))
+
+    assert frozen["status"] == "running"
+    assert after_close["last_updated_at"] == frozen["last_updated_at"]
+
+
+def test_run_progress_tracker_separates_rolling_and_lifetime_network_rpm(tmp_path: Path) -> None:
+    progress_path = tmp_path / "progress.json"
+    tracker = RunProgressTracker(
+        progress_path,
+        total_planned_calls=3,
+        total_planned_predictions=1,
+        target_network_rpm=95,
+        rate_limit_snapshot_provider=lambda: {
+            "effective_network_rpm_limit": 95,
+            "rate_limit_429_count": 0,
+        },
+        network_rpm_window_seconds=0.2,
+        write_interval_seconds=0.01,
+        heartbeat_interval_seconds=10.0,
+    )
+    try:
+        tracker.record_call({"dataset": "gsm8k", "method_name": "cot", "sample_id": "1", "cache_hit": False})
+        tracker.record_call({"dataset": "gsm8k", "method_name": "cot", "sample_id": "2", "cache_hit": True})
+        time.sleep(0.02)
+        tracker.write(force=True, reason="test-current")
+        current = json.loads(progress_path.read_text(encoding="utf-8"))
+
+        assert current["network_calls"] == 1
+        assert current["cache_hits"] == 1
+        assert current["cache_hit_ratio"] == 0.5
+        assert current["observed_network_rpm"] > 0
+        assert current["observed_call_rpm"] > current["observed_network_rpm"]
+        assert current["lifetime_network_rpm"] > 0
+        assert current["target_network_rpm"] == 95
+        assert current["effective_network_rpm_limit"] == 95
+        assert current["rate_limit_429_count"] == 0
+
+        time.sleep(0.25)
+        tracker.write(force=True, reason="test-window-expired")
+        expired = json.loads(progress_path.read_text(encoding="utf-8"))
+
+        assert expired["observed_network_rpm"] == 0
+        assert expired["observed_call_rpm"] == 0
+        assert expired["lifetime_network_rpm"] > 0
+    finally:
+        tracker.mark_completed()
+
