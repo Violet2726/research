@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 
 from research_experiments.cli.family import dispatch_family_cli
-from research_experiments.cli.matrix import main as matrix_main
-from research_experiments.cli.support import ToolMain
 from research_experiments.cli.tools.archive_runs import main as archive_runs_main
 from research_experiments.cli.tools.artifact_cleanup import main as artifact_cleanup_main
 from research_experiments.cli.tools.cache_archive import main as cache_archive_main
@@ -15,6 +14,9 @@ from research_experiments.cli.tools.dataset_assets import main as dataset_assets
 from research_experiments.cli.tools.hf_sync import main as hf_sync_main
 from research_experiments.cli_support.output import configure_utf8_stdio
 from research_experiments.families.registry import get_family_registration, registered_family_names
+from research_experiments.matrix.cli import main as matrix_main
+
+ToolMain = Callable[[list[str] | None], None]
 
 TOOL_MAINS: dict[str, ToolMain] = {
     "archive-runs": archive_runs_main,

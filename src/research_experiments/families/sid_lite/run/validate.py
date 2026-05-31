@@ -7,7 +7,6 @@ and confidence fail-open behavior.
 
 from __future__ import annotations
 
-import json
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -20,6 +19,8 @@ from research_experiments.family_runtime.artifact_index import (
 )
 from research_experiments.family_runtime.validation import (
     load_json,
+    load_jsonl_if_present,
+    missing_relative_paths,
     summarize_turn_statuses,
     validate_rate_limit_check,
     validate_shared_contracts,
@@ -55,18 +56,17 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         index.prediction_records_path,
         index.metrics_view_path,
         diagnostic_paths["diagnostics.json"],
-        index.progress_path,
         index.report_path,
         export_paths["paper_summary.csv"],
         index.figure_manifest_path,
         index.archive_manifest_path,
     ]
-    missing = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
-    manifest = _load_json(index.manifest_path) if index.manifest_path.exists() else {}
-    stage_a_rows = _load_jsonl(turn_paths["stage_a_turns.jsonl"])
-    packet_rows = _load_jsonl(turn_paths["message_packets.jsonl"])
-    belief_rows = _load_jsonl(turn_paths["belief_updates.jsonl"])
-    prediction_rows = _load_jsonl(index.prediction_records_path)
+    missing = missing_relative_paths(root, required_paths)
+    manifest = load_json(index.manifest_path)
+    stage_a_rows = load_jsonl_if_present(turn_paths["stage_a_turns.jsonl"])
+    packet_rows = load_jsonl_if_present(turn_paths["message_packets.jsonl"])
+    belief_rows = load_jsonl_if_present(turn_paths["belief_updates.jsonl"])
+    prediction_rows = load_jsonl_if_present(index.prediction_records_path)
 
     status_summary = summarize_turn_statuses(stage_a_rows + belief_rows)
     manifest = load_json(index.manifest_path)
@@ -192,17 +192,3 @@ def _compact_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         }
         for row in rows[:20]
     ]
-
-
-def _load_json(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    with path.open("r", encoding="utf-8") as handle:
-        return [json.loads(line) for line in handle if line.strip()]
-

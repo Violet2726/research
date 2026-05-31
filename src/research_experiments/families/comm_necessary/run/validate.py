@@ -6,7 +6,6 @@ rate limit constraints, and HotpotQA prediction file export correctness.
 
 from __future__ import annotations
 
-import json
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -19,6 +18,9 @@ from research_experiments.family_runtime.artifact_index import (
     resolve_run_artifact_index,
 )
 from research_experiments.family_runtime.validation import (
+    load_json,
+    load_jsonl_if_present,
+    missing_relative_paths,
     summarize_turn_statuses,
     validate_rate_limit_check,
     validate_shared_contracts,
@@ -57,19 +59,18 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         index.prediction_records_path,
         index.metrics_view_path,
         diagnostic_paths["diagnostics.json"],
-        index.progress_path,
         index.report_path,
         export_paths["paper_summary.csv"],
         index.figure_manifest_path,
         index.archive_manifest_path,
     ]
-    missing = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
-    manifest = _load_json(index.manifest_path)
-    sample_views = _load_jsonl(turn_paths["sample_views.jsonl"])
-    stage_a_rows = _load_jsonl(turn_paths["stage_a_turns.jsonl"])
-    packet_rows = _load_jsonl(turn_paths["message_packets.jsonl"])
-    stage_b_rows = _load_jsonl(turn_paths["stage_b_turns.jsonl"])
-    prediction_rows = _load_jsonl(index.prediction_records_path)
+    missing = missing_relative_paths(root, required_paths)
+    manifest = load_json(index.manifest_path)
+    sample_views = load_jsonl_if_present(turn_paths["sample_views.jsonl"])
+    stage_a_rows = load_jsonl_if_present(turn_paths["stage_a_turns.jsonl"])
+    packet_rows = load_jsonl_if_present(turn_paths["message_packets.jsonl"])
+    stage_b_rows = load_jsonl_if_present(turn_paths["stage_b_turns.jsonl"])
+    prediction_rows = load_jsonl_if_present(index.prediction_records_path)
     turn_rows = stage_a_rows + stage_b_rows
 
     status_summary = summarize_turn_statuses(turn_rows)
@@ -204,24 +205,10 @@ def _hotpot_prediction_files_check(output_dir: Path, prediction_rows: list[dict[
         path = output_dir / f"{method}.json"
         if not path.exists():
             continue
-        payload = _load_json(path)
+        payload = load_json(path)
         answer = payload.get("answer")
         sp = payload.get("sp")
         expected_ids = expected_ids_by_method.get(method, set())
         if not isinstance(answer, dict) or not isinstance(sp, dict) or set(answer) != expected_ids or set(sp) != expected_ids:
             invalid.append({"method_name": method, "expected_count": len(expected_ids)})
     return {"passed": not missing and not invalid, "missing_methods": missing, "invalid_files": invalid}
-def _load_json(path: Path) -> dict[str, Any]:
-    """Read a UTF-8 JSON file; return empty dict if missing."""
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
-    """Read a UTF-8 JSONL file; return empty list if missing."""
-    if not path.exists():
-        return []
-    with path.open("r", encoding="utf-8") as handle:
-        return [json.loads(line) for line in handle if line.strip()]
-

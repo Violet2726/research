@@ -223,9 +223,15 @@ def test_resume_faithful_matrix_continues_rerun_needed_and_pending_entries(
         lambda *args, **kwargs: {},
     )
     landscape_calls: list[tuple[object, ...]] = []
+
+    def _render_family_landscape(*args, **kwargs):
+        del kwargs
+        landscape_calls.append(args)
+        return {}
+
     monkeypatch.setattr(
         "research_experiments.matrix.orchestrator.render_family_landscape",
-        lambda *args, **kwargs: landscape_calls.append(args) or {},
+        _render_family_landscape,
     )
 
     resumed_root = resume_faithful_matrix(state_path)

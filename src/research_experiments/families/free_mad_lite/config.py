@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from research_experiments.family_runtime.config_helpers import (
+    apply_runtime_defaults,
     load_toml,
-    optional_int,
 )
 
 
@@ -66,6 +66,7 @@ def load_protocol_config(path: str | Path) -> FreeMadLiteProtocolConfig:
 def load_experiment_config(path: str | Path) -> FreeMadLiteExperimentConfig:
     """加载 Free-MAD-lite 顶层配置。"""
     payload = load_toml(path)
+    runtime = apply_runtime_defaults(payload)
     return FreeMadLiteExperimentConfig(
         name=str(payload["name"]),
         description=str(payload["description"]),
@@ -74,9 +75,9 @@ def load_experiment_config(path: str | Path) -> FreeMadLiteExperimentConfig:
         methods=[str(item) for item in payload["methods"]],
         global_seed=int(payload["global_seed"]),
         prompt_version=str(payload["prompt_version"]),
-        max_concurrent_requests=int(payload["max_concurrent_requests"]),
-        requests_per_minute_limit=optional_int(payload, "requests_per_minute_limit"),
-        tokens_per_minute_limit=optional_int(payload, "tokens_per_minute_limit"),
+        max_concurrent_requests=runtime["max_concurrent_requests"],
+        requests_per_minute_limit=runtime["requests_per_minute_limit"],
+        tokens_per_minute_limit=runtime["tokens_per_minute_limit"],
         primary_model_ref=str(payload["primary_model_ref"]),
         raw=payload,
     )

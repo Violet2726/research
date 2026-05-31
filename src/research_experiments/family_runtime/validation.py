@@ -1,4 +1,4 @@
-"""Shared helpers for family run validation."""
+"""family 运行校验的共享低层辅助。"""
 
 from __future__ import annotations
 
@@ -36,6 +36,13 @@ def validate_shared_contracts(run_dir: str | Path) -> dict[str, Any]:
         "figure_contract": validate_figure_contract(root),
         "archive_contract": validate_archive_contract(root),
     }
+
+
+def missing_relative_paths(root: str | Path, required_paths: list[Path]) -> list[str]:
+    """收集某个 run 根目录下缺失的相对路径列表。"""
+
+    resolved_root = Path(root)
+    return [path.relative_to(resolved_root).as_posix() for path in required_paths if not path.exists()]
 
 
 def validate_rate_limit_check(
@@ -114,11 +121,29 @@ def load_json(path: str | Path) -> dict[str, Any]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def load_json_if_present(path: str | Path) -> dict[str, Any]:
+    """Read a UTF-8 JSON file, or return an empty payload when it is absent."""
+
+    resolved = Path(path)
+    if not resolved.exists():
+        return {}
+    return load_json(resolved)
+
+
 def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
     """Read a UTF-8 JSONL file."""
 
     with Path(path).open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+
+
+def load_jsonl_if_present(path: str | Path) -> list[dict[str, Any]]:
+    """Read a UTF-8 JSONL file, or return an empty list when it is absent."""
+
+    resolved = Path(path)
+    if not resolved.exists():
+        return []
+    return load_jsonl(resolved)
 
 
 def _parse_timestamp(value: str) -> datetime:

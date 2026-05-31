@@ -10,6 +10,7 @@ from research_experiments.family_runtime.artifact_index import named_turn_record
 from research_experiments.family_runtime.validation import (
     load_json,
     load_jsonl,
+    missing_relative_paths,
     summarize_turn_statuses,
     validate_rate_limit_check,
     validate_shared_contracts,
@@ -43,12 +44,11 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         turn_paths["communication_trace.jsonl"],
         index.prediction_records_path,
         index.metrics_view_path,
-        index.progress_path,
         index.report_path,
         index.figure_manifest_path,
         index.archive_manifest_path,
     ]
-    missing = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
+    missing = missing_relative_paths(root, required_paths)
     manifest = load_json(index.manifest_path)
     turn_rows = load_jsonl(turn_paths["agent_turns.jsonl"]) if turn_paths["agent_turns.jsonl"].exists() else []
     belief_rows = load_jsonl(turn_paths["belief_trace.jsonl"]) if turn_paths["belief_trace.jsonl"].exists() else []

@@ -11,7 +11,7 @@
 3. `src/research_experiments/families/<family>/`
    具体实验实现层。每个 family 只依赖共享核心，不互相依赖。
 4. `configs/core/` 与 `configs/families/`
-   配置层。共享配置放在 `configs/core/shared/`，矩阵 profile 放在 `configs/core/matrix/`，实验专属配置放在各自 family 目录。
+   配置层。共享配置放在 `configs/core/shared/`，矩阵 profile 放在 `configs/core/matrix/`，实验专属配置放在各自 family 目录；实验配置可省略标准运行时限流字段，解析时统一回落到项目默认值。
 5. `datasets/`、`files/`、`local/`
    数据与工作区层。`datasets/` 只保留恢复说明，真实原始数据放在 `local/datasets/`。
 
@@ -52,7 +52,7 @@
 - `src/research_experiments/cli/`：根 CLI、family CLI 接入层与工具命令包装
 - `src/research_experiments/matrix/`：矩阵 registry、状态模型、执行与分析入口
 - `src/research_experiments/reporting/`：科研报告、图资产、论文包与统计输出
-- `src/research_experiments/workspace/`：工作区布局、归档、HF 同步、清理与数据集资产服务
+- `src/research_experiments/workspace/`：工作区布局、归档、HF 同步、清理与数据集资产服务；数据集资产公开入口收敛到 `workspace/datasets/__init__.py` 与 `workspace/datasets/service.py`
 - `src/research_experiments/cli_support/`：命令行输出与 UTF-8 编码支持
 
 ## 3. 默认工作区

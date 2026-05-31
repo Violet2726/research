@@ -92,10 +92,6 @@ def run_experiment(
         rate_limit_snapshot_provider=throttle.snapshot,
     )
 
-    print(f"[MADJudge] Phase: {phase_name}", flush=True)
-    print(f"[MADJudge] Benchmarks: {[b.slug for b in benchmarks]}", flush=True)
-    print(f"[MADJudge] Setups: {[s.name for s in setups]}", flush=True)
-    print(f"[MADJudge] Estimated calls: {total_calls}, predictions: {total_predictions}", flush=True)
 
     # 写入 manifest
     manifest = {
@@ -149,7 +145,6 @@ def run_experiment(
                 split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
                 samples = _load_selected_samples(benchmark, split_name)
 
-                print(f"[MADJudge] Running {benchmark.slug} ({len(samples)} samples)...", flush=True)
 
                 for setup in setups:
                     protocol = load_protocol_config(setup.protocol)
@@ -185,7 +180,6 @@ def run_experiment(
 
                 for control_name in matched_control_names:
                     method = controls[control_name]
-                    print(f"[MADJudge] Running control: {control_name}", flush=True)
                     control_results = run_unified_control_batch(
                         run_id=run_id,
                         samples=samples,

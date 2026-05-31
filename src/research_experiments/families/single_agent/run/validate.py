@@ -7,7 +7,6 @@ aligned across different methods on the same split.
 
 from __future__ import annotations
 
-import json
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -15,6 +14,8 @@ from typing import Any
 from research_experiments.family_runtime.artifact_index import named_turn_record_paths, resolve_run_artifact_index
 from research_experiments.family_runtime.validation import (
     load_json,
+    load_jsonl,
+    missing_relative_paths,
     summarize_turn_statuses,
     validate_rate_limit_check,
     validate_shared_contracts,
@@ -34,16 +35,15 @@ def validate_run(
         index.metrics_view_path,
         turn_paths["raw_responses.jsonl"],
         index.prediction_records_path,
-        index.progress_path,
         index.report_path,
         index.figure_manifest_path,
         index.archive_manifest_path,
     ]
-    missing_files = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
+    missing_files = missing_relative_paths(root, required_paths)
     manifest = load_json(index.manifest_path)
     raw_rows = load_jsonl(turn_paths["raw_responses.jsonl"])
     prediction_rows = load_jsonl(index.prediction_records_path)
-    metrics = json.loads(index.metrics_view_path.read_text(encoding="utf-8"))
+    metrics = load_json(index.metrics_view_path)
 
     status_summary = summarize_turn_statuses(raw_rows)
 
@@ -122,10 +122,3 @@ def _validate_prediction_counts(prediction_rows: list[dict[str, Any]]) -> dict[s
             for (dataset, method_name, rerun_index), count in sorted(grouped.items())
         },
     }
-
-
-def load_jsonl(path: Path) -> list[dict[str, Any]]:
-    """Read a UTF-8 JSONL file."""
-    with path.open("r", encoding="utf-8") as handle:
-        return [json.loads(line) for line in handle if line.strip()]
-

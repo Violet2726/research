@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from research_experiments.family_runtime.config_helpers import (
+    apply_runtime_defaults,
     load_toml,
-    optional_int,
 )
 from research_experiments.family_runtime.method_catalog import MethodConfig, load_method_catalog
 
@@ -127,6 +127,7 @@ def load_experiment_config(path: str | Path) -> DmadExperimentConfig:
     """Load a DMAD experiment configuration."""
 
     payload = load_toml(path)
+    runtime = apply_runtime_defaults(payload)
     methods = [
         DmadMethodSpec(
             name=str(item["name"]),
@@ -149,9 +150,9 @@ def load_experiment_config(path: str | Path) -> DmadExperimentConfig:
         methods=methods,
         global_seed=int(payload["global_seed"]),
         prompt_version=str(payload["prompt_version"]),
-        max_concurrent_requests=int(payload["max_concurrent_requests"]),
-        requests_per_minute_limit=optional_int(payload, "requests_per_minute_limit"),
-        tokens_per_minute_limit=optional_int(payload, "tokens_per_minute_limit"),
+        max_concurrent_requests=runtime["max_concurrent_requests"],
+        requests_per_minute_limit=runtime["requests_per_minute_limit"],
+        tokens_per_minute_limit=runtime["tokens_per_minute_limit"],
         primary_model_ref=str(payload["primary_model_ref"]),
         raw=payload,
     )

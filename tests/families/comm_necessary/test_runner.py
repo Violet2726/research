@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 from research_experiments.families.comm_necessary.run.sample import _apply_belief_answer_fallback
 
 
@@ -33,7 +35,8 @@ def test_apply_belief_answer_fallback_keeps_previous_grounded_answer() -> None:
     assert row["final_answer_raw"] == "Chinese Coffee"
     assert row["supporting_facts"] == [["Ira Lewis", 2]]
     assert row["belief_fallback"] == "kept_previous_answer_after_empty_belief_output"
-    assert row["validated_output"]["final_answer"] == "Chinese Coffee"
+    validated_output = cast(dict[str, Any], row["validated_output"])
+    assert validated_output["final_answer"] == "Chinese Coffee"
 
 
 def test_apply_belief_answer_fallback_preserves_abstention_without_prior_answer() -> None:

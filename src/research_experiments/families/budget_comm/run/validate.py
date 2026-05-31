@@ -7,7 +7,6 @@ and DALA-lite tier allocation consistency.
 
 from __future__ import annotations
 
-import json
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -20,6 +19,9 @@ from research_experiments.family_runtime.artifact_index import (
     resolve_run_artifact_index,
 )
 from research_experiments.family_runtime.validation import (
+    load_json,
+    load_jsonl_if_present,
+    missing_relative_paths,
     summarize_turn_statuses,
     validate_rate_limit_check,
     validate_shared_contracts,
@@ -43,21 +45,20 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         index.prediction_records_path,
         index.metrics_view_path,
         diagnostic_paths["budget_diagnostics.json"],
-        index.progress_path,
         index.report_path,
         export_paths["paper_summary.csv"],
         index.figure_manifest_path,
         index.archive_manifest_path,
     ]
-    missing = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
+    missing = missing_relative_paths(root, required_paths)
 
-    manifest = _load_json(index.manifest_path)
-    sample_views = _load_jsonl(turn_paths["sample_views.jsonl"])
-    stage_a_rows = _load_jsonl(turn_paths["stage_a_turns.jsonl"])
-    candidate_rows = _load_jsonl(turn_paths["candidate_packets.jsonl"])
-    auction_rows = _load_jsonl(turn_paths["auction_decisions.jsonl"])
-    belief_rows = _load_jsonl(turn_paths["belief_updates.jsonl"])
-    prediction_rows = _load_jsonl(index.prediction_records_path)
+    manifest = load_json(index.manifest_path)
+    sample_views = load_jsonl_if_present(turn_paths["sample_views.jsonl"])
+    stage_a_rows = load_jsonl_if_present(turn_paths["stage_a_turns.jsonl"])
+    candidate_rows = load_jsonl_if_present(turn_paths["candidate_packets.jsonl"])
+    auction_rows = load_jsonl_if_present(turn_paths["auction_decisions.jsonl"])
+    belief_rows = load_jsonl_if_present(turn_paths["belief_updates.jsonl"])
+    prediction_rows = load_jsonl_if_present(index.prediction_records_path)
 
     status_summary = summarize_turn_statuses(stage_a_rows + belief_rows)
 
@@ -275,19 +276,3 @@ def _validate_shard_union(sample_views: list[dict[str, Any]], manifest: dict[str
                 }
             )
     return {"passed": len(violations) == 0, "enabled": True, "violation_count": len(violations), "violations": violations[:20]}
-
-
-def _load_json(path: Path) -> dict[str, Any]:
-    """Read a UTF-8 JSON file; return empty dict if missing."""
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
-    """Read a UTF-8 JSONL file; return empty list if missing."""
-    if not path.exists():
-        return []
-    with path.open("r", encoding="utf-8") as handle:
-        return [json.loads(line) for line in handle if line.strip()]
-

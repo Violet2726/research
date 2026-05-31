@@ -6,7 +6,6 @@ structure, and trajectory judge log-level reproducibility.
 
 from __future__ import annotations
 
-import json
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -19,6 +18,8 @@ from research_experiments.family_runtime.artifact_index import (
 )
 from research_experiments.family_runtime.validation import (
     load_json,
+    load_jsonl_if_present,
+    missing_relative_paths,
     summarize_turn_statuses,
     validate_rate_limit_check,
     validate_shared_contracts,
@@ -54,16 +55,15 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         index.prediction_records_path,
         index.metrics_view_path,
         diagnostic_paths["diagnostics.json"],
-        index.progress_path,
         index.report_path,
         index.figure_manifest_path,
         index.archive_manifest_path,
     ]
-    missing = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
-    manifest = _load_json(index.manifest_path) if index.manifest_path.exists() else {}
-    turn_rows = _load_jsonl(turn_paths["agent_turns.jsonl"])
-    score_rows = _load_jsonl(export_paths["trajectory_scores.jsonl"])
-    prediction_rows = _load_jsonl(index.prediction_records_path)
+    missing = missing_relative_paths(root, required_paths)
+    manifest = load_json(index.manifest_path)
+    turn_rows = load_jsonl_if_present(turn_paths["agent_turns.jsonl"])
+    score_rows = load_jsonl_if_present(export_paths["trajectory_scores.jsonl"])
+    prediction_rows = load_jsonl_if_present(index.prediction_records_path)
 
     # Exclude trajectory_judge role — those have their own schema check below
     filtered_turns = [row for row in turn_rows if row.get("role") != "trajectory_judge"]
@@ -187,17 +187,3 @@ def _compact_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         }
         for row in rows[:20]
     ]
-
-
-def _load_json(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    with path.open("r", encoding="utf-8") as handle:
-        return [json.loads(line) for line in handle if line.strip()]
-

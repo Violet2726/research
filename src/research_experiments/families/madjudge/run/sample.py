@@ -773,7 +773,6 @@ def _run_madjudge_batch_round_by_round(
     """
 
     # Phase 1：初始轮
-    print(f"[MADJudge] Running initial round for {len(samples)} samples...", flush=True)
     states = _run_initial_round_for_samples(
         samples,
         run_id=run_id,
@@ -802,10 +801,8 @@ def _run_madjudge_batch_round_by_round(
         # 检查是否所有样本都已停止
         active_count = sum(1 for s in states if not s.stopped)
         if active_count == 0:
-            print("[MADJudge] All samples reached consensus, stopping.", flush=True)
             break
 
-        print(f"[MADJudge] Running debate round {round_index} ({active_count} active samples)...", flush=True)
         states = _run_debate_round_for_samples(
             states,
             round_index,
@@ -849,11 +846,9 @@ def _run_madjudge_batch_round_by_round(
         consecutive_stable = stability_state.consecutive_stable_rounds
         previous_params = current_params
 
-        print(f"[MADJudge] Round {round_index}: KS={final_ks_statistic:.4f}, stable={consecutive_stable}/{protocol.stability.consecutive_stable_required}", flush=True)
 
         # 检查是否应该停止
         if stability_state.is_stable:
-            print(f"[MADJudge] Stability reached after {round_index} rounds.", flush=True)
             break
 
     # Phase 3：Finalize

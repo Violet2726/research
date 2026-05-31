@@ -15,6 +15,7 @@ from research_experiments.core.config import (
     load_benchmark_config,
     resolve_model_ref,
 )
+from research_experiments.core.execution.rate_limits import standard_runtime_limits
 from research_experiments.core.io import read_toml
 
 
@@ -28,6 +29,14 @@ class SupportsBenchmarkConfigs(Protocol):
     """约束显式列出 benchmark 配置路径的实验配置对象。"""
 
     benchmark_configs: list[Path]
+
+
+class RuntimeConfigPayload(Protocol):
+    """约束携带统一运行时限流字段的配置对象。"""
+
+    max_concurrent_requests: int
+    requests_per_minute_limit: int | None
+    tokens_per_minute_limit: int | None
 
 
 def load_toml(path: str | Path) -> dict[str, Any]:
@@ -72,6 +81,19 @@ def first_str(payload: dict[str, Any], *keys: str) -> str | None:
         if value is not None:
             return value
     return None
+
+
+def apply_runtime_defaults(payload: dict[str, Any]) -> dict[str, int]:
+    """返回补齐项目标准默认值后的运行时限流配置。"""
+
+    defaults = standard_runtime_limits()
+    return {
+        "max_concurrent_requests": int(payload.get("max_concurrent_requests", defaults["max_concurrent_requests"])),
+        "requests_per_minute_limit": int(
+            payload.get("requests_per_minute_limit", defaults["requests_per_minute_limit"])
+        ),
+        "tokens_per_minute_limit": int(payload.get("tokens_per_minute_limit", defaults["tokens_per_minute_limit"])),
+    }
 
 
 def phase_metadata(experiment: SupportsRawPhases, phase_name: str) -> dict[str, Any]:

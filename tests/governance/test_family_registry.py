@@ -83,11 +83,16 @@ def test_family_experiment_configs_use_standard_runtime_limits() -> None:
         "tokens_per_minute_limit": STANDARD_TOKENS_PER_MINUTE_LIMIT,
     }
     mismatches: list[str] = []
-    for path in sorted((ROOT / "configs" / "families").rglob("*.toml")):
-        if "experiments" not in path.parts:
-            continue
-        payload = tomllib.loads(path.read_text(encoding="utf-8"))
-        actual = {key: payload.get(key) for key in expected}
+    registrations = {item.family_name: item for item in registered_family_registrations()}
+    for path in sorted((ROOT / "configs" / "families").glob("*/experiments/*.toml")):
+        family_name = path.parts[-3]
+        registration = registrations[family_name]
+        experiment = registration.load_experiment(path)
+        actual = {
+            "max_concurrent_requests": experiment.max_concurrent_requests,
+            "requests_per_minute_limit": experiment.requests_per_minute_limit,
+            "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
+        }
         if actual != expected:
             rel_path = path.relative_to(ROOT).as_posix()
             mismatches.append(f"{rel_path}: {actual}")

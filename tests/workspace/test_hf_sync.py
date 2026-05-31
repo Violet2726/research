@@ -84,15 +84,19 @@ def test_push_workspace_to_hub_batches_runs_and_cache(monkeypatch, tmp_path: Pat
 
     published_roots: list[str] = []
 
-    monkeypatch.setattr(
-        "research_experiments.workspace.hf_sync.publish_run_to_hub",
-        lambda run_dir, repo_id, token, runs_root, create_repo: published_roots.append(str(run_dir))
-        or {
+    def _publish_run(run_dir, repo_id, token, runs_root, create_repo):
+        del token, runs_root, create_repo
+        published_roots.append(str(run_dir))
+        return {
             "run_dir": str(run_dir),
             "remote_repo": repo_id,
             "remote_prefix": Path(run_dir).name,
             "published": True,
-        },
+        }
+
+    monkeypatch.setattr(
+        "research_experiments.workspace.hf_sync.publish_run_to_hub",
+        _publish_run,
     )
     monkeypatch.setattr(
         "research_experiments.workspace.hf_sync.push_latest_cache_snapshot",
@@ -123,6 +127,12 @@ def test_push_workspace_to_hub_batches_runs_and_cache(monkeypatch, tmp_path: Pat
 def test_pull_workspace_from_hub_batches_runs_and_cache(monkeypatch, tmp_path: Path) -> None:
     downloaded_prefixes: list[str] = []
 
+    def _snapshot_download(repo_id, repo_type, allow_patterns, local_dir, token):
+        del repo_id, repo_type, token
+        prefix = allow_patterns[0][:-3]
+        downloaded_prefixes.append(prefix)
+        return (Path(local_dir) / prefix).mkdir(parents=True, exist_ok=True)
+
     monkeypatch.setattr(
         "research_experiments.workspace.hf_sync.list_remote_run_prefixes",
         lambda api, repo_id: [
@@ -132,8 +142,7 @@ def test_pull_workspace_from_hub_batches_runs_and_cache(monkeypatch, tmp_path: P
     )
     monkeypatch.setattr(
         "research_experiments.workspace.hf_sync.snapshot_download",
-        lambda repo_id, repo_type, allow_patterns, local_dir, token: downloaded_prefixes.append(allow_patterns[0][:-3])
-        or (Path(local_dir) / allow_patterns[0][:-3]).mkdir(parents=True, exist_ok=True),
+        _snapshot_download,
     )
     monkeypatch.setattr(
         "research_experiments.workspace.hf_sync.extract_run_archives",
@@ -176,15 +185,20 @@ def test_push_workspace_to_hub_can_target_selected_run_dirs(monkeypatch, tmp_pat
     write_json(another_root / "run_validation.json", {"passed": True})
 
     published_roots: list[str] = []
-    monkeypatch.setattr(
-        "research_experiments.workspace.hf_sync.publish_run_to_hub",
-        lambda run_dir, repo_id, token, runs_root, create_repo: published_roots.append(str(run_dir))
-        or {
+
+    def _publish_run(run_dir, repo_id, token, runs_root, create_repo):
+        del token, runs_root, create_repo
+        published_roots.append(str(run_dir))
+        return {
             "run_dir": str(run_dir),
             "remote_repo": repo_id,
             "remote_prefix": Path(run_dir).name,
             "published": True,
-        },
+        }
+
+    monkeypatch.setattr(
+        "research_experiments.workspace.hf_sync.publish_run_to_hub",
+        _publish_run,
     )
     monkeypatch.setattr(
         "research_experiments.workspace.hf_sync.push_latest_cache_snapshot",
@@ -210,6 +224,13 @@ def test_push_workspace_to_hub_can_target_selected_run_dirs(monkeypatch, tmp_pat
 
 def test_pull_workspace_from_hub_can_target_selected_run_ids_and_prefixes(monkeypatch, tmp_path: Path) -> None:
     downloaded_prefixes: list[str] = []
+
+    def _snapshot_download(repo_id, repo_type, allow_patterns, local_dir, token):
+        del repo_id, repo_type, token
+        prefix = allow_patterns[0][:-3]
+        downloaded_prefixes.append(prefix)
+        return (Path(local_dir) / prefix).mkdir(parents=True, exist_ok=True)
+
     monkeypatch.setattr(
         "research_experiments.workspace.hf_sync.list_remote_run_prefixes",
         lambda api, repo_id: [
@@ -219,8 +240,7 @@ def test_pull_workspace_from_hub_can_target_selected_run_ids_and_prefixes(monkey
     )
     monkeypatch.setattr(
         "research_experiments.workspace.hf_sync.snapshot_download",
-        lambda repo_id, repo_type, allow_patterns, local_dir, token: downloaded_prefixes.append(allow_patterns[0][:-3])
-        or (Path(local_dir) / allow_patterns[0][:-3]).mkdir(parents=True, exist_ok=True),
+        _snapshot_download,
     )
     monkeypatch.setattr(
         "research_experiments.workspace.hf_sync.extract_run_archives",

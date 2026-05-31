@@ -14,6 +14,7 @@ from research_experiments.family_runtime.artifact_index import (
 from research_experiments.family_runtime.validation import (
     load_json,
     load_jsonl,
+    missing_relative_paths,
     summarize_turn_statuses,
     validate_rate_limit_check,
     validate_shared_contracts,
@@ -55,12 +56,11 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         index.prediction_records_path,
         index.metrics_view_path,
         diagnostic_paths["protocol_diagnostics.json"],
-        index.progress_path,
         index.report_path,
         index.figure_manifest_path,
         index.archive_manifest_path,
     ]
-    missing = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
+    missing = missing_relative_paths(root, required_paths)
     manifest = load_json(index.manifest_path)
     debate_rows = load_jsonl(turn_paths["debate_trace.jsonl"]) if turn_paths["debate_trace.jsonl"].exists() else []
     judge_rows = load_jsonl(turn_paths["judge_trace.jsonl"]) if turn_paths["judge_trace.jsonl"].exists() else []

@@ -103,4 +103,3 @@ if __name__ == "__main__":
     test_prompt_consistency_across_calls()
     test_prompt_includes_context_when_present()
     test_prompt_excludes_context_when_empty()
-    print("All tests passed!")

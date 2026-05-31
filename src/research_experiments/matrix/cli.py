@@ -6,7 +6,6 @@ import argparse
 from dataclasses import asdict
 
 from research_experiments.cli_support.output import configure_utf8_stdio, emit_json
-from research_experiments.matrix.execution import RuntimeOverrides, resume_matrix, run_matrix
 from research_experiments.matrix.faithful_acceptance import render_acceptance_summary
 from research_experiments.matrix.faithful_analysis import render_faithful_analysis
 from research_experiments.matrix.matrix_specs import (
@@ -21,11 +20,14 @@ from research_experiments.matrix.orchestrator import (
     DEFAULT_PHASE,
     DEFAULT_REQUESTS_PER_MINUTE,
     DEFAULT_TOKENS_PER_MINUTE,
+    RuntimeOverrides,
     _resolve_matrix_id_from_state,
+    collect_blocking_entries,
+    resume_matrix,
+    run_matrix,
 )
 from research_experiments.matrix.registry import build_run_matrix
 from research_experiments.matrix.reproduction_analysis import render_reproduction_analysis
-from research_experiments.matrix.state import collect_blocking_entries
 from research_experiments.reporting.family_landscape import render_family_landscape
 from research_experiments.reporting.paper_package import render_paper_package
 from research_experiments.reporting.paper_statistics import render_paper_statistics

@@ -155,7 +155,6 @@ def test_execute_completion_request_does_not_retry_429() -> None:
     assert snapshot["last_retry_after_seconds"] is None
 
 def test_provider_reuses_shared_http_client(monkeypatch: pytest.MonkeyPatch) -> None:
-    created_clients: list[object] = []
     created_http2_flags: list[bool] = []
 
     class DummyClient:
@@ -165,6 +164,8 @@ def test_provider_reuses_shared_http_client(monkeypatch: pytest.MonkeyPatch) -> 
 
         def close(self) -> None:
             return None
+
+    created_clients: list[DummyClient] = []
 
     model = resolve_model_ref("xiaomimimo/mimo-v2.5")
     monkeypatch.setenv(model.api_key_env, "test-key")
@@ -184,8 +185,6 @@ def test_provider_reuses_shared_http_client(monkeypatch: pytest.MonkeyPatch) -> 
             provider_b.close()
 
 def test_provider_rotates_shared_http_client_after_protocol_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    created_clients: list[object] = []
-
     class DummyClient:
         def __init__(self, **kwargs: object) -> None:
             self.closed = False
@@ -214,6 +213,8 @@ def test_provider_rotates_shared_http_client_after_protocol_error(monkeypatch: p
 
         def close(self) -> None:
             self.closed = True
+
+    created_clients: list[DummyClient] = []
 
     model = resolve_model_ref("xiaomimimo/mimo-v2.5")
     monkeypatch.setenv(model.api_key_env, "test-key")

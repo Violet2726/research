@@ -43,9 +43,10 @@ python_version = "3.12"
 warn_unused_configs = true
 pretty = true
 ignore_missing_imports = true
+explicit_package_bases = true
 
 [[tool.mypy.overrides]]
-module = ["research_experiments.*"]
+module = ["research_experiments.*", "src.research_experiments.*"]
 ignore_errors = true
 
 [[tool.mypy.overrides]]
@@ -55,6 +56,11 @@ module = [
   "research_experiments.core.contracts",
   "research_experiments.core.contracts.*",
   "research_experiments.families.registry",
+  "src.research_experiments.cli",
+  "src.research_experiments.cli.*",
+  "src.research_experiments.core.contracts",
+  "src.research_experiments.core.contracts.*",
+  "src.research_experiments.families.registry",
 ]
 ignore_errors = false
 

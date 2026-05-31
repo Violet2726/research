@@ -225,7 +225,7 @@ def test_selective_comm_resume_seed_state_keeps_only_complete_samples(tmp_path: 
         {"dataset": "gsm8k", "sample_id": sample_id, "output_status": "ok"}
         for sample_id in ["ok", "ok", "ok", "bad", "bad", "bad"]
     ]
-    control_rows = []
+    control_rows: list[dict[str, object]] = []
     for sample_id in ["ok", "bad"]:
         for method_name, budget_calls in [("mv_6", 6), ("sc_6", 6)]:
             control_rows.extend(
