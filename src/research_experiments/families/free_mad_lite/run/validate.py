@@ -17,7 +17,12 @@ from research_experiments.family_runtime.artifact_index import (
     named_turn_record_paths,
     resolve_run_artifact_index,
 )
-from research_experiments.family_runtime.validation import summarize_turn_statuses, validate_shared_contracts
+from research_experiments.family_runtime.validation import (
+    load_json,
+    summarize_turn_statuses,
+    validate_rate_limit_check,
+    validate_shared_contracts,
+)
 
 REQUIRED_FILES = [
     "manifest.json",
@@ -64,6 +69,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     filtered_turns = [row for row in turn_rows if row.get("role") != "trajectory_judge"]
     status_summary = summarize_turn_statuses(filtered_turns)
 
+    manifest = load_json(index.manifest_path)
     paired_check = _paired_design_check(manifest, prediction_rows)
     stage_hash_check = _shared_stage_hash_check(prediction_rows)
     round_check = _single_round_check(manifest)
@@ -72,6 +78,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "anti_conformity_prompt_hash": manifest.get("anti_conformity_prompt_hash"),
     }
     judge_schema_check = _judge_schema_check(score_rows)
+    rate_limit_check = validate_rate_limit_check(index.progress_path, filtered_turns, manifest=manifest)
     shared_contracts = validate_shared_contracts(root)
     figure_contract = shared_contracts["figure_contract"]
     archive_contract = shared_contracts["archive_contract"]
@@ -84,6 +91,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         and round_check["passed"]
         and prompt_hash_check["passed"]
         and judge_schema_check["passed"]
+        and rate_limit_check["passed"]
         and figure_contract["passed"]
         and archive_contract["passed"]
     )
@@ -99,9 +107,11 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             "single_round_check": round_check,
             "anti_conformity_prompt_hash_check": prompt_hash_check,
             "trajectory_judge_schema_check": judge_schema_check,
+            "rate_limit_check": rate_limit_check,
             "figure_contract": figure_contract,
             "archive_contract": archive_contract,
         },
+        "rate_limit_check": rate_limit_check,
         "methods": dict(Counter(row.get("method_name") for row in prediction_rows)),
     }
 

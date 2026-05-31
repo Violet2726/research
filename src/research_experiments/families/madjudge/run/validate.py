@@ -11,7 +11,12 @@ from research_experiments.family_runtime.artifact_index import (
     named_turn_record_paths,
     resolve_run_artifact_index,
 )
-from research_experiments.family_runtime.validation import load_jsonl, summarize_turn_statuses
+from research_experiments.family_runtime.validation import (
+    load_json,
+    load_jsonl,
+    summarize_turn_statuses,
+    validate_rate_limit_check,
+)
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
@@ -27,20 +32,24 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         index.metrics_view_path,
         diagnostic_paths["debate_diagnostics.json"],
         diagnostic_paths["cost_breakdown.json"],
+        index.progress_path,
     ]
     missing = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
 
+    manifest = load_json(index.manifest_path)
     turn_rows = load_jsonl(turn_paths["turns.jsonl"]) if turn_paths["turns.jsonl"].exists() else []
     prediction_rows = load_jsonl(index.prediction_records_path) if index.prediction_records_path.exists() else []
 
     status_summary = summarize_turn_statuses(turn_rows)
     methods = Counter(str(row.get("method_name")) for row in prediction_rows)
+    rate_limit_check = validate_rate_limit_check(index.progress_path, turn_rows, manifest=manifest)
 
     passed = (
         not missing
         and status_summary["request_failures"] == 0
         and status_summary["schema_failures"] == 0
         and bool(prediction_rows)
+        and rate_limit_check["passed"]
     )
     return {
         "run_dir": str(root),
@@ -52,5 +61,6 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "turn_rows": status_summary["total_turns"],
         "prediction_rows": len(prediction_rows),
         "methods": dict(methods),
+        "rate_limit_check": rate_limit_check,
     }
 

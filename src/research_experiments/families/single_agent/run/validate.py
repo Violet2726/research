@@ -13,7 +13,12 @@ from pathlib import Path
 from typing import Any
 
 from research_experiments.family_runtime.artifact_index import named_turn_record_paths, resolve_run_artifact_index
-from research_experiments.family_runtime.validation import summarize_turn_statuses, validate_shared_contracts
+from research_experiments.family_runtime.validation import (
+    load_json,
+    summarize_turn_statuses,
+    validate_rate_limit_check,
+    validate_shared_contracts,
+)
 
 
 def validate_run(
@@ -29,11 +34,13 @@ def validate_run(
         index.metrics_view_path,
         turn_paths["raw_responses.jsonl"],
         index.prediction_records_path,
+        index.progress_path,
         index.report_path,
         index.figure_manifest_path,
         index.archive_manifest_path,
     ]
     missing_files = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
+    manifest = load_json(index.manifest_path)
     raw_rows = load_jsonl(turn_paths["raw_responses.jsonl"])
     prediction_rows = load_jsonl(index.prediction_records_path)
     metrics = json.loads(index.metrics_view_path.read_text(encoding="utf-8"))
@@ -54,6 +61,11 @@ def validate_run(
         }
 
     split_count_check = _validate_prediction_counts(prediction_rows)
+    rate_limit_check = validate_rate_limit_check(
+        index.progress_path,
+        raw_rows,
+        manifest=manifest,
+    )
     shared_contracts = validate_shared_contracts(root)
     figure_contract = shared_contracts["figure_contract"]
     archive_contract = shared_contracts["archive_contract"]
@@ -64,6 +76,7 @@ def validate_run(
             status_summary["request_failures"] == 0,
             status_summary["output_success_rate"] >= output_success_threshold,
             split_count_check["passed"],
+            rate_limit_check["passed"],
             figure_contract["passed"],
             archive_contract["passed"],
         ]
@@ -79,9 +92,11 @@ def validate_run(
         "checks": {
             "output_success_threshold": output_success_threshold,
             "prediction_count_check": split_count_check,
+            "rate_limit_check": rate_limit_check,
             "figure_contract": figure_contract,
             "archive_contract": archive_contract,
         },
+        "rate_limit_check": rate_limit_check,
         "output_by_group": output_by_group,
         "metric_rows": metrics.get("summary", []),
     }

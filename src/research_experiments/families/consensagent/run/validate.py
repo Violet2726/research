@@ -12,8 +12,10 @@ from research_experiments.family_runtime.artifact_index import (
     resolve_run_artifact_index,
 )
 from research_experiments.family_runtime.validation import (
+    load_json,
     load_jsonl,
     summarize_turn_statuses,
+    validate_rate_limit_check,
     validate_shared_contracts,
 )
 
@@ -31,17 +33,20 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         index.metrics_view_path,
         diagnostic_paths["cost_breakdown.json"],
         diagnostic_paths["debate_diagnostics.json"],
+        index.progress_path,
         index.report_path,
         index.figure_manifest_path,
         index.archive_manifest_path,
     ]
     missing = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
 
+    manifest = load_json(index.manifest_path)
     turn_rows = load_jsonl(turn_paths["turns.jsonl"]) if turn_paths["turns.jsonl"].exists() else []
     prediction_rows = load_jsonl(index.prediction_records_path) if index.prediction_records_path.exists() else []
 
     status_summary = summarize_turn_statuses(turn_rows)
     methods = Counter(str(row.get("method_name")) for row in prediction_rows)
+    rate_limit_check = validate_rate_limit_check(index.progress_path, turn_rows, manifest=manifest)
 
     shared_contracts = validate_shared_contracts(root)
     figure_contract = shared_contracts["figure_contract"]
@@ -52,6 +57,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         and status_summary["request_failures"] == 0
         and status_summary["schema_failures"] == 0
         and bool(prediction_rows)
+        and rate_limit_check["passed"]
         and figure_contract["passed"]
         and archive_contract["passed"]
     )
@@ -65,6 +71,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "turn_rows": status_summary["total_turns"],
         "prediction_rows": len(prediction_rows),
         "methods": dict(methods),
+        "rate_limit_check": rate_limit_check,
         "figure_contract": figure_contract,
         "archive_contract": archive_contract,
     }

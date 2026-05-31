@@ -16,6 +16,7 @@ from research_experiments.family_runtime.validation import (
     load_json,
     load_jsonl,
     summarize_turn_statuses,
+    validate_rate_limit_check,
     validate_shared_contracts,
 )
 
@@ -35,6 +36,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         diagnostic_paths["strategy_diagnostics.json"],
         diagnostic_paths["cost_breakdown.json"],
         export_paths["paper_tables.json"],
+        index.progress_path,
         index.report_path,
         index.figure_manifest_path,
         index.archive_manifest_path,
@@ -46,6 +48,8 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
 
     status_summary = summarize_turn_statuses(agent_rows)
     methods = Counter(str(row.get("method_name")) for row in prediction_rows)
+    manifest = load_json(index.manifest_path)
+    rate_limit_check = validate_rate_limit_check(index.progress_path, agent_rows, manifest=manifest)
     shared_contracts = validate_shared_contracts(root)
     figure_contract = shared_contracts["figure_contract"]
     archive_contract = shared_contracts["archive_contract"]
@@ -55,6 +59,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         and status_summary["schema_failures"] == 0
         and bool(prediction_rows)
         and bool(diagnostics.get("rows"))
+        and rate_limit_check["passed"]
         and figure_contract["passed"]
         and archive_contract["passed"]
     )
@@ -67,6 +72,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "prediction_rows": len(prediction_rows),
         "methods": dict(methods),
         "strategy_diagnostics_present": bool(diagnostics.get("rows")),
+        "rate_limit_check": rate_limit_check,
         "figure_contract": figure_contract,
         "archive_contract": archive_contract,
     }

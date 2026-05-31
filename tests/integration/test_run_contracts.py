@@ -95,6 +95,7 @@ def test_single_agent_reporting_and_validation_use_method_name(tmp_path: Path) -
         encoding="utf-8",
     )
     touch_figure_contract(tmp_path)
+    write_json(tmp_path / "progress.json", {"rate_limit_429_count": 0})
 
     summary = summarize_single_agent(tmp_path)
     validation = validate_single_agent(tmp_path)
@@ -110,6 +111,7 @@ def test_multi_agent_validation_contract(tmp_path: Path) -> None:
     write_json(tmp_path / "views" / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
     write_json(tmp_path / "diagnostics" / "cost_breakdown.json", {"rows": []})
     write_json(tmp_path / "diagnostics" / "debate_diagnostics.json", {"rows": []})
+    write_json(tmp_path / "progress.json", {"rate_limit_429_count": 0})
     touch_figure_contract(tmp_path)
     assert summarize_multi_agent(tmp_path)["row_count"] == 1
     assert validate_multi_agent(tmp_path)["passed"] is True
@@ -124,6 +126,7 @@ def test_dmad_validation_contract(tmp_path: Path) -> None:
     write_json(tmp_path / "diagnostics" / "strategy_diagnostics.json", {"rows": [{"dataset": "overall"}]})
     write_json(tmp_path / "diagnostics" / "cost_breakdown.json", {"rows": []})
     write_json(tmp_path / "exports" / "paper_tables.json", {"overall_rows": []})
+    write_json(tmp_path / "progress.json", {"rate_limit_429_count": 0})
     touch_figure_contract(tmp_path)
     assert summarize_dmad(tmp_path)["row_count"] == 1
     assert validate_dmad(tmp_path)["passed"] is True

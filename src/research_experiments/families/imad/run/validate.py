@@ -12,8 +12,10 @@ from research_experiments.family_runtime.artifact_index import (
     resolve_run_artifact_index,
 )
 from research_experiments.family_runtime.validation import (
+    load_json,
     load_jsonl,
     summarize_turn_statuses,
+    validate_rate_limit_check,
     validate_shared_contracts,
 )
 
@@ -44,17 +46,20 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         index.prediction_records_path,
         index.metrics_view_path,
         diagnostic_paths["stability_diagnostics.json"],
+        index.progress_path,
         index.report_path,
         index.figure_manifest_path,
         index.archive_manifest_path,
     ]
     missing = [path.relative_to(root).as_posix() for path in required_paths if not path.exists()]
+    manifest = load_json(index.manifest_path)
     agent_rows = load_jsonl(turn_paths["agent_turns.jsonl"]) if turn_paths["agent_turns.jsonl"].exists() else []
     prediction_rows = load_jsonl(index.prediction_records_path) if index.prediction_records_path.exists() else []
     round_rows = load_jsonl(turn_paths["round_diagnostics.jsonl"]) if turn_paths["round_diagnostics.jsonl"].exists() else []
 
     status_summary = summarize_turn_statuses(agent_rows)
     methods = Counter(row.get("method_name") for row in prediction_rows)
+    rate_limit_check = validate_rate_limit_check(index.progress_path, agent_rows, manifest=manifest)
     missing_prediction_fields = sorted(
         field
         for field in REQUIRED_PREDICTION_FIELDS
@@ -84,6 +89,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         and not missing_prediction_fields
         and not invalid_round_counts
         and not adaptive_stop_flag_mismatches
+        and rate_limit_check["passed"]
         and figure_contract["passed"]
         and archive_contract["passed"],
         "missing_files": missing,
@@ -95,6 +101,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "missing_prediction_fields": missing_prediction_fields,
         "invalid_round_counts": invalid_round_counts[:20],
         "adaptive_stop_flag_mismatches": adaptive_stop_flag_mismatches[:20],
+        "rate_limit_check": rate_limit_check,
         "figure_contract": figure_contract,
         "archive_contract": archive_contract,
     }

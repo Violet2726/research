@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 from collections import Counter, defaultdict
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +18,11 @@ from research_experiments.family_runtime.artifact_index import (
     named_turn_record_paths,
     resolve_run_artifact_index,
 )
-from research_experiments.family_runtime.validation import summarize_turn_statuses, validate_shared_contracts
+from research_experiments.family_runtime.validation import (
+    summarize_turn_statuses,
+    validate_rate_limit_check,
+    validate_shared_contracts,
+)
 
 REQUIRED_FILES = [
     "manifest.json",
@@ -75,7 +78,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     shard_union_check = _shard_union_check(sample_views)
     packet_cap_check = _packet_cap_check(packet_rows)
     hotpot_prediction_check = _hotpot_prediction_files_check(export_paths["hotpot_predictions"], prediction_rows)
-    rate_limit_check = _rate_limit_check(turn_rows, manifest)
+    rate_limit_check = validate_rate_limit_check(index.progress_path, turn_rows, manifest=manifest)
     shared_contracts = validate_shared_contracts(root)
     figure_contract = shared_contracts["figure_contract"]
     archive_contract = shared_contracts["archive_contract"]
@@ -112,6 +115,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             "figure_contract": figure_contract,
             "archive_contract": archive_contract,
         },
+        "rate_limit_check": rate_limit_check,
         "methods": dict(Counter(row.get("method_name") for row in prediction_rows)),
     }
 
@@ -207,56 +211,6 @@ def _hotpot_prediction_files_check(output_dir: Path, prediction_rows: list[dict[
         if not isinstance(answer, dict) or not isinstance(sp, dict) or set(answer) != expected_ids or set(sp) != expected_ids:
             invalid.append({"method_name": method, "expected_count": len(expected_ids)})
     return {"passed": not missing and not invalid, "missing_methods": missing, "invalid_files": invalid}
-
-
-def _rate_limit_check(turn_rows: list[dict[str, Any]], manifest: dict[str, Any]) -> dict[str, Any]:
-    rpm = manifest.get("requests_per_minute_limit")
-    tpm = manifest.get("tokens_per_minute_limit")
-    if not rpm and not tpm:
-        return {"passed": True, "enabled": False}
-    events = []
-    for row in turn_rows:
-        if row.get("cache_hit"):
-            continue
-        timestamp = row.get("request_started_at")
-        if not timestamp:
-            continue
-        events.append((_parse_timestamp(str(timestamp)), int(row.get("estimated_request_tokens") or 0), row))
-    events.sort(key=lambda item: item[0])
-    violations: list[dict[str, Any]] = []
-    for index, (timestamp, _, row) in enumerate(events):
-        window = [(ts, tokens, item) for ts, tokens, item in events[: index + 1] if (timestamp - ts).total_seconds() < 60.0]
-        request_count = len(window)
-        token_count = sum(tokens for _, tokens, _ in window)
-        if rpm and request_count > int(rpm):
-            violations.append(_rate_violation("rpm", request_count, int(rpm), row))
-        if tpm and token_count > int(tpm):
-            violations.append(_rate_violation("tpm", token_count, int(tpm), row))
-    return {
-        "passed": not violations,
-        "enabled": True,
-        "network_event_count": len(events),
-        "violation_count": len(violations),
-        "violations": violations[:20],
-    }
-
-
-def _rate_violation(kind: str, observed: int, limit: int, row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "kind": kind,
-        "observed": observed,
-        "limit": limit,
-        "dataset": row.get("dataset"),
-        "sample_id": row.get("sample_id"),
-        "method_name": row.get("method_name"),
-        "agent_id": row.get("agent_id"),
-    }
-
-
-def _parse_timestamp(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
 def _load_json(path: Path) -> dict[str, Any]:
     """Read a UTF-8 JSON file; return empty dict if missing."""
     if not path.exists():

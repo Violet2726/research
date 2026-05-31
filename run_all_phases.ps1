@@ -1,7 +1,7 @@
 ﻿[CmdletBinding()]
 param(
     # [string[]]$Phases = @("count20", "count100", "count300", "count500"),
-    [string[]]$Phases = @("count20"),
+    [string[]]$Phases = @("count20", "count100"),
     [string]$InitialReferenceStatePath = ""
 )
 

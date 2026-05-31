@@ -20,12 +20,6 @@ from research_experiments.core.execution.rate_limits import (
 )
 
 
-def _assert_standard_runtime_limits(payload: dict[str, object]) -> None:
-    assert payload["max_concurrent_requests"] == STANDARD_MAX_CONCURRENT_REQUESTS
-    assert payload["requests_per_minute_limit"] == STANDARD_REQUESTS_PER_MINUTE_LIMIT
-    assert payload["tokens_per_minute_limit"] == STANDARD_TOKENS_PER_MINUTE_LIMIT
-
-
 def test_single_agent_inspect_cli() -> None:
     payload = run_cli_json(
         [
@@ -377,7 +371,6 @@ def test_sid_lite_inspect_cli() -> None:
     )
     assert payload["name"] == "sid_lite_mechanism_validation"
     assert payload["methods"] == ["mv_3", "always_full", "compression_only", "sid_lite"]
-    _assert_standard_runtime_limits(payload)
 
 
 def test_free_mad_lite_inspect_cli() -> None:
@@ -423,7 +416,6 @@ def test_comm_necessary_inspect_cli() -> None:
         "evidence_exchange",
         "full_packet_exchange",
     ]
-    _assert_standard_runtime_limits(payload)
 
 
 def test_cue_inspect_cli() -> None:

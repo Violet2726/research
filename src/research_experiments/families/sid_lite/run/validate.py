@@ -18,7 +18,12 @@ from research_experiments.family_runtime.artifact_index import (
     named_turn_record_paths,
     resolve_run_artifact_index,
 )
-from research_experiments.family_runtime.validation import summarize_turn_statuses, validate_shared_contracts
+from research_experiments.family_runtime.validation import (
+    load_json,
+    summarize_turn_statuses,
+    validate_rate_limit_check,
+    validate_shared_contracts,
+)
 
 REQUIRED_FILES = [
     "manifest.json",
@@ -64,11 +69,13 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     prediction_rows = _load_jsonl(index.prediction_records_path)
 
     status_summary = summarize_turn_statuses(stage_a_rows + belief_rows)
+    manifest = load_json(index.manifest_path)
     paired_check = _paired_design_check(manifest, prediction_rows)
     stage_hash_check = _shared_stage_hash_check(prediction_rows)
     early_exit_check = _early_exit_zero_comm_check(prediction_rows)
     packet_cap_check = _packet_cap_check(packet_rows)
     fail_open_check = _invalid_confidence_fail_open_check(prediction_rows)
+    rate_limit_check = validate_rate_limit_check(index.progress_path, stage_a_rows + belief_rows, manifest=manifest)
     shared_contracts = validate_shared_contracts(root)
     figure_contract = shared_contracts["figure_contract"]
     archive_contract = shared_contracts["archive_contract"]
@@ -81,6 +88,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         and early_exit_check["passed"]
         and packet_cap_check["passed"]
         and fail_open_check["passed"]
+        and rate_limit_check["passed"]
         and figure_contract["passed"]
         and archive_contract["passed"]
     )
@@ -96,9 +104,11 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             "early_exit_zero_comm_check": early_exit_check,
             "packet_cap_check": packet_cap_check,
             "invalid_confidence_fail_open_check": fail_open_check,
+            "rate_limit_check": rate_limit_check,
             "figure_contract": figure_contract,
             "archive_contract": archive_contract,
         },
+        "rate_limit_check": rate_limit_check,
         "methods": dict(Counter(row.get("method_name") for row in prediction_rows)),
     }
 

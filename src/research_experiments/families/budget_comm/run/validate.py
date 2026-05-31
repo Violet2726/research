@@ -19,7 +19,11 @@ from research_experiments.family_runtime.artifact_index import (
     named_turn_record_paths,
     resolve_run_artifact_index,
 )
-from research_experiments.family_runtime.validation import summarize_turn_statuses, validate_shared_contracts
+from research_experiments.family_runtime.validation import (
+    summarize_turn_statuses,
+    validate_rate_limit_check,
+    validate_shared_contracts,
+)
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
@@ -64,6 +68,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     paired_check = _validate_paired_design(prediction_rows)
     leak_check = _validate_context_leak(sample_views, manifest)
     shard_union_check = _validate_shard_union(sample_views, manifest)
+    rate_limit_check = validate_rate_limit_check(index.progress_path, stage_a_rows + belief_rows, manifest=manifest)
     shared_contracts = validate_shared_contracts(root)
     figure_contract = shared_contracts["figure_contract"]
     archive_contract = shared_contracts["archive_contract"]
@@ -80,6 +85,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             paired_check["passed"],
             leak_check["passed"],
             shard_union_check["passed"],
+            rate_limit_check["passed"],
             figure_contract["passed"],
             archive_contract["passed"],
             bool(prediction_rows),
@@ -99,9 +105,11 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             "paired_design_check": paired_check,
             "context_leak_check": leak_check,
             "shard_union_check": shard_union_check,
+            "rate_limit_check": rate_limit_check,
             "figure_contract": figure_contract,
             "archive_contract": archive_contract,
         },
+        "rate_limit_check": rate_limit_check,
         "methods": dict(Counter(row.get("method_name") for row in prediction_rows)),
     }
 

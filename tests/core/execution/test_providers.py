@@ -151,7 +151,8 @@ def test_execute_completion_request_does_not_retry_429() -> None:
     assert response_payload["request_error"].startswith("Provider returned HTTP 429")
     snapshot = throttle.snapshot()
     assert snapshot["rate_limit_429_count"] == 1
-    assert snapshot["cooldown_remaining_seconds"] > 0
+    assert snapshot["cooldown_remaining_seconds"] == 0.0
+    assert snapshot["last_retry_after_seconds"] is None
 
 def test_provider_reuses_shared_http_client(monkeypatch: pytest.MonkeyPatch) -> None:
     created_clients: list[object] = []

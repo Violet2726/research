@@ -20,6 +20,7 @@ from research_experiments.family_runtime.validation import (
     load_json,
     load_jsonl,
     summarize_turn_statuses,
+    validate_rate_limit_check,
     validate_shared_contracts,
 )
 
@@ -58,11 +59,13 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     all_turn_rows = stage_a_rows + stage_b_rows + control_rows
     status_summary = summarize_turn_statuses(all_turn_rows)
 
+    manifest = load_json(index.manifest_path)
     shared_hash_check = _validate_shared_hashes(prediction_rows)
     disagreement_check = _validate_disagreement_policy(trigger_rows)
     early_exit_check = _validate_early_exit_tokens(prediction_rows)
     trigger_rate_check = _validate_always_trigger_rate(trigger_rows)
     invalid_confidence_check = _confidence_invalid_ratio(trigger_rows)
+    rate_limit_check = validate_rate_limit_check(index.progress_path, all_turn_rows, manifest=manifest)
     shared_contracts = validate_shared_contracts(root)
     figure_contract = shared_contracts["figure_contract"]
     archive_contract = shared_contracts["archive_contract"]
@@ -77,6 +80,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             disagreement_check["passed"],
             early_exit_check["passed"],
             trigger_rate_check["passed"],
+            rate_limit_check["passed"],
             figure_contract["passed"],
             archive_contract["passed"],
         ]
@@ -96,9 +100,11 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             "disagreement_policy_check": disagreement_check,
             "early_exit_zero_comm_check": early_exit_check,
             "invalid_confidence_ratio": invalid_confidence_check,
+            "rate_limit_check": rate_limit_check,
             "figure_contract": figure_contract,
             "archive_contract": archive_contract,
         },
+        "rate_limit_check": rate_limit_check,
         "policy_methods": dict(Counter(row.get("method_name") for row in prediction_rows)),
         "diagnostic_recommendation": diagnostics.get("recommended_next_default_policy"),
     }

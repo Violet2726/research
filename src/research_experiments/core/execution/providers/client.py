@@ -18,7 +18,6 @@ from research_experiments.core.execution.providers.normalization import (
     estimate_usage,
     extract_finish_reason,
     extract_message_channels,
-    provider_cooldown_seconds,
 )
 from research_experiments.core.execution.providers.payloads import (
     estimate_request_tokens,
@@ -184,8 +183,6 @@ def execute_completion_request(
             throttle.settle(reservation, realized_total_tokens(response_payload))
         return response_payload
     except httpx.HTTPStatusError as exc:
-        if throttle is not None and exc.response.status_code == 429:
-            throttle.note_retry_after(provider_cooldown_seconds(exc.response))
         if throttle is not None and reservation is not None:
             throttle.settle(reservation, 0, http_status=exc.response.status_code)
         response_text = exc.response.text
