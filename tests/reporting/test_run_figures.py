@@ -192,22 +192,12 @@ def test_matrix_analysis_table_view_filters_by_tier_and_track() -> None:
                 "primary_method_name": "hybrid_trigger",
                 "faithful_score": 0.84,
             },
-            {
-                "family": "cue",
-                "experiment_name": "cue_black_box_utility_main",
-                "evaluation_track": "same_context",
-                "evidence_tier": "diagnostic",
-                "dataset": "overall",
-                "primary_method_name": "cue_v1",
-                "faithful_score": 0.58,
-            },
         ]
     )
 
     headline = table.by_tier("headline", track="same_context")
     assert len(headline) == 1
     assert headline[0].experiment_name == "trigger_early_exit_main"
-    assert table.overall_rows()[1].evidence_tier == "diagnostic"
 
 
 def test_matrix_state_entry_and_statistic_comparison_views() -> None:

@@ -12,7 +12,6 @@
 - `sid_lite`：SID-lite 机制验证
 - `free_mad_lite`：Free-MAD-lite 机制验证
 - `comm_necessary`：HotpotQA split-context 通信必要性
-- `cue`：Communication Utility Estimation 黑盒选择性通信框架
 
 ## 目录概览
 

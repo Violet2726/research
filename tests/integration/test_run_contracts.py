@@ -19,8 +19,6 @@ from research_experiments.families.budget_comm.run.report import summarize_run a
 from research_experiments.families.budget_comm.run.validate import validate_run as validate_budget
 from research_experiments.families.comm_necessary.run.report import summarize_run as summarize_comm_necessary
 from research_experiments.families.comm_necessary.run.validate import validate_run as validate_comm_necessary
-from research_experiments.families.cue.run.report import summarize_run as summarize_cue
-from research_experiments.families.cue.run.validate import validate_run as validate_cue
 from research_experiments.families.dmad.run.report import summarize_run as summarize_dmad
 from research_experiments.families.dmad.run.validate import validate_run as validate_dmad
 from research_experiments.families.free_mad_lite.run.report import summarize_run as summarize_free_mad
@@ -200,38 +198,6 @@ def test_selective_comm_validation_contract(tmp_path: Path) -> None:
 
     assert summarize_selective(tmp_path)["row_count"] == 1
     assert validate_selective(tmp_path)["passed"] is True
-
-
-def test_cue_validation_contract(tmp_path: Path) -> None:
-    write_registered_family_manifest(tmp_path / "manifest.json", family_name="cue")
-    write_jsonl(tmp_path / "turns" / "stage_a_turns.jsonl", [{"output_status": "ok"}])
-    write_jsonl(tmp_path / "turns" / "communication_turns.jsonl", [])
-    write_jsonl(tmp_path / "turns" / "audit_turns.jsonl", [])
-    write_jsonl(
-        tmp_path / "views" / "predictions.jsonl",
-        [
-            {
-                "dataset": "gsm8k",
-                "sample_id": "gsm8k-00001",
-                "method_name": "always_communicate",
-                "stage_a_trace_hash": "stage-a",
-            },
-            {
-                "dataset": "gsm8k",
-                "sample_id": "gsm8k-00001",
-                "method_name": "cue_v1",
-                "stage_a_trace_hash": "stage-a",
-            },
-        ],
-    )
-    write_json(tmp_path / "views" / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
-    write_json(tmp_path / "diagnostics" / "policy_diagnostics.json", {"policy_rows": []})
-    write_json(tmp_path / "diagnostics" / "oracle_trigger_eval.json", {"summary_rows": []})
-    (tmp_path / "progress.json").write_text("{}", encoding="utf-8")
-    touch_figure_contract(tmp_path)
-
-    assert summarize_cue(tmp_path)["row_count"] == 1
-    assert validate_cue(tmp_path)["passed"] is True
 
 
 def test_selective_comm_resume_seed_state_keeps_only_complete_samples(tmp_path: Path) -> None:

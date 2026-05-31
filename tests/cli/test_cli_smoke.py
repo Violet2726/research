@@ -47,7 +47,7 @@ def test_faithful_matrix_inspect_cli() -> None:
         ],
     )
     assert payload["overrides"]["phase_name"] == "count20"
-    assert payload["counts"]["semantic_unique_targets"] == 15
+    assert payload["counts"]["semantic_unique_targets"] == 14
 
 
 def test_reproduction_matrix_inspect_cli() -> None:
@@ -416,22 +416,6 @@ def test_comm_necessary_inspect_cli() -> None:
         "evidence_exchange",
         "full_packet_exchange",
     ]
-
-
-def test_cue_inspect_cli() -> None:
-    payload = run_cli_json(
-        [
-            "research_cli",
-            "experiment",
-            "--family",
-            "cue",
-            "inspect-experiment",
-            "--experiment",
-            "configs/families/cue/experiments/cue_black_box_utility_main.toml",
-        ],
-    )
-    assert payload["name"] == "cue_black_box_utility_main"
-    assert payload["workspace_defaults"]["family_runs_root"].endswith("cue")
 
 
 def test_cache_inspector_summarize_cli(tmp_path) -> None:

@@ -17,7 +17,6 @@ ROOT = Path(__file__).resolve().parents[2]
 LEGACY_REPORT_COMMANDS = (
     "report-run",
     "report-trigger",
-    "report-cue",
     "report-debate-vs-vote",
 )
 MARKDOWN_DOCS = [
@@ -28,7 +27,6 @@ MARKDOWN_DOCS = [
     ROOT / "src" / "research_experiments" / "families" / "colmad" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "comm_necessary" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "consensagent" / "README.md",
-    ROOT / "src" / "research_experiments" / "families" / "cue" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "dmad" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "econ" / "README.md",
     ROOT / "src" / "research_experiments" / "families" / "free_mad_lite" / "README.md",

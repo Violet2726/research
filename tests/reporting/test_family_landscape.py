@@ -58,20 +58,6 @@ def test_build_family_landscape_payload_creates_global_track_and_rollup_views() 
                     "calls_per_question_mean": 6.0,
                     "stage_ceiling_gap": 0.04915,
                 },
-                {
-                    "family": "cue",
-                    "experiment_name": "cue_black_box_utility_main",
-                    "evaluation_track": "same_context",
-                    "evidence_tier": "diagnostic",
-                    "primary_method_name": "cue_v1",
-                    "faithful_score": 0.572428,
-                    "delta_vs_best_no_comm": 0.047585,
-                    "delta_vs_full_comm": -0.055983,
-                    "total_tokens_mean": 1100.0,
-                    "communication_tokens_mean": 180.0,
-                    "calls_per_question_mean": 3.8,
-                    "stage_ceiling_gap": 0.004899,
-                },
             ]
         },
         package_payload={
@@ -105,11 +91,10 @@ def test_build_family_landscape_payload_creates_global_track_and_rollup_views() 
         "trigger_early_exit_main",
         "voc_trigger_main",
         "dala_lite_split_context_main",
-        "cue_black_box_utility_main",
     ]
     assert global_board[0]["global_rank_by_score"] == 1
     assert global_board[1]["track_rank_by_score"] == 2
-    assert global_board[3]["tier_track_rank_by_score"] == 1
+    assert global_board[2]["tier_track_rank_by_score"] == 1
     assert global_board[0]["helpful_rate"] == 0.008444
     assert global_board[2]["acceptance_status"] == "accepted_split_context"
 
@@ -140,11 +125,11 @@ def test_render_family_landscape_writes_json_and_markdown(tmp_path: Path) -> Non
         {
             "combined_overall": [
                 {
-                    "family": "cue",
-                    "experiment_name": "cue_black_box_utility_main",
+                    "family": "selective_comm",
+                    "experiment_name": "trigger_early_exit_main",
                     "evaluation_track": "same_context",
                     "evidence_tier": "headline",
-                    "primary_method_name": "cue_v1",
+                    "primary_method_name": "hybrid_trigger",
                     "faithful_score": 0.664656,
                     "delta_vs_best_no_comm": 0.05187,
                     "delta_vs_full_comm": -0.004825,
@@ -166,4 +151,4 @@ def test_render_family_landscape_writes_json_and_markdown(tmp_path: Path) -> Non
     assert Path(outputs["json_path"]).exists()
     assert Path(outputs["published_path"]).exists()
     assert "## Global Total Board" in markdown
-    assert "cue_black_box_utility_main" in markdown
+    assert "trigger_early_exit_main" in markdown

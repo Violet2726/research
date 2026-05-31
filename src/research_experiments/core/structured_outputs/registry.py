@@ -17,7 +17,6 @@ from research_experiments.core.structured_outputs.validators import (
     validate_answer_core_payload,
     validate_audit_verdict_payload,
     validate_belief_update_delta_payload,
-    validate_cue_blackbox_packet_payload,
     validate_deliberation_packet_payload,
     validate_proxy_signal_answer_payload,
     validate_split_context_belief_payload,
@@ -34,7 +33,6 @@ SCHEMA_BELIEF_UPDATE_DELTA = "belief_update_delta"
 SCHEMA_AUDIT_VERDICT = "audit_verdict"
 SCHEMA_SPLIT_CONTEXT_SOLVER = "split_context_solver"
 SCHEMA_SPLIT_CONTEXT_BELIEF = "split_context_belief"
-SCHEMA_CUE_BLACKBOX_PACKET = "cue_blackbox_packet"
 
 SchemaId = Literal[
     "answer_core",
@@ -46,7 +44,6 @@ SchemaId = Literal[
     "audit_verdict",
     "split_context_solver",
     "split_context_belief",
-    "cue_blackbox_packet",
 ]
 
 
@@ -133,8 +130,6 @@ def _validate_payload(payload: dict[str, Any], schema_id: SchemaId, *, dataset: 
         return validate_split_context_solver_payload(payload)
     if schema_id == SCHEMA_SPLIT_CONTEXT_BELIEF:
         return validate_split_context_belief_payload(payload)
-    if schema_id == SCHEMA_CUE_BLACKBOX_PACKET:
-        return validate_cue_blackbox_packet_payload(payload)
     raise ValueError(f"Unsupported schema_id: {schema_id}")
 
 

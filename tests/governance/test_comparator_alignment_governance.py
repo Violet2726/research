@@ -42,7 +42,6 @@ def test_standard_vanilla_mad_runners_call_shared_core_directly() -> None:
 def test_stage_a_mv3_reuse_families_call_shared_builder() -> None:
     targets = [
         ROOT / "src" / "research_experiments" / "families" / "budget_comm" / "run" / "sample.py",
-        ROOT / "src" / "research_experiments" / "families" / "cue" / "run" / "sample.py",
         ROOT / "src" / "research_experiments" / "families" / "selective_comm" / "run" / "sample.py",
         ROOT / "src" / "research_experiments" / "families" / "sid_lite" / "run" / "sample.py",
     ]

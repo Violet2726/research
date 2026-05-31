@@ -138,42 +138,6 @@ def test_artifact_cleanup_parser_defaults_follow_local_workspace() -> None:
     assert args.reports_root == "local/reports"
 
 
-def test_collect_run_statuses_recognizes_cue_family(tmp_path: Path) -> None:
-    workspace_root = tmp_path
-    runs_root = workspace_root / "local" / "runs"
-    cue_run = runs_root / "cue" / "valid_run"
-    cue_run.mkdir(parents=True)
-    write_registered_family_manifest(cue_run / "manifest.json", family_name="cue", run_id="20260429T000004Z-cue")
-    write_jsonl(cue_run / "turns" / "stage_a_turns.jsonl", [{"output_status": "ok"}])
-    write_jsonl(cue_run / "turns" / "communication_turns.jsonl", [])
-    write_jsonl(cue_run / "turns" / "audit_turns.jsonl", [])
-    write_jsonl(
-        cue_run / "views" / "predictions.jsonl",
-        [
-            {
-                "dataset": "gsm8k",
-                "sample_id": "gsm8k-00001",
-                "method_name": "always_communicate",
-                "stage_a_trace_hash": "stage-a",
-            },
-            {
-                "dataset": "gsm8k",
-                "sample_id": "gsm8k-00001",
-                "method_name": "cue_v1",
-                "stage_a_trace_hash": "stage-a",
-            },
-        ],
-    )
-    write_json(cue_run / "views" / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
-    write_json(cue_run / "diagnostics" / "policy_diagnostics.json", {"policy_rows": []})
-    write_json(cue_run / "diagnostics" / "oracle_trigger_eval.json", {"summary_rows": []})
-    (cue_run / "progress.json").write_text("{}", encoding="utf-8")
-    touch_figure_contract(cue_run)
-
-    statuses = collect_run_statuses(workspace_root=workspace_root, runs_root=runs_root, revalidate_runs=True)
-    status = next(item for item in statuses if item.run_id == "20260429T000004Z-cue")
-    assert status.reason is None
-
 def _fake_run_status(passed: bool):
     from research_experiments.workspace.artifact_cleanup import RunStatus
 

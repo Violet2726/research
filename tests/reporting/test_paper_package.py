@@ -20,16 +20,6 @@ def test_build_paper_package_payload_splits_evidence_tiers() -> None:
                 "total_tokens_mean": 1000.0,
                 "calls_per_question_mean": 3.0,
             },
-            {
-                "family": "cue",
-                "experiment_name": "cue_black_box_utility_main",
-                "evaluation_track": "same_context",
-                "evidence_tier": "diagnostic",
-                "primary_method_name": "cue_v1",
-                "faithful_score": 0.58,
-                "total_tokens_mean": 900.0,
-                "calls_per_question_mean": 3.0,
-            },
         ]
     }
     package = build_paper_package_payload(
@@ -39,7 +29,6 @@ def test_build_paper_package_payload_splits_evidence_tiers() -> None:
     )
 
     assert package["sections"]["same_context_main_table"][0]["experiment_name"] == "trigger_early_exit_main"
-    assert package["sections"]["diagnostic_evidence_table"][0]["experiment_name"] == "cue_black_box_utility_main"
 
 
 def test_render_paper_package_writes_markdown_and_figures(tmp_path: Path) -> None:

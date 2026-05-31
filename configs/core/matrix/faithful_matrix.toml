@@ -103,15 +103,6 @@ full_comm_reference = "all_to_all_full"
 token_gate_basis = "communication"
 
 [[entries]]
-config_path = "configs/families/cue/experiments/cue_black_box_utility_main.toml"
-evaluation_track = "same_context"
-evidence_tier = "diagnostic"
-primary_method_name = "cue_v1"
-best_no_comm_candidates = ["mv_3"]
-full_comm_reference = "always_communicate"
-token_gate_basis = "communication"
-
-[[entries]]
 config_path = "configs/families/selective_comm/experiments/voc_trigger_main.toml"
 evaluation_track = "same_context"
 evidence_tier = "headline"

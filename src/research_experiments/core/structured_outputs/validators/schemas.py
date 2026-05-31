@@ -199,35 +199,6 @@ def validate_split_context_belief_payload(payload: dict[str, Any]) -> dict[str, 
     }
 
 
-def validate_cue_blackbox_packet_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    allowed_keys = {
-        "final_answer",
-        "confidence",
-        "reasoning_sketch",
-        "uncertain_point",
-        "top_claims",
-        "evidence_items",
-        "counter_answer",
-    }
-    actual_keys = set(payload)
-    if "final_answer" not in payload:
-        raise ValueError('Assistant output must include "final_answer".')
-    if not actual_keys.issubset(allowed_keys):
-        raise ValueError(
-            f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}."
-        )
-    return {
-        "final_answer": _require_answer_value(payload.get("final_answer"), "final_answer"),
-        "confidence": _optional_float(payload.get("confidence"), "confidence"),
-        "reasoning_sketch": _require_nullable_hint(payload.get("reasoning_sketch"), "reasoning_sketch")
-        or _require_answer_value(payload.get("final_answer"), "final_answer"),
-        "uncertain_point": _require_nullable_hint(payload.get("uncertain_point"), "uncertain_point"),
-        "top_claims": _require_short_string_list(payload.get("top_claims"), "top_claims"),
-        "evidence_items": _require_short_string_list(payload.get("evidence_items"), "evidence_items"),
-        "counter_answer": _optional_answer_value(payload.get("counter_answer"), "counter_answer"),
-    }
-
-
 def _validate_selective_proxy_signal_payload(payload: dict[str, Any], *, dataset: str | None) -> dict[str, Any]:
     allowed_keys = {
         "final_answer",

@@ -141,11 +141,11 @@ def test_build_faithful_analysis_computes_reference_deltas_and_stage_ceiling(tmp
 
 
 def test_render_faithful_analysis_writes_artifacts(tmp_path: Path) -> None:
-    run_dir = tmp_path / "runs" / "cue" / "cue_black_box_utility_main" / "count20" / "demo"
+    run_dir = tmp_path / "runs" / "selective_comm" / "trigger_early_exit_main" / "count20" / "demo"
     run_dir.mkdir(parents=True)
     _write_run_manifest(
         run_dir,
-        family_name="cue",
+        family_name="selective_comm",
         prototype="shared_stage_policy",
         metrics_path="views/metrics.json",
         predictions_path="views/predictions.jsonl",
@@ -171,7 +171,7 @@ def test_render_faithful_analysis_writes_artifacts(tmp_path: Path) -> None:
                     },
                     {
                         "dataset": "overall",
-                        "method_name": "cue_v1",
+                        "method_name": "hybrid_trigger",
                         "accuracy_mean": 0.68,
                         "total_tokens_mean": 1500.0,
                         "communication_tokens_mean": 400.0,
@@ -193,7 +193,7 @@ def test_render_faithful_analysis_writes_artifacts(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     (run_dir / "views" / "predictions.jsonl").write_text(
-        json.dumps({"dataset": "overall", "method_name": "cue_v1", "score": 1.0, "stage_a_score": 1.0}, ensure_ascii=False)
+        json.dumps({"dataset": "overall", "method_name": "hybrid_trigger", "score": 1.0, "stage_a_score": 1.0}, ensure_ascii=False)
         + "\n",
         encoding="utf-8",
     )
@@ -204,9 +204,9 @@ def test_render_faithful_analysis_writes_artifacts(tmp_path: Path) -> None:
             {
                 "semantic_entries": [
                     {
-                        "family": "cue",
-                        "config_path": "configs/families/cue/experiments/cue_black_box_utility_main.toml",
-                        "experiment_name": "cue_black_box_utility_main",
+                        "family": "selective_comm",
+                        "config_path": "configs/families/selective_comm/experiments/trigger_early_exit_main.toml",
+                        "experiment_name": "trigger_early_exit_main",
                         "run_dir": run_dir.as_posix(),
                         "status": "completed",
                     }

@@ -129,8 +129,6 @@ def recover_partial_payload(raw_text: str, schema_id: str) -> dict[str, Any] | N
         return _recover_audit_verdict_payload(raw_text)
     if schema_id in {"split_context_solver", "split_context_belief"}:
         return _recover_split_context_payload(raw_text, schema_id=schema_id)
-    if schema_id == "cue_blackbox_packet":
-        return _recover_cue_blackbox_payload(raw_text)
     return None
 
 
@@ -187,16 +185,6 @@ def recover_soft_rejection_payload(schema_id: str, *, dataset: str | None) -> di
             "decision": "abstain",
             "verified_answer": None,
             "rationale": "provider_soft_rejection",
-        }
-    if schema_id == "cue_blackbox_packet":
-        return {
-            "final_answer": "unknown",
-            "confidence": 0.0,
-            "reasoning_sketch": "provider_soft_rejection",
-            "uncertain_point": None,
-            "top_claims": ["provider_soft_rejection"],
-            "evidence_items": [],
-            "counter_answer": None,
         }
     if schema_id == "split_context_solver":
         return {
@@ -347,24 +335,6 @@ def _recover_audit_verdict_payload(raw_text: str) -> dict[str, Any] | None:
         "decision": decision,
         "verified_answer": _extract_json_answer_field(raw_text, "verified_answer"),
         "rationale": _extract_json_string_field(raw_text, "rationale") or "Recovered partial rationale.",
-    }
-
-
-def _recover_cue_blackbox_payload(raw_text: str) -> dict[str, Any] | None:
-    final_answer = _extract_json_answer_field(raw_text, "final_answer")
-    if not final_answer:
-        return None
-    confidence = _extract_json_number_field(raw_text, "confidence")
-    if confidence is None:
-        confidence = _extract_json_string_field(raw_text, "confidence")
-    return {
-        "final_answer": final_answer,
-        "confidence": confidence,
-        "reasoning_sketch": _extract_json_string_field(raw_text, "reasoning_sketch") or final_answer,
-        "uncertain_point": _extract_json_string_field(raw_text, "uncertain_point"),
-        "top_claims": _extract_json_string_list_field(raw_text, "top_claims"),
-        "evidence_items": _extract_json_string_list_field(raw_text, "evidence_items"),
-        "counter_answer": _extract_json_answer_field(raw_text, "counter_answer"),
     }
 
 

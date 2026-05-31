@@ -44,7 +44,6 @@ from research_experiments.workspace.layout import default_reports_root
 FIGURE_LABEL_OVERRIDES = {
     "local_auditing_ablation": "SPARC audit",
     "content_ablation": "SPARC content",
-    "cue_black_box_utility_main": "CUE",
     "dala_lite_same_context_main": "DALA same",
     "dala_lite_split_context_main": "DALA split",
     "free_mad_lite_mechanism_validation": "Free-MAD-lite",

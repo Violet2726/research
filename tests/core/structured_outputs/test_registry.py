@@ -14,7 +14,6 @@ from research_experiments.core.structured_outputs import (
     SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE,
     SCHEMA_AUDIT_VERDICT,
     SCHEMA_BELIEF_UPDATE_DELTA,
-    SCHEMA_CUE_BLACKBOX_PACKET,
     SCHEMA_DELIBERATION_PACKET,
     SCHEMA_SPLIT_CONTEXT_BELIEF,
     SCHEMA_SPLIT_CONTEXT_SOLVER,
@@ -375,15 +374,6 @@ def test_validate_deliberation_solver_structured_output() -> None:
     )
     assert payload["final_answer"] == "42"
     assert payload["confidence_raw"] == 0.7
-
-def test_validate_or_recover_cue_solver_from_partial_json() -> None:
-    payload = validate_or_recover_structured_output(
-        '{"final_answer": 50, "confidence": 0.6, "top_claims": ["50"], "evidence_items": ["calc"], "reasoning_sketch": "done"',
-        SCHEMA_CUE_BLACKBOX_PACKET,
-    )
-    assert payload["final_answer"] == "50"
-    assert payload["confidence"] == 0.6
-    assert payload["top_claims"] == ["50"]
 
 def test_validate_deliberation_packet_structured_output() -> None:
     payload = validate_structured_output(

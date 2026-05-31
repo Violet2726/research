@@ -49,7 +49,6 @@ def test_faithful_matrix_standard_method_references_stay_aligned() -> None:
     for config_path in (
         "configs/families/budget_comm/experiments/dala_lite_same_context_main.toml",
         "configs/families/budget_comm/experiments/dala_lite_split_context_main.toml",
-        "configs/families/cue/experiments/cue_black_box_utility_main.toml",
         "configs/families/sid_lite/experiments/sid_lite_mechanism_validation.toml",
     ):
         assert specs[config_path].best_no_comm_candidates == (MV_3,)
