@@ -36,3 +36,7 @@ matched_controls = ["cot_1", "mv_5"]
 [phases.count20]
 split_suffix = "count20_seed42"
 setups = ["madjudge_7a"]
+
+[phases.count100]
+split_suffix = "count100_seed42"
+setups = ["madjudge_7a"]

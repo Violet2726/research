@@ -9,8 +9,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 
-STANDARD_MAX_CONCURRENT_REQUESTS = 90
-STANDARD_REQUESTS_PER_MINUTE_LIMIT = 95
+STANDARD_MAX_CONCURRENT_REQUESTS = 12
+STANDARD_REQUESTS_PER_MINUTE_LIMIT = 15
 STANDARD_TOKENS_PER_MINUTE_LIMIT = 9000000
 
 

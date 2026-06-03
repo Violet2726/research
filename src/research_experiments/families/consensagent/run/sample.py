@@ -238,8 +238,8 @@ def _run_consensagent_sample(
                 "trigger_type": None,
                 "trigger_round": None,
                 "sycophancy_rate": 0.0,
-                "initial_consistency_score": initial_consistency,
-                "final_consistency_score": final_consistency,
+                "initial_consistency_score": initial_consistency.score,
+                "final_consistency_score": final_consistency.score,
             },
         )
         return shared_result["turn_rows"], shared_result["debate_rows"], prediction_row

@@ -13,7 +13,8 @@ initial_reference_state="${RESEARCH_INITIAL_REFERENCE_STATE:-}"
 
 phases=("$@")
 if [[ ${#phases[@]} -eq 0 ]]; then
-  phases=(count20 count100 count300 count500)
+  # phases=(count20 count100 count300 count500)
+  phases=(count20 count100)
 fi
 
 run_phase() {
