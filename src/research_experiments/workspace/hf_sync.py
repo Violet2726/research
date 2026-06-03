@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -178,6 +179,7 @@ def pull_workspace_from_hub(
     overwrite_runs: bool = True,
     selected_run_ids: list[str] | None = None,
     selected_run_prefixes: list[str] | None = None,
+    published_within_hours: float | None = None,
     cache_shard_filters: list[str] | None = None,
 ) -> dict[str, Any]:
     """批量回拉 Hugging Face 上的 runs 与 cache。"""
@@ -191,15 +193,22 @@ def pull_workspace_from_hub(
     if pull_cache and not resolved_cache_repo:
         raise RuntimeError("缺少 cache Hugging Face repo；请传入 `--cache-repo` 或配置 `RESEARCH_CACHE_HF_REPO`。")
 
+    published_after = _resolve_published_after(published_within_hours)
     fetched_runs: list[dict[str, Any]] = []
     if fetch_runs:
         api = HfApi(token=token)
-        remote_prefixes = _filter_remote_prefixes(
-            list_remote_run_prefixes(api, repo_id=resolved_runs_repo),
+        remote_runs = _filter_remote_runs(
+            list_remote_runs(
+                api,
+                repo_id=resolved_runs_repo,
+                include_commit_timestamps=published_after is not None,
+            ),
             selected_run_ids=selected_run_ids,
             selected_run_prefixes=selected_run_prefixes,
+            published_after=published_after,
         )
-        for remote_prefix in remote_prefixes:
+        for remote_run in remote_runs:
+            remote_prefix = str(remote_run["remote_prefix"])
             target_run_root = resolved_runs_root / PurePosixPath(remote_prefix)
             if overwrite_runs and target_run_root.exists():
                 shutil.rmtree(target_run_root)
@@ -215,6 +224,7 @@ def pull_workspace_from_hub(
             fetched_runs.append(
                 {
                     "remote_prefix": remote_prefix,
+                    "published_at": remote_run.get("published_at"),
                     "target_run_root": target_run_root.as_posix(),
                     "extracted_member_count": len(extracted_members),
                 }
@@ -234,6 +244,8 @@ def pull_workspace_from_hub(
         "cache_root": resolved_cache_root.as_posix(),
         "runs_repo": resolved_runs_repo,
         "cache_repo": resolved_cache_repo,
+        "published_within_hours": published_within_hours,
+        "published_after": published_after.isoformat() if published_after is not None else None,
         "fetched_run_count": len(fetched_runs),
         "fetched_runs": fetched_runs,
         "cache_pulled": cache_payload is not None,
@@ -294,13 +306,48 @@ def collect_hf_sync_status(
 
 def list_remote_run_prefixes(api: HfApi, *, repo_id: str) -> list[str]:
     """列出远端 runs repo 中所有已发布 run 的相对前缀。"""
-    repo_files = api.list_repo_files(repo_id=repo_id, repo_type="dataset")
-    prefixes = [
-        PurePosixPath(path).parent.as_posix()
-        for path in repo_files
+    return [str(row["remote_prefix"]) for row in list_remote_runs(api, repo_id=repo_id)]
+
+
+def list_remote_runs(
+    api: HfApi,
+    *,
+    repo_id: str,
+    include_commit_timestamps: bool = False,
+) -> tuple[dict[str, Any], ...]:
+    """列出远端 runs repo 中的 run 前缀，可选附带发布时间。"""
+    manifest_paths = sorted(
+        path
+        for path in api.list_repo_files(repo_id=repo_id, repo_type="dataset")
         if path.endswith(f"/{ARCHIVE_MANIFEST_FILENAME}")
-    ]
-    return sorted(dict.fromkeys(prefixes))
+    )
+    if not include_commit_timestamps:
+        return tuple(
+            {
+                "remote_prefix": PurePosixPath(path).parent.as_posix(),
+                "published_at": None,
+            }
+            for path in manifest_paths
+        )
+
+    details_by_path: dict[str, Any] = {}
+    for batch in _chunked(manifest_paths, batch_size=100):
+        for info in api.get_paths_info(repo_id=repo_id, paths=batch, repo_type="dataset", expand=True):
+            path = str(getattr(info, "path", "") or "")
+            if path:
+                details_by_path[path] = info
+
+    rows: list[dict[str, Any]] = []
+    for path in manifest_paths:
+        last_commit = getattr(details_by_path.get(path), "last_commit", None)
+        published_at = _normalize_datetime(getattr(last_commit, "date", None))
+        rows.append(
+            {
+                "remote_prefix": PurePosixPath(path).parent.as_posix(),
+                "published_at": published_at.isoformat() if published_at is not None else None,
+            }
+        )
+    return tuple(rows)
 
 
 def _select_run_candidates(
@@ -328,12 +375,13 @@ def _select_run_candidates(
     return tuple(discovered[key] for key in sorted(discovered))
 
 
-def _filter_remote_prefixes(
-    remote_prefixes: list[str],
+def _filter_remote_runs(
+    remote_runs: tuple[dict[str, Any], ...] | list[dict[str, Any]],
     *,
     selected_run_ids: list[str] | None,
     selected_run_prefixes: list[str] | None,
-) -> list[str]:
+    published_after: datetime | None = None,
+) -> list[dict[str, Any]]:
     normalized_prefix_filters = {
         PurePosixPath(item.replace("\\", "/")).as_posix().strip("/")
         for item in (selected_run_prefixes or [])
@@ -341,23 +389,33 @@ def _filter_remote_prefixes(
     }
     normalized_run_ids = {str(item).strip() for item in (selected_run_ids or []) if str(item).strip()}
     if not normalized_prefix_filters and not normalized_run_ids:
-        return remote_prefixes
+        filtered = list(remote_runs)
+    else:
+        filtered = [
+            row
+            for row in remote_runs
+            if str(row["remote_prefix"]) in normalized_prefix_filters
+            or PurePosixPath(str(row["remote_prefix"])).name in normalized_run_ids
+        ]
 
-    filtered = [
-        prefix
-        for prefix in remote_prefixes
-        if prefix in normalized_prefix_filters or PurePosixPath(prefix).name in normalized_run_ids
-    ]
-    matched_run_ids = {PurePosixPath(prefix).name for prefix in filtered}
-    missing_prefixes = normalized_prefix_filters.difference(filtered)
-    missing_run_ids = normalized_run_ids.difference(matched_run_ids)
-    if missing_prefixes or missing_run_ids:
-        messages: list[str] = []
-        if missing_prefixes:
-            messages.append(f"未找到 run_prefix: {sorted(missing_prefixes)}")
-        if missing_run_ids:
-            messages.append(f"未找到 run_id: {sorted(missing_run_ids)}")
-        raise FileNotFoundError("；".join(messages))
+        matched_run_ids = {PurePosixPath(str(row["remote_prefix"])).name for row in filtered}
+        matched_prefixes = {str(row["remote_prefix"]) for row in filtered}
+        missing_prefixes = normalized_prefix_filters.difference(matched_prefixes)
+        missing_run_ids = normalized_run_ids.difference(matched_run_ids)
+        if missing_prefixes or missing_run_ids:
+            messages: list[str] = []
+            if missing_prefixes:
+                messages.append(f"未找到 run_prefix: {sorted(missing_prefixes)}")
+            if missing_run_ids:
+                messages.append(f"未找到 run_id: {sorted(missing_run_ids)}")
+            raise FileNotFoundError("；".join(messages))
+
+    if published_after is not None:
+        filtered = [
+            row
+            for row in filtered
+            if (published_at := _parse_published_at(row.get("published_at"))) is not None and published_at >= published_after
+        ]
     return filtered
 
 
@@ -441,4 +499,38 @@ def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _resolve_published_after(published_within_hours: float | None) -> datetime | None:
+    if published_within_hours is None:
+        return None
+    if published_within_hours <= 0:
+        raise ValueError("`published_within_hours` 必须大于 0。")
+    return _utcnow() - timedelta(hours=published_within_hours)
+
+
+def _normalize_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _parse_published_at(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return _normalize_datetime(value)
+    return _normalize_datetime(datetime.fromisoformat(str(value)))
+
+
+def _chunked(items: list[str], *, batch_size: int) -> tuple[list[str], ...]:
+    if batch_size <= 0:
+        raise ValueError("`batch_size` 必须大于 0。")
+    return tuple(items[index : index + batch_size] for index in range(0, len(items), batch_size))
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
 

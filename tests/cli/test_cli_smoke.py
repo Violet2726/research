@@ -663,6 +663,7 @@ def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
             "pull_cache": kwargs["pull_cache"],
             "selected_run_ids": kwargs["selected_run_ids"],
             "selected_run_prefixes": kwargs["selected_run_prefixes"],
+            "published_within_hours": kwargs["published_within_hours"],
             "cache_shard_filters": kwargs["cache_shard_filters"],
         },
     )
@@ -681,6 +682,8 @@ def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
             "20260510T000000Z-model",
             "--run-prefix",
             "single_agent/demo/count20/20260510T000000Z-model",
+            "--published-within-hours",
+            "1",
             "--cache-shard",
             "providers/xiaomimimo/mimo-v2-5/strategyqa/dev",
             "--json",
@@ -693,4 +696,5 @@ def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
     assert payload["pull_cache"] is True
     assert payload["selected_run_ids"] == ["20260510T000000Z-model"]
     assert payload["selected_run_prefixes"] == ["single_agent/demo/count20/20260510T000000Z-model"]
+    assert payload["published_within_hours"] == 1.0
     assert payload["cache_shard_filters"] == ["providers/xiaomimimo/mimo-v2-5/strategyqa/dev"]

@@ -184,7 +184,24 @@ uv run research_cli tools hf-sync pull-workspace --skip-cache `
   --run-prefix selective_comm/trigger_early_exit_main/count20/<run_id>
 ```
 
-### 5. 同时限制 runs 与 cache 的同步范围
+### 5. 只拉取最近一小时发布的 runs
+
+```powershell
+uv run research_cli tools hf-sync pull-workspace --skip-cache --published-within-hours 1
+```
+
+如果希望在回拉后继续只推送本地 runs，可接着执行：
+
+```powershell
+uv run research_cli tools hf-sync push-workspace --skip-cache
+```
+
+说明：
+
+- `--published-within-hours 1` 会按远端 `archive_manifest.json` 的最后提交时间筛选最近一小时发布的 runs
+- 可与 `--run-id`、`--run-prefix` 叠加使用，进一步缩小回拉范围
+
+### 6. 同时限制 runs 与 cache 的同步范围
 
 ```powershell
 uv run research_cli tools hf-sync push-workspace `
@@ -198,7 +215,7 @@ uv run research_cli tools hf-sync pull-workspace `
   --cache-shard providers/xiaomimimo/mimo-v2-5/hotpotqa/validation-distractor
 ```
 
-### 6. 其他常用控制项
+### 7. 其他常用控制项
 
 - `--skip-runs`
   - 只同步 cache
@@ -210,6 +227,8 @@ uv run research_cli tools hf-sync pull-workspace `
   - 批量扫描时跳过所有矩阵目录，例如 `faithful_matrix` 与 `reproduction_matrix`
 - `--keep-existing-runs`
   - 回拉 runs 时不先删除本地同名目录
+- `--published-within-hours`
+  - 只回拉最近 N 小时内发布的 runs，按远端 `archive_manifest.json` 的最后提交时间筛选
 
 ## 四、当前不支持的操作
 

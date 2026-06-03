@@ -47,6 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
     pull_workspace.add_argument("--cache-root", default=default_cache_root())
     pull_workspace.add_argument("--run-id", action="append", default=[], help="仅回拉某个或某些 run_id，可重复传入。")
     pull_workspace.add_argument("--run-prefix", action="append", default=[], help="仅回拉某个或某些远端 run 目录前缀，可重复传入。")
+    pull_workspace.add_argument(
+        "--published-within-hours",
+        type=float,
+        help="仅回拉最近 N 小时内发布的 runs，按远端 archive_manifest.json 的最后提交时间筛选。",
+    )
     pull_workspace.add_argument("--cache-shard", action="append", default=[], help="仅回拉某个或某些 cache 分库目录，可重复传入。")
     pull_workspace.add_argument("--runs-repo")
     pull_workspace.add_argument("--cache-repo")
@@ -103,6 +108,7 @@ def main(argv: list[str] | None = None) -> None:
             overwrite_runs=not args.keep_existing_runs,
             selected_run_ids=args.run_id,
             selected_run_prefixes=args.run_prefix,
+            published_within_hours=args.published_within_hours,
             cache_shard_filters=args.cache_shard,
         )
     elif args.command == "status":
