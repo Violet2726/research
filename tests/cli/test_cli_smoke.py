@@ -492,16 +492,13 @@ def test_cache_inspector_normalize_layout_cli(tmp_path: Path) -> None:
     assert payload["candidates"][0]["target_dataset"] == "gsm8k"
 
 
-def test_archive_runs_publish_uses_repo_env(monkeypatch, tmp_path) -> None:
-    (tmp_path / "manifest.json").write_text(json.dumps({"run_id": "test-run"}, ensure_ascii=False, indent=2), encoding="utf-8")
-    monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
+def test_hf_push_cache_uses_repo_env(monkeypatch) -> None:
+    monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
     monkeypatch.setattr(
-        "research_experiments.cli.tools.archive_runs.publish_run_to_hub",
-        lambda run_root, repo_id, token, create_repo: {
-            "run_root": str(run_root),
-            "remote_repo": repo_id,
+        "research_experiments.cli.tools.hf.push_cache_to_hub",
+        lambda: {
+            "remote_repo": "owner/research-cache",
             "published": True,
-            "create_repo": create_repo,
         },
     )
 
@@ -509,27 +506,23 @@ def test_archive_runs_publish_uses_repo_env(monkeypatch, tmp_path) -> None:
         [
             "research_cli",
             "tools",
-            "archive-runs",
-            "publish-run",
-            "--run-root",
-            str(tmp_path),
+            "hf",
+            "push-cache",
             "--json",
         ],
     )
 
-    assert payload["remote_repo"] == "owner/research-runs"
+    assert payload["remote_repo"] == "owner/research-cache"
     assert payload["published"] is True
 
 
-def test_archive_runs_fetch_accepts_run_prefix(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
+def test_hf_pull_cache_uses_repo_env(monkeypatch) -> None:
+    monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
     monkeypatch.setattr(
-        "research_experiments.cli.tools.archive_runs.fetch_run_from_hub",
-        lambda run_id, repo_id, remote_prefix, token, target_root: {
-            "run_id": run_id,
-            "remote_repo": repo_id,
-            "remote_prefix": remote_prefix,
-            "target_root": str(target_root),
+        "research_experiments.cli.tools.hf.pull_cache_from_hub",
+        lambda: {
+            "remote_repo": "owner/research-cache",
+            "fetched_shard_count": 2,
         },
     )
 
@@ -537,91 +530,53 @@ def test_archive_runs_fetch_accepts_run_prefix(monkeypatch, tmp_path) -> None:
         [
             "research_cli",
             "tools",
-            "archive-runs",
-            "fetch-run",
-            "--run-prefix",
-            "single_agent/demo/count20/20260510T000000Z-model",
-            "--target-root",
-            str(tmp_path),
+            "hf",
+            "pull-cache",
+            "--json",
+        ],
+    )
+
+    assert payload["remote_repo"] == "owner/research-cache"
+    assert payload["fetched_shard_count"] == 2
+
+
+def test_hf_push_runs_uses_new_arguments(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
+    monkeypatch.setattr(
+        "research_experiments.cli.tools.hf.push_runs_to_hub",
+        lambda **kwargs: {
+            "remote_repo": "owner/research-runs",
+            "sources": kwargs["sources"],
+            "skip_validation": kwargs["skip_validation"],
+        },
+    )
+
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "tools",
+            "hf",
+            "push-runs",
+            "--source",
+            str(tmp_path / "runs" / "single_agent"),
+            "--skip-validation",
             "--json",
         ],
     )
 
     assert payload["remote_repo"] == "owner/research-runs"
-    assert payload["remote_prefix"] == "single_agent/demo/count20/20260510T000000Z-model"
-    assert payload["run_id"] is None
+    assert payload["sources"] == [str(tmp_path / "runs" / "single_agent")]
+    assert payload["skip_validation"] is True
 
 
-def test_cache_archive_push_uses_repo_env(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
-    monkeypatch.setattr(
-        "research_experiments.cli.tools.cache_archive.push_latest_cache_snapshot",
-        lambda cache_root, repo_id, token, create_repo, private, shard_filters=None: {
-            "cache_root": str(cache_root),
-            "remote_repo": repo_id,
-            "published": True,
-            "private_repo": private,
-            "shard_filters": shard_filters or [],
-        },
-    )
-
-    payload = run_cli_json(
-        [
-            "research_cli",
-            "tools",
-            "cache-archive",
-            "push-latest",
-            "--cache-root",
-            str(tmp_path),
-            "--json",
-        ],
-    )
-
-    assert payload["remote_repo"] == "owner/research-cache"
-    assert payload["private_repo"] is True
-
-
-def test_cache_archive_pull_accepts_cache_shard(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
-    monkeypatch.setattr(
-        "research_experiments.cli.tools.cache_archive.pull_latest_cache_snapshot",
-        lambda target, repo_id, token, shard_filters=None: {
-            "target_root": str(target),
-            "remote_repo": repo_id,
-            "shard_filters": shard_filters or [],
-        },
-    )
-
-    payload = run_cli_json(
-        [
-            "research_cli",
-            "tools",
-            "cache-archive",
-            "pull-latest",
-            "--target",
-            str(tmp_path),
-            "--cache-shard",
-            "providers/xiaomimimo/mimo-v2-5/strategyqa/dev",
-            "--json",
-        ],
-    )
-
-    assert payload["remote_repo"] == "owner/research-cache"
-    assert payload["shard_filters"] == ["providers/xiaomimimo/mimo-v2-5/strategyqa/dev"]
-
-
-def test_hf_sync_push_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
+def test_hf_pull_runs_uses_new_arguments(monkeypatch) -> None:
     monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
-    monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
     monkeypatch.setattr(
-        "research_experiments.cli.tools.hf_sync.push_workspace_to_hub",
+        "research_experiments.cli.tools.hf.pull_runs_from_hub",
         lambda **kwargs: {
-            "runs_repo": kwargs["runs_repo_id"],
-            "cache_repo": kwargs["cache_repo_id"],
-            "publish_runs": kwargs["publish_runs"],
-            "push_cache": kwargs["push_cache"],
-            "selected_run_dirs": kwargs["selected_run_dirs"],
-            "cache_shard_filters": kwargs["cache_shard_filters"],
+            "remote_repo": "owner/research-runs",
+            "selected_prefixes": kwargs["prefixes"],
+            "recent_hours": kwargs["recent_hours"],
         },
     )
 
@@ -629,72 +584,22 @@ def test_hf_sync_push_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
         [
             "research_cli",
             "tools",
-            "hf-sync",
-            "push-workspace",
-            "--runs-root",
-            str(tmp_path / "runs"),
-            "--cache-root",
-            str(tmp_path / "cache"),
-            "--run-dir",
-            str(tmp_path / "runs" / "single_agent" / "demo"),
-            "--cache-shard",
-            "providers/xiaomimimo/mimo-v2-5/strategyqa/dev",
-            "--json",
-        ],
-    )
-
-    assert payload["runs_repo"] == "owner/research-runs"
-    assert payload["cache_repo"] == "owner/research-cache"
-    assert payload["publish_runs"] is True
-    assert payload["push_cache"] is True
-    assert payload["selected_run_dirs"] == [str(tmp_path / "runs" / "single_agent" / "demo")]
-    assert payload["cache_shard_filters"] == ["providers/xiaomimimo/mimo-v2-5/strategyqa/dev"]
-
-
-def test_hf_sync_pull_workspace_uses_repo_env(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("RESEARCH_RUNS_HF_REPO", "owner/research-runs")
-    monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
-    monkeypatch.setattr(
-        "research_experiments.cli.tools.hf_sync.pull_workspace_from_hub",
-        lambda **kwargs: {
-            "runs_repo": kwargs["runs_repo_id"],
-            "cache_repo": kwargs["cache_repo_id"],
-            "fetch_runs": kwargs["fetch_runs"],
-            "pull_cache": kwargs["pull_cache"],
-            "selected_run_ids": kwargs["selected_run_ids"],
-            "selected_run_prefixes": kwargs["selected_run_prefixes"],
-            "published_within_hours": kwargs["published_within_hours"],
-            "cache_shard_filters": kwargs["cache_shard_filters"],
-        },
-    )
-
-    payload = run_cli_json(
-        [
-            "research_cli",
-            "tools",
-            "hf-sync",
-            "pull-workspace",
-            "--runs-root",
-            str(tmp_path / "runs"),
-            "--cache-root",
-            str(tmp_path / "cache"),
-            "--run-id",
-            "20260510T000000Z-model",
-            "--run-prefix",
-            "single_agent/demo/count20/20260510T000000Z-model",
-            "--published-within-hours",
+            "hf",
+            "pull-runs",
+            "--prefix",
+            "single_agent/demo",
+            "--recent-hours",
             "1",
-            "--cache-shard",
-            "providers/xiaomimimo/mimo-v2-5/strategyqa/dev",
             "--json",
         ],
     )
 
-    assert payload["runs_repo"] == "owner/research-runs"
-    assert payload["cache_repo"] == "owner/research-cache"
-    assert payload["fetch_runs"] is True
-    assert payload["pull_cache"] is True
-    assert payload["selected_run_ids"] == ["20260510T000000Z-model"]
-    assert payload["selected_run_prefixes"] == ["single_agent/demo/count20/20260510T000000Z-model"]
-    assert payload["published_within_hours"] == 1.0
-    assert payload["cache_shard_filters"] == ["providers/xiaomimimo/mimo-v2-5/strategyqa/dev"]
+    assert payload["remote_repo"] == "owner/research-runs"
+    assert payload["selected_prefixes"] == ["single_agent/demo"]
+    assert payload["recent_hours"] == 1.0
+
+
+def test_hf_is_the_only_huggingface_tool_family() -> None:
+    from research_experiments.cli.main import TOOL_MAINS
+
+    assert {"artifact-cleanup", "cache-inspector", "dataset-assets", "hf"} == set(TOOL_MAINS)

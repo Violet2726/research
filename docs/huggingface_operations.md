@@ -1,251 +1,121 @@
 # Hugging Face 操作总览
 
-本文档是仓库内所有 Hugging Face 归档与恢复操作的统一索引，覆盖：
-
-- 单个 run 目录
-- 多个指定 run 目录
-- 整个 `local/runs` 工作区
-- 整个 `local/cache` 最新快照
-- 一个或多个指定 cache 分库目录
-
-适用对象：
-
-- `Violet1307/research-runs`：公开 dataset repo，保存正式 run 归档
-- `Violet1307/research-cache`：私有 dataset repo，保存 latest-only cache 快照
+本文档描述当前仓库的 Hugging Face 同步体系。
 
 ## 基本约定
 
-- `runs` 的同步单位是“run 目录”
-  - 标准 run：`local/runs/<family>/<experiment>/<phase>/<run_id>/`
-  - matrix run：`local/runs/<matrix_kind>/<run_id>/`
-- `cache` 的同步单位是“分库目录”
-  - `local/cache/providers/<provider>/<request_model>/<dataset_path_key>/`
-- `runs` 推送时会自动打包，可浏览外壳文件会单独保留，重型 JSONL / 预测文件会进入：
-  - `traces.tar.zst`
-  - `predictions.tar.zst`
-  - `artifacts.tar.zst`
-- `runs` 拉取时会自动完成全部归档解压
-- `cache` 推送时会压缩为 `requests.sqlite.zst`，并附带 `metadata.json`、`sha256.txt`
-- `cache` push/pull 会按 shard 级快照 hash 做增量判断；未变化的分库不会重复上传、下载或覆盖
+- `runs` 与 `cache` 继续使用两个独立的 Hugging Face dataset repo
+- 默认行为统一为：
+  - 不重复推送
+  - 不重复拉取
 
-## 一、runs：支持的操作
-
-### 1. 推送单个 run 目录
+## 一、统一命令入口
 
 ```powershell
-uv run research_cli tools archive-runs publish-run --run-root local/runs/<family>/<experiment>/<phase>/<run_id>
+uv run research_cli tools hf push-cache
+uv run research_cli tools hf pull-cache
+uv run research_cli tools hf push-runs
+uv run research_cli tools hf pull-runs
 ```
 
-特点：
+## 二、cache：整库同步
 
-- 支持某个具体的本地 run 文件夹
-- 推送前自动打包，不需要先显式执行打包命令
-- 上传内容包含：
-  - `report.md`
-  - `metrics.json`
-  - `figure_manifest.json`
-  - `figures/*.svg`
-  - `figures/*.csv`
-  - `archive_manifest.json`
-  - `traces.tar.zst`
-  - `predictions.tar.zst`
-  - `artifacts.tar.zst`（若存在）
-
-### 2. 拉取单个 run 目录
-
-按 `run_id`：
+### 1. 推送整个 cache
 
 ```powershell
-uv run research_cli tools archive-runs fetch-run --run-id <run_id>
+uv run research_cli tools hf push-cache
 ```
 
-按远端目录前缀：
+### 2. 拉取整个 cache
 
 ```powershell
-uv run research_cli tools archive-runs fetch-run --run-prefix <family>/<experiment>/<phase>/<run_id>
+uv run research_cli tools hf pull-cache
 ```
 
 说明：
 
-- `--run-id` 适合快速按运行标识回拉
-- `--run-prefix` 适合精确指定某个远端文件夹
-- 拉取后会自动解压该 run 的全部归档包
+- 只支持整个 `local/cache` 的 push/pull，不再保留 shard 级 CLI 选择
+- 每个 `requests.sqlite` 同级维护 `requests.sqlite.hfhash.json`
+- sidecar 与远端 `cache_manifest.json` 的 `sqlite_sha256` 一致时，默认跳过
 
-## 二、cache：支持的操作
+## 三、runs：按完整 run 同步
 
-### 1. 推送整个 cache 最新快照
+### 1. 推送整个 runs 工作区
 
 ```powershell
-uv run research_cli tools cache-archive push-latest --cache-root local/cache
+uv run research_cli tools hf push-runs
 ```
 
-### 2. 拉取整个 cache 最新快照
+默认行为：
+
+- 只推送验证通过的标准实验 run
+- 只推送完整收敛的矩阵目录
+- 已经发布且 bundle 指纹一致的 run 会自动跳过
+
+### 2. 推送指定目录
 
 ```powershell
-uv run research_cli tools cache-archive pull-latest --target local/cache
+uv run research_cli tools hf push-runs --source local/runs/dmad
 ```
 
-### 3. 推送一个或多个指定 cache 分库目录
-
-单个：
-
 ```powershell
-uv run research_cli tools cache-archive push-latest --cache-root local/cache --cache-shard providers/xiaomimimo/mimo-v2-5/strategyqa/dev
-```
-
-多个：
-
-```powershell
-uv run research_cli tools cache-archive push-latest --cache-root local/cache `
-  --cache-shard providers/xiaomimimo/mimo-v2-5/strategyqa/dev `
-  --cache-shard providers/xiaomimimo/mimo-v2-5/hotpotqa/validation-distractor
-```
-
-### 4. 拉取一个或多个指定 cache 分库目录
-
-单个：
-
-```powershell
-uv run research_cli tools cache-archive pull-latest --target local/cache --cache-shard providers/xiaomimimo/mimo-v2-5/strategyqa/dev
-```
-
-多个：
-
-```powershell
-uv run research_cli tools cache-archive pull-latest --target local/cache `
-  --cache-shard providers/xiaomimimo/mimo-v2-5/strategyqa/dev `
-  --cache-shard providers/xiaomimimo/mimo-v2-5/hotpotqa/validation-distractor
+uv run research_cli tools hf push-runs --source local/runs/dmad/dmad_reasoning_main/count20/20260531T133205Z-xiaomimimo-mimo-v2.5
 ```
 
 说明：
 
-- `--cache-shard` 支持重复传入
-- 可以指定到某个 dataset 目录，也可以指定到更高层前缀
-  - 例如 `providers/xiaomimimo/mimo-v2-5`
+- `--source` 可以是完整 run，也可以是 `runs` 下任意父级目录
+- 真正同步单位始终是最小完整 run 目录
 
-## 三、workspace：支持的操作
-
-### 1. 查看本地与远端同步状态
+### 3. 无需验证直接推送
 
 ```powershell
-uv run research_cli tools hf-sync status
-```
-
-### 2. 推送整个工作区
-
-```powershell
-uv run research_cli tools hf-sync push-workspace
+uv run research_cli tools hf push-runs --skip-validation
 ```
 
 说明：
 
-- 会扫描 `local/runs`
-- 只推送验证通过的标准 run
-- 会推送已经完整收敛的矩阵目录，例如 `faithful_matrix` 与 `reproduction_matrix`
-- 默认也会同步 `local/cache`
+- `--skip-validation` 会跳过标准实验 run 的 `run_validation.json` 检查
+- 也会跳过矩阵目录的完整性检查
 
-### 3. 只推送某个或某些具体 run 文件夹
-
-单个：
+### 4. 拉取指定前缀
 
 ```powershell
-uv run research_cli tools hf-sync push-workspace --skip-cache --run-dir local/runs/single_agent/same_context_main_table/count20/<run_id>
+uv run research_cli tools hf pull-runs --prefix dmad
 ```
 
-多个：
-
 ```powershell
-uv run research_cli tools hf-sync push-workspace --skip-cache `
-  --run-dir local/runs/single_agent/same_context_main_table/count20/<run_id> `
-  --run-dir local/runs/selective_comm/trigger_early_exit_main/count20/<run_id>
-```
-
-### 4. 只拉取某个或某些具体 run 文件夹
-
-按 `run_id`：
-
-```powershell
-uv run research_cli tools hf-sync pull-workspace --skip-cache --run-id <run_id_a> --run-id <run_id_b>
-```
-
-按远端目录前缀：
-
-```powershell
-uv run research_cli tools hf-sync pull-workspace --skip-cache `
-  --run-prefix single_agent/same_context_main_table/count20/<run_id> `
-  --run-prefix selective_comm/trigger_early_exit_main/count20/<run_id>
-```
-
-混合指定也支持：
-
-```powershell
-uv run research_cli tools hf-sync pull-workspace --skip-cache `
-  --run-id <run_id_a> `
-  --run-prefix selective_comm/trigger_early_exit_main/count20/<run_id>
-```
-
-### 5. 只拉取最近一小时发布的 runs
-
-```powershell
-uv run research_cli tools hf-sync pull-workspace --skip-cache --published-within-hours 1
-```
-
-如果希望在回拉后继续只推送本地 runs，可接着执行：
-
-```powershell
-uv run research_cli tools hf-sync push-workspace --skip-cache
+uv run research_cli tools hf pull-runs --prefix dmad/dmad_reasoning_main/count20
 ```
 
 说明：
 
-- `--published-within-hours 1` 会按远端 `archive_manifest.json` 的最后提交时间筛选最近一小时发布的 runs
-- 可与 `--run-id`、`--run-prefix` 叠加使用，进一步缩小回拉范围
+- `--prefix` 是远端 runs repo 内的相对前缀
+- 可以是完整 run 前缀，也可以是任意父级前缀
+- 本地已存在且 bundle 指纹一致的 run 默认跳过
 
-### 6. 同时限制 runs 与 cache 的同步范围
-
-```powershell
-uv run research_cli tools hf-sync push-workspace `
-  --run-dir local/runs/comm_necessary/hotpotqa_split_context_communication_necessity/count300/<run_id> `
-  --cache-shard providers/xiaomimimo/mimo-v2-5/hotpotqa/validation-distractor
-```
+### 5. 拉取最近一小时 runs
 
 ```powershell
-uv run research_cli tools hf-sync pull-workspace `
-  --run-prefix comm_necessary/hotpotqa_split_context_communication_necessity/count300/<run_id> `
-  --cache-shard providers/xiaomimimo/mimo-v2-5/hotpotqa/validation-distractor
+uv run research_cli tools hf pull-runs --recent-hours 1
 ```
 
-### 7. 其他常用控制项
+也可以叠加前缀：
 
-- `--skip-runs`
-  - 只同步 cache
-- `--skip-cache`
-  - 只同步 runs
-- `--force-runs`
-  - 即使本地已有匹配的 `hf_publish.json`，也重新发布
-- `--no-matrix`
-  - 批量扫描时跳过所有矩阵目录，例如 `faithful_matrix` 与 `reproduction_matrix`
-- `--keep-existing-runs`
-  - 回拉 runs 时不先删除本地同名目录
-- `--published-within-hours`
-  - 只回拉最近 N 小时内发布的 runs，按远端 `archive_manifest.json` 的最后提交时间筛选
+```powershell
+uv run research_cli tools hf pull-runs --prefix dmad --recent-hours 1
+```
+
+说明：
+
+- `--recent-hours` 只按远端 `runs_manifest.json` 中的 `published_at` 过滤
+- 不依赖 Hugging Face commit 时间
 
 ## 四、当前不支持的操作
 
-当前项目不支持以下粒度：
-
-- 直接推送任意单文件，例如某个 `report.md`
-- 直接推送 `figures/` 下某一个单独文件
-- 只推送 run 目录中的某几个零散 JSON 文件
-- 只拉取某个 run 的部分归档组而不解压全部内容
-- 把任意不符合 run/cache 语义的普通目录直接当成 Hugging Face 归档对象
-
-也就是说，当前支持的是：
-
-- run 目录级
-- 多个 run 目录级
-- cache 分库目录级
-- 整个 workspace 级
+- cache 的 shard 级 CLI 过滤
+- 自动覆盖本地冲突 run
+- 自动备份本地冲突 run 后覆盖
 
 ## 五、推荐环境变量
 
@@ -260,10 +130,3 @@ RESEARCH_AUTO_PUBLISH_RUNS=1
 RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT=1
 HF_TOKEN=hf_xxx
 ```
-
-## 六、建议的实际使用方式
-
-- 单个 run：优先用 `research_cli tools archive-runs`
-- 单个或多个 cache 分库：优先用 `research_cli tools cache-archive`
-- 某些指定 run 目录与 cache 分库一起同步：用 `research_cli tools hf-sync`
-- 全量迁移或全量回拉：用 `research_cli tools hf-sync push-workspace / pull-workspace`

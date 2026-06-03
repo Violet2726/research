@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from research_experiments.reporting.run_figures import validate_figure_contract
-from research_experiments.workspace.run_archives import validate_archive_contract
+from research_experiments.workspace.hf.runs import validate_archive_contract
 
 
 def summarize_turn_statuses(turn_rows: list[dict[str, Any]]) -> dict[str, Any]:

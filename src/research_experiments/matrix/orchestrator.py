@@ -38,8 +38,8 @@ from research_experiments.reporting.paper_package import render_paper_package
 from research_experiments.reporting.paper_statistics import render_paper_statistics
 from research_experiments.reporting.reproduction_landscape import render_reproduction_landscape
 from research_experiments.reporting.reproduction_package import render_reproduction_package
+from research_experiments.workspace.hf.runs import publish_run_if_configured
 from research_experiments.workspace.layout import default_reports_root, default_runs_root, workspace_defaults
-from research_experiments.workspace.run_archives import publish_run_if_configured
 
 DEFAULT_PHASE = "count20"
 DEFAULT_MODEL_REF = "xiaomimimo/mimo-v2.5"

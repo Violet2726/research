@@ -93,7 +93,7 @@ uv run research_cli matrix run --model xiaomimimo/mimo-v2.5 --phase count20
 
 ```powershell
 uv run research_cli tools dataset-assets prepare-used
-uv run research_cli tools archive-runs publish-run --run-root local/runs/<family>/<experiment>/<phase>/<run_id>
+uv run research_cli tools hf push-runs --source local/runs/<family>/<experiment>/<phase>/<run_id>
 ```
 
 ```powershell
@@ -149,8 +149,8 @@ uv run research_cli tools dataset-assets prepare-all-sources
 
 项目采用单一正式归档语义：
 
-- `runs`：公开 Hugging Face dataset repo，保存可浏览报告与压缩归档包
-- `cache`：独立 latest-only Hugging Face dataset repo，保存最新快照
+- `runs`：公开 Hugging Face dataset repo，保存实验 run 归档
+- `cache`：独立 latest-only Hugging Face dataset repo，保存最新 cache 快照
 
 推荐在 `.env.local` 中配置：
 
@@ -165,24 +165,19 @@ HF_TOKEN=hf_xxx
 常用归档命令：
 
 ```powershell
-uv run research_cli tools archive-runs publish-run --run-root local/runs/<family>/<experiment>/<phase>/<run_id>
-uv run research_cli tools archive-runs fetch-run --run-id <run_id>
-```
-
-```powershell
-uv run research_cli tools cache-archive push-latest --cache-root local/cache
-uv run research_cli tools cache-archive pull-latest --target local/cache
-```
-
-```powershell
-uv run research_cli tools hf-sync status
-uv run research_cli tools hf-sync push-workspace
-uv run research_cli tools hf-sync pull-workspace
+uv run research_cli tools hf push-cache
+uv run research_cli tools hf pull-cache
+uv run research_cli tools hf push-runs
+uv run research_cli tools hf pull-runs
 ```
 
 说明：
 
 - family 级 run 在 `finalize_run_outputs()` 后会按环境开关自动发布到 `RESEARCH_RUNS_HF_REPO`
+- `research_cli tools hf push-cache` / `pull-cache` 默认不会重复推送、拉取同一份 cache
+- `research_cli tools hf push-runs` / `pull-runs` 默认不会重复推送、拉取同一份 run
+- `research_cli tools hf pull-runs --recent-hours 1` 可只拉取最近一小时发布的 runs
+- `research_cli tools hf push-runs` 默认只推送验证通过的标准实验 run；如需跳过验证可加 `--skip-validation`
 - `run_all_phases.ps1` / `run_all_phases.sh` 在启用 `RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT=1` 时，会在四阶段结束后自动推送 cache 最新快照
 - Git 主仓不承载 `local/runs/`、`local/reports/`、`local/cache/` 下的正式产物
 

@@ -11,7 +11,7 @@ from threading import Event, RLock, Thread
 from typing import Any
 
 from research_experiments.core.io import write_json
-from research_experiments.workspace.run_archives import pack_run_artifacts, publish_run_if_configured
+from research_experiments.workspace.hf.runs import pack_run_artifacts, publish_run_if_configured
 
 
 class RunProgressTracker:

@@ -6,12 +6,10 @@ import argparse
 from collections.abc import Callable
 
 from research_experiments.cli.family import dispatch_family_cli
-from research_experiments.cli.tools.archive_runs import main as archive_runs_main
 from research_experiments.cli.tools.artifact_cleanup import main as artifact_cleanup_main
-from research_experiments.cli.tools.cache_archive import main as cache_archive_main
 from research_experiments.cli.tools.cache_inspector import main as cache_inspector_main
 from research_experiments.cli.tools.dataset_assets import main as dataset_assets_main
-from research_experiments.cli.tools.hf_sync import main as hf_sync_main
+from research_experiments.cli.tools.hf import main as hf_main
 from research_experiments.cli_support.output import configure_utf8_stdio
 from research_experiments.families.registry import get_family_registration, registered_family_names
 from research_experiments.matrix.cli import main as matrix_main
@@ -19,12 +17,10 @@ from research_experiments.matrix.cli import main as matrix_main
 ToolMain = Callable[[list[str] | None], None]
 
 TOOL_MAINS: dict[str, ToolMain] = {
-    "archive-runs": archive_runs_main,
     "artifact-cleanup": artifact_cleanup_main,
-    "cache-archive": cache_archive_main,
     "cache-inspector": cache_inspector_main,
     "dataset-assets": dataset_assets_main,
-    "hf-sync": hf_sync_main,
+    "hf": hf_main,
 }
 
 
