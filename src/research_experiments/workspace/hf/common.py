@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+import requests
 from huggingface_hub import HfApi, hf_hub_download
+from huggingface_hub import configure_http_backend as hf_configure_http_backend
 
 from research_experiments.core.io import read_json, write_json
 from research_experiments.workspace.layout import default_cache_hf_repo, default_runs_hf_repo
@@ -18,6 +21,8 @@ CACHE_HASH_FILENAME = "requests.sqlite.hfhash.json"
 HF_RUN_STATE_FILENAME = "hf_run.json"
 IGNORED_PUBLISH_STATUS_FILENAME = "hf_publish.json"
 HF_SYNC_SCHEMA_VERSION = 1
+_HF_HTTP_BACKEND_CONFIGURED = False
+_HF_HTTP_TRUST_ENV = True
 
 
 def utcnow() -> datetime:
@@ -59,6 +64,19 @@ def load_json_if_exists(path: str | Path) -> dict[str, Any]:
     return read_json(target)
 
 
+def run_hf_request[T](operation: Callable[[], T]) -> T:
+    """Run a Hugging Face request with one-shot proxy fallback."""
+
+    _configure_hf_http_backend(trust_env=_HF_HTTP_TRUST_ENV)
+    try:
+        return operation()
+    except requests.exceptions.ProxyError:
+        if not _HF_HTTP_TRUST_ENV:
+            raise
+        _configure_hf_http_backend(trust_env=False)
+        return operation()
+
+
 def download_repo_manifest(
     *,
     repo_id: str,
@@ -70,11 +88,13 @@ def download_repo_manifest(
 
     try:
         manifest_path = Path(
-            hf_hub_download(
-                repo_id=repo_id,
-                repo_type="dataset",
-                filename=filename,
-                token=token,
+            run_hf_request(
+                lambda: hf_hub_download(
+                    repo_id=repo_id,
+                    repo_type="dataset",
+                    filename=filename,
+                    token=token,
+                )
             )
         )
     except Exception as exc:
@@ -98,13 +118,15 @@ def upload_manifest(
     with tempfile.TemporaryDirectory(prefix="research-hf-manifest-") as temp_dir:
         manifest_path = Path(temp_dir) / filename
         write_json(manifest_path, payload)
-        api.upload_file(
-            path_or_fileobj=manifest_path,
-            path_in_repo=filename,
-            repo_id=repo_id,
-            repo_type="dataset",
-            token=token,
-            commit_message=commit_message,
+        run_hf_request(
+            lambda: api.upload_file(
+                path_or_fileobj=manifest_path,
+                path_in_repo=filename,
+                repo_id=repo_id,
+                repo_type="dataset",
+                token=token,
+                commit_message=commit_message,
+            )
         )
 
 
@@ -149,3 +171,19 @@ def parse_utc_timestamp(value: Any) -> datetime | None:
             return value.replace(tzinfo=UTC)
         return value.astimezone(UTC)
     return datetime.fromisoformat(str(value)).astimezone(UTC)
+
+
+def _build_requests_session(*, trust_env: bool) -> requests.Session:
+    session = requests.Session()
+    session.trust_env = trust_env
+    return session
+
+
+def _configure_hf_http_backend(*, trust_env: bool) -> None:
+    global _HF_HTTP_BACKEND_CONFIGURED, _HF_HTTP_TRUST_ENV
+
+    if _HF_HTTP_BACKEND_CONFIGURED and trust_env == _HF_HTTP_TRUST_ENV:
+        return
+    hf_configure_http_backend(lambda: _build_requests_session(trust_env=trust_env))
+    _HF_HTTP_BACKEND_CONFIGURED = True
+    _HF_HTTP_TRUST_ENV = trust_env

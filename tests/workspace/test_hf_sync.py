@@ -49,7 +49,7 @@ def test_push_runs_to_hub_filters_validation_and_skips_matching_remote_bundle(mo
     invalid_root = runs_root / "budget_comm" / "demo" / "count20" / "20260510T000002Z-model"
     _seed_standard_run(invalid_root, passed=False)
 
-    uploaded_prefixes: list[str] = []
+    uploaded_paths: list[str] = []
     uploaded_manifests: list[str] = []
 
     class FakeApi:
@@ -59,11 +59,15 @@ def test_push_runs_to_hub_filters_validation_and_skips_matching_remote_bundle(mo
         def create_repo(self, **kwargs) -> None:
             return None
 
-        def upload_folder(self, **kwargs) -> None:
-            uploaded_prefixes.append(kwargs["path_in_repo"])
-
         def upload_file(self, **kwargs) -> None:
-            uploaded_manifests.append(kwargs["path_in_repo"])
+            path_in_repo = kwargs["path_in_repo"]
+            if path_in_repo == "runs_manifest.json":
+                uploaded_manifests.append(path_in_repo)
+                return None
+            uploaded_paths.append(path_in_repo)
+
+        def delete_folder(self, **kwargs) -> None:
+            raise AssertionError("delete_folder should not be called for a brand-new run")
 
     monkeypatch.setattr("research_experiments.workspace.hf.runs.download_repo_manifest", lambda **kwargs: {
         "runs": [
@@ -80,7 +84,8 @@ def test_push_runs_to_hub_filters_validation_and_skips_matching_remote_bundle(mo
 
     payload = push_runs_to_hub(runs_root, repo_id="owner/research-runs")
 
-    assert uploaded_prefixes == ["single_agent/demo/count20/20260510T000000Z-model"]
+    assert uploaded_paths
+    assert all(path.startswith("single_agent/demo/count20/20260510T000000Z-model/") for path in uploaded_paths)
     assert uploaded_manifests == ["runs_manifest.json"]
     assert payload["published_run_count"] == 1
     assert payload["skipped_runs"] == [
@@ -107,7 +112,7 @@ def test_push_runs_to_hub_can_skip_validation_for_invalid_and_incomplete_matrix(
     matrix_root = runs_root / "faithful_matrix" / "20260510T000100Z-count20-model"
     _seed_matrix_run(matrix_root, completed=0, expected=1, status="running")
 
-    uploaded_prefixes: list[str] = []
+    uploaded_paths: list[str] = []
 
     class FakeApi:
         def __init__(self, token=None) -> None:
@@ -116,10 +121,12 @@ def test_push_runs_to_hub_can_skip_validation_for_invalid_and_incomplete_matrix(
         def create_repo(self, **kwargs) -> None:
             return None
 
-        def upload_folder(self, **kwargs) -> None:
-            uploaded_prefixes.append(kwargs["path_in_repo"])
-
         def upload_file(self, **kwargs) -> None:
+            if kwargs["path_in_repo"] == "runs_manifest.json":
+                return None
+            uploaded_paths.append(kwargs["path_in_repo"])
+
+        def delete_folder(self, **kwargs) -> None:
             return None
 
     monkeypatch.setattr("research_experiments.workspace.hf.runs.download_repo_manifest", lambda **kwargs: {})
@@ -132,10 +139,8 @@ def test_push_runs_to_hub_can_skip_validation_for_invalid_and_incomplete_matrix(
     )
 
     assert payload["skip_validation"] is True
-    assert sorted(uploaded_prefixes) == [
-        "budget_comm/demo/count20/20260510T000002Z-model",
-        "faithful_matrix/20260510T000100Z-count20-model",
-    ]
+    assert any(path.startswith("budget_comm/demo/count20/20260510T000002Z-model/") for path in uploaded_paths)
+    assert any(path.startswith("faithful_matrix/20260510T000100Z-count20-model/") for path in uploaded_paths)
     assert payload["published_run_count"] == 2
 
 

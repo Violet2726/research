@@ -21,6 +21,7 @@ from research_experiments.workspace.hf.common import (
     iso_utc_now,
     load_json_if_exists,
     resolve_cache_repo_id,
+    run_hf_request,
     upload_manifest,
 )
 from research_experiments.workspace.layout import (
@@ -69,15 +70,19 @@ def push_cache_to_hub(
                 skipped_shards.append(relative_dir)
                 continue
             if create_repo:
-                api.create_repo(repo_id=resolved_repo_id, repo_type="dataset", private=private, exist_ok=True)
+                run_hf_request(
+                    lambda: api.create_repo(repo_id=resolved_repo_id, repo_type="dataset", private=private, exist_ok=True)
+                )
                 create_repo = False
-            api.upload_file(
-                path_or_fileobj=upload_path,
-                path_in_repo=f"{relative_dir}/{row['compressed_name']}",
-                repo_id=resolved_repo_id,
-                repo_type="dataset",
-                token=token,
-                commit_message=f"Update cache shard {relative_dir}",
+            run_hf_request(
+                lambda upload_path=upload_path, relative_dir=relative_dir, compressed_name=str(row["compressed_name"]): api.upload_file(
+                    path_or_fileobj=upload_path,
+                    path_in_repo=f"{relative_dir}/{compressed_name}",
+                    repo_id=resolved_repo_id,
+                    repo_type="dataset",
+                    token=token,
+                    commit_message=f"Update cache shard {relative_dir}",
+                )
             )
             uploaded_shards.append(relative_dir)
 
@@ -88,12 +93,14 @@ def push_cache_to_hub(
             continue
         compressed_name = str(remote_row.get("compressed_name") or "requests.sqlite.zst")
         try:
-            api.delete_file(
-                path_in_repo=f"{relative_dir}/{compressed_name}",
-                repo_id=resolved_repo_id,
-                repo_type="dataset",
-                token=token,
-                commit_message=f"Delete stale cache shard {relative_dir}",
+            run_hf_request(
+                lambda relative_dir=relative_dir, compressed_name=compressed_name: api.delete_file(
+                    path_in_repo=f"{relative_dir}/{compressed_name}",
+                    repo_id=resolved_repo_id,
+                    repo_type="dataset",
+                    token=token,
+                    commit_message=f"Delete stale cache shard {relative_dir}",
+                )
             )
             deleted_shards.append(relative_dir)
         except Exception:
@@ -106,7 +113,9 @@ def push_cache_to_hub(
     }
     if uploaded_shards or deleted_shards or _cache_manifest_signature(remote_manifest) != _cache_manifest_signature(manifest_payload):
         if create_repo:
-            api.create_repo(repo_id=resolved_repo_id, repo_type="dataset", private=private, exist_ok=True)
+            run_hf_request(
+                lambda: api.create_repo(repo_id=resolved_repo_id, repo_type="dataset", private=private, exist_ok=True)
+            )
         upload_manifest(
             api,
             repo_id=resolved_repo_id,
@@ -169,11 +178,13 @@ def pull_cache_from_hub(
 
         compressed_name = str(row.get("compressed_name") or "requests.sqlite.zst")
         compressed_path = Path(
-            hf_hub_download(
-                repo_id=resolved_repo_id,
-                repo_type="dataset",
-                filename=f"{relative_dir}/{compressed_name}",
-                token=token,
+            run_hf_request(
+                lambda relative_dir=relative_dir, compressed_name=compressed_name: hf_hub_download(
+                    repo_id=resolved_repo_id,
+                    repo_type="dataset",
+                    filename=f"{relative_dir}/{compressed_name}",
+                    token=token,
+                )
             )
         )
         _restore_sqlite_from_archive(compressed_path, target_sqlite)

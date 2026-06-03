@@ -25,6 +25,7 @@ from research_experiments.workspace.hf.common import (
     parse_utc_timestamp,
     published_after_cutoff,
     resolve_runs_repo_id,
+    run_hf_request,
     upload_manifest,
 )
 from research_experiments.workspace.layout import auto_publish_runs_enabled, workspace_layout
@@ -105,20 +106,36 @@ def push_runs_to_hub(
             continue
 
         if create_repo and not repo_created:
-            api.create_repo(repo_id=resolved_repo_id, repo_type="dataset", private=False, exist_ok=True)
+            run_hf_request(
+                lambda: api.create_repo(repo_id=resolved_repo_id, repo_type="dataset", private=False, exist_ok=True)
+            )
             repo_created = True
+        if remote_row is not None:
+            run_hf_request(
+                lambda remote_prefix=remote_prefix: api.delete_folder(
+                    path_in_repo=remote_prefix,
+                    repo_id=resolved_repo_id,
+                    repo_type="dataset",
+                    token=token,
+                    commit_message=f"Replace run {remote_prefix}",
+                )
+            )
 
         with tempfile.TemporaryDirectory(prefix="research-hf-run-push-") as temp_dir:
             stage_root = Path(temp_dir)
             _stage_run_for_sync(run_root, stage_root)
-            api.upload_folder(
-                repo_id=resolved_repo_id,
-                repo_type="dataset",
-                folder_path=stage_root.as_posix(),
-                path_in_repo=remote_prefix,
-                token=token,
-                commit_message=f"Publish run {remote_prefix}",
-            )
+            for staged_file in _iter_staged_run_files(stage_root):
+                relative_path = staged_file.relative_to(stage_root).as_posix()
+                run_hf_request(
+                    lambda staged_file=staged_file, relative_path=relative_path, remote_prefix=remote_prefix: api.upload_file(
+                        path_or_fileobj=staged_file,
+                        path_in_repo=f"{remote_prefix}/{relative_path}",
+                        repo_id=resolved_repo_id,
+                        repo_type="dataset",
+                        token=token,
+                        commit_message=f"Publish run {remote_prefix}",
+                    )
+                )
 
         published_at = now_iso
         record = {
@@ -152,7 +169,9 @@ def push_runs_to_hub(
     }
     if published_runs or _runs_manifest_signature(remote_manifest) != _runs_manifest_signature(manifest_payload):
         if create_repo and not repo_created:
-            api.create_repo(repo_id=resolved_repo_id, repo_type="dataset", private=False, exist_ok=True)
+            run_hf_request(
+                lambda: api.create_repo(repo_id=resolved_repo_id, repo_type="dataset", private=False, exist_ok=True)
+            )
         upload_manifest(
             api,
             repo_id=resolved_repo_id,
@@ -238,12 +257,14 @@ def pull_runs_from_hub(
             continue
 
         target_run_root.parent.mkdir(parents=True, exist_ok=True)
-        snapshot_download(
-            repo_id=resolved_repo_id,
-            repo_type="dataset",
-            allow_patterns=[f"{remote_prefix}/**"],
-            local_dir=resolved_runs_root,
-            token=token,
+        run_hf_request(
+            lambda remote_prefix=remote_prefix: snapshot_download(
+                repo_id=resolved_repo_id,
+                repo_type="dataset",
+                allow_patterns=[f"{remote_prefix}/**"],
+                local_dir=resolved_runs_root,
+                token=token,
+            )
         )
         extract_run_archives(target_run_root)
         local_bundle_sha256 = compute_run_bundle_sha256(target_run_root)
@@ -468,6 +489,10 @@ def _stage_run_for_sync(run_root: Path, stage_root: Path) -> None:
     ]
     members = visible_files + [ARCHIVE_MANIFEST_FILENAME] + archive_files
     copy_relative_files(source_root=run_root, target_root=stage_root, members=members)
+
+
+def _iter_staged_run_files(stage_root: Path) -> tuple[Path, ...]:
+    return tuple(sorted(path for path in stage_root.rglob("*") if path.is_file()))
 
 
 def _logical_file_content_digest(run_root: Path, relative_path: str) -> str:
