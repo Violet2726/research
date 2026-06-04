@@ -239,6 +239,21 @@ def _build_cache_row(
     remote_row: dict[str, Any] | None,
     stage_root: Path,
 ) -> tuple[dict[str, Any], Path | None]:
+    remote_hash = str((remote_row or {}).get("sqlite_sha256") or "").strip()
+    cached_hash = _load_cached_hash_for_current_mtime(sqlite_path)
+    if remote_hash and cached_hash == remote_hash:
+        return (
+            {
+                "relative_dir": relative_dir,
+                "sqlite_sha256": remote_hash,
+                "compressed_name": str((remote_row or {}).get("compressed_name") or "requests.sqlite.zst"),
+                "sqlite_size_bytes": int((remote_row or {}).get("sqlite_size_bytes") or 0),
+                "compressed_size_bytes": int((remote_row or {}).get("compressed_size_bytes") or 0),
+                "published_at": str((remote_row or {}).get("published_at") or ""),
+            },
+            None,
+        )
+
     target_dir = stage_root / relative_dir
     target_dir.mkdir(parents=True, exist_ok=True)
     snapshot_path = target_dir / "requests.snapshot.sqlite"
@@ -247,7 +262,6 @@ def _build_cache_row(
     sqlite_size_bytes = snapshot_path.stat().st_size
     _write_cache_hash_sidecar(sqlite_path, sqlite_sha256)
 
-    remote_hash = str((remote_row or {}).get("sqlite_sha256") or "").strip()
     if remote_hash == sqlite_sha256:
         snapshot_path.unlink()
         return (
@@ -279,12 +293,9 @@ def _build_cache_row(
 
 
 def _resolve_local_cache_hash(sqlite_path: Path) -> str:
-    sidecar_path = sqlite_path.parent / CACHE_HASH_FILENAME
-    current_mtime_ns = str(sqlite_path.stat().st_mtime_ns)
-    payload = load_json_if_exists(sidecar_path)
-    cached_hash = payload.get("hash_by_mtime_ns", {}).get(current_mtime_ns) if isinstance(payload.get("hash_by_mtime_ns"), dict) else None
-    if isinstance(cached_hash, str) and cached_hash.strip():
-        return cached_hash.strip()
+    cached_hash = _load_cached_hash_for_current_mtime(sqlite_path)
+    if cached_hash is not None:
+        return cached_hash
 
     with tempfile.TemporaryDirectory(prefix="research-hf-cache-hash-") as temp_dir:
         snapshot_path = Path(temp_dir) / "requests.snapshot.sqlite"
@@ -304,6 +315,16 @@ def _write_cache_hash_sidecar(sqlite_path: Path, sqlite_sha256: str) -> None:
         "updated_at": iso_utc_now(),
     }
     write_json(sqlite_path.parent / CACHE_HASH_FILENAME, payload)
+
+
+def _load_cached_hash_for_current_mtime(sqlite_path: Path) -> str | None:
+    sidecar_path = sqlite_path.parent / CACHE_HASH_FILENAME
+    current_mtime_ns = str(sqlite_path.stat().st_mtime_ns)
+    payload = load_json_if_exists(sidecar_path)
+    cached_hash = payload.get("hash_by_mtime_ns", {}).get(current_mtime_ns) if isinstance(payload.get("hash_by_mtime_ns"), dict) else None
+    if isinstance(cached_hash, str) and cached_hash.strip():
+        return cached_hash.strip()
+    return None
 
 
 def _index_cache_rows(manifest: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
@@ -398,7 +419,10 @@ def _install_sqlite_snapshot(snapshot_path: Path, target_sqlite: Path) -> None:
     _cleanup_sqlite_sidecars(staged_target)
     if staged_target.exists():
         staged_target.unlink()
-    _backup_sqlite_database(snapshot_path, staged_target)
+
+    # Preserve the published snapshot bytes exactly so a pull->push round trip
+    # keeps the same sqlite_sha256 and does not republish unchanged shards.
+    shutil.copyfile(snapshot_path, staged_target)
     _validate_sqlite_snapshot(staged_target)
     _cleanup_sqlite_sidecars(target_sqlite)
     try:
