@@ -12,7 +12,6 @@ from testsupport.cli import run_cli_json
 from testsupport.filesystem import write_json
 
 from research_experiments.cli import main as research_main
-from research_experiments.core.execution.cache import CachedResponse, RequestCacheRouter, json_dump
 from research_experiments.core.execution.rate_limits import (
     STANDARD_MAX_CONCURRENT_REQUESTS,
     STANDARD_REQUESTS_PER_MINUTE_LIMIT,
@@ -418,80 +417,6 @@ def test_comm_necessary_inspect_cli() -> None:
     ]
 
 
-def test_cache_inspector_summarize_cli(tmp_path) -> None:
-    router = RequestCacheRouter(tmp_path)
-    cache = router.for_request_target(
-        provider="deepseek",
-        request_model="deepseek-v4-flash",
-        dataset="gsm8k",
-    )
-    cache.put(
-        CachedResponse(
-            cache_key="a",
-            payload_json=json_dump({"request": 1}),
-            response_json=json_dump({"ok": True}),
-            http_status=200,
-            latency_ms=10.0,
-            provider_request_id="req_a",
-        )
-    )
-    router.close()
-
-    payload = run_cli_json(
-        [
-            "research_cli",
-            "tools",
-            "cache-inspector",
-            "summarize",
-            "--cache-root",
-            str(tmp_path),
-            "--top-shards",
-            "5",
-            "--json",
-        ],
-    )
-    assert payload["shard_count"] == 1
-    assert payload["total_request_count"] == 1
-    assert payload["providers"][0]["provider"] == "deepseek"
-    assert payload["providers"][0]["model_count"] == 1
-    assert payload["providers"][0]["dataset_count"] == 1
-
-
-def test_cache_inspector_normalize_layout_cli(tmp_path: Path) -> None:
-    router = RequestCacheRouter(tmp_path)
-    cache = router.for_request_target(
-        provider="xiaomimimo",
-        request_model="mimo-v2.5",
-        dataset="gsm8k/test",
-    )
-    cache.put(
-        CachedResponse(
-            cache_key="legacy",
-            payload_json=json_dump({"request": "legacy"}),
-            response_json=json_dump({"ok": True}),
-            http_status=200,
-            latency_ms=10.0,
-            provider_request_id="req_legacy",
-        )
-    )
-    router.close()
-
-    payload = run_cli_json(
-        [
-            "research_cli",
-            "tools",
-            "cache-inspector",
-            "normalize-layout",
-            "--cache-root",
-            str(tmp_path),
-            "--json",
-        ],
-    )
-    assert payload["candidate_count"] == 1
-    assert payload["candidates"][0]["source_dataset"] == "gsm8k/test"
-    assert payload["candidates"][0]["target_dataset"] == "gsm8k"
-
-
 def test_hf_push_cache_uses_repo_env(monkeypatch) -> None:
     monkeypatch.setenv("RESEARCH_CACHE_HF_REPO", "owner/research-cache")
     monkeypatch.setattr(
@@ -602,4 +527,4 @@ def test_hf_pull_runs_uses_new_arguments(monkeypatch) -> None:
 def test_hf_is_the_only_huggingface_tool_family() -> None:
     from research_experiments.cli.main import TOOL_MAINS
 
-    assert {"artifact-cleanup", "cache-inspector", "dataset-assets", "hf"} == set(TOOL_MAINS)
+    assert {"artifact-cleanup", "dataset-assets", "hf"} == set(TOOL_MAINS)
