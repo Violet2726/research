@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import re
 import shutil
@@ -10,9 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from research_experiments.cli_support.output import configure_utf8_stdio, emit_json
 from research_experiments.families.registry import validator_map
-from research_experiments.workspace.layout import workspace_layout
 
 RUN_ID_PATTERN = re.compile(r"20\d{6}T\d{6}Z-[A-Za-z0-9._:-]+")
 
@@ -56,43 +53,6 @@ class CleanupSummary:
     invalid_reports: tuple[ReportStatus, ...]
     removed_run_dirs: tuple[str, ...]
     removed_report_paths: tuple[str, ...]
-
-
-def build_parser() -> argparse.ArgumentParser:
-    """构造命令行参数。"""
-    layout = workspace_layout()
-    parser = argparse.ArgumentParser(description="Delete invalid run records and invalid reports.")
-    parser.add_argument("--workspace-root", default=".", help="Workspace root. Defaults to the current directory.")
-    parser.add_argument("--runs-root", default=layout.runs_root.as_posix(), help="Runs root relative to workspace root.")
-    parser.add_argument("--reports-root", default=layout.reports_root.as_posix(), help="Reports root relative to workspace root.")
-    parser.add_argument(
-        "--revalidate-runs",
-        action="store_true",
-        help="Recompute run validity with the current validator when possible. By default, existing run_validation.json is trusted first.",
-    )
-    parser.add_argument("--dry-run", action="store_true", help="Only print cleanup candidates without deleting them.")
-    parser.add_argument("--json", action="store_true", help="Print the cleanup summary as JSON.")
-    return parser
-
-
-def main(argv: list[str] | None = None) -> None:
-    """命令行入口。"""
-    configure_utf8_stdio()
-    args = build_parser().parse_args(argv)
-    workspace_root = Path(args.workspace_root).resolve()
-    runs_root = workspace_root / args.runs_root
-    reports_root = workspace_root / args.reports_root
-    summary = cleanup_invalid_artifacts(
-        workspace_root=workspace_root,
-        runs_root=runs_root,
-        reports_root=reports_root,
-        dry_run=args.dry_run,
-        revalidate_runs=args.revalidate_runs,
-    )
-    if args.json:
-        emit_json(summary_to_dict(summary))
-        return
-    _print_summary(summary, workspace_root)
 
 
 def cleanup_invalid_artifacts(
@@ -323,25 +283,4 @@ def summary_to_dict(summary: CleanupSummary) -> dict[str, object]:
         "removed_run_dirs": list(summary.removed_run_dirs),
         "removed_report_paths": list(summary.removed_report_paths),
     }
-
-
-def _print_summary(summary: CleanupSummary, workspace_root: Path) -> None:
-    """输出简洁的人类可读摘要。"""
-    mode = "DRY-RUN" if summary.dry_run else "DELETE"
-    print(f"[{mode}] invalid runs: {len(summary.invalid_runs)}")
-    for status in summary.invalid_runs:
-        rel = status.run_dir.relative_to(workspace_root).as_posix()
-        print(f"  - {rel} ({status.reason})")
-
-    print(f"[{mode}] invalid reports: {len(summary.invalid_reports)}")
-    for status in summary.invalid_reports:
-        rel = status.report_path.relative_to(workspace_root).as_posix()
-        if status.missing_run_ids:
-            print(f"  - {rel} (missing run_ids: {', '.join(status.missing_run_ids)})")
-        elif status.failed_run_ids:
-            print(f"  - {rel} (failed run_ids: {', '.join(status.failed_run_ids)})")
-
-    if not summary.dry_run:
-        print(f"removed run dirs: {len(summary.removed_run_dirs)}")
-        print(f"removed reports: {len(summary.removed_report_paths)}")
 

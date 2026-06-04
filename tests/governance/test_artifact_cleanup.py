@@ -6,8 +6,8 @@ from pathlib import Path
 
 from testsupport.filesystem import touch_figure_contract, write_json, write_jsonl, write_registered_family_manifest
 
+from research_experiments.cli.tools.artifact_cleanup import build_parser
 from research_experiments.workspace.artifact_cleanup import (
-    build_parser,
     cleanup_invalid_artifacts,
     collect_report_statuses,
     collect_run_statuses,
