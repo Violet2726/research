@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from huggingface_hub import HfApi, snapshot_download
+from huggingface_hub import CommitOperationAdd, CommitOperationDelete, HfApi, snapshot_download
 
 from research_experiments.core.io import write_json
 from research_experiments.workspace.archive_utils import copy_relative_files, sha256_file
@@ -110,33 +110,6 @@ def push_runs_to_hub(
                 lambda: api.create_repo(repo_id=resolved_repo_id, repo_type="dataset", private=False, exist_ok=True)
             )
             repo_created = True
-        if remote_row is not None:
-            run_hf_request(
-                lambda remote_prefix=remote_prefix: api.delete_folder(
-                    path_in_repo=remote_prefix,
-                    repo_id=resolved_repo_id,
-                    repo_type="dataset",
-                    token=token,
-                    commit_message=f"Replace run {remote_prefix}",
-                )
-            )
-
-        with tempfile.TemporaryDirectory(prefix="research-hf-run-push-") as temp_dir:
-            stage_root = Path(temp_dir)
-            _stage_run_for_sync(run_root, stage_root)
-            for staged_file in _iter_staged_run_files(stage_root):
-                relative_path = staged_file.relative_to(stage_root).as_posix()
-                run_hf_request(
-                    lambda staged_file=staged_file, relative_path=relative_path, remote_prefix=remote_prefix: api.upload_file(
-                        path_or_fileobj=staged_file,
-                        path_in_repo=f"{remote_prefix}/{relative_path}",
-                        repo_id=resolved_repo_id,
-                        repo_type="dataset",
-                        token=token,
-                        commit_message=f"Publish run {remote_prefix}",
-                    )
-                )
-
         published_at = now_iso
         record = {
             "remote_prefix": remote_prefix,
@@ -145,7 +118,25 @@ def push_runs_to_hub(
             "bundle_sha256": bundle_sha256,
             "published_at": published_at,
         }
-        manifest_rows[remote_prefix] = record
+        next_manifest_rows = dict(manifest_rows)
+        next_manifest_rows[remote_prefix] = record
+        next_manifest_payload = {
+            "schema_version": HF_SYNC_SCHEMA_VERSION,
+            "generated_at": now_iso,
+            "runs": sorted(next_manifest_rows.values(), key=lambda row: str(row["remote_prefix"])),
+        }
+        _commit_run_bundle(
+            api,
+            repo_id=resolved_repo_id,
+            token=token,
+            run_root=run_root,
+            remote_prefix=remote_prefix,
+            manifest_payload=next_manifest_payload,
+            replace_existing=remote_row is not None,
+        )
+
+        manifest_rows = next_manifest_rows
+        remote_rows[remote_prefix] = record
         _write_run_state(
             run_root,
             remote_prefix=remote_prefix,
@@ -167,7 +158,8 @@ def push_runs_to_hub(
         "generated_at": now_iso,
         "runs": sorted(manifest_rows.values(), key=lambda row: str(row["remote_prefix"])),
     }
-    if published_runs or _runs_manifest_signature(remote_manifest) != _runs_manifest_signature(manifest_payload):
+    manifest_changed = _runs_manifest_signature(remote_manifest) != _runs_manifest_signature(manifest_payload)
+    if not published_runs and manifest_changed:
         if create_repo and not repo_created:
             run_hf_request(
                 lambda: api.create_repo(repo_id=resolved_repo_id, repo_type="dataset", private=False, exist_ok=True)
@@ -182,7 +174,7 @@ def push_runs_to_hub(
         )
         published = True
     else:
-        published = False
+        published = bool(published_runs)
 
     return {
         "runs_root": resolved_runs_root.as_posix(),
@@ -588,3 +580,50 @@ def _runs_manifest_signature(manifest: dict[str, Any] | None) -> tuple[tuple[str
             )
         )
     return tuple(sorted(rows))
+
+
+def _commit_run_bundle(
+    api: HfApi,
+    *,
+    repo_id: str,
+    token: str | None,
+    run_root: Path,
+    remote_prefix: str,
+    manifest_payload: dict[str, Any],
+    replace_existing: bool,
+) -> None:
+    with tempfile.TemporaryDirectory(prefix="research-hf-run-push-") as temp_dir:
+        temp_root = Path(temp_dir)
+        stage_root = temp_root / "run"
+        stage_root.mkdir(parents=True, exist_ok=True)
+        _stage_run_for_sync(run_root, stage_root)
+
+        manifest_path = temp_root / RUNS_MANIFEST_FILENAME
+        write_json(manifest_path, manifest_payload)
+
+        operations: list[Any] = []
+        if replace_existing:
+            operations.append(CommitOperationDelete(path_in_repo=remote_prefix, is_folder=True))
+        for staged_file in _iter_staged_run_files(stage_root):
+            relative_path = staged_file.relative_to(stage_root).as_posix()
+            operations.append(
+                CommitOperationAdd(
+                    path_in_repo=f"{remote_prefix}/{relative_path}",
+                    path_or_fileobj=staged_file,
+                )
+            )
+        operations.append(
+            CommitOperationAdd(
+                path_in_repo=RUNS_MANIFEST_FILENAME,
+                path_or_fileobj=manifest_path,
+            )
+        )
+        run_hf_request(
+            lambda operations=tuple(operations), remote_prefix=remote_prefix: api.create_commit(
+                repo_id=repo_id,
+                repo_type="dataset",
+                operations=operations,
+                token=token,
+                commit_message=f"Publish run {remote_prefix}",
+            )
+        )

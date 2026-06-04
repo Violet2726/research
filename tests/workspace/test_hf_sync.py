@@ -4,6 +4,7 @@ import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
+from huggingface_hub import CommitOperationAdd, CommitOperationDelete
 from testsupport.filesystem import write_json
 
 from research_experiments.workspace.hf.runs import (
@@ -49,8 +50,7 @@ def test_push_runs_to_hub_filters_validation_and_skips_matching_remote_bundle(mo
     invalid_root = runs_root / "budget_comm" / "demo" / "count20" / "20260510T000002Z-model"
     _seed_standard_run(invalid_root, passed=False)
 
-    uploaded_paths: list[str] = []
-    uploaded_manifests: list[str] = []
+    commit_calls: list[dict[str, object]] = []
 
     class FakeApi:
         def __init__(self, token=None) -> None:
@@ -59,15 +59,8 @@ def test_push_runs_to_hub_filters_validation_and_skips_matching_remote_bundle(mo
         def create_repo(self, **kwargs) -> None:
             return None
 
-        def upload_file(self, **kwargs) -> None:
-            path_in_repo = kwargs["path_in_repo"]
-            if path_in_repo == "runs_manifest.json":
-                uploaded_manifests.append(path_in_repo)
-                return None
-            uploaded_paths.append(path_in_repo)
-
-        def delete_folder(self, **kwargs) -> None:
-            raise AssertionError("delete_folder should not be called for a brand-new run")
+        def create_commit(self, **kwargs) -> None:
+            commit_calls.append(kwargs)
 
     monkeypatch.setattr("research_experiments.workspace.hf.runs.download_repo_manifest", lambda **kwargs: {
         "runs": [
@@ -84,9 +77,15 @@ def test_push_runs_to_hub_filters_validation_and_skips_matching_remote_bundle(mo
 
     payload = push_runs_to_hub(runs_root, repo_id="owner/research-runs")
 
-    assert uploaded_paths
-    assert all(path.startswith("single_agent/demo/count20/20260510T000000Z-model/") for path in uploaded_paths)
-    assert uploaded_manifests == ["runs_manifest.json"]
+    assert len(commit_calls) == 1
+    operations = commit_calls[0]["operations"]
+    add_paths = [op.path_in_repo for op in operations if isinstance(op, CommitOperationAdd)]
+    delete_paths = [op.path_in_repo for op in operations if isinstance(op, CommitOperationDelete)]
+    assert delete_paths == []
+    assert "runs_manifest.json" in add_paths
+    run_paths = [path for path in add_paths if path != "runs_manifest.json"]
+    assert run_paths
+    assert all(path.startswith("single_agent/demo/count20/20260510T000000Z-model/") for path in run_paths)
     assert payload["published_run_count"] == 1
     assert payload["skipped_runs"] == [
         {
@@ -112,7 +111,7 @@ def test_push_runs_to_hub_can_skip_validation_for_invalid_and_incomplete_matrix(
     matrix_root = runs_root / "faithful_matrix" / "20260510T000100Z-count20-model"
     _seed_matrix_run(matrix_root, completed=0, expected=1, status="running")
 
-    uploaded_paths: list[str] = []
+    commit_calls: list[dict[str, object]] = []
 
     class FakeApi:
         def __init__(self, token=None) -> None:
@@ -121,13 +120,8 @@ def test_push_runs_to_hub_can_skip_validation_for_invalid_and_incomplete_matrix(
         def create_repo(self, **kwargs) -> None:
             return None
 
-        def upload_file(self, **kwargs) -> None:
-            if kwargs["path_in_repo"] == "runs_manifest.json":
-                return None
-            uploaded_paths.append(kwargs["path_in_repo"])
-
-        def delete_folder(self, **kwargs) -> None:
-            return None
+        def create_commit(self, **kwargs) -> None:
+            commit_calls.append(kwargs)
 
     monkeypatch.setattr("research_experiments.workspace.hf.runs.download_repo_manifest", lambda **kwargs: {})
     monkeypatch.setattr("research_experiments.workspace.hf.runs.HfApi", FakeApi)
@@ -139,9 +133,68 @@ def test_push_runs_to_hub_can_skip_validation_for_invalid_and_incomplete_matrix(
     )
 
     assert payload["skip_validation"] is True
-    assert any(path.startswith("budget_comm/demo/count20/20260510T000002Z-model/") for path in uploaded_paths)
-    assert any(path.startswith("faithful_matrix/20260510T000100Z-count20-model/") for path in uploaded_paths)
+    assert len(commit_calls) == 2
+    add_path_groups = [
+        [op.path_in_repo for op in call["operations"] if isinstance(op, CommitOperationAdd)]
+        for call in commit_calls
+    ]
+    assert any(
+        any(path.startswith("budget_comm/demo/count20/20260510T000002Z-model/") for path in paths)
+        for paths in add_path_groups
+    )
+    assert any(
+        any(path.startswith("faithful_matrix/20260510T000100Z-count20-model/") for path in paths)
+        for paths in add_path_groups
+    )
+    assert all("runs_manifest.json" in paths for paths in add_path_groups)
     assert payload["published_run_count"] == 2
+
+
+def test_push_runs_to_hub_replaces_existing_run_in_single_commit(monkeypatch, tmp_path: Path) -> None:
+    runs_root = tmp_path / "runs"
+    publish_root = runs_root / "single_agent" / "demo" / "count20" / "20260510T000000Z-model"
+    _seed_standard_run(publish_root, passed=True)
+
+    commit_calls: list[dict[str, object]] = []
+
+    class FakeApi:
+        def __init__(self, token=None) -> None:
+            self.token = token
+
+        def create_repo(self, **kwargs) -> None:
+            return None
+
+        def create_commit(self, **kwargs) -> None:
+            commit_calls.append(kwargs)
+
+    monkeypatch.setattr("research_experiments.workspace.hf.runs.download_repo_manifest", lambda **kwargs: {
+        "runs": [
+            {
+                "remote_prefix": "single_agent/demo/count20/20260510T000000Z-model",
+                "run_kind": "standard",
+                "run_id": "20260510T000000Z-model",
+                "bundle_sha256": "old-hash",
+                "published_at": "2026-06-03T10:00:00+00:00",
+            }
+        ]
+    })
+    monkeypatch.setattr("research_experiments.workspace.hf.runs.HfApi", FakeApi)
+
+    payload = push_runs_to_hub(runs_root, repo_id="owner/research-runs")
+
+    assert payload["published_run_count"] == 1
+    assert len(commit_calls) == 1
+    operations = commit_calls[0]["operations"]
+    delete_ops = [op for op in operations if isinstance(op, CommitOperationDelete)]
+    add_ops = [op for op in operations if isinstance(op, CommitOperationAdd)]
+    assert len(delete_ops) == 1
+    assert delete_ops[0].path_in_repo == "single_agent/demo/count20/20260510T000000Z-model"
+    assert delete_ops[0].is_folder is True
+    assert any(op.path_in_repo == "runs_manifest.json" for op in add_ops)
+    assert any(
+        op.path_in_repo.startswith("single_agent/demo/count20/20260510T000000Z-model/")
+        for op in add_ops
+    )
 
 
 def test_pull_runs_from_hub_skips_matching_local_runs_and_records_conflicts(monkeypatch, tmp_path: Path) -> None:
