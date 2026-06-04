@@ -14,6 +14,7 @@ import contextlib
 import json
 import sqlite3
 import threading
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -93,6 +94,45 @@ INSERT OR REPLACE INTO requests (
     cache_key, payload_json, response_json, http_status, latency_ms, provider_request_id
 ) VALUES (?, ?, ?, ?, ?, ?)
 """
+
+REQUESTS_INSERT_WITH_CREATED_AT_SQL = """
+INSERT INTO requests (
+    cache_key, created_at, payload_json, response_json, http_status, latency_ms, provider_request_id
+) VALUES (?, ?, ?, ?, ?, ?, ?)
+"""
+
+REQUESTS_MIGRATION_SELECT_COLUMNS = """
+rowid, cache_key, created_at, payload_json, response_json, http_status, latency_ms, provider_request_id
+"""
+
+
+@dataclass(frozen=True)
+class CacheKeyMigrationRow:
+    """Represents a single cache row during key schema migration."""
+
+    rowid: int
+    cache_key: str
+    created_at: str
+    payload_json: str
+    response_json: str
+    http_status: int
+    latency_ms: float
+    provider_request_id: str | None
+
+
+@dataclass(frozen=True)
+class CacheKeyMigrationPlan:
+    """Summarizes a single shard cache-key migration outcome."""
+
+    shard_path: Path
+    provider: str
+    request_model: str
+    dataset: str
+    source_request_count: int
+    rewritten_request_count: int
+    deduplicated_request_count: int
+    rows_with_max_tokens: int
+    changed: bool
 
 
 class RequestCache:
@@ -242,9 +282,17 @@ def build_request_cache_key(
     fingerprint = {
         "provider": provider,
         "request_model": request_model,
-        "payload": payload,
+        "payload": normalize_payload_for_cache_key(payload),
     }
     return sha256(json_dump(fingerprint).encode("utf-8")).hexdigest()
+
+
+def normalize_payload_for_cache_key(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return the canonical payload fingerprint used for cache-key generation."""
+
+    normalized = dict(payload)
+    normalized.pop("max_tokens", None)
+    return normalized
 
 
 def cache_successful_response(
@@ -380,6 +428,51 @@ def summarize_cache_root(cache_root: str | Path) -> CacheRootSummary:
     )
 
 
+def migrate_cache_keys(cache_root: str | Path) -> dict[str, Any]:
+    """Rewrite cache keys under a root to the current canonical key schema."""
+
+    root = Path(cache_root)
+    shards = collect_cache_shard_summaries(root)
+    rows: list[dict[str, Any]] = []
+    changed_shard_count = 0
+    rewritten_request_count = 0
+    deduplicated_request_count = 0
+    rows_with_max_tokens = 0
+    for shard in shards:
+        plan = _migrate_single_cache_shard(
+            shard.shard_path,
+            provider=shard.provider,
+            request_model=shard.request_model,
+            dataset=shard.dataset,
+        )
+        changed_shard_count += int(plan.changed)
+        rewritten_request_count += plan.rewritten_request_count
+        deduplicated_request_count += plan.deduplicated_request_count
+        rows_with_max_tokens += plan.rows_with_max_tokens
+        rows.append(
+            {
+                "shard_path": plan.shard_path.as_posix(),
+                "provider": plan.provider,
+                "request_model": plan.request_model,
+                "dataset": plan.dataset,
+                "source_request_count": plan.source_request_count,
+                "rewritten_request_count": plan.rewritten_request_count,
+                "deduplicated_request_count": plan.deduplicated_request_count,
+                "rows_with_max_tokens": plan.rows_with_max_tokens,
+                "changed": plan.changed,
+            }
+        )
+    return {
+        "cache_root": root.as_posix(),
+        "shard_count": len(shards),
+        "changed_shard_count": changed_shard_count,
+        "rewritten_request_count": rewritten_request_count,
+        "deduplicated_request_count": deduplicated_request_count,
+        "rows_with_max_tokens": rows_with_max_tokens,
+        "shards": rows,
+    }
+
+
 def format_bytes(num_bytes: int) -> str:
     """把字节数格式化成更易读的容量字符串。"""
     value = float(num_bytes)
@@ -504,6 +597,161 @@ def _cleanup_sqlite_sidecars(db_path: Path) -> None:
         sidecar = db_path.with_name(f"{db_path.name}{suffix}")
         if sidecar.exists():
             sidecar.unlink()
+
+
+def _migrate_single_cache_shard(
+    shard_path: Path,
+    *,
+    provider: str,
+    request_model: str,
+    dataset: str,
+) -> CacheKeyMigrationPlan:
+    source_rows = _load_cache_key_migration_rows(shard_path)
+    winners: dict[str, CacheKeyMigrationRow] = {}
+    rewritten_request_count = 0
+    rows_with_max_tokens = 0
+    for row in source_rows:
+        payload = json.loads(row.payload_json)
+        if "max_tokens" in payload:
+            rows_with_max_tokens += 1
+        effective_request_model = str(payload.get("model") or request_model)
+        new_key = build_request_cache_key(
+            provider=provider,
+            request_model=effective_request_model,
+            payload=payload,
+        )
+        if new_key != row.cache_key:
+            rewritten_request_count += 1
+        migrated_row = CacheKeyMigrationRow(
+            rowid=row.rowid,
+            cache_key=new_key,
+            created_at=row.created_at,
+            payload_json=row.payload_json,
+            response_json=row.response_json,
+            http_status=row.http_status,
+            latency_ms=row.latency_ms,
+            provider_request_id=row.provider_request_id,
+        )
+        current = winners.get(new_key)
+        if current is None or _cache_row_preference(migrated_row) > _cache_row_preference(current):
+            winners[new_key] = migrated_row
+
+    deduplicated_request_count = max(len(source_rows) - len(winners), 0)
+    changed = rewritten_request_count > 0 or deduplicated_request_count > 0
+    if changed:
+        _rewrite_cache_shard_with_rows(shard_path, winners.values())
+
+    return CacheKeyMigrationPlan(
+        shard_path=shard_path,
+        provider=provider,
+        request_model=request_model,
+        dataset=dataset,
+        source_request_count=len(source_rows),
+        rewritten_request_count=rewritten_request_count,
+        deduplicated_request_count=deduplicated_request_count,
+        rows_with_max_tokens=rows_with_max_tokens,
+        changed=changed,
+    )
+
+
+def _load_cache_key_migration_rows(shard_path: Path) -> list[CacheKeyMigrationRow]:
+    connection = sqlite3.connect(shard_path)
+    try:
+        raw_rows = connection.execute(
+            f"SELECT {REQUESTS_MIGRATION_SELECT_COLUMNS} FROM requests ORDER BY rowid"
+        ).fetchall()
+    except sqlite3.DatabaseError as exc:
+        connection.close()
+        if not _is_malformed_sqlite_error(exc):
+            raise
+        repair_cache_shard(shard_path)
+        connection = sqlite3.connect(shard_path)
+        try:
+            raw_rows = connection.execute(
+                f"SELECT {REQUESTS_MIGRATION_SELECT_COLUMNS} FROM requests ORDER BY rowid"
+            ).fetchall()
+        finally:
+            connection.close()
+    else:
+        connection.close()
+    return [
+        CacheKeyMigrationRow(
+            rowid=int(row[0]),
+            cache_key=str(row[1]),
+            created_at=str(row[2]),
+            payload_json=str(row[3]),
+            response_json=str(row[4]),
+            http_status=int(row[5]),
+            latency_ms=float(row[6]),
+            provider_request_id=str(row[7]) if row[7] is not None else None,
+        )
+        for row in raw_rows
+    ]
+
+
+def _cache_row_preference(row: CacheKeyMigrationRow) -> tuple[int, int, int, int, int, int]:
+    try:
+        payload = json.loads(row.response_json)
+    except json.JSONDecodeError:
+        payload = {}
+
+    finish_reason = str(payload.get("finish_reason") or "")
+    assistant_text = str(payload.get("assistant_text") or "")
+    reasoning_text = str(payload.get("provider_reasoning_text") or "")
+    total_tokens = _extract_cached_total_tokens(payload)
+    return (
+        int(finish_reason != "length"),
+        len(assistant_text),
+        len(reasoning_text),
+        total_tokens,
+        len(row.response_json),
+        row.rowid,
+    )
+
+
+def _extract_cached_total_tokens(response_payload: dict[str, Any]) -> int:
+    usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
+    total_tokens = usage.get("total_tokens")
+    if total_tokens is not None:
+        try:
+            return max(0, int(float(total_tokens)))
+        except (TypeError, ValueError):
+            return 0
+    return 0
+
+
+def _rewrite_cache_shard_with_rows(shard_path: Path, rows: Iterable[CacheKeyMigrationRow]) -> None:
+    target = sqlite3.connect(shard_path)
+    try:
+        target.execute(REQUESTS_TABLE_SCHEMA)
+        target.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        target.execute("PRAGMA journal_mode=DELETE")
+        target.execute("BEGIN IMMEDIATE")
+        target.execute("DELETE FROM requests")
+        target.executemany(
+            REQUESTS_INSERT_WITH_CREATED_AT_SQL,
+            [
+                (
+                    row.cache_key,
+                    row.created_at,
+                    row.payload_json,
+                    row.response_json,
+                    row.http_status,
+                    row.latency_ms,
+                    row.provider_request_id,
+                )
+                for row in sorted(rows, key=lambda item: item.rowid)
+            ],
+        )
+        target.commit()
+        target.execute("PRAGMA journal_mode=WAL")
+        target.commit()
+    except Exception:
+        target.rollback()
+        raise
+    finally:
+        target.close()
+    _cleanup_sqlite_sidecars(shard_path)
 
 
 def _recover_cache_shard_rows(source_path: Path, target_path: Path) -> tuple[int, list[int]]:
