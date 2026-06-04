@@ -410,8 +410,9 @@ def _run_consensagent_sample(
             check_sycophancy_on_consensus=protocol.trigger.check_sycophancy_on_consensus,
         )
 
-        # 更新轮次历史
+        # 更新轮次历史，并把当前轮提升为最新状态。
         round_history.append(current_round_data)
+        previous_round = current_round
 
         # 触发条件：停滞或谄媚 → 提前结束
         if trigger_state.stagnation_triggered or trigger_state.sycophancy_triggered:
@@ -422,8 +423,6 @@ def _run_consensagent_sample(
         current_consistency = compute_consistency_score(current_answers)
         if current_consistency.is_consensus and not trigger_state.sycophancy_triggered:
             break
-
-        previous_round = current_round
 
     # Phase 3：Prompt 优化（论文完整版使用微调 GPT-4o，这里用 LLM in-context learning）
     phase3_triggered = trigger_state.stagnation_triggered or trigger_state.sycophancy_triggered
@@ -462,13 +461,15 @@ def _run_consensagent_sample(
             seed=global_seed,
         )
         phase3_turn_rows.append(optimizer_result)
+        turn_rows.append(optimizer_result)
         optimized_prompt = str(optimizer_result["validated_output"].get("final_answer", "")).strip()
 
         # 用优化后的 prompt 跑 post_optimization_rounds 轮辩论
+        optimized_rounds_executed = 0
         if optimized_prompt and protocol.phase3.post_optimization_rounds > 0:
-            _opt_round_data: list[dict[str, Any]] = []
-            for _ in range(protocol.phase3.post_optimization_rounds):
+            for optimized_round_offset in range(1, protocol.phase3.post_optimization_rounds + 1):
                 opt_round: list[dict[str, Any]] = []
+                optimized_round_index = actual_debate_rounds + optimized_round_offset
                 for recipient_id in range(1, roster.agent_count + 1):
                     profile = profile_by_id.get(recipient_id)
                     persona = profile.persona_instruction if profile else ""
@@ -489,6 +490,23 @@ def _run_consensagent_sample(
                             "reasoning": str(sender["validated_output"].get("reasoning", "")).strip(),
                             "confidence": float(sender["validated_output"].get("confidence", 0.5)),
                         })
+                        debate_rows.append(
+                            asdict(
+                                DebateMessageRecord(
+                                    run_id=run_id,
+                                    dataset=benchmark_slug,
+                                    split=split_name,
+                                    sample_id=sample.sample_id,
+                                    method_name=setup.name,
+                                    round_index=optimized_round_index,
+                                    sender_agent_id=sender["agent_id"],
+                                    recipient_agent_id=recipient_id,
+                                    sender_answer=str(sender["validated_output"].get("final_answer", "")).strip(),
+                                    sender_reasoning=str(sender["validated_output"].get("reasoning", "")).strip(),
+                                    sender_confidence=float(sender["validated_output"].get("confidence", 0.5)),
+                                )
+                            )
+                        )
 
                     # 构造优化后的辩论消息（用 optimized_prompt 替换原始问题）
                     opt_messages = [
@@ -511,7 +529,7 @@ def _run_consensagent_sample(
                         sample=sample,
                         method_name=setup.name,
                         method_type=method_type,
-                        round_index=actual_debate_rounds + 1,
+                        round_index=optimized_round_index,
                         agent_id=recipient_id,
                         role="debate_optimized",
                         visible_peer_count=len(peer_msgs),
@@ -523,21 +541,13 @@ def _run_consensagent_sample(
                         temperature=agent_temp,
                         top_p=protocol.top_p,
                         max_output_tokens=protocol.max_output_tokens,
-                        seed=global_seed + recipient_id + (actual_debate_rounds + 1) * 100,
+                        seed=global_seed + recipient_id + optimized_round_index * 100,
                     ))
                 phase3_turn_rows.extend(opt_round)
-                _opt_round_data = [
-                    {
-                        "agent_id": t["agent_id"],
-                        "answer": str(t["validated_output"].get("final_answer", "")).strip(),
-                        "confidence": float(t["validated_output"].get("confidence", 0.5)),
-                        "previous_answer": "",
-                    }
-                    for t in opt_round
-                ]
-            # 用优化后的结果更新 previous_round
-            if opt_round:
+                turn_rows.extend(opt_round)
                 previous_round = opt_round
+                optimized_rounds_executed += 1
+            actual_debate_rounds += optimized_rounds_executed
 
     # Phase 4：团队答案生成
     initial_answers = [str(row["validated_output"].get("final_answer", "")).strip() for row in initial_turns]
@@ -580,7 +590,7 @@ def _run_consensagent_sample(
     initial_total_tokens = sum(float(row["total_tokens"]) for row in initial_turns)
     initial_latency = sum(float(row["latency_ms"]) for row in initial_turns)
 
-    debate_turns = [row for row in turn_rows if row["role"] == "debate"]
+    debate_turns = [row for row in turn_rows if row["role"] in {"debate", "debate_optimized", "optimizer"}]
     debate_prompt_tokens = sum(float(row["prompt_tokens"]) for row in debate_turns)
     debate_completion_tokens = sum(float(row["completion_tokens"]) for row in debate_turns)
     debate_total_tokens = sum(float(row["total_tokens"]) for row in debate_turns)
@@ -630,7 +640,7 @@ def _run_consensagent_sample(
         debate_completion_tokens_per_question=debate_completion_tokens,
         debate_total_tokens_per_question=debate_total_tokens,
         debate_latency_ms_per_question=debate_latency,
-        calls_per_question=roster.agent_count * (1 + actual_debate_rounds),
+        calls_per_question=len(turn_rows),
         actual_debate_rounds=actual_debate_rounds,
         agent_count=roster.agent_count,
         final_consensus=final_consistency.is_consensus,
@@ -801,7 +811,7 @@ def _build_cost_breakdown(turn_rows: list[dict[str, Any]]) -> dict[str, Any]:
         bucket["turn_count"] += 1
         if row["role"] == "initial":
             bucket["initial_tokens"] += total_tokens
-        elif row["role"] == "debate":
+        elif row["role"] in {"debate", "debate_optimized", "optimizer"}:
             bucket["debate_tokens"] += total_tokens
         else:
             bucket["control_tokens"] += total_tokens

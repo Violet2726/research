@@ -98,6 +98,7 @@ def _render_report_markdown(
     consensagent_rows = [r for r in summary_rows if r.get("method_type") == "consensagent"]
     control_rows = [r for r in summary_rows if r.get("method_type") == "control"]
     gains = []
+    gain_values: list[float] = []
     for cr in consensagent_rows:
         ds = cr.get("dataset", "")
         matched_ctrl = cr.get("matched_vote_control", "")
@@ -105,10 +106,21 @@ def _render_report_markdown(
         if ctrl:
             gain = float(cr.get("accuracy_mean", 0)) - float(ctrl.get("accuracy_mean", 0))
             gains.append(f"{ds}: {gain:+.2f}")
+            gain_values.append(gain)
+
+    better_count = sum(1 for gain in gain_values if gain > 0)
+    worse_count = sum(1 for gain in gain_values if gain < 0)
+    tie_count = len(gain_values) - better_count - worse_count
+    comparison_headline = (
+        f"CONSENSAGENT（3 agent 辩论）在 {len(consensagent_rows)} 个数据集上与等预算多数投票基线（MV_6）对比："
+        f"{better_count} 个更优，{worse_count} 个更差，{tie_count} 个持平。"
+        if gain_values
+        else f"CONSENSAGENT（3 agent 辩论）在 {len(consensagent_rows)} 个数据集上完成了与等预算多数投票基线（MV_6）的对比。"
+    )
 
     abstract = [
-        f"CONSENSAGENT（3 agent 辩论）在 {len(consensagent_rows)} 个数据集上均优于等预算多数投票基线（MV_6）。",
-        "各数据集准确率增益：" + "；".join(gains) if gains else "无增益数据。",
+        comparison_headline,
+        "各数据集准确率差值：" + "；".join(gains) if gains else "无可用的对照差值。",
         f"平均辩论轮次 {_avg(consensagent_rows, 'actual_debate_rounds_mean'):.1f}，"
         f"触发率 {_avg(consensagent_rows, 'trigger_rate'):.0%}，"
         f"谄媚率 {_avg(consensagent_rows, 'sycophancy_rate_mean'):.1%}。",
@@ -206,9 +218,9 @@ def _render_report_markdown(
             "title": "局限性",
             "bullets": [
                 "当前 run 仅覆盖 count100 划分集（每数据集 100 题），统计噪声较大，不宜作为最终结论。",
-                "论文 Phase 3（基于 GPT-4o 微调的 prompt 优化）使用 LLM in-context learning 替代，可能影响触发效率和辩论轮次。",
-                "CONSENSAGENT 在 GSM8K 上表现不佳（-5% 增益），触发机制可能导致过度辩论。",
-                "谄媚率在 GSM8K 上显著（49.5%），但在其他数据集上较低，需要进一步研究触发机制的适用性。",
+                "论文 Phase 3（基于 GPT-4o 微调的 prompt 优化）这里使用 LLM in-context learning 近似替代，可能影响触发效率和最终聚合行为。",
+                "若某个数据集同时出现高触发率与高谄媚率，应优先核查触发阈值、优化阶段和最终聚合是否引入额外副作用。",
+                "当前结论仅对这组 benchmark、seed 与 backbone 生效，正式论文结论仍需更大样本与复跑验证。",
             ],
         },
     ]
@@ -299,7 +311,7 @@ def _build_dataset_analysis_bullets(
     """按数据集构建详细分析要点。"""
     datasets = sorted(set(r.get("dataset", "") for r in summary_rows))
     control_rows = [r for r in summary_rows if r.get("method_type") == "control"]
-    method_rows = [r for r in summary_rows if r.get("method_type") != "control"]
+    method_rows = list(summary_rows)
 
     bullets = []
     for ds in datasets:
@@ -374,12 +386,45 @@ def _build_conclusions(
     # 找出最佳方法
     best_method = max(method_gains.items(), key=lambda x: x[1])
 
+    consensagent_rows = [r for r in method_rows if r.get("method_name") == "consensagent_3a"]
+    consensagent_gains = [
+        (str(row.get("dataset") or ""), float(row.get("debate_gain_over_vote")))
+        for row in consensagent_rows
+        if row.get("debate_gain_over_vote") is not None
+    ]
+    if consensagent_gains:
+        best_dataset, best_gain = max(consensagent_gains, key=lambda item: item[1])
+        worst_dataset, worst_gain = min(consensagent_gains, key=lambda item: item[1])
+        positive_count = sum(1 for _, gain in consensagent_gains if gain > 0)
+        negative_count = sum(1 for _, gain in consensagent_gains if gain < 0)
+        zero_count = len(consensagent_gains) - positive_count - negative_count
+        consensagent_summary = (
+            f"CONSENSAGENT 相对 MV_6 的数据集差值分布为：{positive_count} 个正收益，"
+            f"{negative_count} 个负收益，{zero_count} 个持平；最好的是 `{best_dataset}` ({best_gain:+.1%})，"
+            f"最差的是 `{worst_dataset}` ({worst_gain:+.1%})。"
+        )
+    else:
+        consensagent_summary = "CONSENSAGENT 当前没有可用的 MV_6 对照差值。"
+
+    high_sycophancy = [
+        row for row in diag_rows
+        if row.get("method_name") == "consensagent_3a" and float(row.get("sycophancy_rate_mean", 0)) >= 0.2
+    ]
+    if high_sycophancy:
+        sycophancy_summary = "；".join(
+            f"{row['dataset']}={float(row.get('sycophancy_rate_mean', 0)):.1%}"
+            for row in high_sycophancy
+        )
+        sycophancy_bullet = f"高谄媚率主要集中在：{sycophancy_summary}。"
+    else:
+        sycophancy_bullet = "当前 run 未出现极高谄媚率数据集。"
+
     conclusions = [
-        f"总体来看，`{best_method[0]}` 在所有数据集上平均增益最高（{best_method[1]:+.1%}）。",
-        "MAD（标准多智能体辩论）在大多数数据集上表现稳定，是可靠的基线方法。",
-        "CONSENSAGENT 的触发机制在 GSM8K 上导致过度辩论（触发率 52%），反而降低了准确率。",
-        "建议：对于简单任务（如 Ethics、TriviaQA），使用 MAD 即可；对于复杂推理任务，需要调优触发阈值。",
-        "下一步：在 count300 或更大规模上验证结果稳定性，并尝试调整触发机制参数。",
+        f"总体来看，`{best_method[0]}` 在所有实验方法中平均相对增益最高（{best_method[1]:+.1%}）。",
+        consensagent_summary,
+        sycophancy_bullet,
+        "标准 MAD 对照在这组结果里整体更稳定；若 CONSENSAGENT 想形成正收益，优先应复核触发阈值、谄媚检测和优化阶段的最终聚合链路。",
+        "下一步建议先做可复现实验修复，再在更大样本 phase 上验证修复后的收益是否仍成立。",
     ]
 
     return conclusions
