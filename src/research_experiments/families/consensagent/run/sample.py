@@ -19,6 +19,13 @@ from typing import Any
 from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples
 from research_experiments.core.data.evaluation import aggregate_majority, normalize_prediction, score_prediction
 from research_experiments.core.execution.runner_common import execute_cached_turn, iter_indexed_batch
+from research_experiments.core.structured_outputs.recovery.logic import (
+    _extract_json_answer_field,
+    _extract_json_number_field,
+    _extract_json_string_field,
+    _extract_json_string_list_field,
+    looks_like_soft_rejection_text,
+)
 from research_experiments.families.consensagent.algorithms import (
     TriggerState,
     aggregate_weighted_answer,
@@ -682,6 +689,7 @@ def _execute_turn(
     seed: int,
 ) -> dict[str, Any]:
     """执行单次 agent turn，并统一返回日志行结构。"""
+    validator = _validate_optimizer_output if role == "optimizer" else _validate_consensagent_output
     result = execute_cached_turn(
         backbone=backbone,
         provider=provider,
@@ -692,7 +700,7 @@ def _execute_turn(
         top_p=top_p,
         max_output_tokens=max_output_tokens,
         seed=seed,
-        validator=_validate_consensagent_output,
+        validator=validator,
         dataset=dataset,
         use_response_format=False,
     )
@@ -908,20 +916,37 @@ def _validate_consensagent_output(assistant_text: str, provider_reasoning_text: 
     text = str(assistant_text or "").strip() or str(provider_reasoning_text or "").strip()
     if not text:
         raise ValueError("Model output is empty.")
+    if looks_like_soft_rejection_text(text):
+        raise ValueError("Provider returned a soft rejection instead of an answer.")
 
     payload = _try_parse_json(text)
-    if payload is None or not isinstance(payload, dict):
-        raise ValueError("Failed to parse model output as JSON.")
+    if isinstance(payload, dict):
+        recovered = _coerce_consensagent_payload(payload)
+        if recovered is not None:
+            return recovered
 
-    final_answer = str(
-        payload.get("final_answer") or payload.get("answer") or payload.get("prediction") or ""
-    ).strip()
-    reasoning = str(
-        payload.get("reasoning") or payload.get("explanation") or ""
-    ).strip()
-    confidence = 0.5
-    with suppress(ValueError, TypeError):
-        confidence = max(0.0, min(1.0, float(payload.get("confidence", 0.5))))
+    recovered = _recover_consensagent_payload(text)
+    if recovered is None:
+        raise ValueError("Could not extract answer from model output.")
+    return recovered
+
+
+def _validate_optimizer_output(assistant_text: str, provider_reasoning_text: str) -> dict[str, Any]:
+    """Treat phase-3 optimizer output as plain refined prompt text."""
+    text = str(assistant_text or "").strip() or str(provider_reasoning_text or "").strip()
+    if not text:
+        raise ValueError("Optimizer output is empty.")
+    return {
+        "final_answer": _strip_markdown_code_fences(text).strip(),
+        "reasoning": "",
+        "confidence": 1.0,
+    }
+
+
+def _coerce_consensagent_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    final_answer = str(payload.get("final_answer") or payload.get("answer") or payload.get("prediction") or "").strip()
+    reasoning = str(payload.get("reasoning") or payload.get("explanation") or "").strip()
+    confidence = _normalize_confidence(payload.get("confidence"))
 
     if not final_answer:
         list_val = payload.get("list") or payload.get("answers") or payload.get("titles")
@@ -929,20 +954,55 @@ def _validate_consensagent_output(assistant_text: str, provider_reasoning_text: 
             final_answer = ", ".join(str(item).strip() for item in list_val if str(item).strip())
 
     if not final_answer:
-        raise ValueError("Could not extract answer from JSON output.")
-
+        return None
     return {"final_answer": final_answer, "reasoning": reasoning, "confidence": confidence}
+
+
+def _recover_consensagent_payload(text: str) -> dict[str, Any] | None:
+    final_answer = (
+        _extract_json_answer_field(text, "final_answer")
+        or _extract_json_answer_field(text, "answer")
+        or _extract_json_answer_field(text, "prediction")
+    )
+    if not final_answer:
+        for field_name in ("list", "answers", "titles"):
+            values = _extract_json_string_list_field(text, field_name)
+            if values:
+                final_answer = ", ".join(values)
+                break
+    if not final_answer:
+        return None
+
+    reasoning = (
+        _extract_json_string_field(text, "reasoning")
+        or _extract_json_string_field(text, "explanation")
+        or ""
+    ).strip()
+    confidence = _extract_json_number_field(text, "confidence")
+    return {
+        "final_answer": str(final_answer).strip(),
+        "reasoning": reasoning,
+        "confidence": _normalize_confidence(confidence),
+    }
+
+
+def _normalize_confidence(value: Any) -> float:
+    confidence = 0.5
+    with suppress(ValueError, TypeError):
+        confidence = max(0.0, min(1.0, float(value if value is not None else 0.5)))
+    return confidence
 
 
 def _try_parse_json(text: str) -> dict[str, Any] | None:
     """尝试多种方式解析 JSON。"""
+    stripped = _strip_markdown_code_fences(text).strip()
     try:
-        result = json.loads(text)
+        result = json.loads(stripped)
         if isinstance(result, dict):
             return result
     except Exception:
         pass
-    match = re.search(r'\{[^{}]*(?:"final_answer"|"answer"|"list"|"explanation")[^{}]*\}', text, re.DOTALL)
+    match = re.search(r'\{.*\}', stripped, re.DOTALL)
     if match:
         try:
             result = json.loads(match.group())
@@ -951,6 +1011,20 @@ def _try_parse_json(text: str) -> dict[str, Any] | None:
         except Exception:
             pass
     return None
+
+
+def _strip_markdown_code_fences(text: str) -> str:
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    lines = stripped.splitlines()
+    if not lines:
+        return stripped
+    if lines[0].startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
 
 
 def _run_consensagent_batch(

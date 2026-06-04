@@ -4,6 +4,8 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import research_experiments.families.consensagent.run.sample as sample_mod
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.families.consensagent.algorithms import TriggerState
@@ -121,6 +123,38 @@ def test_run_consensagent_sample_logs_phase3_rounds_and_uses_latest_round_for_fi
     assert prediction_row["debate_total_tokens_per_question"] == 7.0
     assert role_counts == {"initial": 3, "debate": 3, "optimizer": 1, "debate_optimized": 3}
     assert len(debate_rows) == 12
+
+
+def test_validate_consensagent_output_recovers_answer_from_malformed_json() -> None:
+    text = """{
+  "final_answer": "1954",
+  "reasoning": "The context says Matt Groening was born in 1954, and the title includes "Matt" in quotes.",
+  "confidence": 0.82
+}"""
+
+    payload = sample_mod._validate_consensagent_output(text, "")
+
+    assert payload["final_answer"] == "1954"
+    assert payload["confidence"] == 0.82
+    assert "Matt Groening" in payload["reasoning"]
+
+
+def test_validate_consensagent_output_rejects_provider_soft_rejection() -> None:
+    with pytest.raises(ValueError, match="soft rejection"):
+        sample_mod._validate_consensagent_output("The request was rejected because it was considered high risk", "")
+
+
+def test_validate_optimizer_output_accepts_plain_refined_prompt() -> None:
+    payload = sample_mod._validate_optimizer_output(
+        "Solve the problem step by step and output only the final number.",
+        "",
+    )
+
+    assert payload == {
+        "final_answer": "Solve the problem step by step and output only the final number.",
+        "reasoning": "",
+        "confidence": 1.0,
+    }
 
 
 def _demo_sample() -> DatasetSample:

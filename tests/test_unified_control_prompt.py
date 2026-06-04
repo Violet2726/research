@@ -37,6 +37,7 @@ def test_cot_prompt_matches_single_agent() -> None:
     assert "JSON" in system_msg["content"]
     assert "reasoning" in system_msg["content"]
     assert "final_answer" in system_msg["content"]
+    assert "Put final_answer first" in system_msg["content"]
 
     # 验证 user prompt
     user_msg = messages[1]
@@ -45,7 +46,7 @@ def test_cot_prompt_matches_single_agent() -> None:
     assert "Chain-of-Thought" in user_msg["content"]
     assert "GSM8K" in user_msg["content"] or "math problem" in user_msg["content"]
     assert "Jared" in user_msg["content"]
-    assert '{"reasoning"' in user_msg["content"]
+    assert '{"final_answer"' in user_msg["content"]
 
 
 def test_mv_prompt_matches_single_agent() -> None:

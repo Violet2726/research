@@ -11,7 +11,7 @@ benchmark_configs = [
   "configs/core/shared/benchmarks/gsm8k/test.toml",
   "configs/core/shared/benchmarks/strategyqa/dev.toml",
 ]
-control_catalog = "configs/core/shared/controls/no_comm_equal_budget.toml"
+control_catalog = "configs/families/consensagent/controls/no_comm_equal_budget.toml"
 global_seed = 42
 prompt_version = "consensagent_paper_v1"
 primary_model_ref = "xiaomimimo/mimo-v2.5"
