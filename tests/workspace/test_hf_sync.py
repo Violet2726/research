@@ -36,6 +36,35 @@ def test_discover_publishable_runs_recurses_from_parent_sources(tmp_path: Path) 
     assert by_root[invalid_root.as_posix()]["reason"] == "validation_not_passed"
 
 
+def test_discover_publishable_runs_includes_old_incomplete_run_shapes_and_ignores_hf_cache(tmp_path: Path) -> None:
+    runs_root = tmp_path / "runs"
+
+    standard_root = runs_root / "single_agent" / "legacy_demo" / "count20" / "20260510T000000Z-model"
+    write_json(standard_root / "manifest.json", {"run_id": standard_root.name})
+
+    matrix_root = runs_root / "faithful_matrix" / "20260510T000100Z-count20-model"
+    write_json(
+        matrix_root / "state.json",
+        {
+            "counts": {"completed": 0, "semantic_unique_targets": 1},
+            "entries": [{"status": "running"}],
+        },
+    )
+
+    cached_root = runs_root / ".cache" / "huggingface" / "download" / "single_agent" / "cached" / "count20" / "20260510T000200Z-model"
+    write_json(cached_root / "manifest.json", {"run_id": cached_root.name})
+    (cached_root / "report.md").write_text("# cached\n", encoding="utf-8")
+
+    rows = discover_publishable_runs(runs_root)
+    by_root = {row["run_root"]: row for row in rows}
+
+    assert standard_root.as_posix() in by_root
+    assert by_root[standard_root.as_posix()]["reason"] == "validation_not_passed"
+    assert matrix_root.as_posix() in by_root
+    assert by_root[matrix_root.as_posix()]["reason"] == "matrix_not_completed"
+    assert cached_root.as_posix() not in by_root
+
+
 def test_push_runs_to_hub_filters_validation_and_skips_matching_remote_bundle(monkeypatch, tmp_path: Path) -> None:
     runs_root = tmp_path / "runs"
     publish_root = runs_root / "single_agent" / "demo" / "count20" / "20260510T000000Z-model"
@@ -148,6 +177,57 @@ def test_push_runs_to_hub_can_skip_validation_for_invalid_and_incomplete_matrix(
     )
     assert all("runs_manifest.json" in paths for paths in add_path_groups)
     assert payload["published_run_count"] == 2
+
+
+def test_push_runs_to_hub_can_skip_validation_for_legacy_run_shapes(monkeypatch, tmp_path: Path) -> None:
+    runs_root = tmp_path / "runs"
+    standard_root = runs_root / "single_agent" / "legacy_demo" / "count20" / "20260510T000000Z-model"
+    write_json(standard_root / "manifest.json", {"run_id": standard_root.name})
+    (standard_root / "metrics.json").write_text("{}", encoding="utf-8")
+
+    matrix_root = runs_root / "faithful_matrix" / "20260510T000100Z-count20-model"
+    write_json(
+        matrix_root / "state.json",
+        {
+            "counts": {"completed": 0, "semantic_unique_targets": 1},
+            "entries": [{"status": "running"}],
+        },
+    )
+
+    commit_calls: list[dict[str, object]] = []
+
+    class FakeApi:
+        def __init__(self, token=None) -> None:
+            self.token = token
+
+        def create_repo(self, **kwargs) -> None:
+            return None
+
+        def create_commit(self, **kwargs) -> None:
+            commit_calls.append(kwargs)
+
+    monkeypatch.setattr("research_experiments.workspace.hf.runs.download_repo_manifest", lambda **kwargs: {})
+    monkeypatch.setattr("research_experiments.workspace.hf.runs.HfApi", FakeApi)
+
+    payload = push_runs_to_hub(
+        runs_root,
+        repo_id="owner/research-runs",
+        skip_validation=True,
+    )
+
+    assert payload["published_run_count"] == 2
+    add_path_groups = [
+        [op.path_in_repo for op in call["operations"] if isinstance(op, CommitOperationAdd)]
+        for call in commit_calls
+    ]
+    assert any(
+        any(path.startswith("single_agent/legacy_demo/count20/20260510T000000Z-model/") for path in paths)
+        for paths in add_path_groups
+    )
+    assert any(
+        any(path.startswith("faithful_matrix/20260510T000100Z-count20-model/") for path in paths)
+        for paths in add_path_groups
+    )
 
 
 def test_push_runs_to_hub_replaces_existing_run_in_single_commit(monkeypatch, tmp_path: Path) -> None:

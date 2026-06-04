@@ -354,16 +354,16 @@ def discover_publishable_runs(
     if sources:
         for source in sources:
             resolved_source = _resolve_source_path(resolved_runs_root, source)
-            if _looks_like_standard_run(resolved_source):
+            if _looks_like_standard_run(resolved_source, resolved_runs_root):
                 roots[resolved_source.as_posix()] = _describe_standard_run(resolved_source)
                 continue
-            if _looks_like_matrix_run(resolved_source):
+            if _looks_like_matrix_run(resolved_source, resolved_runs_root):
                 roots[resolved_source.as_posix()] = _describe_matrix_run(resolved_source)
                 continue
-            for run_root in _discover_runs_beneath(resolved_source):
+            for run_root in _discover_runs_beneath(resolved_source, resolved_runs_root):
                 roots.setdefault(run_root.as_posix(), _describe_run_root(run_root))
     else:
-        for run_root in _discover_runs_beneath(resolved_runs_root):
+        for run_root in _discover_runs_beneath(resolved_runs_root, resolved_runs_root):
             roots.setdefault(run_root.as_posix(), _describe_run_root(run_root))
     return tuple(roots[key] for key in sorted(roots))
 
@@ -387,23 +387,25 @@ def compute_run_bundle_sha256(run_dir: str | Path) -> str:
     return digest.hexdigest()
 
 
-def _discover_runs_beneath(root: Path) -> tuple[Path, ...]:
+def _discover_runs_beneath(root: Path, runs_root: Path) -> tuple[Path, ...]:
     discovered: dict[str, Path] = {}
     for manifest_path in sorted(root.rglob("manifest.json")):
         run_root = manifest_path.parent
-        if _looks_like_standard_run(run_root):
+        if _looks_like_standard_run(run_root, runs_root):
             discovered[run_root.as_posix()] = run_root
     for state_path in sorted(root.rglob("state.json")):
         run_root = state_path.parent
-        if _looks_like_matrix_run(run_root):
+        if _looks_like_matrix_run(run_root, runs_root):
             discovered.setdefault(run_root.as_posix(), run_root)
     return tuple(discovered[key] for key in sorted(discovered))
 
 
 def _describe_run_root(run_root: Path) -> dict[str, Any]:
-    if _looks_like_standard_run(run_root):
+    if (run_root / "state.json").exists():
+        return _describe_matrix_run(run_root)
+    if (run_root / "manifest.json").exists():
         return _describe_standard_run(run_root)
-    return _describe_matrix_run(run_root)
+    raise RuntimeError(f"Unrecognized run root: {run_root}")
 
 
 def _describe_standard_run(run_root: Path) -> dict[str, Any]:
@@ -440,14 +442,30 @@ def _describe_matrix_run(run_root: Path) -> dict[str, Any]:
     }
 
 
-def _looks_like_standard_run(run_root: Path) -> bool:
-    return (run_root / "manifest.json").exists() and (run_root / "report.md").exists()
-
-
-def _looks_like_matrix_run(run_root: Path) -> bool:
-    if not (run_root / "state.json").exists():
+def _looks_like_standard_run(run_root: Path, runs_root: Path) -> bool:
+    if _is_ignored_run_path(run_root, runs_root) or _looks_like_matrix_run(run_root, runs_root):
         return False
-    return any((run_root / filename).exists() for filename in ("paper_package.json", "reproduction_package.json"))
+    relative_parts = _relative_run_parts(run_root, runs_root)
+    if len(relative_parts) < 4:
+        return False
+    return any(
+        (run_root / filename).exists()
+        for filename in ("manifest.json", "run_validation.json", ARCHIVE_MANIFEST_FILENAME, "report.md")
+    )
+
+
+def _looks_like_matrix_run(run_root: Path, runs_root: Path) -> bool:
+    if _is_ignored_run_path(run_root, runs_root):
+        return False
+    relative_parts = _relative_run_parts(run_root, runs_root)
+    if len(relative_parts) != 2:
+        return False
+    if not relative_parts[0].endswith("_matrix"):
+        return False
+    return any(
+        (run_root / filename).exists()
+        for filename in ("state.json", "manifest.json", ARCHIVE_MANIFEST_FILENAME, "paper_package.json", "reproduction_package.json")
+    )
 
 
 def _resolve_source_path(runs_root: Path, source: str) -> Path:
@@ -461,6 +479,18 @@ def _resolve_source_path(runs_root: Path, source: str) -> Path:
     if not is_within_root(runs_root, candidate):
         raise RuntimeError(f"source 必须位于 runs 根目录内：{source}")
     return candidate
+
+
+def _relative_run_parts(run_root: Path, runs_root: Path) -> tuple[str, ...]:
+    try:
+        return run_root.resolve().relative_to(runs_root.resolve()).parts
+    except ValueError:
+        return ()
+
+
+def _is_ignored_run_path(run_root: Path, runs_root: Path) -> bool:
+    relative_parts = _relative_run_parts(run_root, runs_root)
+    return bool(relative_parts) and relative_parts[0] == ".cache"
 
 
 def _infer_remote_prefix(run_root: Path, runs_root: Path) -> str:
