@@ -152,7 +152,8 @@ def _build_debate_messages(
         f"Your previous confidence_raw: {previous_confidence_raw}\n\n"
         f"Peer feedback:\n{peer_block}\n\n"
         f"{_revision_instruction()}\n"
-        "Return exactly one JSON object with keys reasoning, final_answer, confidence_raw, "
+        "Even if your answer does not change, you must repeat final_answer and confidence_raw explicitly.\n"
+        "Return exactly one JSON object with keys final_answer, confidence_raw, reasoning, "
         "uncertain_point, and key_evidence."
     )
     return [
@@ -204,6 +205,7 @@ def _build_debate_messages_v2(
         f"Peer feedback:\n{peer_block}\n\n"
         "Use the earlier context only implicitly through these prior claims; do not restate long passages.\n"
         f"{_revision_instruction()}\n"
+        "Always repeat FINAL_ANSWER and CONFIDENCE even when unchanged.\n"
         "Return only the following five lines, in this order, with no markdown fences:\n"
         "FINAL_ANSWER: <answer>\n"
         "CLAIM_SPAN: <short supporting span>\n"

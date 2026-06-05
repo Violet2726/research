@@ -408,30 +408,30 @@ def _run_sample(
                 previous_uncertainty_type=recipient_previous["uncertainty_type"],
                 prompt_version=experiment.prompt_version,
             )
-            current_round.append(
-                _execute_turn(
-                    run_id=run_id,
-                    dataset=benchmark_slug,
-                    split_name=split_name,
-                    sample=sample,
-                    stage_name="stage_b",
-                    method_name="shared_stage_b",
-                    role="debate",
-                    round_index=round_index,
-                    agent_id=recipient_id,
-                    visible_peer_count=len(peer_messages),
-                    messages=messages,
-                    backbone=backbone,
-                    provider=provider,
-                    cache=cache,
-                    throttle=throttle,
-                    temperature=protocol.debate_temperature,
-                    top_p=protocol.top_p,
-                    max_output_tokens=protocol.max_output_tokens,
-                    seed=experiment.global_seed + recipient_id + round_index * 100,
-                    question_preview=question_preview,
-                )
+            row = _execute_turn(
+                run_id=run_id,
+                dataset=benchmark_slug,
+                split_name=split_name,
+                sample=sample,
+                stage_name="stage_b",
+                method_name="shared_stage_b",
+                role="debate",
+                round_index=round_index,
+                agent_id=recipient_id,
+                visible_peer_count=len(peer_messages),
+                messages=messages,
+                backbone=backbone,
+                provider=provider,
+                cache=cache,
+                throttle=throttle,
+                temperature=protocol.debate_temperature,
+                top_p=protocol.top_p,
+                max_output_tokens=protocol.max_output_tokens,
+                seed=experiment.global_seed + recipient_id + round_index * 100,
+                question_preview=question_preview,
             )
+            _apply_debate_turn_fallback(row, recipient_previous)
+            current_round.append(row)
         stage_b_turns.extend(current_round)
         previous_round = current_round
 
@@ -675,6 +675,53 @@ def _run_control_method(
         "turn_rows": turn_rows,
         "prediction_row": prediction_row,
     }
+
+
+def _apply_debate_turn_fallback(row: dict[str, Any], previous_row: dict[str, Any]) -> None:
+    """Keep the prior belief when a debate turn emits rationale but omits a new answer."""
+
+    if str(row.get("stage_name") or "") != "stage_b":
+        return
+    if str(row.get("output_status") or "") != "schema_fail":
+        return
+    if row.get("request_error"):
+        return
+
+    previous_answer = str(previous_row.get("normalized_answer") or "")
+    if not previous_answer:
+        return
+
+    assistant_text = str(row.get("assistant_text") or "").strip()
+    if not assistant_text:
+        return
+
+    previous_validated = previous_row.get("validated_output")
+    if not isinstance(previous_validated, dict):
+        previous_validated = {}
+
+    row["output_status"] = "ok"
+    row["prediction"] = previous_answer
+    row["normalized_answer"] = previous_answer
+    row["reasoning"] = str(previous_row.get("reasoning") or "")
+    row["confidence_raw"] = previous_row.get("confidence_raw")
+    row["confidence_raw_display"] = previous_row.get("confidence_raw_display")
+    row["confidence_value"] = previous_row.get("confidence_value")
+    row["confidence_valid"] = previous_row.get("confidence_valid")
+    row["confidence_source"] = previous_row.get("confidence_source")
+    row["claim_span"] = previous_row.get("claim_span")
+    row["uncertainty_type"] = previous_row.get("uncertainty_type")
+    row["key_evidence"] = previous_row.get("key_evidence")
+    row["uncertain_point"] = previous_row.get("uncertain_point")
+    row["validated_output"] = {
+        "final_answer": str(previous_validated.get("final_answer") or previous_answer),
+        "confidence_raw": previous_validated.get("confidence_raw", previous_row.get("confidence_raw")),
+        "reasoning": str(previous_validated.get("reasoning") or previous_row.get("reasoning") or ""),
+        "claim_span": previous_validated.get("claim_span", previous_row.get("claim_span")),
+        "uncertainty_type": previous_validated.get("uncertainty_type", previous_row.get("uncertainty_type")),
+        "key_evidence": previous_validated.get("key_evidence", previous_row.get("key_evidence")),
+        "uncertain_point": previous_validated.get("uncertain_point", previous_row.get("uncertain_point")),
+    }
+    row["debate_fallback"] = "kept_previous_answer_after_reasoning_only_output"
 
 
 def _build_control_prediction_row(
@@ -1090,26 +1137,51 @@ def _build_policy_diagnostics(
 def _select_next_default_policy(metric_lookup: dict[tuple[str, str], dict[str, Any]]) -> dict[str, Any]:
     """按固定规则选择下一轮默认 trigger。"""
     always_row = metric_lookup.get(("overall", "always_communicate"))
-    preferred_row = metric_lookup.get(("overall", "voc_trigger_v2"))
-    preferred_name = "voc_trigger_v2"
-    if preferred_row is None:
-        preferred_row = metric_lookup.get(("overall", "hybrid_trigger"))
-        preferred_name = "hybrid_trigger"
-    if always_row is None or preferred_row is None:
+    if always_row is None:
         return {
             "selected_policy": "disagreement_triggered",
             "reason": "missing_overall_rows",
         }
-    accuracy_drop = float(always_row["accuracy_mean"]) - float(preferred_row["accuracy_mean"])
-    token_drop_ratio = 0.0
-    if float(always_row["total_tokens_mean"]):
-        token_drop_ratio = 1 - float(preferred_row["total_tokens_mean"]) / float(always_row["total_tokens_mean"])
-    if accuracy_drop <= 0.05 and token_drop_ratio >= 0.15:
-        selected = preferred_name
-        rule_passed = True
-    else:
+    always_accuracy = float(always_row["accuracy_mean"])
+    always_tokens = float(always_row["total_tokens_mean"] or 0.0)
+    candidate_names = [
+        "hybrid_trigger",
+        "disagreement_triggered",
+        "voc_trigger_v2",
+        "confidence_triggered",
+    ]
+    feasible_candidates: list[tuple[str, dict[str, Any], float, float]] = []
+    for candidate_name in candidate_names:
+        candidate_row = metric_lookup.get(("overall", candidate_name))
+        if candidate_row is None:
+            continue
+        accuracy_drop = always_accuracy - float(candidate_row["accuracy_mean"])
+        token_drop_ratio = (
+            1 - float(candidate_row["total_tokens_mean"]) / always_tokens
+            if always_tokens > 0.0
+            else 0.0
+        )
+        if accuracy_drop <= 0.05:
+            feasible_candidates.append((candidate_name, candidate_row, accuracy_drop, token_drop_ratio))
+
+    if not feasible_candidates:
         selected = "disagreement_triggered"
+        accuracy_drop = 0.0
+        token_drop_ratio = 0.0
         rule_passed = False
+    else:
+        selected, selected_row, accuracy_drop, token_drop_ratio = min(
+            feasible_candidates,
+            key=lambda item: (
+                -float(item[3]),
+                item[2],
+                float(item[1]["total_tokens_mean"]),
+                candidate_names.index(item[0]),
+            ),
+        )
+        rule_passed = token_drop_ratio >= 0.15
+        if not rule_passed:
+            selected = "disagreement_triggered"
     return {
         "selected_policy": selected,
         "accuracy_drop_vs_always": round(accuracy_drop, 6),

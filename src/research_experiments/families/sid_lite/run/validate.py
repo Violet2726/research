@@ -176,7 +176,7 @@ def _invalid_confidence_fail_open_check(prediction_rows: list[dict[str, Any]]) -
         row
         for row in prediction_rows
         if row.get("method_name") == "sid_lite"
-        and row.get("any_invalid_confidence")
+        and row.get("trigger_reason") == "invalid_confidence_fail_open"
         and row.get("early_exit")
     ]
     return {"passed": not violations, "violation_count": len(violations), "violations": _compact_rows(violations)}

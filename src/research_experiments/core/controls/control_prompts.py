@@ -79,10 +79,8 @@ def _system_prompt() -> str:
         "You are an expert reasoning assistant for controlled research experiments.",
         extra_rules=[
             "Follow the task instruction carefully.",
-            'Return exactly one JSON object with keys "final_answer" and "reasoning".',
-            "Put final_answer first so the answer appears before any longer reasoning.",
-            "Keep reasoning concise and under 40 tokens.",
-            "Always provide your best final_answer even when uncertain.",
+            "Return exactly one JSON object with keys reasoning and final_answer.",
+            "Keep reasoning concise and under 120 tokens.",
         ],
     )
 
@@ -103,6 +101,6 @@ def _user_prompt(sample: DatasetSample, method_family: str) -> str:
 
     user_prompt += (
         'Return exactly one JSON object like '
-        '{"final_answer":"answer","reasoning":"brief reasoning"}'
+        '{"reasoning":"brief reasoning","final_answer":"answer"}'
     )
     return user_prompt

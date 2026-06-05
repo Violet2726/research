@@ -6,6 +6,7 @@ import contextlib
 import os
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from threading import Lock
 from typing import Any
 
@@ -164,6 +165,8 @@ def execute_completion_request(
     try:
         if throttle_context is not None:
             reservation = throttle_context.__enter__()
+        request_started_at = datetime.now(UTC).isoformat()
+        estimated_request_tokens = estimate_request_tokens(payload)
         response = provider.chat_completion(payload)
         response_payload = {
             "http_status": response.http_status,
@@ -177,6 +180,8 @@ def execute_completion_request(
             "latency_ms": response.latency_ms,
             "provider_request_id": response.provider_request_id,
             "response_id": response.response_id,
+            "request_started_at": request_started_at,
+            "estimated_request_tokens": estimated_request_tokens,
             "request_error": None,
         }
         if throttle is not None and reservation is not None:
@@ -202,6 +207,8 @@ def execute_completion_request(
             "latency_ms": 0.0,
             "provider_request_id": provider_request_id,
             "response_id": None,
+            "request_started_at": request_started_at,
+            "estimated_request_tokens": estimated_request_tokens,
             "request_error": f"Provider returned HTTP {exc.response.status_code}: {response_text}",
         }
     except httpx.TransportError as exc:
@@ -220,6 +227,8 @@ def execute_completion_request(
             "latency_ms": 0.0,
             "provider_request_id": None,
             "response_id": None,
+            "request_started_at": request_started_at,
+            "estimated_request_tokens": estimated_request_tokens,
             "request_error": f"Provider connection error: {exc}",
         }
     except ProviderRequestError as exc:
@@ -237,6 +246,8 @@ def execute_completion_request(
             "latency_ms": 0.0,
             "provider_request_id": exc.provider_request_id,
             "response_id": None,
+            "request_started_at": request_started_at,
+            "estimated_request_tokens": estimated_request_tokens,
             "request_error": exc.message,
         }
     finally:

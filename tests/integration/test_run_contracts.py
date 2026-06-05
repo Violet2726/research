@@ -475,7 +475,8 @@ def test_sid_lite_validation_contract(tmp_path: Path) -> None:
                 "stage_a_trace_hash": "stage-a",
                 "early_exit": method in {"mv_3", "sid_lite"},
                 "communication_tokens_per_question": 0.0 if method in {"mv_3", "sid_lite"} else 1.0,
-                "any_invalid_confidence": False,
+                "any_invalid_confidence": method == "sid_lite",
+                "trigger_reason": "early_exit_by_partial_confidence_consensus" if method == "sid_lite" else "",
             }
             for method in ["mv_3", "always_full", "compression_only", "sid_lite"]
         ],

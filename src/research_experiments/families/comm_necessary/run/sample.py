@@ -11,7 +11,6 @@ import csv
 import json
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from functools import partial
 from hashlib import sha256
 from pathlib import Path
@@ -574,12 +573,6 @@ def _execute_turn(
     seed: int,
     extra_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    request_started_at = datetime.now(UTC).isoformat()
-
-    def _response_hook(payload: dict[str, Any], response_payload: dict[str, Any]) -> None:
-        response_payload["request_started_at"] = request_started_at
-        response_payload["estimated_request_tokens"] = estimate_request_tokens(payload)
-
     result = execute_cached_turn(
         backbone=backbone,
         provider=provider,
@@ -595,7 +588,6 @@ def _execute_turn(
             output_mode,
             provider_reasoning_text=provider_reasoning_text,
         ),
-        response_hook=_response_hook,
     )
 
     final_answer = str(result.validated_output.get("final_answer") or "")

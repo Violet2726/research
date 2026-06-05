@@ -167,28 +167,47 @@ def test_resume_faithful_matrix_continues_rerun_needed_and_pending_entries(
         "counts": {
             "completed": 0,
             "rerun-needed": 1,
-            "pending": 0,
-            "semantic_unique_targets": 1,
+            "pending": 1,
+            "semantic_unique_targets": 2,
         },
         "entries": [
             {
-                "family": "comm_necessary",
-                "config_path": "configs/families/comm_necessary/experiments/hotpotqa_split_context_communication_necessity.toml",
-                "experiment_name": "hotpotqa_split_context_communication_necessity",
+                "family": "selective_comm",
+                "config_path": "configs/families/selective_comm/experiments/trigger_early_exit_main.toml",
+                "experiment_name": "trigger_early_exit_main",
                 "description": "",
                 "phase_name": "count100",
-                "evaluation_track": "split_context",
+                "evaluation_track": "same_context",
                 "evidence_tier": "headline",
-                "primary_method_name": "full_packet_exchange",
-                "best_no_comm_candidates": ["split_no_comm_mv3"],
-                "full_comm_reference": None,
-                "full_context_reference": "full_context_single",
+                "primary_method_name": "hybrid_trigger",
+                "best_no_comm_candidates": ["mv_3"],
+                "full_comm_reference": "always_communicate",
+                "full_context_reference": None,
                 "status": "rerun-needed",
                 "excluded_reason": None,
                 "run_dir": None,
                 "validation_passed": None,
                 "review_passed": None,
                 "review_notes": "validation_not_passed",
+            },
+            {
+                "family": "selective_comm",
+                "config_path": "configs/families/selective_comm/experiments/voc_trigger_main.toml",
+                "experiment_name": "voc_trigger_main",
+                "description": "",
+                "phase_name": "count100",
+                "evaluation_track": "same_context",
+                "evidence_tier": "headline",
+                "primary_method_name": "voc_trigger_v2",
+                "best_no_comm_candidates": ["mv_3"],
+                "full_comm_reference": "always_communicate",
+                "full_context_reference": None,
+                "status": "pending",
+                "excluded_reason": None,
+                "run_dir": None,
+                "validation_passed": None,
+                "review_passed": None,
+                "review_notes": "",
             },
         ],
     }
@@ -240,6 +259,8 @@ def test_resume_faithful_matrix_continues_rerun_needed_and_pending_entries(
     assert landscape_calls
     resumed = json.loads(state_path.read_text(encoding="utf-8"))
     statuses = {item["experiment_name"]: item["status"] for item in resumed["semantic_entries"]}
-    assert statuses["hotpotqa_split_context_communication_necessity"] == "completed"
+    assert statuses["trigger_early_exit_main"] == "completed"
+    assert statuses["voc_trigger_main"] == "completed"
     entry_statuses = {item["experiment_name"]: item["status"] for item in resumed["entries"]}
-    assert entry_statuses["hotpotqa_split_context_communication_necessity"] == "completed"
+    assert entry_statuses["trigger_early_exit_main"] == "completed"
+    assert entry_statuses["voc_trigger_main"] == "completed"

@@ -323,16 +323,12 @@ def run_matrix(
 
     matrix = build_run_matrix(overrides, matrix_id=matrix_id)
     paths = _prepare_orchestrator_paths(state_root, overrides, matrix_id=matrix_id)
-    family_blocked: set[str] = set()
     _write_matrix_state(paths, matrix)
 
     entries_by_config = {entry.config_path: entry for entry in matrix.semantic_entries}
     for config_path in ordered_matrix_config_paths(matrix_id):
         entry = entries_by_config.get(config_path)
         if entry is None or entry.status != "pending":
-            continue
-        if entry.family in family_blocked:
-            entry.review_notes = "family_blocked_after_previous_failure"
             continue
 
         entry.status = "running"
@@ -346,12 +342,9 @@ def run_matrix(
             entry.review_passed = review.passed
             entry.review_notes = review.notes
             entry.status = "completed" if entry.validation_passed and entry.review_passed else "rerun-needed"
-            if entry.status != "completed":
-                family_blocked.add(entry.family)
         except Exception as exc:
             entry.status = "failed"
             entry.review_notes = f"runner_error:{exc}"
-            family_blocked.add(entry.family)
         _write_matrix_state(paths, matrix)
 
     _write_matrix_state(paths, matrix)
@@ -392,7 +385,6 @@ def resume_matrix(
             if not entry.review_notes:
                 entry.review_notes = "interrupted_previous_run"
 
-    family_blocked: set[str] = set()
     _write_matrix_state(paths, matrix)
 
     entries_by_config = {entry.config_path: entry for entry in matrix.semantic_entries}
@@ -400,9 +392,6 @@ def resume_matrix(
     for config_path in ordered_matrix_config_paths(matrix.matrix_id):
         entry = entries_by_config.get(config_path)
         if entry is None or entry.status not in resumable_statuses:
-            continue
-        if entry.family in family_blocked:
-            entry.review_notes = "family_blocked_after_previous_failure"
             continue
 
         entry.status = "running"
@@ -416,12 +405,9 @@ def resume_matrix(
             entry.review_passed = review.passed
             entry.review_notes = review.notes
             entry.status = "completed" if entry.validation_passed and entry.review_passed else "rerun-needed"
-            if entry.status != "completed":
-                family_blocked.add(entry.family)
         except Exception as exc:
             entry.status = "failed"
             entry.review_notes = f"runner_error:{exc}"
-            family_blocked.add(entry.family)
         _write_matrix_state(paths, matrix)
 
     _write_matrix_state(paths, matrix)

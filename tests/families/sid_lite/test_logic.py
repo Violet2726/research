@@ -16,11 +16,22 @@ def test_sid_lite_high_confidence_consensus_early_exits() -> None:
     assert decision.triggered is False
 
 
-def test_sid_lite_invalid_confidence_fails_open() -> None:
+def test_sid_lite_partial_invalid_confidence_can_still_early_exit() -> None:
     rows = [
         {"agent_id": 1, "normalized_answer": "yes", "confidence_valid": True, "confidence_value": 0.9},
         {"agent_id": 2, "normalized_answer": "yes", "confidence_valid": False, "confidence_value": None},
         {"agent_id": 3, "normalized_answer": "yes", "confidence_valid": True, "confidence_value": 0.91},
+    ]
+    decision = decide_early_exit(rows, mean_conf_threshold=0.75, conf_spread_threshold=0.2)
+    assert decision.early_exit is True
+    assert decision.reason == "early_exit_by_partial_confidence_consensus"
+
+
+def test_sid_lite_all_invalid_confidence_fails_open() -> None:
+    rows = [
+        {"agent_id": 1, "normalized_answer": "yes", "confidence_valid": False, "confidence_value": None},
+        {"agent_id": 2, "normalized_answer": "yes", "confidence_valid": False, "confidence_value": None},
+        {"agent_id": 3, "normalized_answer": "yes", "confidence_valid": False, "confidence_value": None},
     ]
     decision = decide_early_exit(rows, mean_conf_threshold=0.75, conf_spread_threshold=0.2)
     assert decision.early_exit is False

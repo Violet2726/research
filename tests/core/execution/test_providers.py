@@ -114,6 +114,8 @@ def test_execute_completion_request_reconciles_usage() -> None:
     response_payload = execute_completion_request(FakeProvider(), payload, throttle=throttle)
     assert response_payload["request_error"] is None
     assert response_payload["usage_reported"]["total_tokens"] == 20
+    assert response_payload["request_started_at"]
+    assert response_payload["estimated_request_tokens"] > 0
     assert sum(event.tokens for event in throttle.limiter.token_events) == 20
 
 

@@ -65,11 +65,16 @@ def decide_early_exit(
     mean_confidence = round(sum(valid_confidences) / len(valid_confidences), 6) if valid_confidences else None
     confidence_spread = round(max(valid_confidences) - min(valid_confidences), 6) if len(valid_confidences) >= 2 else (0.0 if valid_confidences else None)
 
+    valid_confidence_count = len(valid_confidences)
+
     if not initial_consensus:
         reason = "answer_disagreement_or_empty"
         early_exit = False
-    elif any_invalid_confidence:
-        # 置信度不可用时 fail-open 到通信，避免把解析失败误判为高置信。
+    elif valid_confidence_count == 0:
+        # 完全没有可用置信度时仍需 fail-open，避免把解析失败误判为高置信。
+        reason = "invalid_confidence_fail_open"
+        early_exit = False
+    elif any_invalid_confidence and valid_confidence_count < 2:
         reason = "invalid_confidence_fail_open"
         early_exit = False
     elif mean_confidence is None or mean_confidence < mean_conf_threshold:
@@ -79,7 +84,11 @@ def decide_early_exit(
         reason = "high_confidence_spread"
         early_exit = False
     else:
-        reason = "early_exit_by_high_confidence_consensus"
+        reason = (
+            "early_exit_by_partial_confidence_consensus"
+            if any_invalid_confidence
+            else "early_exit_by_high_confidence_consensus"
+        )
         early_exit = True
 
     return SidEarlyExitDecision(
