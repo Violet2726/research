@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+_NUMERIC_TOKEN_PATTERN = r"[-+]?(?:(?:\d{1,3}(?:,\d{3})+)|\d+)(?:\.\d+)?"
+
 
 def structured_output_candidates(
     *,
@@ -78,9 +80,9 @@ def recover_answer_from_reasoning_text(reasoning_text: str, dataset: str) -> dic
     final_answer = ""
     if dataset in {"gsm8k", "math500"}:
         if answer_phrase:
-            match = re.search(r"[-+]?\d[\d,]*(?:\.\d+)?", answer_phrase.replace(",", ""))
+            match = re.search(_NUMERIC_TOKEN_PATTERN, answer_phrase)
             if match:
-                final_answer = match.group(0).replace(",", "")
+                final_answer = _normalize_numeric_token(match.group(0))
         if not final_answer:
             raise ValueError("Could not recover numeric answer from reasoning text.")
     elif dataset == "strategyqa":
@@ -460,10 +462,10 @@ def _extract_selective_final_answer(text: str, dataset: str) -> str | None:
         if match:
             return match.group(1).strip()
         cutoff_text = re.split(r"(?i)\b(?:the output must have|return only the following|final_answer\s*:)\b", text, maxsplit=1)[0]
-        equals_matches = re.findall(r"=\s*([-+]?\d[\d,]*(?:\.\d+)?)", cutoff_text.replace(",", ""))
+        equals_matches = re.findall(rf"=\s*({_NUMERIC_TOKEN_PATTERN})", cutoff_text)
         if equals_matches:
-            return equals_matches[-1]
-        numeric_matches = re.findall(r"[-+]?\d[\d,]*(?:\.\d+)?", cutoff_text.replace(",", ""))
+            return _normalize_numeric_token(equals_matches[-1])
+        numeric_matches = _find_numeric_tokens(cutoff_text)
         if numeric_matches:
             return numeric_matches[-1]
         return None
@@ -663,7 +665,17 @@ def _extract_answer_guess_from_text(raw_text: str) -> str | None:
     yes_no = re.findall(r"\b(?:yes|no)\b", raw_text.lower())
     if yes_no:
         return yes_no[-1]
-    numbers = re.findall(r"[-+]?\d[\d,]*(?:\.\d+)?", raw_text.replace(",", ""))
+    numbers = _find_numeric_tokens(raw_text)
     if numbers:
-        return numbers[-1].replace(",", "")
+        return numbers[-1]
     return None
+
+
+def _find_numeric_tokens(text: str) -> list[str]:
+    import re
+
+    return [_normalize_numeric_token(match.group(0)) for match in re.finditer(_NUMERIC_TOKEN_PATTERN, text)]
+
+
+def _normalize_numeric_token(token: str) -> str:
+    return str(token or "").replace(",", "")

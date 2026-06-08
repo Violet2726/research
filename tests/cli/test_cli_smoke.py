@@ -46,7 +46,7 @@ def test_faithful_matrix_inspect_cli() -> None:
         ],
     )
     assert payload["overrides"]["phase_name"] == "count20"
-    assert payload["counts"]["semantic_unique_targets"] == 14
+    assert payload["counts"]["semantic_unique_targets"] == 15
 
 
 def test_reproduction_matrix_inspect_cli() -> None:
@@ -414,6 +414,166 @@ def test_comm_necessary_inspect_cli() -> None:
         "answer_only_exchange",
         "evidence_exchange",
         "full_packet_exchange",
+    ]
+
+
+def test_adaptive_sparse_mad_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "experiment",
+            "--family",
+            "adaptive_sparse_mad",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/adaptive_sparse_mad/experiments/same_context_main.toml",
+        ],
+    )
+    assert payload["name"] == "same_context_main"
+    assert payload["protocol"]["agent_count"] == 3
+    assert payload["methods"] == [
+        "cot_1",
+        "mv_3",
+        "sc_5",
+        "hetero_vote_3",
+    ]
+
+def test_adaptive_sparse_mad_hard_transfer_stage_a_v2_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "experiment",
+            "--family",
+            "adaptive_sparse_mad",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/adaptive_sparse_mad/experiments/same_context_hard_transfer_stage_a_v2.toml",
+        ],
+    )
+    assert payload["name"] == "same_context_hard_transfer_stage_a_v2"
+    assert payload["benchmarks"] == ["mmlu_pro", "gpqa_diamond", "math500"]
+    assert payload["prompt_version"] == "adaptive_sparse_mad_v2_task_schema"
+    assert payload["methods"] == [
+        "cot_1",
+        "mv_3",
+        "sc_5",
+        "hetero_vote_3",
+    ]
+
+
+def test_adaptive_sparse_mad_main_v4_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "experiment",
+            "--family",
+            "adaptive_sparse_mad",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/adaptive_sparse_mad/experiments/same_context_main_v4.toml",
+        ],
+    )
+    assert payload["name"] == "same_context_main_v4"
+    assert payload["prompt_version"] == "adaptive_sparse_mad_v4_evidence_gate"
+    assert payload["methods"] == [
+        "cot_1",
+        "mv_3",
+        "sc_5",
+        "hetero_vote_3",
+        "adaptive_gate_v4",
+    ]
+
+
+def test_adaptive_sparse_mad_hotpot_v4_ablate_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "experiment",
+            "--family",
+            "adaptive_sparse_mad",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/adaptive_sparse_mad/experiments/same_context_hotpot_stage_a_v4_ablate.toml",
+        ],
+    )
+    assert payload["name"] == "same_context_hotpot_stage_a_v4_ablate"
+    assert payload["methods"] == [
+        "cot_1",
+        "mv_3",
+        "sc_5",
+        "hetero_vote_3",
+        "ega_only_v4",
+        "adaptive_gate_v4",
+        "adaptive_dual_open_v5",
+    ]
+
+
+def test_adaptive_sparse_mad_hotpot_v5_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "experiment",
+            "--family",
+            "adaptive_sparse_mad",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/adaptive_sparse_mad/experiments/same_context_hotpot_stage_a_v5.toml",
+        ],
+    )
+    assert payload["name"] == "same_context_hotpot_stage_a_v5"
+    assert payload["methods"] == [
+        "cot_1",
+        "mv_3",
+        "sc_5",
+        "hetero_vote_3",
+        "adaptive_dual_open_v5",
+    ]
+
+
+def test_adaptive_sparse_mad_hotpot_stage_a_v2_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "experiment",
+            "--family",
+            "adaptive_sparse_mad",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/adaptive_sparse_mad/experiments/same_context_hotpot_stage_a_v2.toml",
+        ],
+    )
+    assert payload["name"] == "same_context_hotpot_stage_a_v2"
+    assert payload["benchmarks"] == ["hotpotqa"]
+    assert payload["prompt_version"] == "adaptive_sparse_mad_v2_task_schema"
+    assert payload["methods"] == [
+        "cot_1",
+        "mv_3",
+        "sc_5",
+        "hetero_vote_3",
+    ]
+
+
+def test_adaptive_sparse_mad_competition_math_stage_a_v2_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "experiment",
+            "--family",
+            "adaptive_sparse_mad",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/adaptive_sparse_mad/experiments/same_context_competition_math_stage_a_v2.toml",
+        ],
+    )
+    assert payload["name"] == "same_context_competition_math_stage_a_v2"
+    assert payload["benchmarks"] == ["competition_math"]
+    assert payload["prompt_version"] == "adaptive_sparse_mad_v2_task_schema"
+    assert payload["phases"]["count100"]["split_overrides"]["competition_math"] == "count100_total_seed0"
+    assert payload["methods"] == [
+        "cot_1",
+        "mv_3",
+        "sc_5",
+        "hetero_vote_3",
     ]
 
 

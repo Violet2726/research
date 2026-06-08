@@ -12,6 +12,7 @@
 - `sid_lite`：SID-lite 机制验证
 - `free_mad_lite`：Free-MAD-lite 机制验证
 - `comm_necessary`：HotpotQA split-context 通信必要性
+- `adaptive_sparse_mad`：异质求解 + 稀疏通信 + 轨迹裁决的新 same-context 框架
 
 ## 目录概览
 

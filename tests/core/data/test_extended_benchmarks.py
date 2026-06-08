@@ -127,6 +127,20 @@ def test_math_expression_normalization_handles_fraction_notation_and_unordered_s
     assert score_prediction("competition_math", predicted_with_comma, gold_integer) == 1.0
 
 
+def test_math_expression_normalization_handles_latex_trig_function_commands() -> None:
+    assert normalize_prediction("math500", r"\cotx") == normalize_prediction("math500", "cotx")
+    assert score_prediction("math500", "cotx", r"\cotx") == 1.0
+
+
+def test_math500_normalization_handles_textual_answers_interval_prefixes_and_dfrac() -> None:
+    assert score_prediction("math500", "[-2,7]", r"x \in [-2,7]") == 1.0
+    assert score_prediction("math500", "0.34", r"\dfrac{17}{50}") == 1.0
+    assert score_prediction("math500", "evelyn", r"\text{Evelyn}") == 1.0
+    assert score_prediction("math500", "ellipse", r"\text{ellipse}") == 1.0
+    assert score_prediction("math500", "c", r"\text{(C)}") == 1.0
+    assert score_prediction("math500", "11,111,111,100", r"11,\! 111,\! 111,\! 100") == 1.0
+
+
 def test_multiple_choice_scoring_accepts_letter_or_option_text() -> None:
     gold = "B|||polyA tail"
     assert score_prediction("gpqa_diamond", "B", gold) == 1.0

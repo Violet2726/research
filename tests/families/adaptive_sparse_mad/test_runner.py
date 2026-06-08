@@ -1,0 +1,1526 @@
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+
+from testsupport.filesystem import write_json, write_registered_family_manifest
+
+from research_experiments.core.controls.control_prompts import build_cot_messages
+from research_experiments.core.data.datasets import DatasetSample
+from research_experiments.families.adaptive_sparse_mad.config import AdaptiveSparseMadProtocolConfig
+from research_experiments.families.adaptive_sparse_mad.algorithms import (
+    aggregate_anchor_protected,
+    aggregate_constraint_aware_stage_a,
+    aggregate_evidence_grounded_stage_a,
+)
+from research_experiments.families.adaptive_sparse_mad.prompts import (
+    STAGE_A_V2_PROMPT_VERSION,
+    STAGE_A_V4_PROMPT_VERSION,
+    build_adaptive_addon_messages,
+    build_stage_a_messages,
+)
+from research_experiments.families.adaptive_sparse_mad.run.sample import (
+    _apply_stage_a_answer_slot_safeguard,
+    _apply_stage_a_consistency_safeguard,
+    _answers_share_family,
+    _build_adaptive_gate_decision,
+    _select_adaptive_addon_solver_sequence,
+    _should_safe_retry_stage_a_result,
+    _validate_control_output,
+    _validate_stage_a_output,
+    build_policy_diagnostics,
+    build_router_eval_payload,
+    build_stage_a_error_bucket_payload,
+    build_stage_a_resolver_breakdown_payload,
+    build_stage_a_solver_contribution_payload,
+    refresh_stage_a_prediction_rows,
+    summarize_run,
+)
+
+
+def test_stage_a_v2_direct_solver_reuses_unified_cot_prompt() -> None:
+    sample = DatasetSample(
+        dataset="mmlu_pro",
+        sample_id="demo",
+        question="Which option is best?",
+        reference_answer="A|||alpha",
+        prompt_context="A. alpha\nB. beta",
+        metadata={"options": ["alpha", "beta"]},
+    )
+
+    messages = build_stage_a_messages(
+        sample,
+        solver_mode="solver_cot",
+        agent_id=1,
+        prompt_version=STAGE_A_V2_PROMPT_VERSION,
+    )
+
+    assert messages == build_cot_messages(sample, 1, None)
+
+
+def test_stage_a_v2_structured_solver_returns_schema_prompt() -> None:
+    sample = DatasetSample(
+        dataset="mmlu_pro",
+        sample_id="demo",
+        question="Which option is best?",
+        reference_answer="A|||alpha",
+        prompt_context="A. alpha\nB. beta",
+        metadata={"options": ["alpha", "beta"]},
+    )
+
+    messages = build_stage_a_messages(
+        sample,
+        solver_mode="solver_skeptic",
+        agent_id=3,
+        prompt_version=STAGE_A_V2_PROMPT_VERSION,
+    )
+
+    assert messages[0]["role"] == "system"
+    assert "answer_type" in messages[0]["content"]
+    assert messages[1]["role"] == "user"
+    assert '"key_constraints":"short constraints"' in messages[1]["content"]
+
+
+def test_stage_a_v4_direct_solver_returns_evidence_schema_prompt() -> None:
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which language is spoken there?",
+        reference_answer="French",
+        prompt_context="The town is in Quebec, where French is spoken.",
+        metadata={},
+    )
+
+    messages = build_stage_a_messages(
+        sample,
+        solver_mode="solver_cot",
+        agent_id=1,
+        prompt_version=STAGE_A_V4_PROMPT_VERSION,
+    )
+
+    assert messages[0]["role"] == "system"
+    assert "claim_span" in messages[0]["content"]
+    assert '"confidence_raw":0.0' in messages[1]["content"]
+
+
+def test_build_adaptive_addon_messages_includes_stage_a_candidate_summary() -> None:
+    sample = DatasetSample(
+        dataset="mmlu_pro",
+        sample_id="demo",
+        question="Which option is best?",
+        reference_answer="A|||alpha",
+        prompt_context="A. alpha\nB. beta",
+        metadata={"options": ["alpha", "beta"]},
+    )
+    stage_a_rows = [
+        {
+            "solver_mode": "solver_cot",
+            "normalized_answer": "A",
+            "confidence_value": 0.5,
+            "claim_span": "A",
+            "key_evidence": "alpha matches the definition",
+            "answer_type": "option_letter",
+            "key_constraints": "single option letter",
+        },
+        {
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "B",
+            "confidence_value": 0.5,
+            "claim_span": "B",
+            "key_evidence": "beta has the required property",
+            "answer_type": "option_letter",
+            "key_constraints": "single option letter",
+        },
+    ]
+
+    messages = build_adaptive_addon_messages(
+        sample,
+        solver_mode="solver_option_elim",
+        agent_id=4,
+        stage_a_rows=stage_a_rows,
+    )
+
+    assert "Stage A candidate summary" in messages[1]["content"]
+    assert "solver_cot" in messages[1]["content"]
+    assert "selected_candidate" in messages[1]["content"]
+
+
+def test_should_safe_retry_stage_a_result_for_recovered_output() -> None:
+    result = SimpleNamespace(
+        output_status="ok",
+        response_payload={"assistant_text": '{"reasoning":"cut off"}'},
+        validated_output={
+            "final_answer": "42",
+            "stage_a_recovery_fallback": "answer_core_recovery_fallback",
+        },
+    )
+
+    assert _should_safe_retry_stage_a_result(result) is True
+
+
+def test_should_safe_retry_stage_a_result_allows_clean_output() -> None:
+    result = SimpleNamespace(
+        output_status="ok",
+        response_payload={"assistant_text": '{"final_answer":"42","reasoning":"done"}'},
+        validated_output={"final_answer": "42"},
+    )
+
+    assert _should_safe_retry_stage_a_result(result) is False
+
+
+def test_anchor_protected_aggregate_prefers_anchor_on_three_way_split() -> None:
+    rows = [
+        {"agent_id": 1, "solver_mode": "solver_cot", "normalized_answer": "A", "confidence_value": 0.5},
+        {"agent_id": 2, "solver_mode": "solver_l2m", "normalized_answer": "B", "confidence_value": 0.9},
+        {"agent_id": 3, "solver_mode": "solver_skeptic", "normalized_answer": "C", "confidence_value": 0.9},
+    ]
+
+    answer, support = aggregate_anchor_protected(rows)
+
+    assert answer == "A"
+    assert support == {"A": 0.5, "B": 0.9, "C": 0.9}
+
+
+def test_anchor_protected_aggregate_allows_two_to_one_override() -> None:
+    rows = [
+        {"agent_id": 1, "solver_mode": "solver_cot", "normalized_answer": "A", "confidence_value": 0.95},
+        {"agent_id": 2, "solver_mode": "solver_l2m", "normalized_answer": "B", "confidence_value": 0.5},
+        {"agent_id": 3, "solver_mode": "solver_skeptic", "normalized_answer": "B", "confidence_value": 0.5},
+    ]
+
+    answer, support = aggregate_anchor_protected(rows)
+
+    assert answer == "B"
+    assert support == {"A": 0.95, "B": 1.0}
+
+
+def test_anchor_protected_prefers_clean_anchor_over_degraded_non_anchor_majority() -> None:
+    rows = [
+        {"agent_id": 1, "solver_mode": "solver_cot", "normalized_answer": "A", "confidence_value": 0.5},
+        {"agent_id": 2, "solver_mode": "solver_l2m", "normalized_answer": "B", "confidence_value": 0.5, "stage_a_safe_retry_used": True},
+        {"agent_id": 3, "solver_mode": "solver_skeptic", "normalized_answer": "B", "confidence_value": 0.5},
+    ]
+
+    answer, support = aggregate_anchor_protected(rows)
+
+    assert answer == "A"
+    assert support == {"A": 0.5, "B": 1.0}
+
+
+def test_anchor_protected_keeps_non_anchor_majority_when_anchor_is_also_degraded() -> None:
+    rows = [
+        {"agent_id": 1, "solver_mode": "solver_cot", "normalized_answer": "A", "confidence_value": 0.5, "stage_a_safe_retry_used": True},
+        {"agent_id": 2, "solver_mode": "solver_l2m", "normalized_answer": "B", "confidence_value": 0.5, "stage_a_safe_retry_used": True},
+        {"agent_id": 3, "solver_mode": "solver_skeptic", "normalized_answer": "B", "confidence_value": 0.5},
+    ]
+
+    answer, _support = aggregate_anchor_protected(rows)
+
+    assert answer == "B"
+
+
+def test_anchor_protected_aggregate_ignores_unknown_majority() -> None:
+    rows = [
+        {"agent_id": 1, "solver_mode": "solver_cot", "normalized_answer": "A", "confidence_value": 0.5},
+        {"agent_id": 2, "solver_mode": "solver_l2m", "normalized_answer": "unknown", "confidence_value": 0.5},
+        {"agent_id": 3, "solver_mode": "solver_skeptic", "normalized_answer": "unknown", "confidence_value": 0.5},
+    ]
+
+    answer, support = aggregate_anchor_protected(rows)
+
+    assert answer == "A"
+    assert support == {"A": 0.5}
+
+
+def test_constraint_aware_stage_a_defaults_to_anchor_vote_for_clean_split() -> None:
+    rows = [
+        {"agent_id": 1, "solver_mode": "solver_cot", "normalized_answer": "A", "confidence_value": 0.5},
+        {"agent_id": 2, "solver_mode": "solver_l2m", "normalized_answer": "B", "confidence_value": 0.9},
+        {"agent_id": 3, "solver_mode": "solver_skeptic", "normalized_answer": "C", "confidence_value": 0.9},
+    ]
+
+    answer, support, resolver = aggregate_constraint_aware_stage_a(rows)
+
+    assert answer == "A"
+    assert support == {"A": 0.5, "B": 0.9, "C": 0.9}
+    assert resolver == "constraint_aware_anchor_vote"
+
+
+def test_constraint_aware_stage_a_prefers_clean_cot_minority_in_two_to_one_split() -> None:
+    rows = [
+        {"agent_id": 1, "solver_mode": "solver_cot", "normalized_answer": "A", "confidence_value": 0.5},
+        {"agent_id": 2, "solver_mode": "solver_l2m", "normalized_answer": "B", "confidence_value": 0.5},
+        {"agent_id": 3, "solver_mode": "solver_skeptic", "normalized_answer": "B", "confidence_value": 0.5},
+    ]
+
+    answer, support, resolver = aggregate_constraint_aware_stage_a(rows)
+
+    assert answer == "A"
+    assert support == {"A": 0.5, "B": 1.0}
+    assert resolver == "constraint_aware_clean_anchor_minority_override"
+
+
+def test_constraint_aware_stage_a_keeps_clean_expression_majority_over_cot_minority() -> None:
+    rows = [
+        {"agent_id": 1, "solver_mode": "solver_cot", "normalized_answer": "((1)/(sinxcosx))", "confidence_value": 0.5},
+        {
+            "agent_id": 2,
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "cot x",
+            "confidence_value": 0.5,
+            "validated_output": {
+                "answer_type": "expression",
+                "key_constraints": "simplify trigonometric expression, no explanation in final answer",
+            },
+        },
+        {
+            "agent_id": 3,
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "cot x",
+            "confidence_value": 0.5,
+            "validated_output": {
+                "answer_type": "mathematical expression",
+                "key_constraints": "simplify trigonometric expression, no extra terms, final answer as mathematical expression",
+            },
+        },
+    ]
+
+    answer, support, resolver = aggregate_constraint_aware_stage_a(rows)
+
+    assert answer == "cot x"
+    assert support == {"((1)/(sinxcosx))": 0.5, "cot x": 1.0}
+    assert resolver == "constraint_aware_clean_expression_majority_keep"
+
+
+def test_constraint_aware_stage_a_keeps_clean_slot_majority_over_cot_minority() -> None:
+    rows = [
+        {
+            "agent_id": 1,
+            "solver_mode": "solver_cot",
+            "normalized_answer": "q inspired by charles frasersmith",
+            "confidence_value": 0.5,
+        },
+        {
+            "agent_id": 2,
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "q",
+            "confidence_value": 0.5,
+            "validated_output": {
+                "answer_type": "named type (job title)",
+                "key_constraints": "short exact span from context; prefer shortest span",
+            },
+        },
+        {
+            "agent_id": 3,
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "q",
+            "confidence_value": 0.5,
+            "validated_output": {
+                "answer_type": "character",
+                "key_constraints": "fictional head of British Secret Service division",
+            },
+        },
+    ]
+
+    answer, support, resolver = aggregate_constraint_aware_stage_a(rows)
+
+    assert answer == "q"
+    assert support == {"q": 1.0, "q inspired by charles frasersmith": 0.5}
+    assert resolver == "constraint_aware_clean_slot_majority_keep"
+
+
+def test_constraint_aware_stage_a_prefers_typed_symmetry_minority() -> None:
+    rows = [
+        {
+            "agent_id": 1,
+            "solver_mode": "solver_cot",
+            "normalized_answer": "A",
+            "confidence_value": 0.5,
+            "reasoning": "IR 1750 cm-1 points to a cyclopentanone precursor.",
+        },
+        {
+            "agent_id": 2,
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "A",
+            "confidence_value": 0.5,
+            "reasoning": "Ring size stays 5 because the intermediate keeps the same carbon count.",
+            "validated_output": {
+                "answer_type": "symmetry group",
+                "key_constraints": "generic symmetry group label",
+            },
+        },
+        {
+            "agent_id": 3,
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "B",
+            "confidence_value": 0.5,
+            "validated_output": {
+                "answer_type": "molecular symmetry group",
+                "key_constraints": "molecular symmetry group must match final product",
+            },
+        },
+    ]
+
+    answer, support, resolver = aggregate_constraint_aware_stage_a(rows)
+
+    assert answer == "B"
+    assert support == {"A": 1.0, "B": 0.5}
+    assert resolver == "constraint_aware_typed_minority_override"
+
+
+def test_constraint_aware_stage_a_prefers_option_minority_over_integer_majority() -> None:
+    rows = [
+        {"agent_id": 1, "solver_mode": "solver_cot", "normalized_answer": "B", "confidence_value": 0.5},
+        {
+            "agent_id": 2,
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "B",
+            "confidence_value": 0.5,
+            "validated_output": {
+                "answer_type": "integer",
+                "key_constraints": "count distinct items",
+            },
+        },
+        {
+            "agent_id": 3,
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "A",
+            "confidence_value": 0.5,
+            "validated_output": {
+                "answer_type": "multiple_choice",
+                "key_constraints": "final answer must be a visible option letter",
+            },
+        },
+    ]
+
+    answer, support, resolver = aggregate_constraint_aware_stage_a(rows)
+
+    assert answer == "A"
+    assert support == {"A": 0.5, "B": 1.0}
+    assert resolver == "constraint_aware_typed_minority_override"
+
+
+def test_constraint_aware_stage_a_prefers_numeric_minority_over_expression_majority() -> None:
+    rows = [
+        {"agent_id": 1, "solver_mode": "solver_cot", "normalized_answer": "42105", "confidence_value": 0.5},
+        {
+            "agent_id": 2,
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "42105",
+            "confidence_value": 0.5,
+            "validated_output": {
+                "answer_type": "expression",
+                "key_constraints": "free-form expression",
+            },
+        },
+        {
+            "agent_id": 3,
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "4210_(5)",
+            "confidence_value": 0.5,
+            "validated_output": {
+                "answer_type": "number",
+                "key_constraints": "canonical base-5 numeral",
+            },
+        },
+    ]
+
+    answer, support, resolver = aggregate_constraint_aware_stage_a(rows)
+
+    assert answer == "4210_(5)"
+    assert support == {"42105": 1.0, "4210_(5)": 0.5}
+    assert resolver == "constraint_aware_typed_minority_override"
+
+
+def test_constraint_aware_stage_a_prefers_clean_skeptic_minority_for_conceptual_two_to_one_split() -> None:
+    rows = [
+        {"agent_id": 1, "solver_mode": "solver_cot", "normalized_answer": "E", "confidence_value": 0.5, "reasoning": "A trade surplus occurs when exports exceed imports.", "validated_output": {}},
+        {"agent_id": 2, "solver_mode": "solver_l2m", "normalized_answer": "E", "confidence_value": 0.5, "reasoning": "A trade surplus means exports exceed imports.", "validated_output": {}},
+        {
+            "agent_id": 3,
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "A",
+            "confidence_value": 0.5,
+            "reasoning": "Low domestic income reduces import demand, increasing surplus.",
+            "validated_output": {
+                "answer_type": "multiple-choice",
+                "key_constraints": "option letter only, legal answer type is multiple-choice",
+            },
+        },
+    ]
+
+    answer, support, resolver = aggregate_constraint_aware_stage_a(rows)
+
+    assert answer == "A"
+    assert support == {"A": 0.5, "E": 1.0}
+    assert resolver == "constraint_aware_clean_skeptic_minority_override"
+
+
+def test_evidence_grounded_stage_a_prefers_evidenced_minority_over_degraded_majority() -> None:
+    rows = [
+        {
+            "agent_id": 1,
+            "solver_mode": "solver_cot",
+            "normalized_answer": "A",
+            "confidence_value": 0.5,
+            "claim_span": "A",
+            "key_evidence": "",
+            "stage_a_safe_retry_used": True,
+            "validated_output": {},
+        },
+        {
+            "agent_id": 2,
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "A",
+            "confidence_value": 0.5,
+            "claim_span": "A",
+            "key_evidence": "",
+            "validated_output": {},
+        },
+        {
+            "agent_id": 4,
+            "solver_mode": "solver_option_elim",
+            "normalized_answer": "B",
+            "confidence_value": 0.5,
+            "claim_span": "B",
+            "key_evidence": "Option B is the only choice consistent with the constraint.",
+            "validated_output": {
+                "answer_type": "multiple_choice",
+                "key_constraints": "single option letter",
+            },
+        },
+    ]
+
+    answer, support, resolver = aggregate_evidence_grounded_stage_a(rows, anchor_answer="A")
+
+    assert answer == "B"
+    assert support["B"] > support["A"]
+    assert resolver == "evidence_grounded_score_vote"
+
+
+def test_evidence_grounded_stage_a_prefers_slot_complete_longer_answer() -> None:
+    rows = [
+        {
+            "agent_id": 1,
+            "solver_mode": "solver_cot",
+            "normalized_answer": "1840 students",
+            "confidence_value": 0.5,
+            "claim_span": "1,840 students",
+            "key_evidence": "there were 1,840 students enrolled",
+            "validated_output": {},
+        },
+        {
+            "agent_id": 2,
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "1840",
+            "confidence_value": 0.5,
+            "claim_span": "1,840",
+            "key_evidence": "there were 1,840 students enrolled",
+            "validated_output": {
+                "answer_type": "number",
+                "key_constraints": "exact enrollment count",
+            },
+        },
+        {
+            "agent_id": 3,
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "1840",
+            "confidence_value": 0.5,
+            "claim_span": "1,840",
+            "key_evidence": "there were 1,840 students enrolled",
+            "validated_output": {
+                "answer_type": "number",
+                "key_constraints": "exact enrollment count",
+            },
+        },
+    ]
+
+    answer, _support, resolver = aggregate_evidence_grounded_stage_a(
+        rows,
+        question="How many students were enrolled in the school?",
+    )
+
+    assert answer == "1840 students"
+    assert resolver == "evidence_grounded_score_vote"
+
+
+def test_evidence_grounded_stage_a_prefers_year_prefixed_named_event() -> None:
+    rows = [
+        {
+            "agent_id": 1,
+            "solver_mode": "solver_cot",
+            "normalized_answer": "1991 perfect storm",
+            "confidence_value": 0.5,
+            "claim_span": "the 1991 Perfect Storm",
+            "key_evidence": "the 1991 Perfect Storm developed off Atlantic Canada on October 29",
+            "validated_output": {},
+        },
+        {
+            "agent_id": 2,
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "perfect storm",
+            "confidence_value": 0.5,
+            "claim_span": "the Perfect Storm",
+            "key_evidence": "the Perfect Storm developed off Atlantic Canada on October 29",
+            "validated_output": {
+                "answer_type": "named storm",
+                "key_constraints": "exact type words included",
+            },
+        },
+        {
+            "agent_id": 3,
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "perfect storm",
+            "confidence_value": 0.5,
+            "claim_span": "The Perfect Storm",
+            "key_evidence": "Robert Case inspired the naming of the Perfect Storm",
+            "validated_output": {
+                "answer_type": "named storm",
+                "key_constraints": "exact type words included",
+            },
+        },
+    ]
+
+    answer, _support, resolver = aggregate_evidence_grounded_stage_a(
+        rows,
+        question="Which initial area of low pressure developed off Atlantic Canada on October 29 was inspired by Robert Case?",
+    )
+
+    assert answer == "1991 perfect storm"
+    assert resolver == "evidence_grounded_score_vote"
+
+
+def test_evidence_grounded_stage_a_prefers_short_boolean_over_explanatory_boolean() -> None:
+    rows = [
+        {
+            "agent_id": 1,
+            "solver_mode": "solver_cot",
+            "normalized_answer": "no only vladimir danilevich is from russia",
+            "confidence_value": 0.5,
+            "claim_span": "No, only Vladimir Danilevich is from Russia.",
+            "key_evidence": "Smith is American while Danilevich is Russian.",
+            "validated_output": {},
+        },
+        {
+            "agent_id": 2,
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "no",
+            "confidence_value": 0.5,
+            "claim_span": "no",
+            "key_evidence": "not both are from Russia",
+            "validated_output": {
+                "answer_type": "boolean",
+                "key_constraints": "short yes/no answer",
+            },
+        },
+        {
+            "agent_id": 3,
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "no",
+            "confidence_value": 0.5,
+            "claim_span": "No",
+            "key_evidence": "Smith is from Oregon, so not both are Russian",
+            "validated_output": {
+                "answer_type": "yes/no judgment",
+                "key_constraints": "short yes/no answer",
+            },
+        },
+    ]
+
+    answer, _support, resolver = aggregate_evidence_grounded_stage_a(
+        rows,
+        question="Are both Harry Everett Smith and Vladimir Danilevich from Russia?",
+    )
+
+    assert answer == "no"
+    assert resolver == "evidence_grounded_score_vote"
+
+
+def test_stage_a_consistency_safeguard_recovers_numeric_answer_from_reasoning() -> None:
+    payload = {
+        "final_answer": "14",
+        "reasoning": "Total is 60, discount is 18, final price is 42, so 50 minus 42 leaves 8.",
+        "confidence_raw": 0.95,
+        "claim_span": "14",
+        "key_evidence": "50 minus 42 leaves 8.",
+        "uncertain_point": None,
+    }
+
+    repaired = _apply_stage_a_consistency_safeguard(payload, dataset="gsm8k")
+
+    assert repaired["final_answer"] == "8"
+    assert repaired["consistency_fallback"] == "recovered_answer_from_reasoning"
+
+
+def test_validate_stage_a_output_uses_raw_text_tail_for_truncated_numeric_reasoning() -> None:
+    raw_text = (
+        '{\n  "final_answer": "17.50",\n'
+        '  "reasoning": "Total original price is 60. Discounted price is 42. '
+        'Joe has 50 so he has 8 left.'
+    )
+
+    repaired = _validate_stage_a_output(raw_text, dataset="gsm8k")
+
+    assert repaired["final_answer"] == "8"
+
+
+def test_validate_stage_a_output_marks_unrecoverable_truncation_unknown() -> None:
+    raw_text = '{"reasoning":"The model starts a long explanation but never returns a final answer before truncation.'
+
+    repaired = _validate_stage_a_output(raw_text, dataset="hotpotqa")
+
+    assert repaired["final_answer"] == "unknown"
+    assert repaired["confidence_raw"] == 0.0
+    assert repaired["stage_a_recovery_fallback"] == "unknown_after_unrecoverable_stage_a_output"
+
+
+def test_validate_stage_a_output_trusts_valid_json_final_answer() -> None:
+    raw_text = (
+        '{"final_answer":"83","reasoning":"Capacity is 5000 - 3755 = 1245. '
+        'Boxes = 1245 / 15 = 83. Check total weight is 5000.","confidence_raw":1.0}'
+    )
+
+    repaired = _validate_stage_a_output(raw_text, dataset="gsm8k")
+
+    assert repaired["final_answer"] == "83"
+
+
+def test_validate_stage_a_output_keeps_uncertainty_type_when_present() -> None:
+    raw_text = (
+        '{"final_answer":"B","reasoning":"Option B matches the definition.","confidence_raw":72,'
+        '"uncertainty_type":"evidence_selection","answer_type":"option_letter",'
+        '"key_constraints":"single option letter","failure_risk":"confusing nearby option text"}'
+    )
+
+    repaired = _validate_stage_a_output(raw_text, dataset="gpqa_diamond")
+
+    assert repaired["final_answer"] == "B"
+    assert repaired["confidence_raw"] == 72
+    assert repaired["uncertainty_type"] == "evidence_selection"
+    assert repaired["answer_type"] == "option_letter"
+
+
+def test_validate_control_output_marks_unrecoverable_truncation_unknown() -> None:
+    raw_text = (
+        '{\n  "reasoning": "The question asks for an entity, but the response is truncated before '
+        "it emits a final_answer field."
+    )
+
+    repaired = _validate_control_output(raw_text, dataset="hotpotqa")
+
+    assert repaired["final_answer"] == "unknown"
+    assert repaired["control_recovery_fallback"] == "unknown_after_unrecoverable_control_output"
+
+
+def test_stage_a_answer_slot_safeguard_appends_language_for_hotpot_language_questions() -> None:
+    repaired = _apply_stage_a_answer_slot_safeguard(
+        "Tugurt",
+        reasoning="The Tugurt language is closely related to Tumzabt and Teggargrent.",
+        question="What language is traditionally written with the ancient Libyco-Berber script and closely related to Tumzabt and Teggargrent?",
+        dataset="hotpotqa",
+    )
+
+    assert repaired == "Tugurt language"
+
+
+def test_stage_a_answer_slot_safeguard_expands_hotpot_city_with_state() -> None:
+    repaired = _apply_stage_a_answer_slot_safeguard(
+        "Hollywood",
+        reasoning="The Primetime Race Group is from Hollywood, Florida.",
+        question="Which City in the Miami metropolitan area is home to the Primetime Race Group?",
+        dataset="hotpotqa",
+    )
+
+    assert repaired == "Hollywood Florida"
+
+
+def test_stage_a_answer_slot_safeguard_appends_students_for_count_question() -> None:
+    repaired = _apply_stage_a_answer_slot_safeguard(
+        "1840",
+        reasoning="In the 2010-2011 school year, there were 1,840 students enrolled.",
+        question="How many students were enrolled in American professional bowler Chris Barnes' high school in the 2010-2011 school year?",
+        dataset="hotpotqa",
+    )
+
+    assert repaired == "1840 students"
+
+
+def test_stage_a_answer_slot_safeguard_merges_england_location_parts() -> None:
+    repaired = _apply_stage_a_answer_slot_safeguard(
+        "South West England",
+        reasoning="Belmont is near Lyme Regis in West Dorset, South West England.",
+        question="John Fowles' country house was near Lyme Regis in what part of England?",
+        dataset="hotpotqa",
+    )
+
+    assert repaired == "West Dorset South West England"
+
+
+def test_stage_a_answer_slot_safeguard_strips_wbc_title_wrapper() -> None:
+    repaired = _apply_stage_a_answer_slot_safeguard(
+        "WBC cruiserweight title",
+        reasoning="Tony Bellew held the WBC cruiserweight title from 2016 to 2017.",
+        question="Creed features the boxer who held what WBC title from 2016 to 2017?",
+        dataset="hotpotqa",
+    )
+
+    assert repaired == "cruiserweight"
+
+
+def test_stage_a_answer_slot_safeguard_maps_multiple_choice_option_text() -> None:
+    sample = DatasetSample(
+        dataset="gpqa_diamond",
+        sample_id="demo",
+        question="Which option is correct?",
+        reference_answer="B|||polyA tail",
+        prompt_context="A. cap\nB. polyA tail\nC. spliceosome\nD. ribosome",
+        metadata={"options": ["cap", "polyA tail", "spliceosome", "ribosome"]},
+    )
+
+    repaired = _apply_stage_a_answer_slot_safeguard(
+        "polyA tail",
+        reasoning="The best answer is the polyA tail.",
+        question=sample.question,
+        dataset="gpqa_diamond",
+        sample=sample,
+    )
+
+    assert repaired == "B"
+
+
+def test_stage_a_answer_slot_safeguard_marks_invalid_multiple_choice_answer_unknown() -> None:
+    sample = DatasetSample(
+        dataset="gpqa_diamond",
+        sample_id="demo",
+        question="Which option is correct?",
+        reference_answer="B|||polyA tail",
+        prompt_context="A. cap\nB. polyA tail\nC. spliceosome\nD. ribosome",
+        metadata={"options": ["cap", "polyA tail", "spliceosome", "ribosome"]},
+    )
+
+    repaired = _apply_stage_a_answer_slot_safeguard(
+        "no",
+        reasoning="The answer is no.",
+        question=sample.question,
+        dataset="gpqa_diamond",
+        sample=sample,
+    )
+
+    assert repaired == "unknown"
+
+
+def test_build_policy_diagnostics_reports_stage_a_only_default() -> None:
+    payload = build_policy_diagnostics(
+        prediction_rows=[
+            {
+                "dataset": "overall",
+                "method_name": "hetero_vote_3",
+                "score": 1.0,
+                "method_kind": "aggregate",
+            }
+        ],
+        router_eval_payload={"summary_rows": []},
+    )
+
+    assert payload["policy_rows"] == []
+    assert payload["recommended_next_default_policy"] == {
+        "selected_policy": "hetero_vote_3",
+        "reason": "stage_a_only_current_default",
+    }
+
+
+def test_build_policy_diagnostics_selects_adaptive_gate_when_it_wins() -> None:
+    payload = build_policy_diagnostics(
+        prediction_rows=[
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "s1",
+                "method_name": "hetero_vote_3",
+                "method_kind": "aggregate",
+                "score": 0.0,
+                "prompt_tokens_per_question": 100.0,
+                "completion_tokens_per_question": 50.0,
+                "total_tokens_per_question": 150.0,
+                "communication_tokens_per_question": 0.0,
+                "latency_ms_per_question": 10.0,
+                "calls_per_question": 3,
+                "triggered": False,
+                "early_exit": True,
+                "changed_answer": False,
+                "corrected_by_method": False,
+                "harmed_by_method": False,
+                "judge_fallback_used": False,
+                "model_name": "demo",
+            },
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "s1",
+                "method_name": "adaptive_gate_v4",
+                "method_kind": "aggregate",
+                "score": 1.0,
+                "prompt_tokens_per_question": 120.0,
+                "completion_tokens_per_question": 60.0,
+                "total_tokens_per_question": 180.0,
+                "communication_tokens_per_question": 0.0,
+                "latency_ms_per_question": 12.0,
+                "calls_per_question": 4,
+                "triggered": True,
+                "early_exit": False,
+                "changed_answer": True,
+                "corrected_by_method": True,
+                "harmed_by_method": False,
+                "judge_fallback_used": False,
+                "model_name": "demo",
+            },
+        ],
+        router_eval_payload={"summary_rows": []},
+    )
+
+    assert payload["recommended_next_default_policy"]["selected_policy"] == "adaptive_gate_v4"
+    assert payload["policy_rows"]
+    pairwise_row = next(row for row in payload["pairwise_rows"] if row["method_name"] == "adaptive_gate_v4")
+    assert "bootstrap_ci_low" in pairwise_row
+    assert "bootstrap_ci_high" in pairwise_row
+    assert "holm_adjusted_p" in pairwise_row
+
+
+def test_build_router_eval_payload_summarizes_adaptive_router_rows() -> None:
+    payload = build_router_eval_payload(
+        [
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "s1",
+                "policy_name": "adaptive_gate_v4",
+                "triggered": True,
+                "selected_addon_solver": "solver_evidence",
+                "changed_answer": True,
+                "corrected_by_method": True,
+                "harmed_by_method": False,
+                "support_gap": 0.2,
+                "avg_confidence": 0.4,
+            },
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "s2",
+                "policy_name": "adaptive_gate_v4",
+                "triggered": False,
+                "selected_addon_solver": "",
+                "changed_answer": False,
+                "corrected_by_method": False,
+                "harmed_by_method": False,
+                "support_gap": 0.6,
+                "avg_confidence": 0.8,
+            },
+        ]
+    )
+
+    overall = next(row for row in payload["summary_rows"] if row["dataset"] == "overall")
+    assert overall["trigger_rate"] == 0.5
+    assert overall["corrected_count"] == 1
+
+
+def test_build_router_eval_payload_separates_policy_variants() -> None:
+    payload = build_router_eval_payload(
+        [
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "s1",
+                "policy_name": "adaptive_gate_v4",
+                "triggered": True,
+                "selected_addon_solver": "solver_evidence",
+                "changed_answer": True,
+                "corrected_by_method": True,
+                "harmed_by_method": False,
+                "support_gap": 0.2,
+                "avg_confidence": 0.4,
+            },
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "s1",
+                "policy_name": "adaptive_dual_open_v5",
+                "triggered": True,
+                "selected_addon_solver": "solver_evidence",
+                "changed_answer": False,
+                "corrected_by_method": False,
+                "harmed_by_method": False,
+                "support_gap": 0.2,
+                "avg_confidence": 0.4,
+            },
+        ]
+    )
+
+    adaptive_row = next(
+        row
+        for row in payload["summary_rows"]
+        if row["dataset"] == "overall" and row["policy_name"] == "adaptive_gate_v4"
+    )
+    dual_open_row = next(
+        row
+        for row in payload["summary_rows"]
+        if row["dataset"] == "overall" and row["policy_name"] == "adaptive_dual_open_v5"
+    )
+    assert adaptive_row["corrected_count"] == 1
+    assert dual_open_row["corrected_count"] == 0
+
+
+def test_build_policy_diagnostics_handles_dual_open_variant() -> None:
+    payload = build_policy_diagnostics(
+        prediction_rows=[
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "s1",
+                "method_name": "hetero_vote_3",
+                "method_kind": "aggregate",
+                "score": 0.0,
+                "prompt_tokens_per_question": 100.0,
+                "completion_tokens_per_question": 50.0,
+                "total_tokens_per_question": 150.0,
+                "communication_tokens_per_question": 0.0,
+                "latency_ms_per_question": 10.0,
+                "calls_per_question": 3.0,
+                "triggered": False,
+                "early_exit": True,
+                "changed_answer": False,
+                "corrected_by_method": False,
+                "harmed_by_method": False,
+                "judge_fallback_used": False,
+                "model_name": "demo",
+            },
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "s1",
+                "method_name": "adaptive_dual_open_v5",
+                "method_kind": "aggregate",
+                "score": 1.0,
+                "prompt_tokens_per_question": 120.0,
+                "completion_tokens_per_question": 60.0,
+                "total_tokens_per_question": 180.0,
+                "communication_tokens_per_question": 0.0,
+                "latency_ms_per_question": 12.0,
+                "calls_per_question": 3.0,
+                "triggered": True,
+                "early_exit": False,
+                "changed_answer": True,
+                "corrected_by_method": True,
+                "harmed_by_method": False,
+                "judge_fallback_used": False,
+                "model_name": "demo",
+            },
+        ],
+        router_eval_payload={"summary_rows": []},
+    )
+
+    assert any(row["method_name"] == "adaptive_dual_open_v5" for row in payload["policy_rows"])
+    assert any(row["method_name"] == "adaptive_dual_open_v5" for row in payload["pairwise_rows"])
+
+
+def test_adaptive_gate_decision_skips_strong_clean_consensus() -> None:
+    protocol = AdaptiveSparseMadProtocolConfig(
+        agent_count=3,
+        top_p=1.0,
+        stage_a_temperature=0.7,
+        stage_a_max_output_tokens=256,
+        consensus_confidence_threshold=0.65,
+        majority_confidence_threshold=0.6,
+        majority_margin_threshold=0.25,
+    )
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which language is used there?",
+        reference_answer="French",
+        prompt_context="The town is in Quebec, where French is spoken.",
+        metadata={},
+    )
+    stage_a_rows = [
+        {
+            "solver_mode": "solver_cot",
+            "normalized_answer": "french",
+            "confidence_value": 0.98,
+            "claim_span": "French",
+            "key_evidence": "French is spoken",
+            "answer_type": "language",
+            "key_constraints": "short exact span",
+        },
+        {
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "french",
+            "confidence_value": 0.97,
+            "claim_span": "French",
+            "key_evidence": "French is spoken",
+            "answer_type": "language",
+            "key_constraints": "short exact span",
+        },
+        {
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "french",
+            "confidence_value": 0.96,
+            "claim_span": "French",
+            "key_evidence": "French is spoken",
+            "answer_type": "language",
+            "key_constraints": "short exact span",
+        },
+    ]
+
+    decision = _build_adaptive_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=stage_a_rows,
+        support={"french": 2.91},
+    )
+
+    assert decision["triggered"] is False
+    assert decision["trigger_reasons"] == []
+
+
+def test_adaptive_gate_decision_triggers_on_disagreement_with_structural_issue() -> None:
+    protocol = AdaptiveSparseMadProtocolConfig(
+        agent_count=3,
+        top_p=1.0,
+        stage_a_temperature=0.7,
+        stage_a_max_output_tokens=256,
+        consensus_confidence_threshold=0.65,
+        majority_confidence_threshold=0.6,
+        majority_margin_threshold=0.25,
+    )
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which person led the force?",
+        reference_answer="Captain John Underhill",
+        prompt_context="Captain John Underhill led the force.",
+        metadata={},
+    )
+    stage_a_rows = [
+        {
+            "solver_mode": "solver_cot",
+            "normalized_answer": "john underhill",
+            "confidence_value": 0.98,
+            "claim_span": "John Underhill",
+            "key_evidence": "John Underhill led the force",
+            "answer_type": "person",
+            "key_constraints": "exact person name",
+        },
+        {
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "john underhill",
+            "confidence_value": 0.97,
+            "claim_span": "John Underhill",
+            "key_evidence": "John Underhill led the force",
+            "answer_type": "person",
+            "key_constraints": "exact person name",
+        },
+        {
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "captain john underhill",
+            "confidence_value": 0.95,
+            "claim_span": "Captain John Underhill",
+            "key_evidence": "Captain John Underhill led the force",
+            "answer_type": "named person with title",
+            "key_constraints": "include the title when it is part of the exact answer span",
+        },
+    ]
+
+    decision = _build_adaptive_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=stage_a_rows,
+        support={"john underhill": 1.95, "captain john underhill": 0.95},
+    )
+
+    assert decision["triggered"] is True
+    assert "answer_disagreement" in decision["trigger_reasons"]
+    assert "answer_type_conflict" in decision["trigger_reasons"]
+
+
+def test_adaptive_gate_decision_does_not_treat_missing_confidence_as_low_confidence() -> None:
+    protocol = AdaptiveSparseMadProtocolConfig(
+        agent_count=3,
+        top_p=1.0,
+        stage_a_temperature=0.7,
+        stage_a_max_output_tokens=256,
+        consensus_confidence_threshold=0.65,
+        majority_confidence_threshold=0.6,
+        majority_margin_threshold=0.25,
+    )
+    sample = DatasetSample(
+        dataset="competition_math",
+        sample_id="demo",
+        question="Find the value of x.",
+        reference_answer="3",
+        prompt_context=None,
+        metadata={},
+    )
+    stage_a_rows = [
+        {
+            "solver_mode": "solver_cot",
+            "normalized_answer": "3",
+            "confidence_value": 0.5,
+            "confidence_valid": False,
+        },
+        {
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "3",
+            "confidence_value": 0.5,
+            "confidence_valid": False,
+        },
+        {
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "3",
+            "confidence_value": 0.5,
+            "confidence_valid": False,
+        },
+    ]
+
+    decision = _build_adaptive_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=stage_a_rows,
+        support={"3": 1.5},
+    )
+
+    assert decision["triggered"] is False
+    assert "low_confidence_consensus" not in decision["trigger_reasons"]
+
+
+def test_adaptive_dual_open_v5_uses_slot_contrast_on_severe_open_qa_uncertainty() -> None:
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which gaming console were both games released on?",
+        reference_answer="PlayStation 4",
+        prompt_context="Both games were released for PlayStation 3 and PlayStation 4.",
+        metadata={},
+    )
+    gate_decision = {
+        "triggered": True,
+        "selected_addon_solver": "solver_evidence",
+        "trigger_reasons": ["answer_disagreement", "narrow_support_gap"],
+    }
+
+    sequence = _select_adaptive_addon_solver_sequence(
+        method_name="adaptive_dual_open_v5",
+        sample=sample,
+        gate_decision=gate_decision,
+    )
+
+    assert sequence == ["solver_evidence", "solver_slot_contrast"]
+
+
+def test_answers_share_family_distinguishes_family_expansion_from_real_contrast() -> None:
+    assert _answers_share_family("1840 students", "1840 students enrolled") is True
+    assert _answers_share_family("1991 perfect storm", "perfect storm") is True
+    assert _answers_share_family("playstation 3", "playstation 4") is False
+
+
+def test_build_stage_a_resolver_breakdown_payload_counts_resolver_hits() -> None:
+    stage_a_rows = [
+        {"dataset": "gsm8k", "sample_id": "s1", "solver_mode": "solver_cot", "normalized_answer": "A", "score": 1.0},
+        {"dataset": "gsm8k", "sample_id": "s1", "solver_mode": "solver_l2m", "normalized_answer": "B", "score": 0.0},
+        {"dataset": "gsm8k", "sample_id": "s1", "solver_mode": "solver_skeptic", "normalized_answer": "B", "score": 0.0},
+        {"dataset": "gsm8k", "sample_id": "s2", "solver_mode": "solver_cot", "normalized_answer": "A", "score": 0.0},
+        {"dataset": "gsm8k", "sample_id": "s2", "solver_mode": "solver_l2m", "normalized_answer": "B", "score": 1.0},
+        {"dataset": "gsm8k", "sample_id": "s2", "solver_mode": "solver_skeptic", "normalized_answer": "B", "score": 1.0},
+    ]
+    prediction_rows = [
+        {
+            "dataset": "gsm8k",
+            "sample_id": "s1",
+            "method_name": "hetero_vote_3",
+            "stage_a_resolver": "constraint_aware_clean_anchor_minority_override",
+            "prediction": "A",
+            "score": 1.0,
+            "stage_a_weighted_support": {"A": 0.5, "B": 1.0},
+        },
+        {
+            "dataset": "gsm8k",
+            "sample_id": "s2",
+            "method_name": "hetero_vote_3",
+            "stage_a_resolver": "constraint_aware_anchor_vote",
+            "prediction": "A",
+            "score": 0.0,
+            "stage_a_weighted_support": {"A": 0.5, "B": 1.0},
+        },
+    ]
+
+    payload = build_stage_a_resolver_breakdown_payload(stage_a_rows, prediction_rows)
+    summary_lookup = {
+        (row["dataset"], row["resolver"]): row
+        for row in payload["summary_rows"]
+    }
+
+    assert summary_lookup[("gsm8k", "constraint_aware_clean_anchor_minority_override")] == {
+        "dataset": "gsm8k",
+        "resolver": "constraint_aware_clean_anchor_minority_override",
+        "total": 1,
+        "correct": 1,
+        "wrong": 0,
+        "accuracy_mean": 1.0,
+    }
+    assert summary_lookup[("gsm8k", "constraint_aware_anchor_vote")] == {
+        "dataset": "gsm8k",
+        "resolver": "constraint_aware_anchor_vote",
+        "total": 1,
+        "correct": 0,
+        "wrong": 1,
+        "accuracy_mean": 0.0,
+    }
+    assert payload["example_rows"][0]["resolver"] == "constraint_aware_anchor_vote"
+
+
+def test_build_stage_a_error_bucket_payload_classifies_remaining_error_types() -> None:
+    stage_a_rows = [
+        {
+            "dataset": "overall",
+            "sample_id": "all_wrong",
+            "solver_mode": "solver_cot",
+            "normalized_answer": "A",
+            "score": 0.0,
+            "confidence_valid": False,
+            "validated_output": {},
+        },
+        {
+            "dataset": "overall",
+            "sample_id": "all_wrong",
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "B",
+            "score": 0.0,
+            "confidence_valid": False,
+            "validated_output": {},
+        },
+        {
+            "dataset": "overall",
+            "sample_id": "all_wrong",
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "C",
+            "score": 0.0,
+            "confidence_valid": False,
+            "validated_output": {},
+        },
+        {
+            "dataset": "overall",
+            "sample_id": "pseudo_majority",
+            "solver_mode": "solver_cot",
+            "normalized_answer": "A",
+            "score": 0.0,
+            "confidence_valid": False,
+            "validated_output": {},
+        },
+        {
+            "dataset": "overall",
+            "sample_id": "pseudo_majority",
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "A",
+            "score": 0.0,
+            "confidence_valid": False,
+            "validated_output": {},
+        },
+        {
+            "dataset": "overall",
+            "sample_id": "pseudo_majority",
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "B",
+            "score": 1.0,
+            "confidence_valid": False,
+            "validated_output": {},
+        },
+        {
+            "dataset": "overall",
+            "sample_id": "confidence_case",
+            "solver_mode": "solver_cot",
+            "normalized_answer": "A",
+            "score": 0.0,
+            "confidence_valid": True,
+            "confidence_value": 0.95,
+            "validated_output": {},
+        },
+        {
+            "dataset": "overall",
+            "sample_id": "confidence_case",
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "A",
+            "score": 0.0,
+            "confidence_valid": True,
+            "confidence_value": 0.88,
+            "validated_output": {},
+        },
+        {
+            "dataset": "overall",
+            "sample_id": "confidence_case",
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "B",
+            "score": 1.0,
+            "confidence_valid": True,
+            "confidence_value": 0.22,
+            "validated_output": {},
+        },
+        {
+            "dataset": "overall",
+            "sample_id": "constraint_case",
+            "solver_mode": "solver_cot",
+            "normalized_answer": "yes",
+            "score": 0.0,
+            "confidence_valid": False,
+            "answer_type": "option_letter",
+            "validated_output": {"answer_type": "option_letter"},
+        },
+        {
+            "dataset": "overall",
+            "sample_id": "constraint_case",
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "yes",
+            "score": 0.0,
+            "confidence_valid": False,
+            "answer_type": "option_letter",
+            "validated_output": {"answer_type": "option_letter"},
+        },
+        {
+            "dataset": "overall",
+            "sample_id": "constraint_case",
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "B",
+            "score": 1.0,
+            "confidence_valid": False,
+            "answer_type": "option_letter",
+            "validated_output": {"answer_type": "option_letter"},
+        },
+    ]
+    prediction_rows = [
+        {"dataset": "overall", "sample_id": "all_wrong", "method_name": "hetero_vote_3", "prediction": "A", "score": 0.0},
+        {"dataset": "overall", "sample_id": "pseudo_majority", "method_name": "hetero_vote_3", "prediction": "A", "score": 0.0},
+        {"dataset": "overall", "sample_id": "confidence_case", "method_name": "hetero_vote_3", "prediction": "A", "score": 0.0},
+        {"dataset": "overall", "sample_id": "constraint_case", "method_name": "hetero_vote_3", "prediction": "yes", "score": 0.0},
+    ]
+
+    payload = build_stage_a_error_bucket_payload(stage_a_rows, prediction_rows)
+
+    assert payload["summary"]["error_count"] == 4
+    assert payload["summary"]["all_three_wrong"] == 1
+    assert payload["summary"]["clean_pseudo_majority"] == 1
+    assert payload["summary"]["confidence_miscalibration"] == 1
+    assert payload["summary"]["constraint_mismatch"] == 1
+    bucket_lookup = {row["sample_id"]: row["bucket"] for row in payload["sample_rows"]}
+    assert bucket_lookup["all_wrong"] == "all_three_wrong"
+    assert bucket_lookup["pseudo_majority"] == "clean_pseudo_majority"
+    assert bucket_lookup["confidence_case"] == "confidence_miscalibration"
+    assert bucket_lookup["constraint_case"] == "constraint_mismatch"
+
+
+def test_build_stage_a_solver_contribution_payload_counts_unique_and_shared_correctness() -> None:
+    stage_a_rows = [
+        {"dataset": "overall", "sample_id": "s1", "solver_mode": "solver_cot", "normalized_answer": "A", "score": 1.0},
+        {"dataset": "overall", "sample_id": "s1", "solver_mode": "solver_l2m", "normalized_answer": "A", "score": 1.0},
+        {"dataset": "overall", "sample_id": "s1", "solver_mode": "solver_skeptic", "normalized_answer": "B", "score": 0.0},
+        {"dataset": "overall", "sample_id": "s2", "solver_mode": "solver_cot", "normalized_answer": "A", "score": 0.0},
+        {"dataset": "overall", "sample_id": "s2", "solver_mode": "solver_l2m", "normalized_answer": "B", "score": 1.0},
+        {"dataset": "overall", "sample_id": "s2", "solver_mode": "solver_skeptic", "normalized_answer": "A", "score": 0.0},
+        {"dataset": "overall", "sample_id": "s3", "solver_mode": "solver_cot", "normalized_answer": "A", "score": 0.0},
+        {"dataset": "overall", "sample_id": "s3", "solver_mode": "solver_l2m", "normalized_answer": "B", "score": 0.0},
+        {"dataset": "overall", "sample_id": "s3", "solver_mode": "solver_skeptic", "normalized_answer": "C", "score": 0.0},
+    ]
+
+    payload = build_stage_a_solver_contribution_payload(stage_a_rows)
+    overall = next(row for row in payload["summary_rows"] if row["dataset"] == "overall")
+
+    assert overall["question_count"] == 3
+    assert overall["all_three_wrong"] == 1
+    assert overall["any_correct_solver_cot"] == 1
+    assert overall["any_correct_solver_l2m"] == 2
+    assert overall["any_correct_solver_skeptic"] == 0
+    assert overall["solo_correct_solver_l2m"] == 1
+    assert overall["majority_wrong_but_solver_right_solver_l2m"] == 1
+
+
+def test_refresh_stage_a_prediction_rows_recomputes_hetero_answer() -> None:
+    stage_a_rows = [
+        {
+            "dataset": "mmlu_pro",
+            "sample_id": "s1",
+            "solver_mode": "solver_cot",
+            "normalized_answer": "E",
+            "score": 0.0,
+            "confidence_value": 0.5,
+            "reasoning": "Exports exceed imports because foreign demand rises.",
+            "validated_output": {},
+        },
+        {
+            "dataset": "mmlu_pro",
+            "sample_id": "s1",
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "E",
+            "score": 0.0,
+            "confidence_value": 0.5,
+            "reasoning": "Exports exceed imports because foreign demand rises.",
+            "validated_output": {"answer_type": "multiple_choice", "key_constraints": "single option letter"},
+        },
+        {
+            "dataset": "mmlu_pro",
+            "sample_id": "s1",
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "A",
+            "score": 1.0,
+            "confidence_value": 0.5,
+            "reasoning": "Low domestic income reduces import demand, increasing surplus.",
+            "validated_output": {"answer_type": "multiple-choice", "key_constraints": "option letter only"},
+        },
+    ]
+    prediction_rows = [
+        {
+            "dataset": "mmlu_pro",
+            "sample_id": "s1",
+            "method_name": "hetero_vote_3",
+            "prediction": "E",
+            "normalized_answer": "E",
+            "score": 0.0,
+            "stage_a_resolver": "constraint_aware_anchor_vote",
+            "stage_a_weighted_support": {"E": 1.0, "A": 0.5},
+            "average_confidence": 0.5,
+        },
+        {
+            "dataset": "mmlu_pro",
+            "sample_id": "s1",
+            "method_name": "cot_1",
+            "prediction": "E",
+            "normalized_answer": "E",
+            "score": 0.0,
+        },
+    ]
+
+    refreshed = refresh_stage_a_prediction_rows(
+        stage_a_rows,
+        prediction_rows,
+        prompt_version=STAGE_A_V2_PROMPT_VERSION,
+    )
+
+    hetero_row = next(row for row in refreshed if row["method_name"] == "hetero_vote_3")
+    assert hetero_row["prediction"] == "A"
+    assert hetero_row["score"] == 1.0
+    assert hetero_row["stage_a_resolver"] == "constraint_aware_clean_skeptic_minority_override"
+    control_row = next(row for row in refreshed if row["method_name"] == "cot_1")
+    assert control_row["prediction"] == "E"
+
+
+def test_summarize_run_reads_metrics() -> None:
+    tmp_path = Path("tests/.tmp_adaptive_sparse_mad_summary")
+    if tmp_path.exists():
+        for child in sorted(tmp_path.rglob("*"), reverse=True):
+            if child.is_file():
+                child.unlink()
+            else:
+                child.rmdir()
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    write_registered_family_manifest(tmp_path / "manifest.json", family_name="adaptive_sparse_mad")
+    write_json(
+        tmp_path / "views" / "metrics.json",
+        {
+            "summary": [
+                {"dataset": "gsm8k", "method_name": "hetero_vote_3", "accuracy_mean": 0.8},
+                {"dataset": "overall", "method_name": "hetero_vote_3", "accuracy_mean": 0.8},
+            ]
+        },
+    )
+
+    payload = summarize_run(tmp_path)
+
+    assert payload["row_count"] == 2
+    assert payload["datasets"] == ["gsm8k", "overall"]

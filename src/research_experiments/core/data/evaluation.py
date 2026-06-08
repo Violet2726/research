@@ -182,11 +182,16 @@ def normalize_code_completion(value: str) -> str:
 def normalize_math_expression(value: str) -> str:
     """对短数学表达式做轻量归一化，尽量保留判题所需语义。"""
     normalized = str(value or "").strip().lower()
+    normalized = _unwrap_latex_named_command_contents(normalized, commands=("boxed", "text", "textrm", "mathrm", "mbox"))
     normalized = normalized.replace("$", "")
     normalized = normalized.replace("\\left", "").replace("\\right", "")
     normalized = normalized.replace("\\!", "")
-    normalized = re.sub(r"(?<=\d),(?=\d{3}(?:\D|$))", "", normalized)
+    normalized = re.sub(r"^[a-z]\s*(?:\\in|∈)\s*", "", normalized)
+    normalized = re.sub(r"(?<=\d),\s*(?=\d{3}(?:\D|$))", "", normalized)
     normalized = normalized.rstrip(".")
+
+    if _looks_like_textual_math_answer(normalized):
+        return _normalize_textual_math_answer(normalized)
 
     top_level_parts = _split_math_top_level(normalized)
     if len(top_level_parts) > 1:
@@ -254,12 +259,58 @@ def _prepare_math_expression(value: str) -> str:
     compact = value.replace(" ", "")
     compact = compact.replace("\\cdot", "*").replace("\\times", "*")
     compact = compact.replace("\\pi", "pi")
+    compact = compact.replace("\\dfrac", "\\frac").replace("\\tfrac", "\\frac")
+    compact = _normalize_latex_function_commands(compact)
     compact = compact.replace("^{\\circ}", "").replace("^\\circ", "")
     compact = _replace_latex_command(compact, command="frac", binary=True)
     compact = _replace_latex_command(compact, command="sqrt", binary=False)
     compact = compact.replace("{", "(").replace("}", ")")
     compact = compact.replace("^", "**")
     return compact
+
+
+def _normalize_latex_function_commands(value: str) -> str:
+    for command in ("sin", "cos", "tan", "cot", "sec", "csc", "log", "ln"):
+        value = value.replace(f"\\{command}", command)
+    return value
+
+
+def _unwrap_latex_named_command_contents(value: str, *, commands: tuple[str, ...]) -> str:
+    unwrapped = value
+    for command in commands:
+        token = f"\\{command}"
+        pieces: list[str] = []
+        cursor = 0
+        while cursor < len(unwrapped):
+            start = unwrapped.find(token, cursor)
+            if start < 0:
+                pieces.append(unwrapped[cursor:])
+                break
+            pieces.append(unwrapped[cursor:start])
+            cursor = start + len(token)
+            argument, cursor = _read_latex_argument(unwrapped, cursor)
+            pieces.append(argument)
+        unwrapped = "".join(pieces)
+    return unwrapped
+
+
+def _looks_like_textual_math_answer(value: str) -> bool:
+    candidate = str(value or "").strip()
+    if not candidate:
+        return False
+    if any(character.isdigit() for character in candidate):
+        return False
+    if any(operator in candidate for operator in ("+", "*", "/", "^", "_", "=")):
+        return False
+    return any(character.isalpha() for character in candidate)
+
+
+def _normalize_textual_math_answer(value: str) -> str:
+    stripped = str(value or "").strip()
+    option_candidate = normalize_text(stripped)
+    if re.fullmatch(r"[a-j]", option_candidate):
+        return option_candidate.upper()
+    return option_candidate
 
 
 def _replace_latex_command(value: str, *, command: str, binary: bool) -> str:

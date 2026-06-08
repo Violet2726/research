@@ -53,6 +53,14 @@ def test_validate_or_recover_core_output_from_malformed_answer_quote() -> None:
     assert payload["final_answer"] == "52"
     assert payload["reasoning"] == "47 + 52 + 57 = 156, so 156 / 3 = 52."
 
+
+def test_validate_or_recover_core_output_does_not_merge_interval_numbers() -> None:
+    payload = validate_or_recover_structured_output(
+        '{"reasoning":"Valid values lie in [-1,0], so the largest endpoint is 0."',
+        SCHEMA_ANSWER_CORE,
+    )
+    assert payload["final_answer"] == "0"
+
 def test_validate_selective_structured_output() -> None:
     payload = validate_structured_output(
         json.dumps(
@@ -139,6 +147,14 @@ def test_parse_selective_output_recovers_from_free_form_math_text() -> None:
     assert payload["claim_span"] == "36"
     assert payload["uncertainty_type"] == "calculation"
     assert payload["confidence_raw"] is None
+
+
+def test_parse_selective_output_does_not_merge_interval_numbers() -> None:
+    payload = parse_proxy_signal_answer(
+        "The valid interval is [-1,0]. Therefore the maximum possible value is 0.",
+        dataset="math500",
+    )
+    assert payload["final_answer"] == "0"
 
 def test_parse_selective_output_prefers_last_real_label_after_thought_block() -> None:
     payload = parse_proxy_signal_answer(
