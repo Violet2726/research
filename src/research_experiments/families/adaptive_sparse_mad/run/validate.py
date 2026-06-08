@@ -20,17 +20,6 @@ from research_experiments.family_runtime.validation import (
     validate_shared_contracts,
 )
 
-_LEGACY_ADAPTIVE_POLICY_METHODS = frozenset(
-    {
-        "dge_only_v4",
-        "dge_ega_v4",
-        "always_add_v4",
-        "adaptive_intersection_v8",
-        "adaptive_evidence_sc_v10",
-    }
-)
-
-
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
     index = resolve_run_artifact_index(run_dir, family_name="adaptive_sparse_mad")
     root = index.run_dir
@@ -138,7 +127,7 @@ def _validate_router_rows(
     adaptive_policies = {
         method_name
         for method_name in aggregate_methods
-        if method_name in (ADAPTIVE_POLICY_METHODS | _LEGACY_ADAPTIVE_POLICY_METHODS)
+        if method_name in ADAPTIVE_POLICY_METHODS
     }
     if not adaptive_policies:
         return _validate_empty_legacy_rows("router_decisions", rows)
