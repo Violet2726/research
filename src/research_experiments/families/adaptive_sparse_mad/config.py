@@ -6,13 +6,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from research_experiments.families.adaptive_sparse_mad.prompts import STAGE_A_V4_PROMPT_VERSION
 from research_experiments.family_runtime.config_helpers import (
     apply_runtime_defaults,
     load_benchmarks,
     load_toml,
 )
 from research_experiments.family_runtime.method_catalog import MethodConfig, load_method_catalog
-from research_experiments.families.adaptive_sparse_mad.prompts import STAGE_A_V4_PROMPT_VERSION
 
 ACTIVE_AGGREGATE_METHODS = frozenset(
     {
@@ -118,12 +118,14 @@ def load_experiment_config(path: str | Path) -> AdaptiveSparseMadExperimentConfi
                 "adaptive_sparse_mad structured aggregate methods require "
                 f"prompt_version={STAGE_A_V4_PROMPT_VERSION}"
             )
-    if any(method_name in ADAPTIVE_POLICY_METHODS for method_name in aggregate_methods):
-        if adaptive_prompt_version != STAGE_A_V4_PROMPT_VERSION:
-            raise ValueError(
-                "adaptive_sparse_mad adaptive policy methods require "
-                f"adaptive_prompt_version={STAGE_A_V4_PROMPT_VERSION}"
-            )
+    if (
+        any(method_name in ADAPTIVE_POLICY_METHODS for method_name in aggregate_methods)
+        and adaptive_prompt_version != STAGE_A_V4_PROMPT_VERSION
+    ):
+        raise ValueError(
+            "adaptive_sparse_mad adaptive policy methods require "
+            f"adaptive_prompt_version={STAGE_A_V4_PROMPT_VERSION}"
+        )
     return AdaptiveSparseMadExperimentConfig(
         name=str(payload["name"]),
         description=str(payload["description"]),

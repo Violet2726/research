@@ -589,7 +589,6 @@ def build_promotion_gate_payload(
                 neutral_datasets.append(dataset)
         positive_categories = sorted(category for category, net in category_net.items() if net > 0)
         negative_categories = sorted(category for category, net in category_net.items() if net < 0)
-        auxiliary_positive = category_net.get("auxiliary", 0) > 0
         required_positive_categories = [category for category in positive_categories if category != "auxiliary"]
         net_corrected = int(overall_pair.get("corrected_count") or 0) - int(overall_pair.get("harmed_count") or 0)
         promote_to_count100 = bool(net_corrected > 0 and len(positive_datasets) >= 2)
@@ -1465,11 +1464,7 @@ def _run_adaptive_variant(
     accepted_answer = stage_a_answer
     accepted_support = dict(stage_a_weighted_support)
     accepted_resolver = stage_a_resolver
-    if use_evidence_primary:
-        accepted_answer = candidate_answer
-        accepted_support = candidate_support
-        accepted_resolver = candidate_resolver
-    elif (
+    if use_evidence_primary or (
         str(stage_a_answer or "").strip().lower() in {"", "unknown"}
         and str(candidate_answer or "").strip().lower() not in {"", "unknown"}
     ):
@@ -1601,11 +1596,7 @@ def _replay_adaptive_variant(
     accepted_answer = stage_a_answer
     accepted_support = dict(stage_a_weighted_support)
     accepted_resolver = stage_a_resolver
-    if use_evidence_primary:
-        accepted_answer = candidate_answer
-        accepted_support = candidate_support
-        accepted_resolver = candidate_resolver
-    elif (
+    if use_evidence_primary or (
         str(stage_a_answer or "").strip().lower() in {"", "unknown"}
         and str(candidate_answer or "").strip().lower() not in {"", "unknown"}
     ):
@@ -1951,9 +1942,12 @@ def _should_accept_counterfactual_override(
     key_evidence = str(counterfactual_row.get("key_evidence") or "").strip()
     if not any((answer_type, key_constraints, claim_span, key_evidence)):
         return False
-    if _sample_is_multiple_choice(sample):
-        if not (len(candidate_answer) == 1 and candidate_answer.isalpha() and candidate_answer.upper() == candidate_answer):
-            return False
+    if _sample_is_multiple_choice(sample) and not (
+        len(candidate_answer) == 1
+        and candidate_answer.isalpha()
+        and candidate_answer.upper() == candidate_answer
+    ):
+        return False
     trigger_reasons = set(str(item) for item in (gate_decision.get("trigger_reasons") or []))
     unique_answer_count = int(gate_decision.get("unique_answer_count") or 0)
     support_gap = float(gate_decision.get("support_gap") or 0.0)

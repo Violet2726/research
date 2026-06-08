@@ -2,6 +2,7 @@
 
 import os
 import time
+
 import requests
 
 API_KEY = os.getenv("XIAOMI_MIMO_API_KEY")
@@ -63,7 +64,7 @@ def main():
     print(f"开始测试：{RPM} RPM × {DURATION_MIN} min = {TOTAL} 请求，间隔 {INTERVAL:.3f}s")
     print(f"模型：{MODEL}")
     print(f"端点：{BASE_URL}")
-    print(f"代理：已禁用（直连）")
+    print("代理：已禁用（直连）")
     print("-" * 60)
 
     stats = {"total": 0, "ok": 0, "429": 0, "other_err": 0}

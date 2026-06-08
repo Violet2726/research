@@ -4,17 +4,16 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from testsupport.filesystem import write_json, write_registered_family_manifest
 
 from research_experiments.core.controls.control_prompts import build_cot_messages
 from research_experiments.core.data.datasets import DatasetSample
-from research_experiments.families.adaptive_sparse_mad.config import AdaptiveSparseMadProtocolConfig
 from research_experiments.families.adaptive_sparse_mad.algorithms import (
     aggregate_anchor_protected,
     aggregate_constraint_aware_stage_a,
     aggregate_evidence_grounded_stage_a,
 )
+from research_experiments.families.adaptive_sparse_mad.config import AdaptiveSparseMadProtocolConfig
 from research_experiments.families.adaptive_sparse_mad.prompts import (
     STAGE_A_V2_PROMPT_VERSION,
     STAGE_A_V4_PROMPT_VERSION,
@@ -22,12 +21,12 @@ from research_experiments.families.adaptive_sparse_mad.prompts import (
     build_stage_a_messages,
 )
 from research_experiments.families.adaptive_sparse_mad.run.sample import (
+    _answers_share_family,
     _apply_stage_a_answer_slot_safeguard,
     _apply_stage_a_consistency_safeguard,
-    _answers_share_family,
     _build_adaptive_gate_decision,
-    _should_accept_counterfactual_override,
     _select_adaptive_addon_solver_sequence,
+    _should_accept_counterfactual_override,
     _should_safe_retry_stage_a_result,
     _validate_control_output,
     _validate_stage_a_output,

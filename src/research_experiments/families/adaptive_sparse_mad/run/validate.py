@@ -20,6 +20,7 @@ from research_experiments.family_runtime.validation import (
     validate_shared_contracts,
 )
 
+
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
     index = resolve_run_artifact_index(run_dir, family_name="adaptive_sparse_mad")
     root = index.run_dir

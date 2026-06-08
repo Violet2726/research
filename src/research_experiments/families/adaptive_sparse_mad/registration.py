@@ -14,7 +14,10 @@ from research_experiments.families.adaptive_sparse_mad.config import (
     load_experiment_config,
     load_protocol_config,
 )
-from research_experiments.families.adaptive_sparse_mad.run.execute import refresh_stage_a_only_run_artifacts, run_experiment
+from research_experiments.families.adaptive_sparse_mad.run.execute import (
+    refresh_stage_a_only_run_artifacts,
+    run_experiment,
+)
 from research_experiments.families.adaptive_sparse_mad.run.report import render_report, summarize_run
 from research_experiments.families.adaptive_sparse_mad.run.validate import validate_run
 from research_experiments.family_runtime.config_helpers import resolve_model

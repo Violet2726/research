@@ -307,9 +307,7 @@ def _claim_or_evidence_matches_answer(row: dict[str, Any], answer: str) -> bool:
     key_evidence = _coarse_normalize_text(str(row.get("key_evidence") or ""))
     if claim_span and (claim_span == normalized_answer or normalized_answer in claim_span or claim_span in normalized_answer):
         return True
-    if key_evidence and normalized_answer in key_evidence:
-        return True
-    return False
+    return bool(key_evidence and normalized_answer in key_evidence)
 
 
 def _answer_group_has_type_conflict(rows: list[dict[str, Any]]) -> bool:
@@ -350,10 +348,17 @@ def _slot_complete_preference_bonus(
             if _longer_answer_looks_slot_complete(question=question, longer=normalized_other, shorter=normalized_answer):
                 longer_support = sum(_row_confidence(row) for row in grouped.get(other_answer, []))
                 bonus -= 0.15 * longer_support
-        elif normalized_other in normalized_answer and len(normalized_answer) > len(normalized_other):
-            if _longer_answer_looks_slot_complete(question=question, longer=normalized_answer, shorter=normalized_other):
-                shorter_support = sum(_row_confidence(row) for row in grouped.get(other_answer, []))
-                bonus += 1.0 * shorter_support
+        elif (
+            normalized_other in normalized_answer
+            and len(normalized_answer) > len(normalized_other)
+            and _longer_answer_looks_slot_complete(
+                question=question,
+                longer=normalized_answer,
+                shorter=normalized_other,
+            )
+        ):
+            shorter_support = sum(_row_confidence(row) for row in grouped.get(other_answer, []))
+            bonus += 1.0 * shorter_support
     return bonus
 
 
