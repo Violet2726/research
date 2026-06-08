@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+from research_experiments.core.controls.control_prompts import build_cot_messages, build_mv_messages
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.prompts.dataset_contracts import build_json_system_prompt, dataset_instruction_for_sample
 from research_experiments.family_runtime.reasoning_methods import resolve_reasoning_method
 
 DEFAULT_PROMPT_VERSION = "single_agent_reasoning_json_v1"
+UNIFIED_CONTROL_PORT_PROMPT_VERSION = "unified_control_v1_port"
+ZERO_SHOT_COT_PROMPT_VERSION = "zero_shot_cot_v1"
+SUPPORTED_PROMPT_VERSIONS = (
+    DEFAULT_PROMPT_VERSION,
+    UNIFIED_CONTROL_PORT_PROMPT_VERSION,
+    ZERO_SHOT_COT_PROMPT_VERSION,
+)
 
 
 def build_messages(
@@ -15,17 +23,33 @@ def build_messages(
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
     """构造单智能体基线的一轮请求消息。"""
-    if prompt_version != DEFAULT_PROMPT_VERSION:
-        raise ValueError(f"Unsupported single-agent prompt_version: {prompt_version}")
+
+    _ensure_prompt_version(prompt_version)
+    if prompt_version == UNIFIED_CONTROL_PORT_PROMPT_VERSION:
+        return _build_unified_control_port_messages(sample, method_family)
     return [
         {"role": "system", "content": _system_prompt(prompt_version)},
         {"role": "user", "content": _user_prompt(sample, method_family, prompt_version)},
     ]
 
 
-def _system_prompt(prompt_version: str) -> str:
-    if prompt_version != DEFAULT_PROMPT_VERSION:
+def _ensure_prompt_version(prompt_version: str) -> None:
+    if prompt_version not in SUPPORTED_PROMPT_VERSIONS:
         raise ValueError(f"Unsupported single-agent prompt_version: {prompt_version}")
+
+
+def _build_unified_control_port_messages(
+    sample: DatasetSample,
+    method_family: str,
+) -> list[dict[str, str]]:
+    normalized = str(method_family or "").strip().lower()
+    if normalized in {"majority_vote", "mv"}:
+        return build_mv_messages(sample, replicate_id=1, prompt_version=None)
+    return build_cot_messages(sample, replicate_id=1, prompt_version=None)
+
+
+def _system_prompt(prompt_version: str) -> str:
+    _ensure_prompt_version(prompt_version)
     return build_json_system_prompt(
         "You are an expert reasoning assistant for controlled research experiments.",
         extra_rules=[
@@ -55,7 +79,12 @@ def _user_prompt(sample: DatasetSample, method_family: str, prompt_version: str)
             '{"reasoning":"brief reasoning","final_answer":"answer"}'
         )
         return user_prompt
-
+    if prompt_version == ZERO_SHOT_COT_PROMPT_VERSION:
+        user_prompt += (
+            "Let's think step by step before deciding the answer.\n"
+            'Return exactly one JSON object like {"reasoning":"brief reasoning","final_answer":"answer"}'
+        )
+        return user_prompt
     raise ValueError(f"Unsupported single-agent prompt_version: {prompt_version}")
 
 
@@ -66,9 +95,6 @@ def _dataset_instruction(sample: DatasetSample, prompt_version: str) -> str:
 
 def _base_reasoning_method(method_family: str) -> str:
     normalized = str(method_family or "").strip().lower()
-    if normalized in {"cot", "self_consistency"}:
+    if normalized in {"cot", "self_consistency", "majority_vote", "mv"}:
         return "cot"
     return normalized
-
-
-

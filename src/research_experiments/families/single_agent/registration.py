@@ -38,6 +38,7 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "benchmark_required_tags": experiment.benchmark_required_tags,
         "global_seed": experiment.global_seed,
         "reruns_per_method": experiment.reruns_per_method,
+        "cot_uses_reruns": experiment.cot_uses_reruns,
         "prompt_version": experiment.prompt_version,
         "max_concurrent_requests": experiment.max_concurrent_requests,
         "requests_per_minute_limit": experiment.requests_per_minute_limit,

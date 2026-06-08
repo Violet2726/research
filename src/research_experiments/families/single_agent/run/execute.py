@@ -43,6 +43,7 @@ from research_experiments.families.single_agent.run.sample import (
     _estimate_run_work,
     _model_is_allowed,
     _phase_methods,
+    _reruns_for_method,
     _resolve_split_name,
     _run_method_batch,
     _write_leaderboard,
@@ -125,6 +126,7 @@ def run_experiment(
         "phase": phase_name,
         "description": experiment.description,
         "prompt_version": experiment.prompt_version,
+        "cot_uses_reruns": experiment.cot_uses_reruns,
         "artifact_version": ARTIFACT_VERSION,
         "reruns_per_method": experiment.reruns_per_method,
         "max_concurrent_requests": experiment.max_concurrent_requests,
@@ -133,6 +135,7 @@ def run_experiment(
         "models": [asdict(model) for model in models],
         "benchmarks": [asdict(benchmark) for benchmark in benchmarks],
         "phase_metadata": phase,
+        "methods": {method.name: asdict(method) for method in methods},
         "total_planned_calls": total_planned_calls,
         "total_planned_predictions": total_planned_predictions,
     }
@@ -165,11 +168,7 @@ def run_experiment(
                         selected_samples = select_samples(benchmark, split_name)
 
                         for method in methods:
-                            # CoT ???????????????????????????
-                            reruns = (
-                                1 if method.family == "cot"
-                                else int(phase.get("reruns_override", experiment.reruns_per_method))
-                            )
+                            reruns = _reruns_for_method(experiment, phase_name, method)
                             for rerun_index in range(reruns):
                                 batch_predictions = _run_method_batch(
                                     run_id=run_id,

@@ -270,6 +270,7 @@ def _run_shared_no_comm_batch(
     worker = partial(
         _run_shared_no_comm_sample,
         run_id=run_id,
+        experiment=experiment,
         benchmark=benchmark,
         split_name=split_name,
         method=method,
@@ -301,6 +302,7 @@ def _run_shared_no_comm_sample(
     sample: DatasetSample,
     *,
     run_id: str,
+    experiment: ExperimentConfig,
     benchmark: BenchmarkConfig,
     split_name: str,
     method: MethodConfig,
@@ -335,7 +337,24 @@ def _run_shared_no_comm_sample(
             _build_shared_no_comm_prediction_row,
             rerun_index=rerun_index,
         ),
+        build_messages=partial(
+            _build_single_agent_control_messages,
+            method_family=method.family,
+            prompt_version=experiment.prompt_version,
+        ),
     )
+
+
+def _build_single_agent_control_messages(
+    sample: DatasetSample,
+    replicate_id: int,
+    requested_prompt_version: str | None,
+    *,
+    method_family: str,
+    prompt_version: str,
+) -> list[dict[str, str]]:
+    del replicate_id, requested_prompt_version
+    return build_messages(sample, method_family=method_family, prompt_version=prompt_version)
 
 
 def _execute_shared_no_comm_turn(
@@ -655,6 +674,13 @@ def _uses_shared_no_comm_core(method_family: str) -> bool:
     }
 
 
+def _reruns_for_method(experiment: ExperimentConfig, phase_name: str, method: MethodConfig) -> int:
+    reruns_override = int(phase_metadata(experiment, phase_name).get("reruns_override", experiment.reruns_per_method))
+    if method.family == "cot" and not experiment.cot_uses_reruns:
+        return 1
+    return reruns_override
+
+
 
 
 def _resolve_split_name(experiment: ExperimentConfig, phase_name: str, benchmark_slug: str) -> str:
@@ -726,10 +752,7 @@ def _estimate_run_work(
             split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
             split_size = len(load_split_ids(benchmark.cache_namespace or benchmark.slug, split_name))
             for method in methods:
-                reruns = (
-                    1 if method.family == "cot"
-                    else int(phase_metadata(experiment, phase_name).get("reruns_override", experiment.reruns_per_method))
-                )
+                reruns = _reruns_for_method(experiment, phase_name, method)
                 total_calls += split_size * method.budget_calls * reruns
                 total_predictions += split_size * reruns
 

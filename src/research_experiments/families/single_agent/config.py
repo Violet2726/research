@@ -31,6 +31,7 @@ class ExperimentConfig:
     benchmark_required_tags: dict[str, list[str]]
     global_seed: int
     reruns_per_method: int
+    cot_uses_reruns: bool
     prompt_version: str
     max_concurrent_requests: int
     requests_per_minute_limit: int | None
@@ -55,6 +56,7 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         },
         global_seed=int(payload["global_seed"]),
         reruns_per_method=int(payload["reruns_per_method"]),
+        cot_uses_reruns=bool(payload.get("cot_uses_reruns", False)),
         prompt_version=str(payload["prompt_version"]),
         max_concurrent_requests=runtime["max_concurrent_requests"],
         requests_per_minute_limit=runtime["requests_per_minute_limit"],

@@ -75,8 +75,8 @@ def export_paper_tables(run_dir: str | Path, output_path: str | Path) -> Path:
     """导出论文表格风格的 Markdown 摘要。"""
     metrics = load_metrics(run_dir)
     rows = metrics.get("summary", [])
-    lower_bound_rows = [row for row in rows if row["method_name"] == COT_1]
-    self_consistency_rows = [row for row in rows if row["method_name"].startswith("sc_")]
+    lower_bound_rows = [row for row in rows if _base_method_name(str(row.get("method_name") or "")) == COT_1]
+    self_consistency_rows = [row for row in rows if _base_method_name(str(row.get("method_name") or "")) == SC_5]
 
     lines: list[str] = []
     lines.append("# 论文表格导出")
@@ -129,7 +129,7 @@ def export_paper_tables(run_dir: str | Path, output_path: str | Path) -> Path:
 def _build_figure_specs(summary_rows: list[dict[str, Any]], predictions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     summary = SummaryTableView.from_rows(summary_rows)
     overall_rows = summary.overall_rows()
-    sc_rows = [row for row in overall_rows if row.method_name.startswith("sc_")]
+    sc_rows = [row for row in overall_rows if _base_method_name(row.method_name) == SC_5]
     figure_specs = [
         build_frontier_figure_spec(
             summary_rows,
@@ -227,7 +227,7 @@ def _render_markdown(
     best_accuracy_row = summary.best_by("accuracy_mean", rows=overall_rows)
     best_efficiency_row = summary.best_by("acc_per_1k_tokens", rows=overall_rows)
     most_expensive_row = summary.best_by("total_tokens_mean", rows=overall_rows)
-    sc_rows = [row for row in overall_rows if row.method_name.startswith("sc_")]
+    sc_rows = [row for row in overall_rows if _base_method_name(row.method_name) == SC_5]
 
     abstract: list[str] = []
     if best_accuracy_row is not None:
@@ -246,8 +246,9 @@ def _render_markdown(
 
     evidence_rows = _single_agent_evidence_rows(predictions)
     if evidence_rows:
+        best_evidence = max(evidence_rows, key=lambda row: float(row.get("mean_delta") or 0.0))
         abstract.append(
-            f"`{SC_5}` 相对 `{COT_1}` 的配对 95% CI 为 {format_pairwise_ci_text(evidence_rows, 'sc_5_vs_cot_1')}。"
+            f"当前最强的配对区间是 `{best_evidence['label']}`，95% CI 为 {format_pairwise_ci_text(evidence_rows, str(best_evidence['comparison_id']))}。"
         )
     sections = [
         {
@@ -348,16 +349,39 @@ def _render_markdown(
 
 
 def _single_agent_evidence_rows(predictions: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    methods = sorted({str(row.get("method_name")) for row in predictions if str(row.get("method_name")).startswith("sc_")})
+    methods = sorted(
+        {
+            str(row.get("method_name"))
+            for row in predictions
+            if _base_method_name(str(row.get("method_name") or "")) == SC_5
+        }
+    )
+    cot_methods = sorted(
+        {
+            str(row.get("method_name"))
+            for row in predictions
+            if _base_method_name(str(row.get("method_name") or "")) == COT_1
+        }
+    )
     comparisons = [
-            PairwiseComparisonSpec(
-                comparison_id=f"{method}_vs_cot_1",
-                label=f"{method} vs cot_1",
-                method_a=method,
-                method_b=COT_1,
-            )
+        PairwiseComparisonSpec(
+            comparison_id=f"{method}_vs_{cot_method}",
+            label=f"{method} vs {cot_method}",
+            method_a=method,
+            method_b=cot_method,
+        )
         for method in methods
+        for cot_method in cot_methods
     ]
     return build_pairwise_comparison_rows(predictions, comparisons)
+
+
+def _base_method_name(method_name: str) -> str:
+    candidate = str(method_name or "")
+    if candidate.startswith("sc_5"):
+        return SC_5
+    if candidate.startswith("cot_1"):
+        return COT_1
+    return candidate
 
 

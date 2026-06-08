@@ -1,0 +1,60 @@
+# 固定预算 baseline ceiling 搜索候选。
+# 方法名约定：
+# - `<base_method>_temp_<value>`
+# - `base_method` 固定为 `cot_1` / `mv_3` / `sc_5`
+
+[methods.cot_1_temp_0p0]
+family = "cot"
+budget_calls = 1
+temperature = 0.0
+top_p = 1.0
+max_output_tokens = 256
+
+[methods.cot_1_temp_0p7]
+family = "cot"
+budget_calls = 1
+temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256
+
+[methods.mv_3_temp_0p5]
+family = "majority_vote"
+budget_calls = 3
+temperature = 0.5
+top_p = 1.0
+max_output_tokens = 256
+
+[methods.mv_3_temp_0p7]
+family = "majority_vote"
+budget_calls = 3
+temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256
+
+[methods.mv_3_temp_1p0]
+family = "majority_vote"
+budget_calls = 3
+temperature = 1.0
+top_p = 1.0
+max_output_tokens = 256
+
+[methods.sc_5_temp_0p5]
+family = "self_consistency"
+budget_calls = 5
+temperature = 0.5
+top_p = 1.0
+max_output_tokens = 256
+
+[methods.sc_5_temp_0p7]
+family = "self_consistency"
+budget_calls = 5
+temperature = 0.7
+top_p = 1.0
+max_output_tokens = 256
+
+[methods.sc_5_temp_1p0]
+family = "self_consistency"
+budget_calls = 5
+temperature = 1.0
+top_p = 1.0
+max_output_tokens = 256
