@@ -10,6 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from math import comb
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from research_experiments.core.controls.control_prompts import build_cot_messages
@@ -68,6 +69,7 @@ DISPLAY_NAME_MAP = {
     "ega_only_v4": "ega_only_v4",
     "adaptive_gate_v4": "adaptive_gate_v4",
     "adaptive_dual_open_v5": "adaptive_dual_open_v5",
+    "adaptive_counterfactual_v1": "adaptive_counterfactual_v1",
 }
 _MULTIPLE_CHOICE_DATASETS = {"mmlu_pro", "gpqa_diamond", "mmlu", "mmlu_abstract_algebra"}
 
@@ -162,6 +164,135 @@ def refresh_stage_a_prediction_rows(
         )
         refreshed_rows.append(updated_row)
     return refreshed_rows
+
+
+def refresh_prediction_rows_for_run(
+    stage_a_rows: list[dict[str, Any]],
+    prediction_rows: list[dict[str, Any]],
+    router_rows: list[dict[str, Any]],
+    *,
+    sample_lookup: dict[tuple[str, str], DatasetSample],
+    protocol: AdaptiveSparseMadProtocolConfig,
+    model_name: str,
+    prompt_version: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    del prompt_version
+    core_rows_by_sample: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    adaptive_rows_by_policy_sample: dict[tuple[tuple[str, str], str], list[dict[str, Any]]] = defaultdict(list)
+    for row in stage_a_rows:
+        sample_key = (str(row.get("dataset") or ""), str(row.get("sample_id") or ""))
+        if _is_core_stage_a_row(row):
+            core_rows_by_sample[sample_key].append(row)
+            continue
+        adaptive_policy_name = str(row.get("adaptive_policy_name") or "").strip()
+        if adaptive_policy_name:
+            adaptive_rows_by_policy_sample[(sample_key, adaptive_policy_name)].append(row)
+
+    existing_router_by_key = {
+        (
+            str(row.get("dataset") or ""),
+            str(row.get("sample_id") or ""),
+            str(row.get("policy_name") or ""),
+        ): row
+        for row in router_rows
+    }
+    refreshed_predictions: list[dict[str, Any]] = []
+    refreshed_router_rows: list[dict[str, Any]] = []
+    backbone = SimpleNamespace(name=model_name)
+
+    for row in prediction_rows:
+        method_name = str(row.get("method_name") or "")
+        if str(row.get("method_kind") or "") != "aggregate":
+            refreshed_predictions.append(dict(row))
+            continue
+
+        dataset = str(row.get("dataset") or "")
+        sample_id = str(row.get("sample_id") or "")
+        sample_key = (dataset, sample_id)
+        sample = sample_lookup.get(sample_key)
+        core_stage_a_rows = core_rows_by_sample.get(sample_key)
+        if sample is None or not core_stage_a_rows:
+            refreshed_predictions.append(dict(row))
+            if method_name in ADAPTIVE_POLICY_METHODS:
+                existing_router_row = existing_router_by_key.get((dataset, sample_id, method_name))
+                if existing_router_row is not None:
+                    refreshed_router_rows.append(dict(existing_router_row))
+            continue
+
+        stage_a_trace_hash = _trace_hash(
+            core_stage_a_rows,
+            ["agent_id", "normalized_answer", "confidence_value", "output_status"],
+        )
+        stage_a_answer, stage_a_weighted_support, stage_a_resolver = _resolve_stage_a_aggregate(
+            core_stage_a_rows,
+            dataset=dataset,
+            prompt_version=STAGE_A_V4_PROMPT_VERSION,
+            question=sample.question,
+        )
+        stage_a_prediction = normalize_prediction(dataset, stage_a_answer) if stage_a_answer else ""
+        stage_a_score = (
+            score_prediction(dataset, stage_a_prediction, sample.reference_answer)
+            if stage_a_prediction
+            else 0.0
+        )
+
+        if method_name == "hetero_vote_3":
+            refreshed_predictions.append(
+                _build_hetero_prediction_row(
+                    run_id=str(row.get("run_id") or ""),
+                    benchmark_slug=dataset,
+                    split_name=str(row.get("split") or ""),
+                    sample=sample,
+                    backbone=backbone,
+                    stage_a_rows=core_stage_a_rows,
+                    stage_a_answer=stage_a_prediction,
+                    stage_a_score=stage_a_score,
+                    stage_a_weighted_support=stage_a_weighted_support,
+                    stage_a_resolver=stage_a_resolver,
+                    stage_a_trace_hash=stage_a_trace_hash,
+                )
+            )
+            continue
+        if method_name == "ega_only_v4":
+            refreshed_predictions.append(
+                _build_ega_only_prediction_row(
+                    run_id=str(row.get("run_id") or ""),
+                    benchmark_slug=dataset,
+                    split_name=str(row.get("split") or ""),
+                    sample=sample,
+                    backbone=backbone,
+                    core_stage_a_rows=core_stage_a_rows,
+                    stage_a_answer=stage_a_prediction,
+                    stage_a_score=stage_a_score,
+                    stage_a_trace_hash=stage_a_trace_hash,
+                )
+            )
+            continue
+        if method_name in ADAPTIVE_POLICY_METHODS:
+            policy_adaptive_rows = adaptive_rows_by_policy_sample.get((sample_key, method_name), [])
+            refreshed_router_row, refreshed_prediction_row = _replay_adaptive_variant(
+                method_name=method_name,
+                run_id=str(row.get("run_id") or ""),
+                benchmark_slug=dataset,
+                split_name=str(row.get("split") or ""),
+                sample=sample,
+                backbone=backbone,
+                protocol=protocol,
+                core_stage_a_rows=core_stage_a_rows,
+                adaptive_rows=policy_adaptive_rows,
+                stage_a_answer=stage_a_prediction,
+                stage_a_score=stage_a_score,
+                stage_a_weighted_support=stage_a_weighted_support,
+                stage_a_resolver=stage_a_resolver,
+                stage_a_trace_hash=stage_a_trace_hash,
+            )
+            refreshed_router_rows.append(refreshed_router_row)
+            refreshed_predictions.append(refreshed_prediction_row)
+            continue
+
+        refreshed_predictions.append(dict(row))
+
+    return refreshed_predictions, refreshed_router_rows
 
 
 def append_sample_result(
@@ -300,9 +431,18 @@ def build_policy_diagnostics(
     )
     selected_method = str(selected_row.get("method_name") or "hetero_vote_3")
     selected_reason = "best_overall_aggregate_accuracy"
+    pairwise_rows = build_method_pairwise_rows(prediction_rows)
     return {
         "policy_rows": policy_rows,
-        "pairwise_rows": build_method_pairwise_rows(prediction_rows),
+        "pairwise_rows": pairwise_rows,
+        "promotion_gate": build_promotion_gate_payload(
+            prediction_rows=prediction_rows,
+            pairwise_rows=pairwise_rows,
+        ),
+        "mainline_gate": build_mainline_gate_payload(
+            prediction_rows=prediction_rows,
+            pairwise_rows=pairwise_rows,
+        ),
         "recommended_next_default_policy": {
             "selected_policy": selected_method,
             "reason": selected_reason,
@@ -321,61 +461,287 @@ def build_method_pairwise_rows(prediction_rows: list[dict[str, Any]]) -> list[di
         by_sample[(dataset, sample_id)][method_name] = row
 
     method_names = sorted({str(row.get("method_name") or "") for row in prediction_rows if str(row.get("method_name") or "")})
+    datasets = sorted({dataset for dataset, _sample_id in by_sample})
     pairwise_rows: list[dict[str, Any]] = []
-    for method_name in method_names:
-        for baseline_method_name in method_names:
-            if method_name == baseline_method_name:
-                continue
-            corrected_count = 0
-            harmed_count = 0
-            both_correct_count = 0
-            both_wrong_count = 0
-            question_count = 0
-            per_sample_delta: list[int] = []
-            for sample_methods in by_sample.values():
-                method_row = sample_methods.get(method_name)
-                baseline_row = sample_methods.get(baseline_method_name)
-                if method_row is None or baseline_row is None:
+    for dataset in [*datasets, "overall"]:
+        dataset_items = [
+            sample_methods
+            for (sample_dataset, _sample_id), sample_methods in by_sample.items()
+            if dataset == "overall" or sample_dataset == dataset
+        ]
+        for method_name in method_names:
+            for baseline_method_name in method_names:
+                if method_name == baseline_method_name:
                     continue
-                question_count += 1
-                method_correct = float(method_row.get("score") or 0.0) >= 1.0
-                baseline_correct = float(baseline_row.get("score") or 0.0) >= 1.0
-                if method_correct and not baseline_correct:
-                    corrected_count += 1
-                    per_sample_delta.append(1)
-                elif baseline_correct and not method_correct:
-                    harmed_count += 1
-                    per_sample_delta.append(-1)
-                elif method_correct and baseline_correct:
-                    both_correct_count += 1
-                    per_sample_delta.append(0)
-                else:
-                    both_wrong_count += 1
-                    per_sample_delta.append(0)
-            if question_count == 0:
-                continue
-            ci_low, ci_high = _bootstrap_accuracy_delta_ci(per_sample_delta)
-            pairwise_rows.append(
-                {
-                    "dataset": "overall",
-                    "method_name": method_name,
-                    "baseline_method_name": baseline_method_name,
-                    "question_count": question_count,
-                    "accuracy_delta": round(
-                        (corrected_count - harmed_count) / question_count,
-                        6,
-                    ),
-                    "corrected_count": corrected_count,
-                    "harmed_count": harmed_count,
-                    "both_correct_count": both_correct_count,
-                    "both_wrong_count": both_wrong_count,
-                    "exact_mcnemar_p": round(_exact_mcnemar_p(corrected_count, harmed_count), 10),
-                    "bootstrap_ci_low": round(ci_low, 6),
-                    "bootstrap_ci_high": round(ci_high, 6),
-                }
-            )
+                corrected_count = 0
+                harmed_count = 0
+                both_correct_count = 0
+                both_wrong_count = 0
+                question_count = 0
+                per_sample_delta: list[int] = []
+                for sample_methods in dataset_items:
+                    method_row = sample_methods.get(method_name)
+                    baseline_row = sample_methods.get(baseline_method_name)
+                    if method_row is None or baseline_row is None:
+                        continue
+                    question_count += 1
+                    method_correct = float(method_row.get("score") or 0.0) >= 1.0
+                    baseline_correct = float(baseline_row.get("score") or 0.0) >= 1.0
+                    if method_correct and not baseline_correct:
+                        corrected_count += 1
+                        per_sample_delta.append(1)
+                    elif baseline_correct and not method_correct:
+                        harmed_count += 1
+                        per_sample_delta.append(-1)
+                    elif method_correct and baseline_correct:
+                        both_correct_count += 1
+                        per_sample_delta.append(0)
+                    else:
+                        both_wrong_count += 1
+                        per_sample_delta.append(0)
+                if question_count == 0:
+                    continue
+                ci_low, ci_high = _bootstrap_accuracy_delta_ci(per_sample_delta)
+                pairwise_rows.append(
+                    {
+                        "dataset": dataset,
+                        "method_name": method_name,
+                        "baseline_method_name": baseline_method_name,
+                        "question_count": question_count,
+                        "accuracy_delta": round(
+                            (corrected_count - harmed_count) / question_count,
+                            6,
+                        ),
+                        "corrected_count": corrected_count,
+                        "harmed_count": harmed_count,
+                        "both_correct_count": both_correct_count,
+                        "both_wrong_count": both_wrong_count,
+                        "exact_mcnemar_p": round(_exact_mcnemar_p(corrected_count, harmed_count), 10),
+                        "bootstrap_ci_low": round(ci_low, 6),
+                        "bootstrap_ci_high": round(ci_high, 6),
+                    }
+                )
     _apply_holm_adjustment(pairwise_rows)
     return pairwise_rows
+
+
+def build_promotion_gate_payload(
+    *,
+    prediction_rows: list[dict[str, Any]],
+    pairwise_rows: list[dict[str, Any]],
+    baseline_method_name: str = "hetero_vote_3",
+) -> dict[str, Any]:
+    aggregate_rows = [row for row in prediction_rows if str(row.get("method_kind") or "") == "aggregate"]
+    candidate_method_names = sorted(
+        {
+            str(row.get("method_name") or "")
+            for row in aggregate_rows
+            if str(row.get("method_name") or "") and str(row.get("method_name") or "") != baseline_method_name
+        }
+    )
+    if not candidate_method_names:
+        return {
+            "baseline_method_name": baseline_method_name,
+            "category_definitions": _promotion_category_definition_payload(),
+            "candidate_rows": [],
+        }
+
+    summary_by_method_name = {
+        str(row.get("method_name") or ""): row
+        for row in build_metrics_payload(prediction_rows).get("summary", [])
+        if row.get("dataset") == "overall"
+    }
+    candidate_rows: list[dict[str, Any]] = []
+    for method_name in candidate_method_names:
+        overall_pair = next(
+            (
+                row for row in pairwise_rows
+                if row.get("dataset") == "overall"
+                and str(row.get("method_name") or "") == method_name
+                and str(row.get("baseline_method_name") or "") == baseline_method_name
+            ),
+            None,
+        )
+        if overall_pair is None:
+            continue
+        category_net: dict[str, int] = defaultdict(int)
+        positive_datasets: list[str] = []
+        negative_datasets: list[str] = []
+        neutral_datasets: list[str] = []
+        for row in pairwise_rows:
+            if str(row.get("method_name") or "") != method_name:
+                continue
+            if str(row.get("baseline_method_name") or "") != baseline_method_name:
+                continue
+            dataset = str(row.get("dataset") or "")
+            if dataset == "overall":
+                continue
+            corrected_count = int(row.get("corrected_count") or 0)
+            harmed_count = int(row.get("harmed_count") or 0)
+            net = corrected_count - harmed_count
+            category = _promotion_category_for_dataset(dataset)
+            category_net[category] += net
+            if net > 0:
+                positive_datasets.append(dataset)
+            elif net < 0:
+                negative_datasets.append(dataset)
+            else:
+                neutral_datasets.append(dataset)
+        positive_categories = sorted(category for category, net in category_net.items() if net > 0)
+        negative_categories = sorted(category for category, net in category_net.items() if net < 0)
+        auxiliary_positive = category_net.get("auxiliary", 0) > 0
+        required_positive_categories = [category for category in positive_categories if category != "auxiliary"]
+        net_corrected = int(overall_pair.get("corrected_count") or 0) - int(overall_pair.get("harmed_count") or 0)
+        promote_to_count100 = bool(net_corrected > 0 and len(positive_datasets) >= 2)
+        mainline_ready_signal = bool(len(required_positive_categories) >= 2 and not negative_categories)
+        verdict_reason = "gain_too_concentrated"
+        if promote_to_count100:
+            verdict_reason = "net_positive_on_multiple_datasets"
+        elif net_corrected <= 0:
+            verdict_reason = "non_positive_overall_net_gain"
+        candidate_rows.append(
+            {
+                "method_name": method_name,
+                "baseline_method_name": baseline_method_name,
+                "overall_accuracy_mean": float(summary_by_method_name.get(method_name, {}).get("accuracy_mean", 0.0) or 0.0),
+                "baseline_accuracy_mean": float(summary_by_method_name.get(baseline_method_name, {}).get("accuracy_mean", 0.0) or 0.0),
+                "overall_accuracy_delta": float(overall_pair.get("accuracy_delta") or 0.0),
+                "corrected_count": int(overall_pair.get("corrected_count") or 0),
+                "harmed_count": int(overall_pair.get("harmed_count") or 0),
+                "net_corrected": net_corrected,
+                "positive_datasets": positive_datasets,
+                "negative_datasets": negative_datasets,
+                "neutral_datasets": neutral_datasets,
+                "category_net": dict(sorted(category_net.items())),
+                "positive_categories": positive_categories,
+                "negative_categories": negative_categories,
+                "promote_to_count100": promote_to_count100,
+                "core_category_positive_count": len(required_positive_categories),
+                "mainline_ready_signal": mainline_ready_signal,
+                "verdict_reason": verdict_reason,
+            }
+        )
+    return {
+        "baseline_method_name": baseline_method_name,
+        "category_definitions": _promotion_category_definition_payload(),
+        "candidate_rows": candidate_rows,
+    }
+
+
+def build_mainline_gate_payload(
+    *,
+    prediction_rows: list[dict[str, Any]],
+    pairwise_rows: list[dict[str, Any]],
+    baseline_method_name: str = "hetero_vote_3",
+    min_paired_n: int = 700,
+) -> dict[str, Any]:
+    aggregate_rows = [row for row in prediction_rows if str(row.get("method_kind") or "") == "aggregate"]
+    candidate_method_names = sorted(
+        {
+            str(row.get("method_name") or "")
+            for row in aggregate_rows
+            if str(row.get("method_name") or "") and str(row.get("method_name") or "") != baseline_method_name
+        }
+    )
+    summary_by_method_name = {
+        str(row.get("method_name") or ""): row
+        for row in build_metrics_payload(prediction_rows).get("summary", [])
+        if row.get("dataset") == "overall"
+    }
+    candidate_rows: list[dict[str, Any]] = []
+    for method_name in candidate_method_names:
+        overall_pair = next(
+            (
+                row for row in pairwise_rows
+                if row.get("dataset") == "overall"
+                and str(row.get("method_name") or "") == method_name
+                and str(row.get("baseline_method_name") or "") == baseline_method_name
+            ),
+            None,
+        )
+        if overall_pair is None:
+            continue
+        category_net: dict[str, int] = defaultdict(int)
+        positive_datasets: list[str] = []
+        negative_datasets: list[str] = []
+        neutral_datasets: list[str] = []
+        for row in pairwise_rows:
+            if str(row.get("method_name") or "") != method_name:
+                continue
+            if str(row.get("baseline_method_name") or "") != baseline_method_name:
+                continue
+            dataset = str(row.get("dataset") or "")
+            if dataset == "overall":
+                continue
+            corrected_count = int(row.get("corrected_count") or 0)
+            harmed_count = int(row.get("harmed_count") or 0)
+            net = corrected_count - harmed_count
+            category = _promotion_category_for_dataset(dataset)
+            category_net[category] += net
+            if net > 0:
+                positive_datasets.append(dataset)
+            elif net < 0:
+                negative_datasets.append(dataset)
+            else:
+                neutral_datasets.append(dataset)
+        positive_categories = sorted(category for category, net in category_net.items() if net > 0)
+        negative_categories = sorted(category for category, net in category_net.items() if net < 0)
+        required_positive_categories = [category for category in positive_categories if category != "auxiliary"]
+        eligible_for_mainline_assessment = int(overall_pair.get("question_count") or 0) >= min_paired_n
+        ci_low = float(overall_pair.get("bootstrap_ci_low") or 0.0)
+        holm_adjusted_p = float(overall_pair.get("holm_adjusted_p") or 1.0)
+        overall_delta = float(overall_pair.get("accuracy_delta") or 0.0)
+        mainline_ready = bool(
+            eligible_for_mainline_assessment
+            and overall_delta > 0.0
+            and ci_low > 0.0
+            and holm_adjusted_p < 0.05
+            and len(required_positive_categories) >= 2
+            and not negative_categories
+        )
+        verdict_reason = "insufficient_paired_n_for_mainline"
+        if mainline_ready:
+            verdict_reason = "significant_positive_gain_across_core_categories"
+        elif eligible_for_mainline_assessment and overall_delta <= 0.0:
+            verdict_reason = "non_positive_overall_delta"
+        elif eligible_for_mainline_assessment and ci_low <= 0.0:
+            verdict_reason = "confidence_interval_not_above_zero"
+        elif eligible_for_mainline_assessment and holm_adjusted_p >= 0.05:
+            verdict_reason = "holm_adjusted_p_not_significant"
+        elif eligible_for_mainline_assessment and len(required_positive_categories) < 2:
+            verdict_reason = "insufficient_core_category_coverage"
+        elif eligible_for_mainline_assessment and negative_categories:
+            verdict_reason = "negative_core_category_present"
+        candidate_rows.append(
+            {
+                "method_name": method_name,
+                "baseline_method_name": baseline_method_name,
+                "overall_accuracy_mean": float(summary_by_method_name.get(method_name, {}).get("accuracy_mean", 0.0) or 0.0),
+                "baseline_accuracy_mean": float(summary_by_method_name.get(baseline_method_name, {}).get("accuracy_mean", 0.0) or 0.0),
+                "overall_accuracy_delta": overall_delta,
+                "bootstrap_ci_low": ci_low,
+                "bootstrap_ci_high": float(overall_pair.get("bootstrap_ci_high") or 0.0),
+                "holm_adjusted_p": holm_adjusted_p,
+                "corrected_count": int(overall_pair.get("corrected_count") or 0),
+                "harmed_count": int(overall_pair.get("harmed_count") or 0),
+                "positive_datasets": positive_datasets,
+                "negative_datasets": negative_datasets,
+                "neutral_datasets": neutral_datasets,
+                "category_net": dict(sorted(category_net.items())),
+                "positive_categories": positive_categories,
+                "negative_categories": negative_categories,
+                "core_category_positive_count": len(required_positive_categories),
+                "eligible_for_mainline_assessment": eligible_for_mainline_assessment,
+                "mainline_ready": mainline_ready,
+                "verdict_reason": verdict_reason,
+            }
+        )
+    return {
+        "baseline_method_name": baseline_method_name,
+        "min_paired_n": min_paired_n,
+        "category_definitions": _promotion_category_definition_payload(),
+        "candidate_rows": candidate_rows,
+    }
 
 
 def _exact_mcnemar_p(corrected_count: int, harmed_count: int) -> float:
@@ -416,6 +782,26 @@ def _apply_holm_adjustment(pairwise_rows: list[dict[str, Any]]) -> None:
             adjusted = min(1.0, raw_p * (total - index))
             adjusted_running_max = max(adjusted_running_max, adjusted)
             row["holm_adjusted_p"] = round(adjusted_running_max, 10)
+
+
+def _promotion_category_for_dataset(dataset: str) -> str:
+    normalized = str(dataset or "").strip().lower()
+    if normalized == "hotpotqa":
+        return "open_qa"
+    if normalized in {"mmlu_pro", "gpqa_diamond"}:
+        return "mcqa"
+    if normalized in {"gsm8k", "competition_math", "math500"}:
+        return "math"
+    return "auxiliary"
+
+
+def _promotion_category_definition_payload() -> dict[str, list[str]]:
+    return {
+        "open_qa": ["hotpotqa"],
+        "mcqa": ["mmlu_pro", "gpqa_diamond"],
+        "math": ["gsm8k", "competition_math", "math500"],
+        "auxiliary": ["strategyqa"],
+    }
 
 
 def build_stage_a_resolver_breakdown_payload(
@@ -1029,6 +1415,9 @@ def _run_adaptive_variant(
         sample=sample,
         gate_decision=gate_decision,
     )
+    addon_solvers = addon_solvers[: max(0, experiment.max_adaptive_addon_calls)]
+    gate_decision["selected_addon_solver"] = addon_solvers[0] if addon_solvers else ""
+    gate_decision["executed_addon_solvers"] = list(addon_solvers)
     if gate_decision["triggered"]:
         for addon_index, addon_solver in enumerate(addon_solvers, start=1):
             adaptive_row = _execute_turn(
@@ -1099,6 +1488,25 @@ def _run_adaptive_variant(
             accepted_answer = addon_answer
             accepted_support = dict(candidate_support)
             accepted_resolver = "adaptive_dual_open_slot_family_override"
+    if method_name == "adaptive_counterfactual_v1" and gate_decision["triggered"]:
+        counterfactual_row = next(
+            (row for row in reversed(adaptive_rows) if str(row.get("solver_mode") or "") == "solver_counterfactual"),
+            None,
+        )
+        if _should_accept_counterfactual_override(
+            counterfactual_row=counterfactual_row,
+            baseline_answer=stage_a_answer,
+            gate_decision=gate_decision,
+            sample=sample,
+        ):
+            counterfactual_answer = normalize_prediction(
+                benchmark_slug,
+                str(counterfactual_row.get("normalized_answer") or counterfactual_row.get("prediction") or ""),
+            )
+            if counterfactual_answer:
+                accepted_answer = counterfactual_answer
+                accepted_support = dict(candidate_support)
+                accepted_resolver = "adaptive_counterfactual_family_override"
 
     normalized_final_answer = normalize_prediction(benchmark_slug, accepted_answer) if accepted_answer else ""
     final_score = (
@@ -1142,6 +1550,142 @@ def _run_adaptive_variant(
         baseline_score=stage_a_score,
     )
     return adaptive_rows, router_row, prediction_row
+
+
+def _replay_adaptive_variant(
+    *,
+    method_name: str,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    sample: DatasetSample,
+    backbone,
+    protocol: AdaptiveSparseMadProtocolConfig,
+    core_stage_a_rows: list[dict[str, Any]],
+    adaptive_rows: list[dict[str, Any]],
+    stage_a_answer: str,
+    stage_a_score: float,
+    stage_a_weighted_support: dict[str, float],
+    stage_a_resolver: str,
+    stage_a_trace_hash: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    use_evidence_primary = _sample_prefers_evidence_primary(sample)
+    pre_answer = stage_a_answer
+    pre_resolver = stage_a_resolver
+    if use_evidence_primary:
+        pre_answer, _, pre_resolver = aggregate_evidence_grounded_stage_a(
+            core_stage_a_rows,
+            anchor_answer=stage_a_answer,
+            question=sample.question,
+        )
+
+    gate_decision = _build_adaptive_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=core_stage_a_rows,
+        support=stage_a_weighted_support,
+    )
+    gate_decision["policy_name"] = method_name
+    gate_decision["selected_addon_solver"] = str(adaptive_rows[0].get("solver_mode") or "") if adaptive_rows else ""
+    gate_decision["executed_addon_solvers"] = [str(row.get("solver_mode") or "") for row in adaptive_rows]
+
+    final_rows = list(core_stage_a_rows)
+    if gate_decision["triggered"]:
+        final_rows.extend(adaptive_rows)
+
+    candidate_answer, candidate_support, candidate_resolver = aggregate_evidence_grounded_stage_a(
+        final_rows,
+        anchor_answer=pre_answer or stage_a_answer,
+        question=sample.question,
+    )
+    accepted_answer = stage_a_answer
+    accepted_support = dict(stage_a_weighted_support)
+    accepted_resolver = stage_a_resolver
+    if use_evidence_primary:
+        accepted_answer = candidate_answer
+        accepted_support = candidate_support
+        accepted_resolver = candidate_resolver
+    elif (
+        str(stage_a_answer or "").strip().lower() in {"", "unknown"}
+        and str(candidate_answer or "").strip().lower() not in {"", "unknown"}
+    ):
+        accepted_answer = candidate_answer
+        accepted_support = candidate_support
+        accepted_resolver = candidate_resolver
+    if method_name == "adaptive_dual_open_v5" and gate_decision["triggered"] and adaptive_rows:
+        addon_answer = str(adaptive_rows[-1].get("normalized_answer") or "").strip()
+        if (
+            addon_answer
+            and addon_answer.lower() not in {"", "unknown"}
+            and not _answers_share_family(addon_answer, stage_a_answer)
+            and _core_supports_answer_family(core_stage_a_rows, addon_answer)
+            and "narrow_support_gap" in (gate_decision.get("trigger_reasons") or [])
+        ):
+            accepted_answer = addon_answer
+            accepted_support = dict(candidate_support)
+            accepted_resolver = "adaptive_dual_open_slot_family_override"
+    if method_name == "adaptive_counterfactual_v1" and gate_decision["triggered"]:
+        counterfactual_row = next(
+            (row for row in reversed(adaptive_rows) if str(row.get("solver_mode") or "") == "solver_counterfactual"),
+            None,
+        )
+        if _should_accept_counterfactual_override(
+            counterfactual_row=counterfactual_row,
+            baseline_answer=stage_a_answer,
+            gate_decision=gate_decision,
+            sample=sample,
+        ):
+            counterfactual_answer = normalize_prediction(
+                benchmark_slug,
+                str(counterfactual_row.get("normalized_answer") or counterfactual_row.get("prediction") or ""),
+            )
+            if counterfactual_answer:
+                accepted_answer = counterfactual_answer
+                accepted_support = dict(candidate_support)
+                accepted_resolver = "adaptive_counterfactual_family_override"
+
+    normalized_final_answer = normalize_prediction(benchmark_slug, accepted_answer) if accepted_answer else ""
+    final_score = (
+        score_prediction(benchmark_slug, normalized_final_answer, sample.reference_answer)
+        if normalized_final_answer
+        else 0.0
+    )
+    adaptive_trace_hash = _trace_hash(
+        final_rows,
+        ["agent_id", "solver_mode", "normalized_answer", "confidence_value", "output_status"],
+    )
+    router_row = _build_adaptive_router_row(
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        gate_decision=gate_decision,
+        stage_a_answer=stage_a_answer,
+        stage_a_score=stage_a_score,
+        pre_answer=pre_answer,
+        pre_resolver=pre_resolver,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_resolver=accepted_resolver,
+    )
+    prediction_row = _build_adaptive_prediction_row(
+        method_name=method_name,
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        backbone=backbone,
+        final_rows=final_rows,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_support=accepted_support,
+        final_resolver=accepted_resolver,
+        adaptive_trace_hash=adaptive_trace_hash,
+        triggered=bool(gate_decision["triggered"]),
+        baseline_answer=stage_a_answer,
+        baseline_score=stage_a_score,
+    )
+    return router_row, prediction_row
 
 
 def _build_ega_only_prediction_row(
@@ -1200,8 +1744,13 @@ def _build_adaptive_gate_decision(
     top_support = support_values[0] if support_values else 0.0
     second_support = support_values[1] if len(support_values) > 1 else 0.0
     support_gap = top_support - second_support
-    avg_confidence = safe_mean(float(row.get("confidence_value") or 0.5) for row in stage_a_rows)
-    valid_confidence_count = sum(1 for row in stage_a_rows if bool(row.get("confidence_valid")))
+    valid_confidence_values = [
+        float(row["confidence_value"])
+        for row in stage_a_rows
+        if _row_has_valid_confidence_signal(row)
+    ]
+    avg_confidence = safe_mean(valid_confidence_values) if valid_confidence_values else None
+    valid_confidence_count = len(valid_confidence_values)
     confidence_signal_available = valid_confidence_count >= 2
     unknown_count = sum(
         1
@@ -1222,15 +1771,16 @@ def _build_adaptive_gate_decision(
     }
     evidence_conflict = len(grouped) <= 1 and len(evidence_signatures) > 1
     risk_count = sum(1 for row in stage_a_rows if _row_has_risk_signal(row))
-    disagreement_gap_threshold = max(protocol.majority_margin_threshold, 0.75)
-    consensus_confidence_floor = max(protocol.consensus_confidence_threshold, 0.85)
-    disagreement_confidence_floor = max(protocol.majority_confidence_threshold, 0.8)
+    disagreement_gap_threshold = _clamp_probability_threshold(protocol.majority_margin_threshold, default=0.25)
+    consensus_confidence_floor = _clamp_probability_threshold(protocol.consensus_confidence_threshold, default=0.65)
+    disagreement_confidence_floor = _clamp_probability_threshold(protocol.majority_confidence_threshold, default=0.6)
     strong_clean_consensus = (
         not has_disagreement
         and unknown_count == 0
         and degraded_count == 0
+        and avg_confidence is not None
         and avg_confidence >= consensus_confidence_floor
-        and top_support >= 2.8
+        and top_support >= (protocol.agent_count * consensus_confidence_floor)
     )
     low_confidence_consensus = (
         not has_disagreement
@@ -1277,7 +1827,7 @@ def _build_adaptive_gate_decision(
         "top_support": round(top_support, 6),
         "second_support": round(second_support, 6),
         "support_gap": round(support_gap, 6),
-        "avg_confidence": round(avg_confidence, 6),
+        "avg_confidence": round(avg_confidence, 6) if avg_confidence is not None else None,
         "valid_confidence_count": valid_confidence_count,
         "unknown_count": unknown_count,
         "degraded_count": degraded_count,
@@ -1302,6 +1852,16 @@ def _select_adaptive_addon_solver_sequence(
     gate_decision: dict[str, Any],
 ) -> list[str]:
     base_solver = str(gate_decision.get("selected_addon_solver") or _select_adaptive_addon_solver(sample))
+    if method_name == "adaptive_counterfactual_v1":
+        severe_counterfactual_need = _adaptive_counterfactual_needed(
+            sample=sample,
+            gate_decision=gate_decision,
+        )
+        if severe_counterfactual_need and _sample_prefers_evidence_primary(sample):
+            return ["solver_evidence", "solver_counterfactual"]
+        if severe_counterfactual_need:
+            return ["solver_counterfactual"]
+        return [base_solver]
     if method_name != "adaptive_dual_open_v5":
         return [base_solver]
     if not _sample_prefers_evidence_primary(sample):
@@ -1327,6 +1887,29 @@ def _sample_prefers_evidence_primary(sample: DatasetSample) -> bool:
     return not _question_looks_mathy(sample.question)
 
 
+def _adaptive_counterfactual_needed(
+    *,
+    sample: DatasetSample,
+    gate_decision: dict[str, Any],
+) -> bool:
+    del sample
+    trigger_reasons = set(str(item) for item in (gate_decision.get("trigger_reasons") or []))
+    unique_answer_count = int(gate_decision.get("unique_answer_count") or 0)
+    support_gap = float(gate_decision.get("support_gap") or 0.0)
+    degraded_count = int(gate_decision.get("degraded_count") or 0)
+    unknown_count = int(gate_decision.get("unknown_count") or 0)
+    collapse_like_consensus = unique_answer_count <= 1 and (
+        degraded_count > 0 or unknown_count > 0 or "low_confidence_consensus" in trigger_reasons
+    )
+    severe_disagreement = unique_answer_count >= 2 and (
+        "self_reported_risk" in trigger_reasons
+        or "degraded_output" in trigger_reasons
+        or "unknown_answer" in trigger_reasons
+        or support_gap <= 0.25
+    )
+    return collapse_like_consensus or severe_disagreement
+
+
 def _answers_share_family(left: str, right: str) -> bool:
     normalized_left = _normalize_router_text(left)
     normalized_right = _normalize_router_text(right)
@@ -1344,6 +1927,88 @@ def _core_supports_answer_family(core_stage_a_rows: list[dict[str, Any]], answer
         _answers_share_family(str(row.get("normalized_answer") or ""), answer)
         for row in core_stage_a_rows
     )
+
+
+def _should_accept_counterfactual_override(
+    *,
+    counterfactual_row: dict[str, Any] | None,
+    baseline_answer: str,
+    gate_decision: dict[str, Any],
+    sample: DatasetSample,
+) -> bool:
+    if counterfactual_row is None:
+        return False
+    candidate_answer = str(counterfactual_row.get("normalized_answer") or counterfactual_row.get("prediction") or "").strip()
+    if candidate_answer.lower() in {"", "unknown"}:
+        return False
+    if _answers_share_family(candidate_answer, baseline_answer):
+        return False
+    if _stage_a_row_is_degraded(counterfactual_row):
+        return False
+    answer_type = str(counterfactual_row.get("answer_type") or "").strip()
+    key_constraints = str(counterfactual_row.get("key_constraints") or "").strip()
+    claim_span = str(counterfactual_row.get("claim_span") or "").strip()
+    key_evidence = str(counterfactual_row.get("key_evidence") or "").strip()
+    if not any((answer_type, key_constraints, claim_span, key_evidence)):
+        return False
+    if _sample_is_multiple_choice(sample):
+        if not (len(candidate_answer) == 1 and candidate_answer.isalpha() and candidate_answer.upper() == candidate_answer):
+            return False
+    trigger_reasons = set(str(item) for item in (gate_decision.get("trigger_reasons") or []))
+    unique_answer_count = int(gate_decision.get("unique_answer_count") or 0)
+    support_gap = float(gate_decision.get("support_gap") or 0.0)
+    top_support = float(gate_decision.get("top_support") or 0.0)
+    avg_confidence_raw = gate_decision.get("avg_confidence")
+    avg_confidence = float(avg_confidence_raw) if avg_confidence_raw is not None else None
+    is_multiple_choice = _sample_is_multiple_choice(sample)
+    is_mathy = _question_looks_mathy(sample.question)
+    is_open_qa_like = _sample_prefers_evidence_primary(sample)
+    collapse_like_consensus = unique_answer_count <= 1
+    if is_multiple_choice or is_mathy:
+        disagreement_backed_override = bool(
+            unique_answer_count >= 2
+            and (
+                support_gap <= 0.25
+                or "unknown_answer" in trigger_reasons
+                or avg_confidence is None
+                or avg_confidence < 0.75
+            )
+        )
+        collapse_rescue_override = bool(
+            collapse_like_consensus
+            and (
+                "unknown_answer" in trigger_reasons
+                or "low_confidence_consensus" in trigger_reasons
+                or avg_confidence is None
+                or avg_confidence < 0.75
+            )
+        )
+    else:
+        disagreement_backed_override = bool(
+            unique_answer_count >= 2
+            and (
+                "answer_disagreement" in trigger_reasons
+                or "answer_type_conflict" in trigger_reasons
+                or "narrow_support_gap" in trigger_reasons
+                or "self_reported_risk" in trigger_reasons
+                or support_gap <= 0.25
+            )
+        )
+        collapse_rescue_override = bool(
+            collapse_like_consensus
+            and (
+                "unknown_answer" in trigger_reasons
+                or "low_confidence_consensus" in trigger_reasons
+                or "self_reported_risk" in trigger_reasons
+                or avg_confidence is None
+                or avg_confidence < 0.75
+            )
+        )
+    if collapse_like_consensus and avg_confidence is not None and avg_confidence >= 0.85 and top_support >= 1.5:
+        return False
+    if is_open_qa_like and "answer_disagreement" in trigger_reasons and support_gap <= 0.5:
+        disagreement_backed_override = True
+    return disagreement_backed_override or collapse_rescue_override
 
 
 def _execute_turn(
@@ -1625,7 +2290,6 @@ def _build_control_prediction_row(
         "total_tokens_per_question": costs["total_tokens"],
         "latency_ms_per_question": costs["latency_ms"],
         "calls_per_question": len(turn_rows),
-        "judge_fallback_used": False,
         "rows_with_request_failures": sum(1 for row in turn_rows if row.get("output_status") == "request_fail"),
         "rows_with_schema_failures": sum(1 for row in turn_rows if row.get("output_status") == "schema_fail"),
         "matched_budget_calls": method.budget_calls,
@@ -1721,7 +2385,6 @@ def _build_hetero_prediction_row(
         "total_tokens_per_question": costs["total_tokens"],
         "latency_ms_per_question": costs["latency_ms"],
         "calls_per_question": len(stage_a_rows),
-        "judge_fallback_used": False,
         "rows_with_request_failures": sum(1 for row in stage_a_rows if row.get("output_status") == "request_fail"),
         "rows_with_schema_failures": sum(1 for row in stage_a_rows if row.get("output_status") == "schema_fail"),
         "model_name": backbone.name,
@@ -1773,7 +2436,6 @@ def _build_adaptive_prediction_row(
         "total_tokens_per_question": costs["total_tokens"],
         "latency_ms_per_question": costs["latency_ms"],
         "calls_per_question": len(final_rows),
-        "judge_fallback_used": False,
         "rows_with_request_failures": sum(1 for row in final_rows if row.get("output_status") == "request_fail"),
         "rows_with_schema_failures": sum(1 for row in final_rows if row.get("output_status") == "schema_fail"),
         "model_name": backbone.name,
@@ -1805,6 +2467,7 @@ def _build_adaptive_router_row(
         "triggered": bool(gate_decision.get("triggered")),
         "trigger_reasons": list(gate_decision.get("trigger_reasons") or []),
         "selected_addon_solver": str(gate_decision.get("selected_addon_solver") or ""),
+        "executed_addon_solvers": [str(item) for item in (gate_decision.get("executed_addon_solvers") or [])],
         "unique_answer_count": int(gate_decision.get("unique_answer_count") or 0),
         "top_support": float(gate_decision.get("top_support") or 0.0),
         "second_support": float(gate_decision.get("second_support") or 0.0),
@@ -1868,7 +2531,6 @@ def _build_aggregate_prediction_row(
         "total_tokens_per_question": costs["total_tokens"],
         "latency_ms_per_question": costs["latency_ms"],
         "calls_per_question": len(stage_a_rows),
-        "judge_fallback_used": False,
         "rows_with_request_failures": sum(1 for row in stage_a_rows if row.get("output_status") == "request_fail"),
         "rows_with_schema_failures": sum(1 for row in stage_a_rows if row.get("output_status") == "schema_fail"),
         "model_name": backbone.name,
@@ -1903,7 +2565,6 @@ def _build_summary_row(dataset: str, method_name: str, rows: list[dict[str, Any]
         "harmed_rate": round(sum(1.0 if row.get("harmed_by_method") else 0.0 for row in rows) / question_count, 6) if question_count else 0.0,
         "corrected_count": sum(1 for row in rows if row.get("corrected_by_method")),
         "harmed_count": sum(1 for row in rows if row.get("harmed_by_method")),
-        "judge_fallback_rate": round(sum(1.0 if row.get("judge_fallback_used") else 0.0 for row in rows) / question_count, 6) if question_count else 0.0,
     }
 
 
@@ -1962,6 +2623,22 @@ def _validate_stage_a_output(raw_text: str, *, dataset: str, provider_reasoning_
             dataset=dataset,
             allow_numeric_tail_recovery=True,
         )
+
+
+def _clamp_probability_threshold(value: object, *, default: float) -> float:
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError):
+        return default
+    return max(0.0, min(1.0, numeric_value))
+
+
+def _row_has_valid_confidence_signal(row: dict[str, Any]) -> bool:
+    if row.get("confidence_value") is None:
+        return False
+    if "confidence_valid" not in row:
+        return True
+    return bool(row.get("confidence_valid"))
 
 
 def _apply_stage_a_consistency_safeguard(

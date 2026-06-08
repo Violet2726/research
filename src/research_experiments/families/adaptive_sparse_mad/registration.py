@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import asdict
 
+from research_experiments.cli_support.output import emit_json
 from research_experiments.core.contracts import FamilyCliHelp, FamilyRunRequest
 from research_experiments.families.adaptive_sparse_mad.config import (
     inspect_benchmarks,
@@ -12,7 +14,7 @@ from research_experiments.families.adaptive_sparse_mad.config import (
     load_experiment_config,
     load_protocol_config,
 )
-from research_experiments.families.adaptive_sparse_mad.run.execute import run_experiment
+from research_experiments.families.adaptive_sparse_mad.run.execute import refresh_stage_a_only_run_artifacts, run_experiment
 from research_experiments.families.adaptive_sparse_mad.run.report import render_report, summarize_run
 from research_experiments.families.adaptive_sparse_mad.run.validate import validate_run
 from research_experiments.family_runtime.config_helpers import resolve_model
@@ -59,10 +61,29 @@ def run_from_cli(request: FamilyRunRequest):
     )
 
 
+def configure_parser(parser) -> None:
+    for action in parser._actions:
+        if not isinstance(action, argparse._SubParsersAction):
+            continue
+        refresh = action.add_parser(
+            "refresh-run-artifacts",
+            help="Refresh metrics/diagnostics/report for one completed A-SMAD run using current code.",
+        )
+        refresh.add_argument("--run-dir", required=True)
+        return
+    raise RuntimeError("Parser is missing subcommands.")
+
+
+def dispatch_extra_command(args) -> bool:
+    if args.command != "refresh-run-artifacts":
+        return False
+    run_dir = refresh_stage_a_only_run_artifacts(args.run_dir)
+    emit_json({"run_dir": run_dir.as_posix(), "status": "refreshed"})
+    return True
+
+
 ARTIFACT_ALIASES = {
     "stage_a_turns": "turns/stage_a_turns.jsonl",
-    "stage_b_turns": "turns/stage_b_turns.jsonl",
-    "judge_turns": "turns/judge_turns.jsonl",
     "control_turns": "turns/control_turns.jsonl",
     "router_decisions": "turns/router_decisions.jsonl",
     "router_eval": "diagnostics/router_eval.json",
@@ -92,13 +113,13 @@ REGISTRATION = make_family_registration(
     summarize_run=summarize_run,
     validate_run=validate_run,
     render_report=render_report,
+    configure_parser=configure_parser,
+    dispatch_extra_command=dispatch_extra_command,
     artifact_aliases=ARTIFACT_ALIASES,
     metrics_view_path="views/metrics.json",
     prediction_records_path="views/predictions.jsonl",
     turn_record_paths=(
         "turns/stage_a_turns.jsonl",
-        "turns/stage_b_turns.jsonl",
-        "turns/judge_turns.jsonl",
         "turns/control_turns.jsonl",
         "turns/router_decisions.jsonl",
     ),

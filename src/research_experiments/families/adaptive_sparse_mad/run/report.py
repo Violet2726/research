@@ -30,6 +30,7 @@ METHOD_ORDER = [
     "ega_only_v4",
     "adaptive_gate_v4",
     "adaptive_dual_open_v5",
+    "adaptive_counterfactual_v1",
 ]
 
 
@@ -129,8 +130,11 @@ def _render_markdown(
     pairwise_rows = [
         row
         for row in policy_diagnostics.get("pairwise_rows", [])
-        if row.get("dataset") == "overall"
     ]
+    promotion_gate = policy_diagnostics.get("promotion_gate", {})
+    promotion_gate_rows = list(promotion_gate.get("candidate_rows", []))
+    mainline_gate = policy_diagnostics.get("mainline_gate", {})
+    mainline_gate_rows = list(mainline_gate.get("candidate_rows", []))
     best_row = summary.best_by("accuracy_mean", rows=overall_rows)
     recommended = policy_diagnostics.get("recommended_next_default_policy", {})
     resolver_breakdown_rows = stage_a_resolver_breakdown.get("summary_rows", [])
@@ -288,7 +292,7 @@ def _render_markdown(
     interesting_pairwise_rows = [
         row
         for row in pairwise_rows
-        if str(row.get("method_name") or "") in {"ega_only_v4", "adaptive_gate_v4", "adaptive_dual_open_v5"}
+        if str(row.get("method_name") or "") in {"ega_only_v4", "adaptive_gate_v4", "adaptive_dual_open_v5", "adaptive_counterfactual_v1"}
         and str(row.get("baseline_method_name") or "") in {"hetero_vote_3", "sc_5"}
     ]
     if interesting_pairwise_rows:
@@ -297,18 +301,61 @@ def _render_markdown(
                 "",
                 "## Paired Comparison",
                 "",
-                "| Method | Baseline | Delta Acc | 95% CI | Corrected | Harmed | McNemar p | Holm p |",
-                "| --- | --- | --- | --- | --- | --- | --- | --- |",
+                "| Dataset | Method | Baseline | Delta Acc | 95% CI | Corrected | Harmed | McNemar p | Holm p |",
+                "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
             ]
         )
         for row in interesting_pairwise_rows:
             lines.append(
-                f"| `{row.get('method_name', 'unknown')}` | `{row.get('baseline_method_name', 'unknown')}` | "
+                f"| `{row.get('dataset', 'unknown')}` | `{row.get('method_name', 'unknown')}` | `{row.get('baseline_method_name', 'unknown')}` | "
                 f"{format_float(float(row.get('accuracy_delta', 0.0) or 0.0))} | "
                 f"`[{format_float(float(row.get('bootstrap_ci_low', 0.0) or 0.0))}, {format_float(float(row.get('bootstrap_ci_high', 0.0) or 0.0))}]` | "
                 f"{int(row.get('corrected_count', 0) or 0)} | {int(row.get('harmed_count', 0) or 0)} | "
                 f"{format_float(float(row.get('exact_mcnemar_p', 1.0) or 1.0))} | "
                 f"{format_float(float(row.get('holm_adjusted_p', 1.0) or 1.0))} |"
+            )
+
+    if promotion_gate_rows:
+        lines.extend(
+            [
+                "",
+                "## Promotion Gate",
+                "",
+                "| Method | Promote To Count100 | Mainline Ready | Net Corrected | Positive Datasets | Negative Datasets | Verdict |",
+                "| --- | --- | --- | --- | --- | --- | --- |",
+            ]
+        )
+        for row in promotion_gate_rows:
+            lines.append(
+                f"| `{row.get('method_name', 'unknown')}` | `{str(bool(row.get('promote_to_count100'))).lower()}` | "
+                f"`{str(bool(row.get('mainline_ready_signal'))).lower()}` | "
+                f"{int(row.get('net_corrected', 0) or 0)} | "
+                f"`{','.join(row.get('positive_datasets', [])) or 'none'}` | "
+                f"`{','.join(row.get('negative_datasets', [])) or 'none'}` | "
+                f"`{row.get('verdict_reason', 'unknown')}` |"
+            )
+
+    if mainline_gate_rows:
+        lines.extend(
+            [
+                "",
+                "## Mainline Gate",
+                "",
+                "| Method | Eligible | Mainline Ready | Delta Acc | 95% CI | Holm p | Core Categories | Negative Datasets | Verdict |",
+                "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            ]
+        )
+        for row in mainline_gate_rows:
+            lines.append(
+                f"| `{row.get('method_name', 'unknown')}` | "
+                f"`{str(bool(row.get('eligible_for_mainline_assessment'))).lower()}` | "
+                f"`{str(bool(row.get('mainline_ready'))).lower()}` | "
+                f"{format_float(float(row.get('overall_accuracy_delta', 0.0) or 0.0))} | "
+                f"`[{format_float(float(row.get('bootstrap_ci_low', 0.0) or 0.0))}, {format_float(float(row.get('bootstrap_ci_high', 0.0) or 0.0))}]` | "
+                f"{format_float(float(row.get('holm_adjusted_p', 1.0) or 1.0))} | "
+                f"{int(row.get('core_category_positive_count', 0) or 0)} | "
+                f"`{','.join(row.get('negative_datasets', [])) or 'none'}` | "
+                f"`{row.get('verdict_reason', 'unknown')}` |"
             )
 
     lines.extend(["", "## 分数据集表现", ""])
@@ -334,6 +381,7 @@ def _render_markdown(
             "",
             "- 如果 `hetero_vote_3` 稳定强于 `cot_1 / mv_3 / sc_5`，说明异质 Stage A 仍然是当前最值得继续加码的主线。",
             "- 如果 `adaptive_gate_v4` 或 `adaptive_dual_open_v5` 在 `all_three_wrong` 高发的数据集上仍能保持净正改正，就说明分歧触发 + 证据重排仍是值得继续扩展的机制主线。",
+            "- `Promotion Gate` 面向 `count20 -> count100` 的晋级决策；只有跨多个数据集保持净正收益的方法才值得继续上大样本验证。",
             "- 如果误差主要集中在 `all_three_wrong`，优先改 solver 本身；如果主要集中在 `clean_pseudo_majority`，再优先改聚合。",
             "- 只有在 Stage A 已经足够强时，才值得恢复更昂贵的通信或 judge 消融。",
             "",

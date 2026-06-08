@@ -98,3 +98,31 @@ def test_single_agent_validator_fails_when_progress_records_429(tmp_path: Path) 
 
     assert payload["passed"] is False
     assert payload["rate_limit_check"]["progress_429_count"] == 1
+
+
+def test_validate_rate_limit_check_allows_soft_429_when_event_replay_stays_within_limits(tmp_path: Path) -> None:
+    progress_path = tmp_path / "progress.json"
+    write_json(progress_path, {"rate_limit_429_count": 1})
+
+    turn_rows = [
+        {
+            "dataset": "gsm8k",
+            "sample_id": "s1",
+            "method_name": "cot_1",
+            "agent_id": None,
+            "cache_hit": False,
+            "request_started_at": "2026-04-24T00:00:00+00:00",
+            "estimated_request_tokens": 80,
+        }
+    ]
+
+    result = validate_rate_limit_check(
+        progress_path,
+        turn_rows,
+        requests_per_minute_limit=10,
+        tokens_per_minute_limit=1000,
+    )
+
+    assert result["event_replay_available"] is True
+    assert result["replay_confirms_no_violation"] is True
+    assert result["passed"] is True

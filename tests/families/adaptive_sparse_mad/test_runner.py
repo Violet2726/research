@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from testsupport.filesystem import write_json, write_registered_family_manifest
 
 from research_experiments.core.controls.control_prompts import build_cot_messages
@@ -24,6 +26,7 @@ from research_experiments.families.adaptive_sparse_mad.run.sample import (
     _apply_stage_a_consistency_safeguard,
     _answers_share_family,
     _build_adaptive_gate_decision,
+    _should_accept_counterfactual_override,
     _select_adaptive_addon_solver_sequence,
     _should_safe_retry_stage_a_result,
     _validate_control_output,
@@ -33,6 +36,7 @@ from research_experiments.families.adaptive_sparse_mad.run.sample import (
     build_stage_a_error_bucket_payload,
     build_stage_a_resolver_breakdown_payload,
     build_stage_a_solver_contribution_payload,
+    refresh_prediction_rows_for_run,
     refresh_stage_a_prediction_rows,
     summarize_run,
 )
@@ -144,6 +148,46 @@ def test_build_adaptive_addon_messages_includes_stage_a_candidate_summary() -> N
     assert "solver_cot" in messages[1]["content"]
     assert "selected_candidate" in messages[1]["content"]
 
+
+def test_build_counterfactual_addon_messages_mentions_leading_candidate_family() -> None:
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which gaming console were both games released on?",
+        reference_answer="PlayStation 4",
+        prompt_context="Both games were released for PlayStation 3 and PlayStation 4.",
+        metadata={},
+    )
+    stage_a_rows = [
+        {
+            "solver_mode": "solver_cot",
+            "normalized_answer": "playstation 3",
+            "confidence_value": 0.61,
+            "claim_span": "PlayStation 3",
+            "key_evidence": "released for PlayStation 3",
+            "answer_type": "gaming console",
+            "key_constraints": "single console name",
+        },
+        {
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "playstation 3",
+            "confidence_value": 0.58,
+            "claim_span": "PlayStation 3",
+            "key_evidence": "released for PlayStation 3",
+            "answer_type": "gaming console",
+            "key_constraints": "single console name",
+        },
+    ]
+
+    messages = build_adaptive_addon_messages(
+        sample,
+        solver_mode="solver_counterfactual",
+        agent_id=4,
+        stage_a_rows=stage_a_rows,
+    )
+
+    assert "Current leading candidate family" in messages[1]["content"]
+    assert "playstation 3" in messages[1]["content"].lower()
 
 def test_should_safe_retry_stage_a_result_for_recovered_output() -> None:
     result = SimpleNamespace(
@@ -882,6 +926,10 @@ def test_build_policy_diagnostics_selects_adaptive_gate_when_it_wins() -> None:
     assert "bootstrap_ci_low" in pairwise_row
     assert "bootstrap_ci_high" in pairwise_row
     assert "holm_adjusted_p" in pairwise_row
+    assert any(
+        row["dataset"] == "hotpotqa" and row["method_name"] == "adaptive_gate_v4"
+        for row in payload["pairwise_rows"]
+    )
 
 
 def test_build_router_eval_payload_summarizes_adaptive_router_rows() -> None:
@@ -1181,6 +1229,361 @@ def test_adaptive_gate_decision_does_not_treat_missing_confidence_as_low_confide
 
     assert decision["triggered"] is False
     assert "low_confidence_consensus" not in decision["trigger_reasons"]
+    assert decision["valid_confidence_count"] == 0
+    assert decision["avg_confidence"] is None
+
+
+def test_adaptive_gate_decision_uses_protocol_thresholds_without_hidden_floor() -> None:
+    protocol = AdaptiveSparseMadProtocolConfig(
+        agent_count=3,
+        top_p=1.0,
+        stage_a_temperature=0.7,
+        stage_a_max_output_tokens=256,
+        consensus_confidence_threshold=0.65,
+        majority_confidence_threshold=0.6,
+        majority_margin_threshold=0.25,
+    )
+    sample = DatasetSample(
+        dataset="mmlu_pro",
+        sample_id="demo",
+        question="Which option is correct?",
+        reference_answer="A|||alpha",
+        prompt_context="A. alpha\nB. beta",
+        metadata={"options": ["alpha", "beta"]},
+    )
+    stage_a_rows = [
+        {"solver_mode": "solver_cot", "normalized_answer": "A", "confidence_value": 0.92, "confidence_valid": True},
+        {"solver_mode": "solver_l2m", "normalized_answer": "A", "confidence_value": 0.9, "confidence_valid": True},
+        {"solver_mode": "solver_skeptic", "normalized_answer": "B", "confidence_value": 0.88, "confidence_valid": True},
+    ]
+
+    decision = _build_adaptive_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=stage_a_rows,
+        support={"A": 1.82, "B": 0.88},
+    )
+
+    assert decision["triggered"] is False
+    assert "narrow_support_gap" not in decision["trigger_reasons"]
+
+
+def test_build_policy_diagnostics_emits_dataset_and_overall_pairwise_rows() -> None:
+    payload = build_policy_diagnostics(
+        prediction_rows=[
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "h1",
+                "method_name": "hetero_vote_3",
+                "method_kind": "aggregate",
+                "score": 0.0,
+                "prompt_tokens_per_question": 100.0,
+                "completion_tokens_per_question": 50.0,
+                "total_tokens_per_question": 150.0,
+                "communication_tokens_per_question": 0.0,
+                "latency_ms_per_question": 10.0,
+                "calls_per_question": 3,
+                "triggered": False,
+                "early_exit": True,
+                "changed_answer": False,
+                "corrected_by_method": False,
+                "harmed_by_method": False,
+                "judge_fallback_used": False,
+                "model_name": "demo",
+            },
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "h1",
+                "method_name": "adaptive_gate_v4",
+                "method_kind": "aggregate",
+                "score": 1.0,
+                "prompt_tokens_per_question": 120.0,
+                "completion_tokens_per_question": 60.0,
+                "total_tokens_per_question": 180.0,
+                "communication_tokens_per_question": 0.0,
+                "latency_ms_per_question": 12.0,
+                "calls_per_question": 4,
+                "triggered": True,
+                "early_exit": False,
+                "changed_answer": True,
+                "corrected_by_method": True,
+                "harmed_by_method": False,
+                "judge_fallback_used": False,
+                "model_name": "demo",
+            },
+            {
+                "dataset": "gsm8k",
+                "sample_id": "g1",
+                "method_name": "hetero_vote_3",
+                "method_kind": "aggregate",
+                "score": 1.0,
+                "prompt_tokens_per_question": 90.0,
+                "completion_tokens_per_question": 30.0,
+                "total_tokens_per_question": 120.0,
+                "communication_tokens_per_question": 0.0,
+                "latency_ms_per_question": 9.0,
+                "calls_per_question": 3,
+                "triggered": False,
+                "early_exit": True,
+                "changed_answer": False,
+                "corrected_by_method": False,
+                "harmed_by_method": False,
+                "judge_fallback_used": False,
+                "model_name": "demo",
+            },
+            {
+                "dataset": "gsm8k",
+                "sample_id": "g1",
+                "method_name": "adaptive_gate_v4",
+                "method_kind": "aggregate",
+                "score": 1.0,
+                "prompt_tokens_per_question": 110.0,
+                "completion_tokens_per_question": 40.0,
+                "total_tokens_per_question": 150.0,
+                "communication_tokens_per_question": 0.0,
+                "latency_ms_per_question": 11.0,
+                "calls_per_question": 4,
+                "triggered": False,
+                "early_exit": True,
+                "changed_answer": False,
+                "corrected_by_method": False,
+                "harmed_by_method": False,
+                "judge_fallback_used": False,
+                "model_name": "demo",
+            },
+        ],
+        router_eval_payload={"summary_rows": []},
+    )
+
+    dataset_pairs = [
+        row for row in payload["pairwise_rows"]
+        if row["method_name"] == "adaptive_gate_v4" and row["baseline_method_name"] == "hetero_vote_3"
+    ]
+    assert {row["dataset"] for row in dataset_pairs} == {"gsm8k", "hotpotqa", "overall"}
+
+
+def test_build_policy_diagnostics_exposes_promotion_gate_summary() -> None:
+    payload = build_policy_diagnostics(
+        prediction_rows=[
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "h1",
+                "method_name": "hetero_vote_3",
+                "method_kind": "aggregate",
+                "score": 0.0,
+                "prompt_tokens_per_question": 100.0,
+                "completion_tokens_per_question": 50.0,
+                "total_tokens_per_question": 150.0,
+                "communication_tokens_per_question": 0.0,
+                "latency_ms_per_question": 10.0,
+                "calls_per_question": 3,
+                "triggered": False,
+                "early_exit": True,
+                "changed_answer": False,
+                "corrected_by_method": False,
+                "harmed_by_method": False,
+                "model_name": "demo",
+            },
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "h1",
+                "method_name": "adaptive_counterfactual_v1",
+                "method_kind": "aggregate",
+                "score": 1.0,
+                "prompt_tokens_per_question": 120.0,
+                "completion_tokens_per_question": 60.0,
+                "total_tokens_per_question": 180.0,
+                "communication_tokens_per_question": 0.0,
+                "latency_ms_per_question": 12.0,
+                "calls_per_question": 4,
+                "triggered": True,
+                "early_exit": False,
+                "changed_answer": True,
+                "corrected_by_method": True,
+                "harmed_by_method": False,
+                "model_name": "demo",
+            },
+            {
+                "dataset": "mmlu_pro",
+                "sample_id": "m1",
+                "method_name": "hetero_vote_3",
+                "method_kind": "aggregate",
+                "score": 0.0,
+                "prompt_tokens_per_question": 100.0,
+                "completion_tokens_per_question": 50.0,
+                "total_tokens_per_question": 150.0,
+                "communication_tokens_per_question": 0.0,
+                "latency_ms_per_question": 10.0,
+                "calls_per_question": 3,
+                "triggered": False,
+                "early_exit": True,
+                "changed_answer": False,
+                "corrected_by_method": False,
+                "harmed_by_method": False,
+                "model_name": "demo",
+            },
+            {
+                "dataset": "mmlu_pro",
+                "sample_id": "m1",
+                "method_name": "adaptive_counterfactual_v1",
+                "method_kind": "aggregate",
+                "score": 1.0,
+                "prompt_tokens_per_question": 120.0,
+                "completion_tokens_per_question": 60.0,
+                "total_tokens_per_question": 180.0,
+                "communication_tokens_per_question": 0.0,
+                "latency_ms_per_question": 12.0,
+                "calls_per_question": 4,
+                "triggered": True,
+                "early_exit": False,
+                "changed_answer": True,
+                "corrected_by_method": True,
+                "harmed_by_method": False,
+                "model_name": "demo",
+            },
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "h2",
+                "method_name": "hetero_vote_3",
+                "method_kind": "aggregate",
+                "score": 1.0,
+                "prompt_tokens_per_question": 100.0,
+                "completion_tokens_per_question": 50.0,
+                "total_tokens_per_question": 150.0,
+                "communication_tokens_per_question": 0.0,
+                "latency_ms_per_question": 10.0,
+                "calls_per_question": 3,
+                "triggered": False,
+                "early_exit": True,
+                "changed_answer": False,
+                "corrected_by_method": False,
+                "harmed_by_method": False,
+                "model_name": "demo",
+            },
+        ],
+        router_eval_payload={"summary_rows": []},
+    )
+
+    promotion_gate = payload["promotion_gate"]
+    candidate_lookup = {row["method_name"]: row for row in promotion_gate["candidate_rows"]}
+    assert candidate_lookup["adaptive_counterfactual_v1"]["promote_to_count100"] is True
+    assert candidate_lookup["adaptive_counterfactual_v1"]["positive_categories"] == ["mcqa", "open_qa"]
+    assert candidate_lookup["adaptive_counterfactual_v1"]["mainline_ready_signal"] is True
+    mainline_gate = payload["mainline_gate"]
+    mainline_lookup = {row["method_name"]: row for row in mainline_gate["candidate_rows"]}
+    assert mainline_lookup["adaptive_counterfactual_v1"]["eligible_for_mainline_assessment"] is False
+    assert mainline_lookup["adaptive_counterfactual_v1"]["mainline_ready"] is False
+
+
+def test_build_policy_diagnostics_marks_mainline_ready_when_count100_conditions_hold() -> None:
+    prediction_rows: list[dict[str, object]] = []
+    positive_samples = {
+        *(("hotpotqa", index) for index in range(10)),
+        *(("mmlu_pro", index) for index in range(8)),
+        *(("math500", index) for index in range(6)),
+    }
+    dataset_order = [
+        "hotpotqa",
+        "competition_math",
+        "mmlu_pro",
+        "gpqa_diamond",
+        "math500",
+        "strategyqa",
+        "gsm8k",
+    ]
+    for dataset in dataset_order:
+        for index in range(100):
+            sample_id = f"{dataset}-{index:03d}"
+            baseline_correct = True
+            method_correct = True
+            if (dataset, index) in positive_samples:
+                baseline_correct = False
+            score_baseline = 1.0 if baseline_correct else 0.0
+            score_method = 1.0 if method_correct else 0.0
+            prediction_rows.append(
+                {
+                    "dataset": dataset,
+                    "sample_id": sample_id,
+                    "method_name": "hetero_vote_3",
+                    "method_kind": "aggregate",
+                    "score": score_baseline,
+                    "prompt_tokens_per_question": 100.0,
+                    "completion_tokens_per_question": 50.0,
+                    "total_tokens_per_question": 150.0,
+                    "communication_tokens_per_question": 0.0,
+                    "latency_ms_per_question": 10.0,
+                    "calls_per_question": 3,
+                    "triggered": False,
+                    "early_exit": True,
+                    "changed_answer": False,
+                    "corrected_by_method": False,
+                    "harmed_by_method": False,
+                    "model_name": "demo",
+                }
+            )
+            prediction_rows.append(
+                {
+                    "dataset": dataset,
+                    "sample_id": sample_id,
+                    "method_name": "adaptive_counterfactual_v1",
+                    "method_kind": "aggregate",
+                    "score": score_method,
+                    "prompt_tokens_per_question": 120.0,
+                    "completion_tokens_per_question": 60.0,
+                    "total_tokens_per_question": 180.0,
+                    "communication_tokens_per_question": 0.0,
+                    "latency_ms_per_question": 12.0,
+                    "calls_per_question": 4,
+                    "triggered": dataset in {"hotpotqa", "mmlu_pro", "math500"},
+                    "early_exit": dataset not in {"hotpotqa", "mmlu_pro", "math500"},
+                    "changed_answer": (dataset, index) in positive_samples,
+                    "corrected_by_method": (dataset, index) in positive_samples,
+                    "harmed_by_method": False,
+                    "model_name": "demo",
+                }
+            )
+
+    payload = build_policy_diagnostics(
+        prediction_rows=prediction_rows,
+        router_eval_payload={"summary_rows": []},
+    )
+
+    mainline_lookup = {row["method_name"]: row for row in payload["mainline_gate"]["candidate_rows"]}
+    candidate = mainline_lookup["adaptive_counterfactual_v1"]
+    assert candidate["eligible_for_mainline_assessment"] is True
+    assert candidate["mainline_ready"] is True
+    assert candidate["core_category_positive_count"] == 3
+    assert candidate["negative_datasets"] == []
+
+
+def test_load_experiment_config_requires_v4_stage_a_for_structured_methods(tmp_path: Path) -> None:
+    experiment_path = tmp_path / "bad_adaptive.toml"
+    experiment_path.write_text(
+        '\n'.join(
+            [
+                'name = "bad_adaptive"',
+                'description = "demo"',
+                'benchmark_configs = ["configs/core/shared/benchmarks/gsm8k/test.toml"]',
+                'protocol = "configs/families/adaptive_sparse_mad/protocols/shared_pair_sparse.toml"',
+                'control_catalog = "configs/families/adaptive_sparse_mad/controls/same_context_controls.toml"',
+                'aggregate_methods = ["hetero_vote_3", "adaptive_gate_v4"]',
+                "global_seed = 42",
+                'prompt_version = "adaptive_sparse_mad_v4_evidence_gate"',
+                'stage_a_prompt_version = "adaptive_sparse_mad_v2_task_schema"',
+                'adaptive_prompt_version = "adaptive_sparse_mad_v4_evidence_gate"',
+                'primary_model_ref = "xiaomimimo/mimo-v2.5"',
+                "",
+                "[phases.count20]",
+                'split_overrides = { gsm8k = "count20_seed42" }',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    from research_experiments.families.adaptive_sparse_mad.config import load_experiment_config
+
+    with pytest.raises(ValueError, match="stage_a_prompt_version=adaptive_sparse_mad_v4_evidence_gate"):
+        load_experiment_config(experiment_path)
 
 
 def test_adaptive_dual_open_v5_uses_slot_contrast_on_severe_open_qa_uncertainty() -> None:
@@ -1205,6 +1608,102 @@ def test_adaptive_dual_open_v5_uses_slot_contrast_on_severe_open_qa_uncertainty(
     )
 
     assert sequence == ["solver_evidence", "solver_slot_contrast"]
+
+
+def test_adaptive_counterfactual_v1_uses_counterfactual_sequence_on_collapse_risk() -> None:
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which gaming console were both games released on?",
+        reference_answer="PlayStation 4",
+        prompt_context="Both games were released for PlayStation 3 and PlayStation 4.",
+        metadata={},
+    )
+    gate_decision = {
+        "triggered": True,
+        "selected_addon_solver": "solver_evidence",
+        "trigger_reasons": ["degraded_output", "self_reported_risk"],
+        "unique_answer_count": 1,
+        "support_gap": 0.0,
+        "degraded_count": 1,
+        "unknown_count": 0,
+    }
+
+    sequence = _select_adaptive_addon_solver_sequence(
+        method_name="adaptive_counterfactual_v1",
+        sample=sample,
+        gate_decision=gate_decision,
+    )
+
+    assert sequence == ["solver_evidence", "solver_counterfactual"]
+
+
+def test_counterfactual_override_rejects_strong_single_family_consensus() -> None:
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which Blackzilians fighter is currently competing in the UFC Middleweight division?",
+        reference_answer="Vitor Belfort",
+        prompt_context="The Blackzilians includes Vitor Belfort and Rashad Evans. Both are currently competing in the UFC Middleweight division.",
+        metadata={},
+    )
+    gate_decision = {
+        "trigger_reasons": ["degraded_output"],
+        "unique_answer_count": 1,
+        "support_gap": 2.0,
+        "top_support": 2.0,
+        "avg_confidence": 1.0,
+    }
+    counterfactual_row = {
+        "normalized_answer": "rashad evans",
+        "answer_type": "fighter name",
+        "key_constraints": "Must be a Blackzilians fighter, currently competing in UFC Middleweight division.",
+        "claim_span": "Rashad Evans",
+        "key_evidence": "Rashad Evans is currently competing in the Middleweight division.",
+    }
+
+    accepted = _should_accept_counterfactual_override(
+        counterfactual_row=counterfactual_row,
+        baseline_answer="vitor belfort",
+        gate_decision=gate_decision,
+        sample=sample,
+    )
+
+    assert accepted is False
+
+
+def test_counterfactual_override_rejects_high_confidence_mcqa_collapse_without_unknown_signal() -> None:
+    sample = DatasetSample(
+        dataset="gpqa_diamond",
+        sample_id="demo",
+        question="Which option best explains the effect?",
+        reference_answer="C|||correct",
+        prompt_context="A. introns\nB. centromeres\nC. active promoters and enhancers\nD. telomeres",
+        metadata={"options": ["introns", "centromeres", "active promoters and enhancers", "telomeres"]},
+    )
+    gate_decision = {
+        "trigger_reasons": ["degraded_output", "self_reported_risk"],
+        "unique_answer_count": 1,
+        "support_gap": 2.15,
+        "top_support": 2.15,
+        "avg_confidence": 0.825,
+    }
+    counterfactual_row = {
+        "normalized_answer": "A",
+        "answer_type": "option",
+        "key_constraints": "Single best option; final answer only letter",
+        "claim_span": "A",
+        "key_evidence": "DSG stabilizes intronic interactions.",
+    }
+
+    accepted = _should_accept_counterfactual_override(
+        counterfactual_row=counterfactual_row,
+        baseline_answer="C",
+        gate_decision=gate_decision,
+        sample=sample,
+    )
+
+    assert accepted is False
 
 
 def test_answers_share_family_distinguishes_family_expansion_from_real_contrast() -> None:
@@ -1498,6 +1997,145 @@ def test_refresh_stage_a_prediction_rows_recomputes_hetero_answer() -> None:
     assert hetero_row["stage_a_resolver"] == "constraint_aware_clean_skeptic_minority_override"
     control_row = next(row for row in refreshed if row["method_name"] == "cot_1")
     assert control_row["prediction"] == "E"
+
+
+def test_refresh_prediction_rows_for_run_replays_adaptive_counterfactual_policy() -> None:
+    protocol = AdaptiveSparseMadProtocolConfig(
+        agent_count=3,
+        top_p=1.0,
+        stage_a_temperature=0.7,
+        stage_a_max_output_tokens=256,
+        consensus_confidence_threshold=0.65,
+        majority_confidence_threshold=0.6,
+        majority_margin_threshold=0.25,
+    )
+    sample = DatasetSample(
+        dataset="strategyqa",
+        sample_id="s1",
+        question="Could a black widow woman have use for peaches?",
+        reference_answer="yes",
+        prompt_context="",
+        metadata={},
+    )
+    stage_a_rows = [
+        {
+            "run_id": "run1",
+            "dataset": "strategyqa",
+            "split": "count20_seed42",
+            "sample_id": "s1",
+            "solver_mode": "solver_cot",
+            "agent_id": 1,
+            "normalized_answer": "no",
+            "prediction": "no",
+            "score": 0.0,
+            "confidence_value": 0.95,
+            "confidence_valid": True,
+            "reasoning": "Black widow spiders are carnivorous.",
+            "validated_output": {"answer_type": "yes/no", "key_constraints": "answer yes or no"},
+        },
+        {
+            "run_id": "run1",
+            "dataset": "strategyqa",
+            "split": "count20_seed42",
+            "sample_id": "s1",
+            "solver_mode": "solver_l2m",
+            "agent_id": 2,
+            "normalized_answer": "no",
+            "prediction": "no",
+            "score": 0.0,
+            "confidence_value": 0.9,
+            "confidence_valid": True,
+            "stage_a_safe_retry_used": True,
+            "reasoning": "Spiders do not eat peaches.",
+            "validated_output": {"answer_type": "yes/no", "key_constraints": "answer yes or no"},
+        },
+        {
+            "run_id": "run1",
+            "dataset": "strategyqa",
+            "split": "count20_seed42",
+            "sample_id": "s1",
+            "solver_mode": "solver_skeptic",
+            "agent_id": 3,
+            "normalized_answer": "yes",
+            "prediction": "yes",
+            "score": 1.0,
+            "confidence_value": 0.86,
+            "confidence_valid": True,
+            "reasoning": "A black widow woman could refer to a human.",
+            "validated_output": {},
+        },
+        {
+            "run_id": "run1",
+            "dataset": "strategyqa",
+            "split": "count20_seed42",
+            "sample_id": "s1",
+            "solver_mode": "solver_counterfactual",
+            "adaptive_policy_name": "adaptive_counterfactual_v1",
+            "agent_id": 4,
+            "normalized_answer": "yes",
+            "prediction": "yes",
+            "score": 1.0,
+            "claim_span": "yes",
+            "key_evidence": "Black widow woman could refer to a human.",
+            "answer_type": "yes/no",
+            "key_constraints": "answer yes or no",
+            "validated_output": {"answer_type": "yes/no", "key_constraints": "answer yes or no"},
+        },
+    ]
+    prediction_rows = [
+        {
+            "run_id": "run1",
+            "dataset": "strategyqa",
+            "split": "count20_seed42",
+            "sample_id": "s1",
+            "method_name": "hetero_vote_3",
+            "method_kind": "aggregate",
+            "prediction": "no",
+            "normalized_answer": "no",
+            "score": 0.0,
+        },
+        {
+            "run_id": "run1",
+            "dataset": "strategyqa",
+            "split": "count20_seed42",
+            "sample_id": "s1",
+            "method_name": "adaptive_counterfactual_v1",
+            "method_kind": "aggregate",
+            "prediction": "no",
+            "normalized_answer": "no",
+            "score": 0.0,
+        },
+    ]
+    router_rows = [
+        {
+            "run_id": "run1",
+            "dataset": "strategyqa",
+            "split": "count20_seed42",
+            "sample_id": "s1",
+            "policy_name": "adaptive_counterfactual_v1",
+            "triggered": True,
+            "selected_addon_solver": "solver_verify",
+        }
+    ]
+
+    refreshed_predictions, refreshed_router_rows = refresh_prediction_rows_for_run(
+        stage_a_rows,
+        prediction_rows,
+        router_rows,
+        sample_lookup={("strategyqa", "s1"): sample},
+        protocol=protocol,
+        model_name="demo-model",
+        prompt_version=STAGE_A_V4_PROMPT_VERSION,
+    )
+
+    adaptive_row = next(row for row in refreshed_predictions if row["method_name"] == "adaptive_counterfactual_v1")
+    assert adaptive_row["prediction"] == "yes"
+    assert adaptive_row["score"] == 1.0
+    assert adaptive_row["corrected_by_method"] is True
+    adaptive_router_row = next(row for row in refreshed_router_rows if row["policy_name"] == "adaptive_counterfactual_v1")
+    assert adaptive_router_row["selected_addon_solver"] == "solver_counterfactual"
+    assert adaptive_router_row["executed_addon_solvers"] == ["solver_counterfactual"]
+    assert adaptive_router_row["final_answer"] == "yes"
 
 
 def test_summarize_run_reads_metrics() -> None:

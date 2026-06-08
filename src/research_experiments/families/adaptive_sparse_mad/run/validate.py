@@ -25,11 +25,11 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     root = index.run_dir
     turn_paths = named_turn_record_paths(root, family_name="adaptive_sparse_mad")
     diagnostic_paths = named_diagnostic_paths(root, family_name="adaptive_sparse_mad")
+    legacy_stage_b_path = root / "turns" / "stage_b_turns.jsonl"
+    legacy_judge_path = root / "turns" / "judge_turns.jsonl"
     required_paths = [
         index.manifest_path,
         turn_paths["stage_a_turns.jsonl"],
-        turn_paths["stage_b_turns.jsonl"],
-        turn_paths["judge_turns.jsonl"],
         turn_paths["control_turns.jsonl"],
         turn_paths["router_decisions.jsonl"],
         index.prediction_records_path,
@@ -46,8 +46,8 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     missing = missing_relative_paths(root, required_paths)
 
     stage_a_rows = load_jsonl(turn_paths["stage_a_turns.jsonl"])
-    stage_b_rows = load_jsonl(turn_paths["stage_b_turns.jsonl"])
-    judge_rows = load_jsonl(turn_paths["judge_turns.jsonl"])
+    stage_b_rows = load_jsonl(legacy_stage_b_path) if legacy_stage_b_path.exists() else []
+    judge_rows = load_jsonl(legacy_judge_path) if legacy_judge_path.exists() else []
     control_rows = load_jsonl(turn_paths["control_turns.jsonl"])
     router_rows = load_jsonl(turn_paths["router_decisions.jsonl"])
     prediction_rows = load_jsonl(index.prediction_records_path)
@@ -59,6 +59,10 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     stage_b_judge_empty_check = _validate_empty_legacy_rows(
         "stage_b_and_judge",
         stage_b_rows + judge_rows,
+        files_present=[
+            legacy_stage_b_path.exists(),
+            legacy_judge_path.exists(),
+        ],
     )
     rate_limit_check = validate_rate_limit_check(index.progress_path, all_turn_rows, manifest=manifest)
     shared_contracts = validate_shared_contracts(root)
@@ -98,11 +102,17 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     }
 
 
-def _validate_empty_legacy_rows(name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _validate_empty_legacy_rows(
+    name: str,
+    rows: list[dict[str, Any]],
+    *,
+    files_present: list[bool] | None = None,
+) -> dict[str, Any]:
     return {
         "passed": len(rows) == 0,
         "name": name,
         "row_count": len(rows),
+        "files_present_count": sum(1 for flag in (files_present or []) if flag),
         "examples": rows[:20],
     }
 

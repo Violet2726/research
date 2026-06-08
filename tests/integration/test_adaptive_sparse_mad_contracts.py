@@ -202,8 +202,6 @@ def test_validate_run_accepts_fast_stage_a_only_contract(tmp_path: Path) -> None
             }
         ],
     )
-    write_jsonl(tmp_path / "turns" / "stage_b_turns.jsonl", [])
-    write_jsonl(tmp_path / "turns" / "judge_turns.jsonl", [])
     write_jsonl(
         tmp_path / "turns" / "control_turns.jsonl",
         [
@@ -247,6 +245,7 @@ def test_validate_run_accepts_fast_stage_a_only_contract(tmp_path: Path) -> None
     assert result["passed"] is True
     assert result["checks"]["router_empty_check"]["row_count"] == 0
     assert result["checks"]["stage_b_judge_empty_check"]["row_count"] == 0
+    assert result["checks"]["stage_b_judge_empty_check"]["files_present_count"] == 0
 
 
 def test_validate_run_accepts_adaptive_gate_router_rows(tmp_path: Path) -> None:
@@ -314,8 +313,6 @@ def test_validate_run_accepts_adaptive_gate_router_rows(tmp_path: Path) -> None:
             }
         ],
     )
-    write_jsonl(tmp_path / "turns" / "stage_b_turns.jsonl", [])
-    write_jsonl(tmp_path / "turns" / "judge_turns.jsonl", [])
     write_jsonl(
         tmp_path / "turns" / "control_turns.jsonl",
         [

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from research_experiments.core.config import BenchmarkConfig
 from research_experiments.core.data.datasets import select_samples
 from research_experiments.core.execution.artifacts import BufferedJsonlWriter
 from research_experiments.core.execution.cache import RequestCacheRouter
@@ -20,6 +21,7 @@ from research_experiments.core.structured_outputs import ARTIFACT_VERSION
 from research_experiments.families.adaptive_sparse_mad.config import (
     ADAPTIVE_POLICY_METHODS,
     AdaptiveSparseMadExperimentConfig,
+    AdaptiveSparseMadProtocolConfig,
     load_control_catalog,
     load_protocol_config,
 )
@@ -33,7 +35,7 @@ from research_experiments.families.adaptive_sparse_mad.run.sample import (
     build_stage_a_resolver_breakdown_payload,
     build_stage_a_solver_contribution_payload,
     estimate_work,
-    refresh_stage_a_prediction_rows,
+    refresh_prediction_rows_for_run,
     run_sample_batch,
     summarize_run,
 )
@@ -135,8 +137,6 @@ def run_experiment(
     try:
         with (
             run_paths.stage_a_turns.open("w", encoding="utf-8") as stage_a_handle,
-            run_paths.stage_b_turns.open("w", encoding="utf-8") as _stage_b_handle,
-            run_paths.judge_turns.open("w", encoding="utf-8") as _judge_handle,
             run_paths.control_turns.open("w", encoding="utf-8") as control_handle,
             run_paths.router_decisions.open("w", encoding="utf-8") as router_handle,
             run_paths.predictions.open("w", encoding="utf-8") as prediction_handle,
@@ -225,24 +225,49 @@ def run_experiment(
 def refresh_stage_a_only_run_artifacts(run_dir: str | Path) -> Path:
     root = Path(run_dir)
     manifest = read_json(root / "manifest.json")
-    prompt_version = str(manifest.get("stage_a_prompt_version") or manifest.get("prompt_version") or "")
+    protocol_payload = dict(manifest.get("protocol") or {})
+    protocol = AdaptiveSparseMadProtocolConfig(
+        agent_count=int(protocol_payload.get("agent_count") or 3),
+        top_p=float(protocol_payload.get("top_p") or 1.0),
+        stage_a_temperature=float(protocol_payload.get("stage_a_temperature") or 0.7),
+        stage_a_max_output_tokens=int(protocol_payload.get("stage_a_max_output_tokens") or 256),
+        consensus_confidence_threshold=float(protocol_payload.get("consensus_confidence_threshold") or 0.65),
+        majority_confidence_threshold=float(protocol_payload.get("majority_confidence_threshold") or 0.6),
+        majority_margin_threshold=float(protocol_payload.get("majority_margin_threshold") or 0.25),
+    )
+    model_name = str((manifest.get("resolved_model") or {}).get("name") or manifest.get("primary_model_ref") or "unknown_model")
     stage_a_rows = read_jsonl(root / "turns" / "stage_a_turns.jsonl")
     prediction_rows = read_jsonl(root / "views" / "predictions.jsonl")
+    router_rows = read_jsonl(root / "turns" / "router_decisions.jsonl")
 
-    refreshed_predictions = refresh_stage_a_prediction_rows(
+    benchmarks = [BenchmarkConfig(**benchmark_payload) for benchmark_payload in manifest.get("benchmarks", [])]
+    split_overrides = dict((manifest.get("phase_metadata") or {}).get("split_overrides") or {})
+    sample_lookup: dict[tuple[str, str], object] = {}
+    for benchmark in benchmarks:
+        split_name = str(split_overrides.get(benchmark.slug) or "")
+        if not split_name:
+            continue
+        for sample in select_samples(benchmark, split_name):
+            sample_lookup[(benchmark.slug, sample.sample_id)] = sample
+
+    refreshed_predictions, refreshed_router_rows = refresh_prediction_rows_for_run(
         stage_a_rows,
         prediction_rows,
-        prompt_version=prompt_version,
+        router_rows,
+        sample_lookup=sample_lookup,
+        protocol=protocol,
+        model_name=model_name,
+        prompt_version=str(manifest.get("stage_a_prompt_version") or manifest.get("prompt_version") or ""),
     )
     metrics_payload = build_metrics_payload(refreshed_predictions)
-    router_rows = read_jsonl(root / "turns" / "router_decisions.jsonl")
-    router_eval_payload = build_router_eval_payload(router_rows)
+    router_eval_payload = build_router_eval_payload(refreshed_router_rows)
     diagnostics_payload = build_policy_diagnostics(refreshed_predictions, router_eval_payload)
     stage_a_resolver_breakdown = build_stage_a_resolver_breakdown_payload(stage_a_rows, refreshed_predictions)
     stage_a_error_buckets = build_stage_a_error_bucket_payload(stage_a_rows, refreshed_predictions)
     stage_a_solver_contributions = build_stage_a_solver_contribution_payload(stage_a_rows)
 
     write_jsonl(root / "views" / "predictions.jsonl", refreshed_predictions)
+    write_jsonl(root / "turns" / "router_decisions.jsonl", refreshed_router_rows)
     write_json(root / "views" / "metrics.json", metrics_payload)
     write_json(root / "diagnostics" / "router_eval.json", router_eval_payload)
     write_json(root / "diagnostics" / "policy_diagnostics.json", diagnostics_payload)

@@ -12,6 +12,7 @@ from research_experiments.family_runtime.config_helpers import (
     load_toml,
 )
 from research_experiments.family_runtime.method_catalog import MethodConfig, load_method_catalog
+from research_experiments.families.adaptive_sparse_mad.prompts import STAGE_A_V4_PROMPT_VERSION
 
 ACTIVE_AGGREGATE_METHODS = frozenset(
     {
@@ -19,12 +20,22 @@ ACTIVE_AGGREGATE_METHODS = frozenset(
         "ega_only_v4",
         "adaptive_gate_v4",
         "adaptive_dual_open_v5",
+        "adaptive_counterfactual_v1",
+    }
+)
+STRUCTURED_STAGE_A_METHODS = frozenset(
+    {
+        "ega_only_v4",
+        "adaptive_gate_v4",
+        "adaptive_dual_open_v5",
+        "adaptive_counterfactual_v1",
     }
 )
 ADAPTIVE_POLICY_METHODS = frozenset(
     {
         "adaptive_gate_v4",
         "adaptive_dual_open_v5",
+        "adaptive_counterfactual_v1",
     }
 )
 
@@ -96,6 +107,23 @@ def load_experiment_config(path: str | Path) -> AdaptiveSparseMadExperimentConfi
     prompt_version = str(payload["prompt_version"])
     stage_a_prompt_version = str(payload.get("stage_a_prompt_version", prompt_version))
     adaptive_prompt_version = str(payload.get("adaptive_prompt_version", prompt_version))
+    if any(method_name in STRUCTURED_STAGE_A_METHODS for method_name in aggregate_methods):
+        if stage_a_prompt_version != STAGE_A_V4_PROMPT_VERSION:
+            raise ValueError(
+                "adaptive_sparse_mad structured aggregate methods require "
+                f"stage_a_prompt_version={STAGE_A_V4_PROMPT_VERSION}"
+            )
+        if prompt_version != STAGE_A_V4_PROMPT_VERSION:
+            raise ValueError(
+                "adaptive_sparse_mad structured aggregate methods require "
+                f"prompt_version={STAGE_A_V4_PROMPT_VERSION}"
+            )
+    if any(method_name in ADAPTIVE_POLICY_METHODS for method_name in aggregate_methods):
+        if adaptive_prompt_version != STAGE_A_V4_PROMPT_VERSION:
+            raise ValueError(
+                "adaptive_sparse_mad adaptive policy methods require "
+                f"adaptive_prompt_version={STAGE_A_V4_PROMPT_VERSION}"
+            )
     return AdaptiveSparseMadExperimentConfig(
         name=str(payload["name"]),
         description=str(payload["description"]),

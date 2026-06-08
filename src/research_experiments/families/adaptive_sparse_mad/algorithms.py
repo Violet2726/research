@@ -249,8 +249,6 @@ def _group_answer_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, A
             answer = str(row.get("normalized_answer") or "").strip() or "unknown"
             grouped[answer].append(row)
     return grouped
-
-
 def _is_answer_candidate(answer: str) -> bool:
     return str(answer or "").strip().lower() not in _NON_ANSWER_VALUES
 

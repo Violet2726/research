@@ -101,13 +101,16 @@ def validate_rate_limit_check(
         if tpm_limit is not None and active_token_total > tpm_limit:
             violations.append(_rate_violation("tpm", active_token_total, tpm_limit, row))
 
+    replay_confirms_no_violation = bool(events) and not violations
+    passed = not violations and (progress_429_count == 0 or replay_confirms_no_violation)
     return {
-        "passed": progress_429_count == 0 and not violations,
+        "passed": passed,
         "enabled": bool(rpm_limit or tpm_limit),
         "progress_present": progress_file.exists(),
         "progress_429_count": progress_429_count,
         "network_event_count": len(events),
         "event_replay_available": bool(events),
+        "replay_confirms_no_violation": replay_confirms_no_violation,
         "requests_per_minute_limit": rpm_limit,
         "tokens_per_minute_limit": tpm_limit,
         "violation_count": len(violations),

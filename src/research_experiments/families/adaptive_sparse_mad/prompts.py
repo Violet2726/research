@@ -15,7 +15,13 @@ _SUPPORTED_PROMPT_VERSIONS = {
     STAGE_A_V4_PROMPT_VERSION,
 }
 SOLVER_MODES = ("solver_cot", "solver_l2m", "solver_skeptic")
-ADAPTIVE_ADDON_SOLVER_MODES = ("solver_verify", "solver_option_elim", "solver_evidence", "solver_slot_contrast")
+ADAPTIVE_ADDON_SOLVER_MODES = (
+    "solver_verify",
+    "solver_option_elim",
+    "solver_evidence",
+    "solver_slot_contrast",
+    "solver_counterfactual",
+)
 
 
 def build_stage_a_messages(
@@ -138,6 +144,13 @@ def _build_adaptive_addon_v4_messages(
         user_prompt += f"Context:\n{sample.prompt_context}\n\n"
     user_prompt += "Stage A candidate summary:\n"
     user_prompt += _format_stage_a_candidate_summary(stage_a_rows)
+    if solver_mode == "solver_counterfactual":
+        dominant_answer = _dominant_candidate_answer(stage_a_rows)
+        if dominant_answer:
+            user_prompt += (
+                f"\nCurrent leading candidate family: `{dominant_answer}`.\n"
+                "Your final_answer must not be a trivial restatement, formatting variant, or same answer family as that leading candidate.\n"
+            )
     user_prompt += (
         "\nRe-check the answer slot carefully. You may confirm one candidate or produce a corrected answer if every candidate fails the constraints.\n"
         'Return exactly one JSON object with keys '
@@ -290,6 +303,16 @@ def _adaptive_addon_instruction(dataset: str, solver_mode: str) -> dict[str, str
             "guidance": "When candidates differ by year, title words, units, type words, or specificity, prefer the candidate whose evidence span most literally answers the question.",
             "checklist": "candidate family contrast, answer-slot wording, exact evidence span, final exact answer",
         }
+    if solver_mode == "solver_counterfactual":
+        return {
+            "label": "Counterfactual Candidate Generator",
+            "summary": "Deliberately search for a clean alternative answer family when the current candidate set may have collapsed onto the same wrong answer.",
+            "guidance": (
+                "Do not paraphrase the leading candidate family. Re-open the reasoning from the question and constraints, then produce a genuinely different candidate "
+                "only if it is better grounded in the evidence or task structure."
+            ),
+            "checklist": "leading family to avoid, fresh candidate family, typed answer-slot check, exact supporting evidence",
+        }
     raise ValueError(f"Unsupported adaptive add-on solver_mode: {solver_mode}")
 
 
@@ -315,3 +338,15 @@ def _format_stage_a_candidate_summary(stage_a_rows: list[dict[str, object]]) -> 
 def _sample_is_multiple_choice(sample: DatasetSample) -> bool:
     raw_options = sample.metadata.get("options") or sample.metadata.get("choices") or []
     return bool(raw_options) or sample.dataset in {"mmlu_pro", "gpqa_diamond", "mmlu", "mmlu_abstract_algebra"}
+
+
+def _dominant_candidate_answer(stage_a_rows: list[dict[str, object]]) -> str:
+    counts: dict[str, int] = {}
+    for row in stage_a_rows:
+        answer = str(row.get("normalized_answer") or row.get("prediction") or "").strip()
+        if not answer:
+            continue
+        counts[answer] = counts.get(answer, 0) + 1
+    if not counts:
+        return ""
+    return max(counts, key=lambda answer: (counts[answer], len(answer), answer))
