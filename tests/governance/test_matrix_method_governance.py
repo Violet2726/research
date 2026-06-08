@@ -46,6 +46,10 @@ def test_faithful_matrix_standard_method_references_stay_aligned() -> None:
     assert free_mad.best_no_comm_candidates == (MV_3,)
     assert free_mad.full_comm_reference == VANILLA_MAD_R1_FINAL_VOTE
 
+    adaptive_sparse_mad = specs["configs/families/adaptive_sparse_mad/experiments/same_context_main_v5.toml"]
+    assert adaptive_sparse_mad.primary_method_name == "adaptive_counterfactual_v1"
+    assert adaptive_sparse_mad.best_no_comm_candidates == (COT_1, SC_5)
+
     for config_path in (
         "configs/families/budget_comm/experiments/dala_lite_same_context_main.toml",
         "configs/families/budget_comm/experiments/dala_lite_split_context_main.toml",
@@ -65,4 +69,3 @@ def test_faithful_matrix_does_not_reference_removed_aliases() -> None:
     for config_path in ordered_matrix_config_paths(MATRIX_ID_FAITHFUL):
         spec = get_experiment_matrix_spec(config_path, MATRIX_ID_FAITHFUL)
         assert removed_aliases.isdisjoint(referenced_method_names(spec)), config_path
-

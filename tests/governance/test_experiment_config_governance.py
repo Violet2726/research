@@ -1,4 +1,4 @@
-"""约束实验配置里的标准 comparator 口径，防止 matched_controls 再次漂移。"""
+"""Guardrails for experiment config comparator conventions and inventory."""
 
 from __future__ import annotations
 
@@ -61,5 +61,14 @@ def test_dmad_family_local_methods_do_not_use_protected_bare_names() -> None:
             name = str(method["name"])
             if name.startswith("mad_") or name.startswith("dmad_"):
                 continue
-            assert not is_protected_standard_bare_name(name), f"{path} 使用了受保护的裸名 {name}"
+            assert not is_protected_standard_bare_name(name), f"{path} uses protected bare method name {name}"
 
+
+def test_adaptive_sparse_mad_experiments_directory_only_keeps_current_mainline_configs() -> None:
+    experiments_dir = ROOT / "configs" / "families" / "adaptive_sparse_mad" / "experiments"
+    assert not (experiments_dir / "_archive").exists()
+    assert sorted(path.name for path in experiments_dir.glob("*.toml")) == [
+        "same_context_full_counterfactual_v1.toml",
+        "same_context_full_counterfactual_v1_screen.toml",
+        "same_context_main_v5.toml",
+    ]
