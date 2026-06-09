@@ -21,6 +21,8 @@ from research_experiments.family_runtime.validation import (
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
+    """校验 MADJudge run 目录中的核心产物与调用状态。"""
+
     index = resolve_run_artifact_index(run_dir, family_name="madjudge")
     root = index.run_dir
     turn_paths = named_turn_record_paths(root, family_name="madjudge")

@@ -371,20 +371,28 @@ def _build_conclusions(
 
 
 def _weighted_avg(rows: list[dict[str, Any]], field: str, weights: list[float]) -> float:
+    """按给定权重计算指标字段的加权平均值。"""
+
     values = [float(r.get(field, 0)) for r in rows]
     return sum(v * w for v, w in zip(values, weights, strict=False))
 
 
 def _safe_div(a: float, b: float) -> float:
+    """安全除法，分母为 0 时返回 0。"""
+
     return a / b if b != 0 else 0.0
 
 
 def _avg(rows: list[dict[str, Any]], field: str) -> float:
+    """计算指标字段的算术平均值。"""
+
     vals = [float(r.get(field, 0)) for r in rows]
     return sum(vals) / len(vals) if vals else 0.0
 
 
 def _fmt(value: Any, digits: int = 4) -> str:
+    """将数值格式化为固定小数位，异常值返回空字符串。"""
+
     if value is None:
         return ""
     try:
@@ -394,6 +402,8 @@ def _fmt(value: Any, digits: int = 4) -> str:
 
 
 def _fmt_signed(value: Any, digits: int = 4) -> str:
+    """将数值格式化为带符号的小数字符串。"""
+
     if value is None:
         return ""
     try:
@@ -403,6 +413,8 @@ def _fmt_signed(value: Any, digits: int = 4) -> str:
 
 
 def _fmt_pct(value: Any, digits: int = 1) -> str:
+    """将比例数值格式化为百分比字符串。"""
+
     if value is None:
         return ""
     try:

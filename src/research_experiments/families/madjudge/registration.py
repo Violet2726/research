@@ -24,6 +24,8 @@ from research_experiments.workspace.layout import workspace_defaults
 
 
 def inspect_experiment(experiment_path: str, model_override: str | None) -> dict[str, object]:
+    """解析 MADJudge 实验配置，返回 CLI inspect 使用的可序列化摘要。"""
+
     experiment = load_experiment_config(experiment_path)
     controls = load_control_catalog(experiment.control_catalog) if experiment.control_catalog else {}
     benchmarks = load_benchmarks(experiment)
@@ -66,12 +68,12 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
 
 ARTIFACT_ALIASES = {
     "run_root": ".",
-"turns_path": "turns/turns.jsonl",
-"debate_messages_path": "turns/debate_messages.jsonl",
-"predictions_path": "views/predictions.jsonl",
-"metrics_path": "views/metrics.json",
-"debate_diagnostics_path": "diagnostics/debate_diagnostics.json",
-"cost_breakdown_path": "diagnostics/cost_breakdown.json",
+    "turns_path": "turns/turns.jsonl",
+    "debate_messages_path": "turns/debate_messages.jsonl",
+    "predictions_path": "views/predictions.jsonl",
+    "metrics_path": "views/metrics.json",
+    "debate_diagnostics_path": "diagnostics/debate_diagnostics.json",
+    "cost_breakdown_path": "diagnostics/cost_breakdown.json",
 }
 
 REGISTRATION = make_family_registration(

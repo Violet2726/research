@@ -115,6 +115,8 @@ def _system_prompt(persona_instruction: str = "") -> str:
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
+    """按数据集类型选择 MADJudge 的任务说明模板。"""
+
     if sample.dataset == "hotpotqa":
         return dataset_instruction_for_sample(sample, hotpot_style="short_span")
     return dataset_instruction_for_sample(sample)
@@ -136,5 +138,7 @@ def _render_peer_messages(peer_messages: list[dict[str, Any]]) -> str:
 
 
 def _assert_prompt_version(prompt_version: str) -> None:
+    """校验调用方使用的是当前支持的 MADJudge prompt 版本。"""
+
     if prompt_version != DEFAULT_PROMPT_VERSION:
         raise ValueError(f"Unsupported MADJudge prompt_version: {prompt_version}")

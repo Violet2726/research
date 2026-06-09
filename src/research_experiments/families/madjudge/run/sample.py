@@ -1151,11 +1151,15 @@ def _infer_numeric_answer_from_reasoning(reasoning: str) -> str | None:
 
 
 def _reasoning_mentions_number(reasoning: str, value: str) -> bool:
+    """判断 reasoning 是否以独立数字形式提到指定答案。"""
+
     escaped = re.escape(value)
     return re.search(rf"(?<![\d.]){escaped}(?![\d.])", reasoning.replace(",", "")) is not None
 
 
 def _looks_like_peer_comparison_reasoning(reasoning: str) -> bool:
+    """判断 reasoning 是否像是在比较其他 judge 的观点。"""
+
     lowered = reasoning.lower()
     return any(
         marker in lowered
