@@ -35,25 +35,6 @@ def test_single_agent_inspect_cli() -> None:
     assert payload["workspace_defaults"]["family_cache_root"].endswith("cache")
 
 
-def test_single_agent_baseline_ceiling_inspect_cli() -> None:
-    payload = run_cli_json(
-        [
-            "research_cli",
-            "experiment",
-            "--family",
-            "single_agent",
-            "inspect-experiment",
-            "--experiment",
-            "configs/families/single_agent/experiments/baseline_ceiling_v1_zero_shot_cot.toml",
-        ],
-    )
-    assert payload["name"] == "baseline_ceiling_v1_zero_shot_cot"
-    assert payload["prompt_version"] == "zero_shot_cot_v1"
-    assert payload["cot_uses_reruns"] is True
-    assert payload["phases"]["count100"]["split_overrides"]["competition_math"] == "count100_total_seed0"
-    assert "mv_3_temp_0p7" in payload["methods"]
-
-
 def test_single_agent_canonical_simple_baselines_inspect_cli() -> None:
     payload = run_cli_json(
         [

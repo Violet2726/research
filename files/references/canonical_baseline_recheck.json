@@ -1,4 +1,15 @@
 {
+  "baseline_mainline": {
+    "config": "configs/families/single_agent/experiments/canonical_simple_baselines.toml",
+    "methods": [
+      "cot_1",
+      "mv_3",
+      "sc_5"
+    ],
+    "temperature": 0.7,
+    "count100_reruns": 3,
+    "note": "旧 screening/search 配置已退出正式主线；后续主结论统一对齐 canonical_simple_baselines。"
+  },
   "canonical_summary_json": "local/reports/single_agent/baseline_ceiling_summary/ceiling_summary.json",
   "run_dirs": [
     "local/runs/adaptive_sparse_mad/same_context_competition_math_stage_a_v4/count100/20260608T024322Z-xiaomimimo-mimo-v2.5",

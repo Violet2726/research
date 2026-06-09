@@ -2,12 +2,12 @@
 
 ## 摘要
 
-- Canonical simple baseline 固定为 `cot_1@temp=0.7 / mv_3@temp=0.7 / sc_5@temp=0.7`。
-- `old official cot_1` 来自 ceiling summary 的旧 official baseline；`run cot_1` 是被复核 run 自带的 control，二者可能不同。
+- 正式 simple baseline 主线固定为 `canonical_simple_baselines.toml`。
+- 方法固定为 `cot_1 / mv_3 / sc_5`，全局 `temperature=0.7`，`count100` 使用 3 reruns。
+- 旧的 prompt/temperature screening 逻辑已退出正式主线；本工具只做 canonical baseline 复核。
+- `old official cot_1` 来自历史 ceiling summary；`run cot_1` 是被复核 run 自带的 control，二者可能不同。
 - `holds_vs_canonical_best` 表示方法超过同数据集上 `cot_1/mv_3/sc_5` 三者中最强的 canonical baseline。
 - `only_beats_old_official_cot1` 表示结论只相对旧 `cot_1` 成立，不能再包装成优于 strong simple baseline。
-- `borderline_*` 表示差值小于 `0.01`，在 count100 口径下应视作边际信号。
-- 本表只用于同上下文/full-context 口径；split-context 结论应继续用 split no-comm baseline 单独复核。
 
 ## 输入 runs
 
