@@ -1,4 +1,8 @@
-"""`consensagent` family 注册入口。"""
+"""`consensagent` family 注册入口。
+
+本模块把 CONSENSAGENT 触发式辩论实验接入统一 family CLI，
+集中登记 inspect、run、report、validate 与产物别名。
+"""
 
 from __future__ import annotations
 
@@ -24,6 +28,7 @@ from research_experiments.workspace.layout import workspace_defaults
 
 
 def inspect_experiment(experiment_path: str, model_override: str | None) -> dict[str, object]:
+    """返回 CLI inspect-experiment 使用的解析后配置视图。"""
     experiment = load_experiment_config(experiment_path)
     controls = load_control_catalog(experiment.control_catalog) if experiment.control_catalog else {}
     benchmarks = load_benchmarks(experiment)
@@ -66,12 +71,12 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
 
 ARTIFACT_ALIASES = {
     "run_root": ".",
-"turns_path": "turns/turns.jsonl",
-"debate_messages_path": "turns/debate_messages.jsonl",
-"predictions_path": "views/predictions.jsonl",
-"metrics_path": "views/metrics.json",
-"cost_breakdown_path": "diagnostics/cost_breakdown.json",
-"debate_diagnostics_path": "diagnostics/debate_diagnostics.json",
+    "turns_path": "turns/turns.jsonl",
+    "debate_messages_path": "turns/debate_messages.jsonl",
+    "predictions_path": "views/predictions.jsonl",
+    "metrics_path": "views/metrics.json",
+    "cost_breakdown_path": "diagnostics/cost_breakdown.json",
+    "debate_diagnostics_path": "diagnostics/debate_diagnostics.json",
 }
 
 REGISTRATION = make_family_registration(
@@ -100,8 +105,8 @@ REGISTRATION = make_family_registration(
     artifact_aliases=ARTIFACT_ALIASES,
     metrics_view_path="views/metrics.json",
     prediction_records_path="views/predictions.jsonl",
-    turn_record_paths=('turns/turns.jsonl', 'turns/debate_messages.jsonl'),
-    diagnostic_paths=('diagnostics/cost_breakdown.json', 'diagnostics/debate_diagnostics.json'),
+    turn_record_paths=("turns/turns.jsonl", "turns/debate_messages.jsonl"),
+    diagnostic_paths=("diagnostics/cost_breakdown.json", "diagnostics/debate_diagnostics.json"),
     export_paths=(),
 )
 

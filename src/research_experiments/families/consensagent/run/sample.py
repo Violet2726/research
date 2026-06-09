@@ -932,7 +932,7 @@ def _validate_consensagent_output(assistant_text: str, provider_reasoning_text: 
 
 
 def _validate_optimizer_output(assistant_text: str, provider_reasoning_text: str) -> dict[str, Any]:
-    """Treat phase-3 optimizer output as plain refined prompt text."""
+    """将 Phase 3 optimizer 输出视为纯文本 refined prompt。"""
     text = str(assistant_text or "").strip() or str(provider_reasoning_text or "").strip()
     if not text:
         raise ValueError("Optimizer output is empty.")
@@ -944,6 +944,7 @@ def _validate_optimizer_output(assistant_text: str, provider_reasoning_text: str
 
 
 def _coerce_consensagent_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """把常见 JSON 字段形态收敛为 CONSENSAGENT 标准输出。"""
     final_answer = str(payload.get("final_answer") or payload.get("answer") or payload.get("prediction") or "").strip()
     reasoning = str(payload.get("reasoning") or payload.get("explanation") or "").strip()
     confidence = _normalize_confidence(payload.get("confidence"))
@@ -959,6 +960,7 @@ def _coerce_consensagent_payload(payload: dict[str, Any]) -> dict[str, Any] | No
 
 
 def _recover_consensagent_payload(text: str) -> dict[str, Any] | None:
+    """从非标准 JSON 文本中尽量恢复答案、推理和置信度。"""
     final_answer = (
         _extract_json_answer_field(text, "final_answer")
         or _extract_json_answer_field(text, "answer")
@@ -987,6 +989,7 @@ def _recover_consensagent_payload(text: str) -> dict[str, Any] | None:
 
 
 def _normalize_confidence(value: Any) -> float:
+    """把置信度归一到 `[0, 1]`，缺失时使用 0.5。"""
     confidence = 0.5
     with suppress(ValueError, TypeError):
         confidence = max(0.0, min(1.0, float(value if value is not None else 0.5)))
@@ -1014,6 +1017,7 @@ def _try_parse_json(text: str) -> dict[str, Any] | None:
 
 
 def _strip_markdown_code_fences(text: str) -> str:
+    """移除模型输出外层 Markdown 代码块。"""
     stripped = text.strip()
     if not stripped.startswith("```"):
         return stripped

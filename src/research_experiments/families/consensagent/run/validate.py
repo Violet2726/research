@@ -22,6 +22,7 @@ from research_experiments.family_runtime.validation import (
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
+    """校验 CONSENSAGENT run 是否满足产物、调用状态和共享图表契约。"""
     index = resolve_run_artifact_index(run_dir, family_name="consensagent")
     root = index.run_dir
     turn_paths = named_turn_record_paths(root, family_name="consensagent")

@@ -248,6 +248,7 @@ def _system_prompt(phase: str = "initial", persona_instruction: str = "") -> str
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
+    """生成数据集任务说明，并为 HotpotQA 固定短 span 输出口径。"""
     if sample.dataset == "hotpotqa":
         return dataset_instruction_for_sample(sample, hotpot_style="short_span")
     return dataset_instruction_for_sample(sample)
@@ -287,5 +288,6 @@ def _render_agent_answers(agent_answers: list[dict[str, Any]]) -> str:
 
 
 def _assert_prompt_version(prompt_version: str) -> None:
+    """拒绝未登记的提示词版本，避免混用缓存与协议。"""
     if prompt_version != DEFAULT_PROMPT_VERSION:
         raise ValueError(f"Unsupported CONSENSAGENT prompt_version: {prompt_version}")
