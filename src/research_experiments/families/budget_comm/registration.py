@@ -1,4 +1,8 @@
-"""`budget_comm` family 注册入口。"""
+"""`budget_comm` family 注册入口。
+
+本模块把预算通信实验接入统一 family CLI，集中登记 inspect、run、report、validate 与产物别名。
+实验机制本身保留在算法、样本执行和报告模块中，注册层只做装配与分发。
+"""
 
 from __future__ import annotations
 
@@ -23,6 +27,7 @@ from research_experiments.workspace.layout import workspace_defaults
 
 
 def inspect_experiment(experiment_path: str, model_override: str | None) -> dict[str, object]:
+    """返回 CLI inspect-experiment 使用的解析后配置视图。"""
     experiment = load_experiment_config(experiment_path)
     protocol = load_protocol_config(experiment.protocol)
     auction_policy = load_auction_policy_config(experiment.auction_policy)
@@ -59,15 +64,15 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
 
 ARTIFACT_ALIASES = {
     "sample_views": "turns/sample_views.jsonl",
-"stage_a_turns": "turns/stage_a_turns.jsonl",
-"candidate_packets": "turns/candidate_packets.jsonl",
-"auction_decisions": "turns/auction_decisions.jsonl",
-"belief_updates": "turns/belief_updates.jsonl",
-"final_predictions": "views/predictions.jsonl",
-"budget_diagnostics": "diagnostics/budget_diagnostics.json",
-"run_validation": "run_validation.json",
-"report_markdown": "report.md",
-"paper_summary": "exports/paper_summary.csv",
+    "stage_a_turns": "turns/stage_a_turns.jsonl",
+    "candidate_packets": "turns/candidate_packets.jsonl",
+    "auction_decisions": "turns/auction_decisions.jsonl",
+    "belief_updates": "turns/belief_updates.jsonl",
+    "final_predictions": "views/predictions.jsonl",
+    "budget_diagnostics": "diagnostics/budget_diagnostics.json",
+    "run_validation": "run_validation.json",
+    "report_markdown": "report.md",
+    "paper_summary": "exports/paper_summary.csv",
 }
 
 REGISTRATION = make_family_registration(
@@ -96,8 +101,14 @@ REGISTRATION = make_family_registration(
     artifact_aliases=ARTIFACT_ALIASES,
     metrics_view_path="views/metrics.json",
     prediction_records_path="views/predictions.jsonl",
-    turn_record_paths=('turns/sample_views.jsonl', 'turns/stage_a_turns.jsonl', 'turns/candidate_packets.jsonl', 'turns/auction_decisions.jsonl', 'turns/belief_updates.jsonl'),
-    diagnostic_paths=('diagnostics/budget_diagnostics.json',),
-    export_paths=('exports/paper_summary.csv',),
+    turn_record_paths=(
+        "turns/sample_views.jsonl",
+        "turns/stage_a_turns.jsonl",
+        "turns/candidate_packets.jsonl",
+        "turns/auction_decisions.jsonl",
+        "turns/belief_updates.jsonl",
+    ),
+    diagnostic_paths=("diagnostics/budget_diagnostics.json",),
+    export_paths=("exports/paper_summary.csv",),
 )
 

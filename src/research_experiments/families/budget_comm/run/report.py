@@ -1,4 +1,8 @@
-"""`budget_comm` 实验的科研报告与图资产生成。"""
+"""`budget_comm` 实验的科研报告与图资产生成。
+
+本模块只消费已落盘的指标、诊断和预测行，生成中文报告、图表规格和附录报告。
+预算机制的执行与评分不在这里重放，避免报告渲染改变 run 语义。
+"""
 
 from __future__ import annotations
 
@@ -83,6 +87,7 @@ def render_report(
 
 
 def _build_figure_specs(metrics: dict[str, Any], predictions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """根据指标和预测行生成预算通信报告的固定图表规格。"""
     summary = SummaryTableView.from_metrics_payload(metrics)
     rows = [row.raw for row in summary.rows]
     overall_rows = summary.overall_rows()
@@ -174,6 +179,7 @@ def _build_figure_specs(metrics: dict[str, Any], predictions: list[dict[str, Any
 
 
 def _method_label(row: Any) -> str:
+    """兼容 SummaryRow 对象与原始 dict，返回报告展示用方法名。"""
     if hasattr(row, "display_name"):
         return str(row.display_name or row.method_name)
     return str(row.get("display_name") or row.get("method_name") or "unknown")
@@ -186,6 +192,7 @@ def _render_markdown(
     predictions: list[dict[str, Any]],
     run_dir: Path,
 ) -> str:
+    """把 run 产物组装成最终中文科研报告 markdown。"""
     backbone_name = resolve_manifest_model_name(manifest)
     track_name = str(manifest.get("context_view", {}).get("track_name", "unknown"))
     calibration = diagnostics.get("calibration", {})
@@ -384,6 +391,7 @@ def _select_failure_cases(predictions: list[dict[str, Any]]) -> list[dict[str, A
 
 
 def _budget_evidence_rows(predictions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """构造预算通信关键比较的配对统计行。"""
     return build_pairwise_comparison_rows(
         predictions,
         [
@@ -406,6 +414,7 @@ def _budget_evidence_rows(predictions: list[dict[str, Any]]) -> list[dict[str, A
 
 
 def _ordered_rows(rows: list[Any]) -> list[Any]:
+    """按预算通信方法的报告顺序排列指标行。"""
     return sorted(rows, key=lambda row: METHOD_ORDER.index(row.method_name) if row.method_name in METHOD_ORDER else 999)
 
 

@@ -1,4 +1,8 @@
-"""预算约束通信实验的提示词构造器。"""
+"""预算约束通信实验的提示词构造器。
+
+本模块把 agent 的私有上下文视图、预算通信阶段和提示词版本转换为模型消息。
+提示词正文保持英文，以便稳定复用历史缓存与既有实验记录。
+"""
 
 from __future__ import annotations
 
@@ -88,6 +92,7 @@ def build_belief_update_messages(
 
 
 def _solver_system_prompt() -> str:
+    """生成 Stage A 独立求解器的 JSON 输出约束。"""
     return build_json_system_prompt(
         "You are one reasoning agent in a controlled DALA-lite experiment.",
         extra_rules=[
@@ -99,6 +104,7 @@ def _solver_system_prompt() -> str:
 
 
 def _belief_update_system_prompt() -> str:
+    """生成 Stage B belief update 的 JSON 输出约束。"""
     return build_json_system_prompt(
         "You are one reasoning agent receiving budget-selected peer packets.",
         extra_rules=[
@@ -109,6 +115,7 @@ def _belief_update_system_prompt() -> str:
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
+    """生成当前样本的可见上下文任务说明。"""
     return dataset_instruction_for_sample(
         sample,
         context_scope="visible",
