@@ -165,14 +165,20 @@ def render_report(
 
 
 def _overall_row(rows: list[dict[str, Any]], method_name: str) -> dict[str, Any] | None:
+    """从 overall 指标行中查找指定方法。"""
+
     return next((row for row in rows if row.get("method_name") == method_name), None)
 
 
 def _delta(left: dict[str, Any], right: dict[str, Any]) -> float:
+    """计算两个方法 overall 准确率的差值。"""
+
     return round(float(left.get("accuracy_mean") or 0.0) - float(right.get("accuracy_mean") or 0.0), 6)
 
 
 def _ratio(left: dict[str, Any], right: dict[str, Any], field: str) -> float:
+    """计算指定字段的相对比例，分母为空时返回 0。"""
+
     denominator = float(right.get(field) or 0.0)
     if denominator <= 0:
         return 0.0
@@ -183,6 +189,8 @@ def _belief_summary_rows(
     belief_rows: list[dict[str, Any]],
     equilibrium_rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    """合并 belief trace 与 equilibrium trace，生成报告诊断表行。"""
+
     equilibrium_lookup = {
         (str(row.get("dataset") or ""), str(row.get("sample_id") or "")): row
         for row in equilibrium_rows
@@ -207,6 +215,8 @@ def _belief_summary_rows(
 
 
 def _build_figure_specs(metrics: dict[str, Any]) -> list[dict[str, Any]]:
+    """根据 ECON 指标视图构造报告图表规格。"""
+
     summary_rows = [row.raw for row in SummaryTableView.from_metrics_payload(metrics).rows]
     overall_rows = [row for row in summary_rows if row.get("dataset") == "overall"]
     return [
@@ -265,6 +275,8 @@ def _build_figure_specs(metrics: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _render_table(rows: list[dict[str, Any]], headers: list[str]) -> list[str]:
+    """将字典行渲染为 Markdown 表格。"""
+
     if not rows:
         return ["No rows."]
     lines = [

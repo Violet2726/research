@@ -31,7 +31,7 @@ ALLOWED_ACTIONS = {"none", "adopt_vote", "keep_local", "query_best_peer", "query
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
-    """Check whether an ECON run meets the minimum analysis contract."""
+    """校验 ECON run 是否满足最低分析契约。"""
 
     index = resolve_run_artifact_index(run_dir, family_name="econ")
     root = index.run_dir

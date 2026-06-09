@@ -722,6 +722,8 @@ def _summarize_prediction_rows(
 
 
 def _accuracy_per_1k_tokens(rows: list[dict[str, Any]]) -> float:
+    """计算每千 token 对应的平均准确率。"""
+
     accuracy = safe_mean(float(row.get("score") or 0.0) for row in rows)
     total_tokens = safe_mean(float(row.get("total_tokens_per_question") or 0.0) for row in rows)
     if total_tokens <= 0:

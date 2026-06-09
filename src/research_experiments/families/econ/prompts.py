@@ -121,6 +121,8 @@ def build_belief_update_messages(
 
 
 def _solver_system_prompt() -> str:
+    """构造独立求解阶段使用的 JSON 系统提示词。"""
+
     return build_json_system_prompt(
         "You are one reasoning agent in a low-communication multi-agent coordination experiment.",
         extra_rules=[
@@ -132,6 +134,8 @@ def _solver_system_prompt() -> str:
 
 
 def _belief_update_system_prompt() -> str:
+    """构造接收 peer packet 后进行 belief update 的系统提示词。"""
+
     return build_json_system_prompt(
         "You are one reasoning agent receiving a small number of peer packets.",
         extra_rules=[
@@ -142,6 +146,8 @@ def _belief_update_system_prompt() -> str:
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
+    """返回 ECON same-context 实验使用的数据集说明。"""
+
     return dataset_instruction_for_sample(
         sample,
         context_scope="visible",

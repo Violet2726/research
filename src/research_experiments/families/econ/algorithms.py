@@ -367,10 +367,14 @@ def _trim_packet_text(packet_fields: dict[str, Any], token_cap: int) -> str:
 
 
 def _tokenize(text: str) -> set[str]:
+    """按空白切分并归一化为小写 token 集合。"""
+
     return {token.lower() for token in text.split() if token.strip()}
 
 
 def _token_jaccard(left: set[str], right: set[str]) -> float:
+    """计算两个 token 集合的 Jaccard 相似度。"""
+
     if not left and not right:
         return 1.0
     union = left | right
