@@ -12,7 +12,7 @@ smoke_size = 20
 pilot_size = 100
 main_size = 100
 random_seed = 42
-notes = "Paper-aligned MMLU subset used by DMAD appendix experiments: the abstract_algebra subject from cais/mmlu."
+notes = "与 DMAD 附录口径对齐的 MMLU 子集，固定使用 cais/mmlu 的 abstract_algebra subject。"
 cache_namespace_override = "mmlu/abstract_algebra"
 record_filters = [{ field = "subject", operator = "eq", value = "abstract_algebra" }]
 

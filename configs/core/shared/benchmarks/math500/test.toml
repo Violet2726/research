@@ -1,5 +1,4 @@
 # MATH500 高难数学推理基准配置。
-# MATH500 benchmark configuration for high-difficulty math reasoning.
 name = "MATH500"
 slug = "math500"
 loader = "math500_jsonl"
@@ -12,7 +11,7 @@ smoke_size = 20
 pilot_size = 100
 main_size = 500
 random_seed = 42
-notes = "Use the provided final math answer string as gold."
+notes = "使用数据集中提供的最终数学答案字符串作为标准答案。"
 
 [[split_presets]]
 name = "count20_seed42"

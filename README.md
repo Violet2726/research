@@ -179,7 +179,7 @@ uv run research_cli tools hf pull-runs
 - `research_cli tools hf push-runs` / `pull-runs` 默认不会重复推送、拉取同一份 run
 - `research_cli tools hf pull-runs --recent-hours 1` 可只拉取最近一小时发布的 runs
 - `research_cli tools hf push-runs` 默认只推送验证通过的标准实验 run；如需跳过验证可加 `--skip-validation`
-- `run_all_phases.ps1` / `run_all_phases.sh` 在启用 `RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT=1` 时，会在四阶段结束后自动推送 cache 最新快照
+- `run_all_phases.ps1` / `run_all_phases.sh` 默认运行 `count20 -> count100`；启用 `RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT=1` 时，会在本次阶段序列结束后自动推送 cache 最新快照
 - Git 主仓不承载 `local/runs/`、`local/reports/`、`local/cache/` 下的正式产物
 
 ## 文档入口

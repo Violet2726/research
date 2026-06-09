@@ -2137,15 +2137,7 @@ def test_refresh_prediction_rows_for_run_replays_adaptive_counterfactual_policy(
     assert adaptive_router_row["final_answer"] == "yes"
 
 
-def test_summarize_run_reads_metrics() -> None:
-    tmp_path = Path("tests/.tmp_adaptive_sparse_mad_summary")
-    if tmp_path.exists():
-        for child in sorted(tmp_path.rglob("*"), reverse=True):
-            if child.is_file():
-                child.unlink()
-            else:
-                child.rmdir()
-    tmp_path.mkdir(parents=True, exist_ok=True)
+def test_summarize_run_reads_metrics(tmp_path: Path) -> None:
     write_registered_family_manifest(tmp_path / "manifest.json", family_name="adaptive_sparse_mad")
     write_json(
         tmp_path / "views" / "metrics.json",

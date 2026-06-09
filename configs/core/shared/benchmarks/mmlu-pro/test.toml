@@ -1,5 +1,4 @@
 # MMLU-Pro 稳定多选评测基准配置。
-# MMLU-Pro benchmark configuration for stable multi-choice reasoning evaluation.
 name = "MMLU-Pro"
 slug = "mmlu_pro"
 loader = "mmlu_pro_parquet"
@@ -14,7 +13,7 @@ smoke_size = 20
 pilot_size = 100
 main_size = 1200
 random_seed = 42
-notes = "Use shared shuffle-prefix count-based subsets for sampled runs and the full 12032-question test split for full runs."
+notes = "采样运行使用全仓共享的 shuffle-prefix count split；full 运行使用 12032 题完整 test split。"
 
 [[split_presets]]
 name = "count20_seed42"

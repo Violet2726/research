@@ -56,11 +56,12 @@ Hugging Face dataset repo
   - 写出 `run_validation.json`
   - 按环境开关自动发布到 `RESEARCH_RUNS_HF_REPO`
 - `run_all_phases.ps1` / `run_all_phases.sh`
-  - 顺序运行 `count20 -> count100 -> count300 -> count500`
+- 默认运行 `count20 -> count100`
+  - 如需完整 confirmatory 序列，显式传入 `count20 count100 count300 count500`
   - 每个阶段结束后要求 matrix 全部成功
   - faithful matrix 成功后默认补齐 `faithful_analysis`、`acceptance_summary`、`paper_statistics`、`paper_package`、`family_landscape`
   - reproduction matrix 成功后默认补齐 `reproduction_analysis`、`reproduction_package`、`reproduction_landscape`
-  - 若启用 `RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT=1`，则在四阶段结束后推送 `local/cache` 最新快照
+  - 若启用 `RESEARCH_AUTO_PUSH_CACHE_SNAPSHOT=1`，则在本次阶段序列全部结束后推送 `local/cache` 最新快照
 
 ## 维护建议
 

@@ -86,6 +86,24 @@ def test_active_project_docs_do_not_reference_removed_families() -> None:
             assert marker not in text, f"{path} still references removed marker {marker}"
 
 
+def test_phase_runner_docs_match_default_phase_sequence() -> None:
+    """约束阶段脚本文档与实际默认序列一致，避免把轻量默认误写成完整确认序列。"""
+    ps1_text = (ROOT / "run_all_phases.ps1").read_text(encoding="utf-8")
+    sh_text = (ROOT / "run_all_phases.sh").read_text(encoding="utf-8")
+    assert '[string[]]$Phases = @("count20", "count100")' in ps1_text
+    assert "phases=(count20 count100)" in sh_text
+
+    expected_doc_text = "默认运行 `count20 -> count100`"
+    docs = [
+        ROOT / "README.md",
+        ROOT / "docs" / "run_report_pipeline.md",
+    ]
+    for path in docs:
+        text = path.read_text(encoding="utf-8")
+        assert expected_doc_text in text, f"{path} 未同步默认阶段序列"
+        assert "四阶段结束后" not in text, f"{path} 仍保留过期的四阶段默认描述"
+
+
 def _subcommands(parser: argparse.ArgumentParser) -> set[str]:
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
