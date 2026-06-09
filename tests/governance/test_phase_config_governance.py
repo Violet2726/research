@@ -56,7 +56,7 @@ def test_canonical_single_agent_baseline_config_is_fixed_to_temp_0p7() -> None:
     experiment = _load("configs/families/single_agent/experiments/canonical_simple_baselines.toml")
     catalog = _load(experiment["method_catalog"])
     assert experiment["cot_uses_reruns"] is True
-    assert experiment["phases"]["count100"]["split_overrides"]["competition_math"] == "count100_total_seed0"
+    assert experiment["phases"]["count100"]["split_overrides"]["competition_math"] == "count100_total_seed42"
     assert experiment["phases"]["count100"]["methods"] == ["cot_1", "mv_3", "sc_5"]
     assert experiment["phases"]["count100"]["reruns_override"] == 3
 

@@ -16,6 +16,7 @@
 ```powershell
 uv run research_cli experiment --family single_agent inspect-experiment --experiment configs/families/single_agent/experiments/canonical_simple_baselines.toml
 uv run research_cli experiment --family single_agent run --experiment configs/families/single_agent/experiments/canonical_simple_baselines.toml --phase count100 --model xiaomimimo/mimo-v2.5
+uv run research_cli experiment --family single_agent render-report --run-dir local/runs/single_agent/canonical_simple_baselines/count100/<run_id>
 ```
 
 主线约束：
@@ -24,7 +25,7 @@ uv run research_cli experiment --family single_agent run --experiment configs/fa
 - 方法固定为 `cot_1 / mv_3 / sc_5`
 - 全局解码固定为 `temperature=0.7 / top_p=1.0 / max_output_tokens=256`
 - 预算严格固定为 `1 / 3 / 5` calls
-- `competition_math` 的 count100 split 固定为 `count100_total_seed0`
+- `competition_math` 的 count100 split 固定为 `count100_total_seed42`
 - `count100` 使用 3 reruns，是当前 authoritative 口径
 - `count20` 只用于轻量 sanity check，不再作为正式筛选链路
 

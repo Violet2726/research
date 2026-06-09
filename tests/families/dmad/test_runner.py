@@ -246,11 +246,11 @@ def test_dmad_run_experiment_executes_minimal_flow(monkeypatch, tmp_path: Path) 
                 "smoke_size = 1",
                 "pilot_size = 1",
                 "main_size = 1",
-                "random_seed = 0",
+                "random_seed = 42",
                 'notes = ""',
                 "",
                 "[[split_presets]]",
-                'name = "count20_seed0"',
+                'name = "count20_seed42"',
                 'strategy = "stratified"',
                 'field = "subject"',
                 "size = 1",
@@ -294,7 +294,7 @@ def test_dmad_run_experiment_executes_minimal_flow(monkeypatch, tmp_path: Path) 
                 'roster = "configs/families/dmad/rosters/dmad_cot_sbp_pot_3agent.toml"',
                 "",
                 "[phases.count20]",
-                'split_overrides = { competition_math = "count20_seed0" }',
+                'split_overrides = { competition_math = "count20_seed42" }',
             ]
         ),
         encoding="utf-8",
@@ -366,4 +366,4 @@ def test_dmad_run_experiment_executes_minimal_flow(monkeypatch, tmp_path: Path) 
     assert len(predictions) == 4
     assert (run_dir / "exports" / "paper_tables.json").exists()
     assert any(row["method_name"] == "dmad_cot_sbp_pot" for row in predictions)
-    assert (splits_root / "count20" / "tests" / "dmad" / "minimal_competition_math-seed0.json").exists()
+    assert (splits_root / "full" / "tests" / "dmad" / "minimal_competition_math-seed42.json").exists()

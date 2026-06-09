@@ -80,7 +80,7 @@ roster = "configs/families/dmad/rosters/dmad_cot_sbp_l2m_3agent.toml"
 split_overrides = { mmlu_abstract_algebra = "count20_seed42" }
 
 [phases.count100]
-split_overrides = { mmlu_abstract_algebra = "count100_seed42" }
+split_overrides = { mmlu_abstract_algebra = "full100_seed42" }
 
 [phases.count300]
-split_overrides = { mmlu_abstract_algebra = "count300_seed42" }
+split_overrides = { mmlu_abstract_algebra = "full100_seed42" }

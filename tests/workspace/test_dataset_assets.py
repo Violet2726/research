@@ -226,7 +226,7 @@ def test_download_source_file_falls_back_to_hf_parquet_for_competition_math(tmp_
                 "smoke_size = 20",
                 "pilot_size = 100",
                 "main_size = 5000",
-                "random_seed = 0",
+                "random_seed = 42",
                 'notes = ""',
             ]
         ),

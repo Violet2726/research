@@ -53,7 +53,7 @@ def test_competition_math_loader_reads_subject_and_solution(tmp_path: Path) -> N
                 "smoke_size = 1",
                 "pilot_size = 1",
                 "main_size = 1",
-                "random_seed = 0",
+                "random_seed = 42",
                 'notes = ""',
             ]
         ),

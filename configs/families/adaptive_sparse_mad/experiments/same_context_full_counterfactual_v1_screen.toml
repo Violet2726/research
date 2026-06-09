@@ -20,4 +20,4 @@ adaptive_prompt_version = "adaptive_sparse_mad_v4_evidence_gate"
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 
 [phases.count20]
-split_overrides = { gsm8k = "count20_seed42", strategyqa = "count20_seed42", hotpotqa = "count20_seed42", competition_math = "count20_seed0", mmlu_pro = "count20_seed42", gpqa_diamond = "count20_seed42", math500 = "count20_seed42" }
+split_overrides = { gsm8k = "count20_seed42", strategyqa = "count20_seed42", hotpotqa = "count20_seed42", competition_math = "count20_seed42", mmlu_pro = "count20_seed42", gpqa_diamond = "count20_seed42", math500 = "count20_seed42" }

@@ -78,10 +78,10 @@ mode = "dmad_cot_sbp_pot"
 roster = "configs/families/dmad/rosters/dmad_cot_sbp_pot_3agent.toml"
 
 [phases.count20]
-split_overrides = { competition_math = "count20_seed0", gpqa_diamond = "count20_seed42" }
+split_overrides = { competition_math = "count20_seed42", gpqa_diamond = "count20_seed42" }
 
 [phases.count100]
-split_overrides = { competition_math = "count100_seed0", gpqa_diamond = "count100_seed42" }
+split_overrides = { competition_math = "count100_seed42", gpqa_diamond = "count100_seed42" }
 
 [phases.count300]
-split_overrides = { competition_math = "count100_seed0", gpqa_diamond = "full198_seed42" }
+split_overrides = { competition_math = "count100_seed42", gpqa_diamond = "full198_seed42" }
