@@ -10,7 +10,7 @@ smoke_size = 20
 pilot_size = 100
 main_size = 700
 random_seed = 42
-notes = "Paper-aligned Hendrycks MATH benchmark for DMAD main-text reproduction. Count-based sampled splits use the shared shuffle-prefix policy."
+notes = "与 Hendrycks MATH 论文口径对齐的测试集；count 系列冻结 split 使用全仓统一的 seed42 shuffle-prefix 策略。"
 
 [[split_presets]]
 name = "count20_seed42"

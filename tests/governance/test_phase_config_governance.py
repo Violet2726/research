@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import tomllib
+from collections.abc import Iterator
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -11,6 +12,23 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def _load(relative_path: str) -> dict:
     return tomllib.loads((ROOT / relative_path).read_text(encoding="utf-8"))
+
+
+def _iter_phase_split_entries(phase_payload: dict) -> Iterator[tuple[str, str]]:
+    """统一展开 phase 的 split 引用，避免治理规则各自解析一遍。"""
+    if "split_suffix" in phase_payload:
+        yield "*", str(phase_payload["split_suffix"])
+    for dataset_name, split_name in (phase_payload.get("split_overrides") or {}).items():
+        yield dataset_name, str(split_name)
+
+
+def _load_benchmarks_by_slug(experiment_payload: dict) -> dict[str, dict]:
+    """加载 experiment 显式声明的 benchmark，用于校验 split 例外是否有数据规模依据。"""
+    benchmarks: dict[str, dict] = {}
+    for relative_path in experiment_payload.get("benchmark_configs", []):
+        benchmark = _load(relative_path)
+        benchmarks[str(benchmark["slug"])] = benchmark
+    return benchmarks
 
 
 def test_phase_setup_references_exist_for_multi_agent_style_experiments() -> None:
@@ -73,16 +91,38 @@ def test_count_phases_do_not_point_to_different_count_splits() -> None:
             if phase_match is None:
                 continue
             expected_count = int(phase_match.group("count"))
-            split_entries = []
-            if "split_suffix" in phase_payload:
-                split_entries.append(("*", str(phase_payload["split_suffix"])))
-            split_entries.extend((phase_payload.get("split_overrides") or {}).items())
-            for dataset_name, split_name in split_entries:
+            for dataset_name, split_name in _iter_phase_split_entries(phase_payload):
                 split_match = re.fullmatch(r"count(?P<count>\d+)_seed\d+", str(split_name))
                 if split_match is None:
                     continue
                 actual_count = int(split_match.group("count"))
                 assert actual_count == expected_count, f"{path}:{phase_name}:{dataset_name} -> {split_name}"
+
+
+def test_count_phase_full_split_fallbacks_match_declared_dataset_size() -> None:
+    """允许小数据集在大 count phase 使用 full split，但必须与 benchmark 主规模一致。"""
+    for path in sorted((ROOT / "configs/families").rglob("*.toml")):
+        payload = tomllib.loads(path.read_text(encoding="utf-8"))
+        benchmarks = _load_benchmarks_by_slug(payload)
+        for phase_name, phase_payload in (payload.get("phases") or {}).items():
+            phase_match = re.fullmatch(r"count(?P<count>\d+)(?:_.+)?", phase_name)
+            if phase_match is None:
+                continue
+            expected_count = int(phase_match.group("count"))
+            for dataset_name, split_name in _iter_phase_split_entries(phase_payload):
+                split_match = re.fullmatch(r"full(?P<size>\d+)_seed\d+", split_name)
+                if split_match is None:
+                    continue
+                full_size = int(split_match.group("size"))
+                if dataset_name == "*":
+                    candidates = benchmarks.values()
+                else:
+                    assert dataset_name in benchmarks, f"{path}:{phase_name}:{dataset_name} 未在 benchmark_configs 中声明"
+                    candidates = [benchmarks[dataset_name]]
+                for benchmark in candidates:
+                    declared_size = int(benchmark["main_size"])
+                    assert declared_size == full_size, f"{path}:{phase_name}:{dataset_name} -> {split_name}"
+                    assert declared_size <= expected_count, f"{path}:{phase_name}:{dataset_name} -> {split_name}"
 
 
 def test_imad_declared_methods_have_unique_names_and_valid_round_limits() -> None:

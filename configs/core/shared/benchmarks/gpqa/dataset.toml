@@ -1,5 +1,4 @@
-# GPQA Diamond 基准配置。
-# GPQA Diamond benchmark configuration stored inside the upstream password-protected zip archive.
+# GPQA Diamond 基准配置；原始数据位于上游带密码 zip 包内。
 name = "GPQA Diamond"
 slug = "gpqa_diamond"
 loader = "gpqa_zip_csv"
@@ -14,7 +13,7 @@ smoke_size = 20
 pilot_size = 100
 main_size = 198
 random_seed = 42
-notes = "Deterministically shuffle the four answer choices per question using the record id."
+notes = "使用题目记录 ID 对四个选项做确定性重排；Diamond 全量只有 198 题，大规模 count phase 应显式引用 full198_seed42。"
 
 [[split_presets]]
 name = "count20_seed42"

@@ -19,3 +19,4 @@
 - 公共 benchmark / provider / model 信息优先放到 `configs/core/shared/`。
 - experiment 配置负责声明“跑什么”，protocol / policy / method 配置负责声明“怎么跑”。
 - 避免在配置目录里保留重复别名或模型专属历史副本。
+- `count*` phase 默认应引用同规模的 `count*_seed42` split；当数据集全量规模小于目标 count 时，可显式引用 `full<size>_seed42`，但 `<size>` 必须与 benchmark 的 `main_size` 一致。
