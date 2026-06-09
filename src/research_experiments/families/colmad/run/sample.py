@@ -1,4 +1,9 @@
-"""ColMAD 的样本级执行、协议对照与指标汇总。"""
+"""ColMAD 的样本级执行、协议对照与指标汇总。
+
+本模块负责单题运行 single-agent、竞争式 debate 与协作式 debate，
+并把 turn 记录汇总为 prediction、metrics 与协议诊断行。
+运行目录写入由 `execute.py` 编排，这里只产出结构化数据。
+"""
 
 from __future__ import annotations
 
@@ -37,21 +42,26 @@ SINGLE_CALL_BUDGET = 1
 
 @dataclass(frozen=True)
 class SampleResult:
+    """单个样本执行后的 debate、judge 与 prediction 行集合。"""
+
     debate_rows: list[dict[str, Any]]
     judge_rows: list[dict[str, Any]]
     prediction_rows: list[dict[str, Any]]
 
 
 def _active_methods(experiment: ColmadExperimentConfig) -> list[ColmadMethodSpec]:
+    """按固定报告顺序返回当前实验启用的方法。"""
     methods = {method.name: method for method in experiment.methods}
     return [methods[name] for name in METHOD_ORDER if name in methods]
 
 
 def _resolve_split_name(experiment: ColmadExperimentConfig, phase_name: str, benchmark_slug: str) -> str:
+    """解析某个 benchmark 在指定 phase 中使用的 split。"""
     return resolve_phase_split_name(experiment, phase_name, benchmark_slug)
 
 
 def _load_selected_samples(benchmark, split_name: str) -> list[DatasetSample]:
+    """加载当前 split 的样本列表。"""
     return select_samples(benchmark, split_name)
 
 
@@ -61,6 +71,7 @@ def _estimate_work(
     benchmarks,
     methods: list[ColmadMethodSpec],
 ) -> tuple[int, int]:
+    """估算本 phase 的模型调用数和 prediction 行数。"""
     total_calls = 0
     total_predictions = 0
     for benchmark in benchmarks:
@@ -85,6 +96,7 @@ def _run_sample_batch(
     cache,
     throttle,
 ) -> Iterable[SampleResult]:
+    """并发执行一个 benchmark split 的样本批次。"""
     worker = partial(
         _run_sample,
         run_id=run_id,
@@ -114,6 +126,7 @@ def _run_sample(
     cache: RequestCache,
     throttle: RequestThrottle,
 ) -> SampleResult:
+    """执行单个样本上的所有 ColMAD 方法并补充跨方法裁决字段。"""
     debate_rows: list[dict[str, Any]] = []
     judge_rows: list[dict[str, Any]] = []
     prediction_rows: list[dict[str, Any]] = []
@@ -185,6 +198,7 @@ def _run_single_agent_method(
     throttle: RequestThrottle,
     seed: int,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    """运行单智能体 detector 基线，并构造对应 prediction 行。"""
     turn_row = _execute_structured_turn(
         run_id=run_id,
         dataset=benchmark_slug,
@@ -246,6 +260,7 @@ def _run_debate_method(
     throttle: RequestThrottle,
     seed: int,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+    """运行两位辩手 opening/reply 与最终 judge 的 debate 方法。"""
     debate_rows: list[dict[str, Any]] = []
     opening_alice = _execute_structured_turn(
         run_id=run_id,
@@ -419,6 +434,7 @@ def _execute_judge_turn(
     transcript_rows: list[dict[str, Any]],
     **kwargs,
 ) -> dict[str, Any]:
+    """执行最终 judge turn，复用结构化 turn 运行器。"""
     return _execute_structured_turn(
         role="judge",
         turn_stage="judgment",
@@ -455,6 +471,7 @@ def _execute_structured_turn(
     max_output_tokens: int,
     seed: int,
 ) -> dict[str, Any]:
+    """执行一次结构化模型调用，并封装为 ColMAD turn 行。"""
     result = execute_cached_turn(
         backbone=backbone,
         provider=provider,
@@ -499,6 +516,7 @@ def _execute_structured_turn(
 
 
 def _coerce_debater_payload(turn_row: dict[str, Any]) -> dict[str, Any]:
+    """从 turn 行中取出辩手 payload，缺失时从原始回复兜底解析。"""
     payload = turn_row.get("validated_output")
     if isinstance(payload, dict) and payload.get("verdict"):
         return dict(payload)
@@ -507,6 +525,7 @@ def _coerce_debater_payload(turn_row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _coerce_judge_payload(turn_row: dict[str, Any], debate_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """从 judge turn 中取出裁决 payload，失败时退回 opening 投票。"""
     payload = turn_row.get("validated_output")
     if isinstance(payload, dict) and payload.get("final_verdict"):
         return dict(payload)
@@ -527,6 +546,7 @@ def _coerce_judge_payload(turn_row: dict[str, Any], debate_rows: list[dict[str, 
 
 
 def _aggregate_opening_verdict(payloads: list[dict[str, Any]]) -> tuple[str, float]:
+    """聚合两位辩手 opening 裁决，并返回一致性比例。"""
     if not payloads:
         return "contains_no_error", 0.0
     verdict_groups: dict[str, list[float]] = {}
@@ -544,6 +564,7 @@ def _aggregate_opening_verdict(payloads: list[dict[str, Any]]) -> tuple[str, flo
 
 
 def _shift_direction(previous_score: float, final_score: float) -> str:
+    """根据 debate 前后得分变化标记方向。"""
     if final_score > previous_score:
         return "wrong_to_correct"
     if final_score < previous_score:
@@ -573,6 +594,7 @@ def _build_prediction_row(
     judge_flip_after_debate: bool,
     turn_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    """把一个方法在单题上的 turn 行汇总为 prediction 行。"""
     opening_score = score_prediction(dataset, opening_vote_verdict, sample.reference_answer)
     final_score = score_prediction(dataset, final_verdict, sample.reference_answer)
     communication_tokens = sum(
@@ -628,6 +650,7 @@ def _build_metrics(
     *,
     model_name: str,
 ) -> dict[str, Any]:
+    """按数据集和总体维度汇总 ColMAD 方法指标。"""
     summary_rows: list[dict[str, Any]] = []
     datasets = sorted({row["dataset"] for row in prediction_rows})
     method_names = [method.name for method in methods]
@@ -674,6 +697,7 @@ def _summarize_prediction_rows(
     method_name: str,
     model_name: str,
 ) -> dict[str, Any]:
+    """汇总同一方法在一个数据集范围内的预测行。"""
     return {
         "dataset": dataset,
         "method_name": method_name,
@@ -703,6 +727,7 @@ def _build_protocol_diagnostics(
     prediction_rows: list[dict[str, Any]],
     judge_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    """构造协议诊断，用于比较竞争式与协作式 debate 行为。"""
     summary_rows: list[dict[str, Any]] = []
     datasets = sorted({row["dataset"] for row in prediction_rows})
     method_names = sorted({row["method_name"] for row in prediction_rows})
@@ -738,9 +763,11 @@ def _build_protocol_diagnostics(
 
 
 def _call_budget(method: ColmadMethodSpec) -> int:
+    """返回方法对应的模型调用预算。"""
     return SINGLE_CALL_BUDGET if method.mode == "single_agent_detector" else DEBATE_CALL_BUDGET
 
 
 def _stable_sample_seed(sample_id: str) -> int:
+    """从样本 ID 生成稳定的轻量 seed 偏移。"""
     return sum(ord(char) for char in sample_id) % 100000
 

@@ -1,4 +1,8 @@
-"""ColMAD 实验的科研报告与图资产生成。"""
+"""ColMAD 实验的科研报告与图资产生成。
+
+本模块只读取已落盘的 metrics 与协议诊断，生成中文复现报告和图表规格。
+报告侧不重新运行 debate，也不改变任何评分结果。
+"""
 
 from __future__ import annotations
 
@@ -168,14 +172,17 @@ def render_report(
 
 
 def _overall_row(rows: list[dict[str, Any]], method_name: str) -> dict[str, Any] | None:
+    """从总体指标行中取出指定方法。"""
     return next((row for row in rows if row.get("method_name") == method_name), None)
 
 
 def _delta(left: dict[str, Any], right: dict[str, Any]) -> float:
+    """计算两个指标行的准确率差值。"""
     return round(float(left.get("accuracy_mean") or 0.0) - float(right.get("accuracy_mean") or 0.0), 6)
 
 
 def _ratio(left: dict[str, Any], right: dict[str, Any], field: str) -> float:
+    """计算指定指标字段的比例，分母无效时返回 0。"""
     denominator = float(right.get(field) or 0.0)
     if denominator <= 0:
         return 0.0
@@ -183,6 +190,7 @@ def _ratio(left: dict[str, Any], right: dict[str, Any], field: str) -> float:
 
 
 def _build_figure_specs(metrics: dict[str, Any], protocol_diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
+    """根据指标和协议诊断生成 ColMAD 固定图表规格。"""
     summary_rows = [row.raw for row in SummaryTableView.from_metrics_payload(metrics).rows]
     overall_rows = [row for row in summary_rows if row.get("dataset") == "overall"]
     diagnostics_rows = [row for row in protocol_diagnostics.get("summary_rows", []) if row.get("dataset") == "overall"]
@@ -242,6 +250,7 @@ def _build_figure_specs(metrics: dict[str, Any], protocol_diagnostics: dict[str,
 
 
 def _render_table(rows: list[dict[str, Any]], headers: list[str]) -> list[str]:
+    """把字典行渲染为 markdown 表格。"""
     if not rows:
         return ["No rows."]
     lines = [

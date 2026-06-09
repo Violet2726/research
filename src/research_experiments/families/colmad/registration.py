@@ -1,4 +1,8 @@
-"""`colmad` family 注册入口。"""
+"""`colmad` family 注册入口。
+
+本模块把 ColMAD 复现实验接入统一 family CLI，集中登记 inspect、run、report、validate 与产物别名。
+协议执行和科研报告内容分别保留在 run/sample 与 run/report 中。
+"""
 
 from __future__ import annotations
 
@@ -18,6 +22,7 @@ from research_experiments.workspace.layout import workspace_defaults
 
 
 def inspect_experiment(experiment_path: str, model_override: str | None) -> dict[str, object]:
+    """返回 CLI inspect-experiment 使用的解析后配置视图。"""
     experiment = load_experiment_config(experiment_path)
     protocol = load_protocol_config(experiment.protocol)
     resolved_model = resolve_model(model_override or experiment.primary_model_ref)
@@ -46,10 +51,10 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
 
 ARTIFACT_ALIASES = {
     "debate_trace": "turns/debate_trace.jsonl",
-"judge_trace": "turns/judge_trace.jsonl",
-"final_predictions": "views/predictions.jsonl",
-"protocol_diagnostics": "diagnostics/protocol_diagnostics.json",
-"run_validation": "run_validation.json",
+    "judge_trace": "turns/judge_trace.jsonl",
+    "final_predictions": "views/predictions.jsonl",
+    "protocol_diagnostics": "diagnostics/protocol_diagnostics.json",
+    "run_validation": "run_validation.json",
 }
 
 REGISTRATION = make_family_registration(
@@ -78,8 +83,8 @@ REGISTRATION = make_family_registration(
     artifact_aliases=ARTIFACT_ALIASES,
     metrics_view_path="views/metrics.json",
     prediction_records_path="views/predictions.jsonl",
-    turn_record_paths=('turns/debate_trace.jsonl', 'turns/judge_trace.jsonl'),
-    diagnostic_paths=('diagnostics/protocol_diagnostics.json',),
+    turn_record_paths=("turns/debate_trace.jsonl", "turns/judge_trace.jsonl"),
+    diagnostic_paths=("diagnostics/protocol_diagnostics.json",),
     export_paths=(),
 )
 

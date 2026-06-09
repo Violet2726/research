@@ -1,4 +1,8 @@
-"""ColMAD 提示词与结构化输出解析。"""
+"""ColMAD 提示词与结构化输出解析。
+
+本模块负责构造单智能体、辩手和 judge 的模型消息，并把模型返回规范化为可评分字段。
+提示词正文保持英文，以维持论文复现协议、缓存键和历史实验结果的一致性。
+"""
 
 from __future__ import annotations
 
@@ -14,6 +18,7 @@ FAILURE_MODES = ("fake_evidence", "overconfident_claim", "fallacious_argument")
 
 
 def build_single_agent_messages(sample: DatasetSample) -> list[dict[str, str]]:
+    """构造单智能体错误检测基线的提示词消息。"""
     return [
         {"role": "system", "content": "You are a careful error-detection assistant."},
         {
@@ -37,6 +42,7 @@ def build_debater_opening_messages(
     debate_protocol: str,
     debater_name: str,
 ) -> list[dict[str, str]]:
+    """构造辩手 opening 阶段的提示词消息。"""
     protocol_instruction = _protocol_instruction(debate_protocol, opening=True)
     return [
         {"role": "system", "content": f"You are {debater_name}, an LLM error-detection debater."},
@@ -63,6 +69,7 @@ def build_debater_reply_messages(
     own_opening: dict[str, Any],
     peer_opening: dict[str, Any],
 ) -> list[dict[str, str]]:
+    """构造辩手 reply 阶段的提示词消息，并注入双方 opening 内容。"""
     protocol_instruction = _protocol_instruction(debate_protocol, opening=False)
     peer_block = json.dumps(peer_opening, ensure_ascii=False, indent=2)
     own_block = json.dumps(own_opening, ensure_ascii=False, indent=2)
@@ -95,6 +102,7 @@ def build_judge_messages(
     debate_protocol: str,
     transcript_rows: list[dict[str, Any]],
 ) -> list[dict[str, str]]:
+    """构造最终 judge 消息，将完整 debate transcript 作为裁决依据。"""
     transcript = "\n\n".join(
         [
             f"{row['role']} ({row['turn_stage']}):\n"
@@ -124,6 +132,7 @@ def build_judge_messages(
 
 
 def validate_detector_output(assistant_text: str, provider_reasoning_text: str) -> dict[str, Any]:
+    """校验并归一化单智能体 detector 输出。"""
     payload = _parse_payload(assistant_text)
     return {
         "verdict": _normalize_verdict(payload.get("verdict") or assistant_text),
@@ -143,6 +152,7 @@ def validate_debater_output(
     *,
     debate_protocol: str,
 ) -> dict[str, Any]:
+    """校验并按竞争/协作协议归一化辩手输出。"""
     payload = _parse_payload(assistant_text)
     supportive_text = _clean_text(payload.get("supportive_critique"))
     complemented_points = _normalize_string_list(payload.get("complemented_peer_points"))
@@ -165,6 +175,7 @@ def validate_debater_output(
 
 
 def validate_judge_output(assistant_text: str, provider_reasoning_text: str) -> dict[str, Any]:
+    """校验并归一化最终 judge 输出。"""
     payload = _parse_payload(assistant_text)
     return {
         "final_verdict": _normalize_verdict(payload.get("final_verdict") or assistant_text),
@@ -177,6 +188,7 @@ def validate_judge_output(assistant_text: str, provider_reasoning_text: str) -> 
 
 
 def _task_block(sample: DatasetSample) -> str:
+    """把 ReaLMistake 样本渲染为错误检测任务块。"""
     candidate_response = str(sample.metadata.get("candidate_response") or "").strip()
     return (
         f"Task name: {sample.metadata.get('task_name')}\n"
@@ -187,6 +199,7 @@ def _task_block(sample: DatasetSample) -> str:
 
 
 def _protocol_instruction(debate_protocol: str, *, opening: bool) -> str:
+    """根据协议类型和阶段生成辩手行为约束。"""
     if debate_protocol == "competitive":
         if opening:
             return "You are in a competitive debate. Defend your own verdict and prepare to win the judge."
@@ -197,6 +210,7 @@ def _protocol_instruction(debate_protocol: str, *, opening: bool) -> str:
 
 
 def _parse_payload(text: str) -> dict[str, Any]:
+    """从模型回复中截取并解析 JSON 对象，失败时返回空字典。"""
     match = re.search(r"\{.*\}", text, flags=re.DOTALL)
     if not match:
         return {}
@@ -208,6 +222,7 @@ def _parse_payload(text: str) -> dict[str, Any]:
 
 
 def _normalize_verdict(value: Any) -> str:
+    """把任意裁决文本归一为二值错误检测标签。"""
     normalized = normalize_error_detection_verdict(str(value or ""))
     if normalized == "contains_error":
         return "contains_error"
@@ -217,6 +232,7 @@ def _normalize_verdict(value: Any) -> str:
 
 
 def _normalize_string_list(value: Any) -> list[str]:
+    """把字符串或列表字段归一为非空字符串列表。"""
     if isinstance(value, list):
         items = [str(item).strip() for item in value if str(item).strip()]
         return items
@@ -226,6 +242,7 @@ def _normalize_string_list(value: Any) -> list[str]:
 
 
 def _normalize_failure_modes(value: Any) -> list[str]:
+    """把失败模式文本归一为预定义 failure mode 集合。"""
     normalized: list[str] = []
     for item in _normalize_string_list(value):
         text = item.strip().lower().replace("-", "_").replace(" ", "_")
@@ -237,6 +254,7 @@ def _normalize_failure_modes(value: Any) -> list[str]:
 
 
 def _normalize_confidence(value: Any) -> float:
+    """把置信度限制到 `[0, 1]` 区间。"""
     try:
         numeric = float(value)
     except (TypeError, ValueError):
@@ -245,6 +263,7 @@ def _normalize_confidence(value: Any) -> float:
 
 
 def _normalize_bool(value: Any) -> bool:
+    """把常见布尔文本归一为 bool。"""
     if isinstance(value, bool):
         return value
     text = str(value or "").strip().lower()
@@ -252,6 +271,6 @@ def _normalize_bool(value: Any) -> bool:
 
 
 def _clean_text(value: Any) -> str:
+    """清理可选文本字段，空值返回空字符串。"""
     text = str(value or "").strip()
     return text or ""
-
