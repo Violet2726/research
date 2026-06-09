@@ -26,6 +26,11 @@ methods = ["cot_1", "mv_3", "sc_5"]
 reruns_override = 1
 
 [phases.count100]
-split_overrides = { competition_math = "count100_total_seed42", gpqa_diamond = "count100_seed42", gsm8k = "count100_seed42", hotpotqa = "count100_seed42", math500 = "count100_seed42", mmlu_pro = "count100_seed42" }
+split_overrides = { competition_math = "count100_seed42", gpqa_diamond = "count100_seed42", gsm8k = "count100_seed42", hotpotqa = "count100_seed42", math500 = "count100_seed42", mmlu_pro = "count100_seed42" }
+methods = ["cot_1", "mv_3", "sc_5"]
+reruns_override = 3
+
+[phases.count300]
+split_overrides = { competition_math = "count300_seed42", gpqa_diamond = "full198_seed42", gsm8k = "count300_seed42", hotpotqa = "count300_seed42", math500 = "count300_seed42", mmlu_pro = "count300_seed42" }
 methods = ["cot_1", "mv_3", "sc_5"]
 reruns_override = 3

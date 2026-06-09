@@ -84,4 +84,4 @@ split_overrides = { competition_math = "count20_seed42", gpqa_diamond = "count20
 split_overrides = { competition_math = "count100_seed42", gpqa_diamond = "count100_seed42" }
 
 [phases.count300]
-split_overrides = { competition_math = "count100_seed42", gpqa_diamond = "full198_seed42" }
+split_overrides = { competition_math = "count300_seed42", gpqa_diamond = "full198_seed42" }

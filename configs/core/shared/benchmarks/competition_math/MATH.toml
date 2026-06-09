@@ -7,7 +7,7 @@ sample_id_prefix = "competition_math"
 question_field = "problem"
 answer_field = "answer"
 smoke_size = 20
-pilot_size = 700
+pilot_size = 100
 main_size = 700
 random_seed = 42
 notes = "Paper-aligned Hendrycks MATH benchmark for DMAD main-text reproduction. Count-based sampled splits use the shared shuffle-prefix policy."
@@ -20,12 +20,12 @@ size = 20
 [[split_presets]]
 name = "count100_seed42"
 strategy = "shuffle"
-size = 700
+size = 100
 
 [[split_presets]]
-name = "count100_total_seed42"
+name = "count300_seed42"
 strategy = "shuffle"
-size = 100
+size = 300
 
 [[split_presets]]
 name = "full5000_seed42"

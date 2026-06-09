@@ -56,6 +56,46 @@ def test_generate_and_load_split_manifests(tmp_path: Path) -> None:
     assert [sample.sample_id for sample in samples] == smoke_ids
 
 
+def test_default_count100_manifest_uses_true_count_target(tmp_path: Path) -> None:
+    source_path = tmp_path / "gsm8k.jsonl"
+    source_path.write_text(
+        "\n".join(
+            json.dumps({"question": f"{index}+1?", "answer": f"#### {index + 1}"}, ensure_ascii=False)
+            for index in range(150)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    benchmark_path = tmp_path / "benchmark.toml"
+    benchmark_path.write_text(
+        "\n".join(
+            [
+                'name = "Toy GSM8K"',
+                'slug = "toy_gsm8k"',
+                'loader = "gsm8k_jsonl"',
+                f'source_path = "{source_path.as_posix()}"',
+                'source_split = "test"',
+                'sample_id_prefix = "toy"',
+                'question_field = "question"',
+                'answer_field = "answer"',
+                'smoke_size = 20',
+                'pilot_size = 150',
+                'main_size = 150',
+                'random_seed = 42',
+                'notes = ""',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    benchmark = load_benchmark_config(benchmark_path)
+
+    generate_split_manifests([benchmark], tmp_path / "splits")
+    sample_ids = load_split_ids(benchmark.cache_namespace or benchmark.slug, "count100_seed42", tmp_path / "splits")
+
+    assert len(sample_ids) == 100
+
+
 def test_select_samples_raises_on_missing_manifest_sample_ids(tmp_path: Path) -> None:
     source_path = tmp_path / "gsm8k.jsonl"
     source_path.write_text(

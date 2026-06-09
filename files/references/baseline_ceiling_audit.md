@@ -28,7 +28,7 @@
 - 解码设置：三种方法统一 `temperature=0.7 / top_p=1.0 / max_output_tokens=256`
 - 主 prompt：`single_agent_reasoning_json_v1`
 - authoritative 口径：`count100`，3 reruns
-- `competition_math` 主口径：`count100_total_seed0`
+- `competition_math` 主口径：`count100_seed42`
 
 ## 已退休的旧逻辑
 

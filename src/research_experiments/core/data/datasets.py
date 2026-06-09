@@ -148,7 +148,7 @@ def _resolve_split_specs(
     random.Random(config.random_seed).shuffle(shuffled)
     split_specs = [
         ("count20_seed42", shuffled[: min(config.smoke_size, len(shuffled))]),
-        ("count100_seed42", shuffled[: min(config.pilot_size, len(shuffled))]),
+        ("count100_seed42", shuffled[: min(100, len(shuffled))]),
     ]
     if len(indexed_ids) > 100 and len(indexed_ids) > 300:
         split_specs.append(("count300_seed42", shuffled[: min(config.main_size, len(shuffled))]))

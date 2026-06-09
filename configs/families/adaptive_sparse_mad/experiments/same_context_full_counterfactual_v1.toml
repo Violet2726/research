@@ -23,4 +23,4 @@ primary_model_ref = "xiaomimimo/mimo-v2.5"
 split_overrides = { gsm8k = "count20_seed42", strategyqa = "count20_seed42", hotpotqa = "count20_seed42", competition_math = "count20_seed42", mmlu_pro = "count20_seed42", gpqa_diamond = "count20_seed42", math500 = "count20_seed42" }
 
 [phases.count100]
-split_overrides = { gsm8k = "count100_seed42", strategyqa = "count100_seed42", hotpotqa = "count100_seed42", competition_math = "count100_total_seed42", mmlu_pro = "count100_seed42", gpqa_diamond = "count100_seed42", math500 = "count100_seed42" }
+split_overrides = { gsm8k = "count100_seed42", strategyqa = "count100_seed42", hotpotqa = "count100_seed42", competition_math = "count100_seed42", mmlu_pro = "count100_seed42", gpqa_diamond = "count100_seed42", math500 = "count100_seed42" }

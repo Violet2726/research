@@ -50,7 +50,7 @@ def test_single_agent_canonical_simple_baselines_inspect_cli() -> None:
     assert payload["name"] == "canonical_simple_baselines"
     assert payload["cot_uses_reruns"] is True
     assert payload["phases"]["count100"]["methods"] == ["cot_1", "mv_3", "sc_5"]
-    assert payload["phases"]["count100"]["split_overrides"]["competition_math"] == "count100_total_seed42"
+    assert payload["phases"]["count100"]["split_overrides"]["competition_math"] == "count100_seed42"
     assert payload["methods"]["cot_1"]["temperature"] == 0.7
     assert payload["methods"]["mv_3"]["temperature"] == 0.7
     assert payload["methods"]["sc_5"]["temperature"] == 0.7
@@ -522,7 +522,7 @@ def test_adaptive_sparse_mad_full_counterfactual_v1_inspect_cli() -> None:
         "adaptive_gate_v4",
         "adaptive_counterfactual_v1",
     ]
-    assert payload["phases"]["count100"]["split_overrides"]["competition_math"] == "count100_total_seed42"
+    assert payload["phases"]["count100"]["split_overrides"]["competition_math"] == "count100_seed42"
 
 
 def test_hf_push_cache_uses_repo_env(monkeypatch) -> None:

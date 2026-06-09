@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 
@@ -56,12 +57,32 @@ def test_canonical_single_agent_baseline_config_is_fixed_to_temp_0p7() -> None:
     experiment = _load("configs/families/single_agent/experiments/canonical_simple_baselines.toml")
     catalog = _load(experiment["method_catalog"])
     assert experiment["cot_uses_reruns"] is True
-    assert experiment["phases"]["count100"]["split_overrides"]["competition_math"] == "count100_total_seed42"
+    assert experiment["phases"]["count100"]["split_overrides"]["competition_math"] == "count100_seed42"
     assert experiment["phases"]["count100"]["methods"] == ["cot_1", "mv_3", "sc_5"]
     assert experiment["phases"]["count100"]["reruns_override"] == 3
 
     for method_name in ("cot_1", "mv_3", "sc_5"):
         assert catalog["methods"][method_name]["temperature"] == 0.7
+
+
+def test_count_phases_do_not_point_to_different_count_splits() -> None:
+    for path in sorted((ROOT / "configs/families").rglob("*.toml")):
+        payload = tomllib.loads(path.read_text(encoding="utf-8"))
+        for phase_name, phase_payload in (payload.get("phases") or {}).items():
+            phase_match = re.fullmatch(r"count(?P<count>\d+)(?:_.+)?", phase_name)
+            if phase_match is None:
+                continue
+            expected_count = int(phase_match.group("count"))
+            split_entries = []
+            if "split_suffix" in phase_payload:
+                split_entries.append(("*", str(phase_payload["split_suffix"])))
+            split_entries.extend((phase_payload.get("split_overrides") or {}).items())
+            for dataset_name, split_name in split_entries:
+                split_match = re.fullmatch(r"count(?P<count>\d+)_seed\d+", str(split_name))
+                if split_match is None:
+                    continue
+                actual_count = int(split_match.group("count"))
+                assert actual_count == expected_count, f"{path}:{phase_name}:{dataset_name} -> {split_name}"
 
 
 def test_imad_declared_methods_have_unique_names_and_valid_round_limits() -> None:

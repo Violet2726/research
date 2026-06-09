@@ -72,7 +72,7 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 上游 split：`test`
 - 样本数：`5000`
 - 文件大小：`2.72 MiB`
-- 冻结 split：`count100/competition_math/MATH-seed0.json`, `count20/competition_math/MATH-seed0.json`, `full/competition_math/MATH-seed0.json`
+- 冻结 split：`count100/competition_math/MATH-seed42.json`, `count20/competition_math/MATH-seed42.json`, `count300/competition_math/MATH-seed42.json`, `full/competition_math/MATH-seed42.json`
 - 说明：与 Hendrycks MATH 论文主结果口径对齐的官方压缩包；运行时按 `MATH/test/<subject>/*.json` 读取。
 
 ### GPQA Diamond (`gpqa_diamond`)
@@ -118,7 +118,7 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 上游 split：`test`
 - 样本数：`164`
 - 文件大小：`81.95 KiB`
-- 冻结 split：`count100/humaneval/test-seed42.json`, `count20/humaneval/test-seed42.json`, `count300/humaneval/test-seed42.json`, `full/humaneval/test-seed42.json`
+- 冻结 split：`count100/humaneval/test-seed42.json`, `count20/humaneval/test-seed42.json`, `full/humaneval/test-seed42.json`
 - 说明：保留 prompt、entry point 与 tests，供 MacNet 本地 pass@1 评测使用。
 
 ### MATH500 (`math500`)
@@ -154,7 +154,7 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 上游 split：`test`
 - 样本数：`100`
 - 文件大小：`3.34 MiB`
-- 冻结 split：`count100/mmlu/abstract_algebra-seed42.json`, `count20/mmlu/abstract_algebra-seed42.json`, `count300/mmlu/abstract_algebra-seed42.json`
+- 冻结 split：`count20/mmlu/abstract_algebra-seed42.json`, `full/mmlu/abstract_algebra-seed42.json`
 - 说明：MMLU abstract_algebra 子集，复用 mmlu/test.parquet，运行时通过 record_filters 过滤。
 
 ### MMLU-Pro (`mmlu_pro`)
@@ -177,7 +177,7 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 上游 split：`answerability_classification`
 - 样本数：`300`
 - 文件大小：`0 B`
-- 冻结 split：`count100/realmistake/answerability_classification-seed42.json`, `count20/realmistake/answerability_classification-seed42.json`, `count300/realmistake/answerability_classification-seed42.json`, `full/realmistake/answerability_classification-seed42.json`
+- 冻结 split：`count100/realmistake/answerability_classification-seed42.json`, `count20/realmistake/answerability_classification-seed42.json`, `full/realmistake/answerability_classification-seed42.json`
 - 说明：官方公开压缩包，密码为 `open-realmistake`；当前 benchmark 会直接从 zip 中读取 answerability task 的 GPT-4 与 Llama-2 两个 JSONL 分片。
 
 ### ReaLMistake Fine-grained Fact Verification (`realmistake_fine_grained_fact_verification`)
@@ -189,7 +189,7 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 上游 split：`finegrained_fact_verification`
 - 样本数：`300`
 - 文件大小：`0 B`
-- 冻结 split：`count100/realmistake/fine_grained_fact_verification-seed42.json`, `count20/realmistake/fine_grained_fact_verification-seed42.json`, `count300/realmistake/fine_grained_fact_verification-seed42.json`, `full/realmistake/fine_grained_fact_verification-seed42.json`
+- 冻结 split：`count100/realmistake/fine_grained_fact_verification-seed42.json`, `count20/realmistake/fine_grained_fact_verification-seed42.json`, `full/realmistake/fine_grained_fact_verification-seed42.json`
 - 说明：官方公开压缩包，密码为 `open-realmistake`；当前 benchmark 会直接从 zip 中读取 fact verification task 的 GPT-4 与 Llama-2 两个 JSONL 分片。
 
 ### ReaLMistake Math Problem Generation (`realmistake_math_problem_generation`)
@@ -201,7 +201,7 @@ uv run research_cli tools dataset-assets prepare-all-sources --force
 - 上游 split：`math_word_problem_generation`
 - 样本数：`300`
 - 文件大小：`0 B`
-- 冻结 split：`count100/realmistake/math_problem_generation-seed42.json`, `count20/realmistake/math_problem_generation-seed42.json`, `count300/realmistake/math_problem_generation-seed42.json`, `full/realmistake/math_problem_generation-seed42.json`
+- 冻结 split：`count100/realmistake/math_problem_generation-seed42.json`, `count20/realmistake/math_problem_generation-seed42.json`, `full/realmistake/math_problem_generation-seed42.json`
 - 说明：官方公开压缩包，密码为 `open-realmistake`；当前 benchmark 会直接从 zip 中读取 math task 的 GPT-4 与 Llama-2 两个 JSONL 分片。
 
 ### StrategyQA (`strategyqa`)
