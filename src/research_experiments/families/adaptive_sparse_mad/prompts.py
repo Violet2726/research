@@ -1,4 +1,8 @@
-"""A-SMAD 提示词构造。"""
+"""A-SMAD 提示词构造。
+
+本模块负责把样本、solver 角色和版本号转换成模型消息。
+提示词正文保持英文，以便和既有实验版本、缓存键以及历史结果一致。
+"""
 
 from __future__ import annotations
 
@@ -31,6 +35,7 @@ def build_stage_a_messages(
     agent_id: int,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造核心 Stage A solver 消息，并按版本选择 v2 或 v4 schema。"""
     _ensure_prompt_version(prompt_version)
     if solver_mode == "solver_cot" and prompt_version == STAGE_A_V2_PROMPT_VERSION:
         return build_cot_messages(sample, agent_id, None)
@@ -47,6 +52,7 @@ def build_adaptive_addon_messages(
     stage_a_rows: list[dict[str, object]],
     prompt_version: str = STAGE_A_V4_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造自适应追加 solver 消息，只允许使用 v4 evidence gate schema。"""
     _ensure_prompt_version(prompt_version)
     if prompt_version != STAGE_A_V4_PROMPT_VERSION:
         raise ValueError("Adaptive V4 add-on solvers require the v4 prompt version.")
@@ -66,6 +72,7 @@ def _build_stage_a_v2_messages(
     solver_mode: str,
     agent_id: int,
 ) -> list[dict[str, str]]:
+    """构造 v2 任务 schema 的 Stage A 消息。"""
     instruction = _stage_a_v2_instruction(sample.dataset, solver_mode)
     user_prompt = (
         f"You are agent_{agent_id} in Stage A of a heterogeneous same-context reasoning experiment.\n"
@@ -97,6 +104,7 @@ def _build_stage_a_v4_messages(
     solver_mode: str,
     agent_id: int,
 ) -> list[dict[str, str]]:
+    """构造带证据字段与置信度字段的 v4 Stage A 消息。"""
     instruction = _stage_a_v2_instruction(sample.dataset, solver_mode)
     user_prompt = (
         f"You are agent_{agent_id} in Stage A of an adaptive heterogeneous reasoning experiment.\n"
@@ -130,6 +138,7 @@ def _build_adaptive_addon_v4_messages(
     agent_id: int,
     stage_a_rows: list[dict[str, object]],
 ) -> list[dict[str, str]]:
+    """构造自适应验证步骤的 v4 消息，并附上 Stage A 候选摘要。"""
     instruction = _adaptive_addon_instruction(sample.dataset, solver_mode)
     user_prompt = (
         f"You are agent_{agent_id} in the adaptive verification step of a same-context reasoning experiment.\n"
@@ -171,6 +180,7 @@ def build_stage_a_safe_retry_messages(
     agent_id: int,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造 Stage A 兜底重试消息，优先恢复最短合法答案槽。"""
     _ensure_prompt_version(prompt_version)
     user_prompt = (
         f"You are agent_{agent_id} in a fallback Stage A reasoning pass.\n"
@@ -192,6 +202,7 @@ def build_stage_a_safe_retry_messages(
 
 
 def _stage_a_v2_instruction(dataset: str, solver_mode: str) -> dict[str, str]:
+    """根据 solver 模式返回 Stage A 角色说明。"""
     if solver_mode == "solver_cot":
         return {
             "label": "Direct Solver",
@@ -221,6 +232,7 @@ def _stage_a_v2_instruction(dataset: str, solver_mode: str) -> dict[str, str]:
 
 
 def _solver_system_prompt() -> str:
+    """生成最小 answer_core 输出格式的系统提示词。"""
     return build_json_system_prompt(
         "You are an expert reasoning assistant for controlled research experiments.",
         extra_rules=[
@@ -233,6 +245,7 @@ def _solver_system_prompt() -> str:
 
 
 def _schema_solver_system_prompt() -> str:
+    """生成 v2 结构化 Stage A 输出格式的系统提示词。"""
     return build_json_system_prompt(
         "You are an expert reasoning assistant for controlled research experiments.",
         extra_rules=[
@@ -245,6 +258,7 @@ def _schema_solver_system_prompt() -> str:
 
 
 def _schema_solver_v4_system_prompt() -> str:
+    """生成 v4 证据增强输出格式的系统提示词。"""
     return build_json_system_prompt(
         "You are an expert reasoning assistant for controlled research experiments.",
         extra_rules=[
@@ -257,6 +271,7 @@ def _schema_solver_v4_system_prompt() -> str:
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
+    """生成数据集任务说明，并为 HotpotQA 补充答案槽约束。"""
     base = dataset_instruction_for_sample(sample, hotpot_style="short_span")
     if sample.dataset == "hotpotqa":
         return (
@@ -269,11 +284,13 @@ def _dataset_instruction(sample: DatasetSample) -> str:
 
 
 def _ensure_prompt_version(prompt_version: str) -> None:
+    """拒绝未登记的提示词版本，避免误用历史缓存。"""
     if prompt_version not in _SUPPORTED_PROMPT_VERSIONS:
         raise ValueError(f"Unsupported adaptive_sparse_mad prompt_version: {prompt_version}")
 
 
 def _adaptive_addon_instruction(dataset: str, solver_mode: str) -> dict[str, str]:
+    """根据追加 solver 模式返回自适应验证角色说明。"""
     del dataset
     if solver_mode == "solver_verify":
         return {
@@ -317,6 +334,7 @@ def _adaptive_addon_instruction(dataset: str, solver_mode: str) -> dict[str, str
 
 
 def _format_stage_a_candidate_summary(stage_a_rows: list[dict[str, object]]) -> str:
+    """把 Stage A 候选压缩成提示词可读的逐行摘要。"""
     lines = []
     for row in stage_a_rows:
         validated_output = row.get("validated_output") if isinstance(row.get("validated_output"), dict) else {}
@@ -336,11 +354,13 @@ def _format_stage_a_candidate_summary(stage_a_rows: list[dict[str, object]]) -> 
 
 
 def _sample_is_multiple_choice(sample: DatasetSample) -> bool:
+    """根据元数据和数据集名判断样本是否为多选题。"""
     raw_options = sample.metadata.get("options") or sample.metadata.get("choices") or []
     return bool(raw_options) or sample.dataset in {"mmlu_pro", "gpqa_diamond", "mmlu", "mmlu_abstract_algebra"}
 
 
 def _dominant_candidate_answer(stage_a_rows: list[dict[str, object]]) -> str:
+    """返回当前 Stage A 候选集中出现最多的答案族。"""
     counts: dict[str, int] = {}
     for row in stage_a_rows:
         answer = str(row.get("normalized_answer") or row.get("prediction") or "").strip()

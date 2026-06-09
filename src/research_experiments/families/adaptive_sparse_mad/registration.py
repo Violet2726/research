@@ -1,4 +1,8 @@
-"""adaptive_sparse_mad family 注册入口。"""
+"""adaptive_sparse_mad family 注册入口。
+
+本模块把 A-SMAD 的配置加载、运行、报告和校验能力接入统一 CLI。
+只放登记与命令分发逻辑，实验机制本身保留在 run 与 algorithms 模块。
+"""
 
 from __future__ import annotations
 
@@ -26,6 +30,7 @@ from research_experiments.workspace.layout import workspace_defaults
 
 
 def inspect_experiment(experiment_path: str, model_override: str | None) -> dict[str, object]:
+    """返回 CLI inspect-experiment 使用的解析后配置视图。"""
     experiment = load_experiment_config(experiment_path)
     protocol = load_protocol_config(experiment.protocol)
     controls = load_control_catalog(experiment.control_catalog)
@@ -53,6 +58,7 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
 
 
 def run_from_cli(request: FamilyRunRequest):
+    """把统一 CLI 请求转换为 A-SMAD 运行入口参数。"""
     experiment = load_experiment_config(request.experiment_path)
     resolved_model = resolve_model(request.model_ref or experiment.primary_model_ref)
     return run_experiment(
@@ -65,6 +71,7 @@ def run_from_cli(request: FamilyRunRequest):
 
 
 def configure_parser(parser) -> None:
+    """为 A-SMAD 追加 family 专属子命令。"""
     for action in parser._actions:
         if not isinstance(action, argparse._SubParsersAction):
             continue
@@ -78,6 +85,7 @@ def configure_parser(parser) -> None:
 
 
 def dispatch_extra_command(args) -> bool:
+    """分发 A-SMAD 专属 CLI 命令，返回是否已处理。"""
     if args.command != "refresh-run-artifacts":
         return False
     run_dir = refresh_stage_a_only_run_artifacts(args.run_dir)

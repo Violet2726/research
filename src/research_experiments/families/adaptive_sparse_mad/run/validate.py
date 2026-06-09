@@ -1,4 +1,8 @@
-"""A-SMAD 运行产物校验。"""
+"""A-SMAD 运行产物校验。
+
+本模块检查 run 目录是否满足 family 产物契约，并确认当前 A-SMAD 主线没有遗留 Stage B / judge 行。
+校验结果用于 CLI、报告刷新和自动化回归检查。
+"""
 
 from __future__ import annotations
 
@@ -22,6 +26,7 @@ from research_experiments.family_runtime.validation import (
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
+    """校验单个 A-SMAD run 目录并返回结构化检查结果。"""
     index = resolve_run_artifact_index(run_dir, family_name="adaptive_sparse_mad")
     root = index.run_dir
     turn_paths = named_turn_record_paths(root, family_name="adaptive_sparse_mad")
@@ -109,6 +114,7 @@ def _validate_empty_legacy_rows(
     *,
     files_present: list[bool] | None = None,
 ) -> dict[str, Any]:
+    """确认已退役产物没有继续产生记录。"""
     return {
         "passed": len(rows) == 0,
         "name": name,
@@ -124,6 +130,7 @@ def _validate_router_rows(
     manifest: dict[str, Any],
     prediction_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    """根据启用的自适应策略校验 router_decisions 记录形态。"""
     aggregate_methods = {
         str(method_name)
         for method_name in manifest.get("aggregate_methods", [])
@@ -157,6 +164,7 @@ def _validate_router_rows(
 
 
 def _count_by_method(rows: list[dict[str, Any]]) -> dict[str, int]:
+    """统计预测视图中每个方法的记录数。"""
     counts: dict[str, int] = {}
     for row in rows:
         method_name = str(row.get("method_name") or "")
@@ -169,4 +177,5 @@ def _diagnostic_path(
     root: Path,
     filename: str,
 ) -> Path:
+    """解析诊断文件路径，兼容旧 run 缺少索引登记的情况。"""
     return diagnostic_paths.get(filename, root / "diagnostics" / filename)

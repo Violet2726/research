@@ -1,4 +1,8 @@
-"""A-SMAD 实验执行入口。"""
+"""A-SMAD 实验执行入口。
+
+本模块负责一次完整 run 的资源准备、样本调度、产物写入、报告渲染和最终校验。
+样本级模型调用与聚合细节下沉到 `sample.py`，这里保持运行编排职责。
+"""
 
 from __future__ import annotations
 
@@ -54,6 +58,7 @@ def run_experiment(
     run_root: str | Path | None = None,
     cache_root: str | Path | None = None,
 ) -> Path:
+    """执行指定实验 phase，写入全部 run 产物并返回运行目录。"""
     load_dotenv(".env.local", override=False)
     run_root = run_root or default_runs_root("adaptive_sparse_mad")
     cache_root = cache_root or default_cache_root()
@@ -129,6 +134,7 @@ def run_experiment(
     )
     run_paths.manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    # 运行期间保留内存副本，便于结束后一次性生成指标和诊断视图。
     all_stage_a_turns: list[dict[str, object]] = []
     all_control_turns: list[dict[str, object]] = []
     all_router_rows: list[dict[str, object]] = []
@@ -223,6 +229,7 @@ def run_experiment(
 
 
 def refresh_stage_a_only_run_artifacts(run_dir: str | Path) -> Path:
+    """使用当前代码重算已完成 run 的 Stage A 聚合、诊断和报告产物。"""
     root = Path(run_dir)
     manifest = read_json(root / "manifest.json")
     protocol_payload = dict(manifest.get("protocol") or {})
@@ -250,6 +257,7 @@ def refresh_stage_a_only_run_artifacts(run_dir: str | Path) -> Path:
         for sample in select_samples(benchmark, split_name):
             sample_lookup[(benchmark.slug, sample.sample_id)] = sample
 
+    # 刷新逻辑只重放已有 turn 记录，不重新发起模型请求。
     refreshed_predictions, refreshed_router_rows = refresh_prediction_rows_for_run(
         stage_a_rows,
         prediction_rows,

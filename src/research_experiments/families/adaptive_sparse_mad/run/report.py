@@ -1,4 +1,8 @@
-"""A-SMAD 报告渲染入口。"""
+"""A-SMAD 报告渲染入口。
+
+本模块把 run 目录中的指标、诊断和图表规格组织成中文科研报告。
+报告内容只消费已落盘产物，不触发模型调用或重新评分。
+"""
 
 from __future__ import annotations
 
@@ -35,6 +39,7 @@ METHOD_ORDER = [
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
+    """读取 metrics 视图并返回按数据集分组的摘要。"""
     summary = SummaryTableView.from_metrics_payload(load_metrics_payload(run_dir, family_name="adaptive_sparse_mad"))
     grouped = summary.grouped_by_dataset()
     return {
@@ -46,6 +51,7 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
 
 
 def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) -> dict[str, Any]:
+    """渲染 A-SMAD markdown 报告、图表规格和报告 bundle。"""
     publish_dir = publish_dir or default_reports_root("adaptive_sparse_mad")
     index = resolve_run_artifact_index(run_dir, family_name="adaptive_sparse_mad")
     manifest = load_json_payload(index.manifest_path)
@@ -81,6 +87,7 @@ def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) ->
 
 
 def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
+    """根据总体指标生成固定的 A-SMAD 图表规格。"""
     del diagnostics
     summary = SummaryTableView.from_metrics_payload(metrics)
     summary_rows = [row.raw for row in summary.rows]
@@ -118,6 +125,7 @@ def _render_markdown(
     stage_a_solver_contributions: dict[str, Any],
     run_dir: Path,
 ) -> str:
+    """把指标和诊断 payload 组装成最终中文 markdown。"""
     backbone_name = resolve_manifest_model_name(manifest)
     summary = SummaryTableView.from_metrics_payload(metrics)
     grouped_by_dataset = {
@@ -396,6 +404,7 @@ def _render_markdown(
 
 
 def _ordered_rows(rows: list[Any]) -> list[Any]:
+    """按报告约定的方法顺序排列指标行。"""
     order = {name: idx for idx, name in enumerate(METHOD_ORDER)}
     return sorted(rows, key=lambda row: order.get(row.method_name, 999))
 
@@ -405,4 +414,5 @@ def _diagnostic_path(
     run_dir: Path,
     filename: str,
 ) -> Path:
+    """解析诊断文件路径，兼容旧 run 缺少索引登记的情况。"""
     return diagnostics.get(filename, run_dir / "diagnostics" / filename)

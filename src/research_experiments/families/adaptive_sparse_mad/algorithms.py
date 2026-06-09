@@ -1,4 +1,8 @@
-"""A-SMAD 路由与聚合逻辑。"""
+"""A-SMAD 的 Stage A 聚合与路由判断逻辑。
+
+本模块只处理已结构化的候选答案行，不负责模型调用或实验产物写入。
+聚合策略优先保留可解释的证据、约束和 solver 多样性信号。
+"""
 
 from __future__ import annotations
 
@@ -11,6 +15,7 @@ _NON_ANSWER_VALUES = {"", "unknown"}
 
 
 def aggregate_confidence_weighted(rows: list[dict[str, Any]]) -> tuple[str, dict[str, float]]:
+    """按置信度加权投票，返回获胜答案与每个候选的支持权重。"""
     grouped_weights: dict[str, float] = defaultdict(float)
     grouped_counts: dict[str, int] = defaultdict(int)
     best_confidence: dict[str, float] = defaultdict(float)
@@ -37,6 +42,7 @@ def aggregate_confidence_weighted(rows: list[dict[str, Any]]) -> tuple[str, dict
 
 
 def aggregate_anchor_protected(rows: list[dict[str, Any]]) -> tuple[str, dict[str, float]]:
+    """在加权投票外保护干净的 CoT 锚点答案，降低退化多数的影响。"""
     answer, support = aggregate_confidence_weighted(rows)
     anchor_row = next((row for row in rows if row.get("solver_mode") == "solver_cot"), None)
     if anchor_row is None:
@@ -74,6 +80,7 @@ def aggregate_anchor_protected(rows: list[dict[str, Any]]) -> tuple[str, dict[st
 
 
 def aggregate_constraint_aware_stage_a(rows: list[dict[str, Any]]) -> tuple[str, dict[str, float], str]:
+    """执行约束感知的 Stage A 聚合，并返回用于诊断的 resolver 名称。"""
     answer, support = aggregate_anchor_protected(rows)
     if not rows:
         return answer, support, "constraint_aware_anchor_vote"
@@ -171,6 +178,7 @@ def aggregate_evidence_grounded_stage_a(
     anchor_answer: str = "",
     question: str = "",
 ) -> tuple[str, dict[str, float], str]:
+    """按证据质量、结构字段和 solver 多样性综合打分选择 Stage A 答案。"""
     grouped = _group_answer_rows(rows)
     if not grouped:
         normalized_anchor = str(anchor_answer or "").strip() or "unknown"
@@ -238,6 +246,7 @@ def aggregate_evidence_grounded_stage_a(
 
 
 def _group_answer_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """按规范化答案聚合同一样本的候选行，必要时保留 unknown 兜底。"""
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         answer = str(row.get("normalized_answer") or "").strip()
@@ -249,7 +258,10 @@ def _group_answer_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, A
             answer = str(row.get("normalized_answer") or "").strip() or "unknown"
             grouped[answer].append(row)
     return grouped
+
+
 def _is_answer_candidate(answer: str) -> bool:
+    """判断答案是否可参与正式候选聚合。"""
     return str(answer or "").strip().lower() not in _NON_ANSWER_VALUES
 
 
@@ -260,6 +272,7 @@ def _should_prefer_clean_anchor_over_degraded_majority(
     majority_answer: str,
     grouped: dict[str, list[dict[str, Any]]],
 ) -> bool:
+    """判断是否应让干净锚点覆盖非 CoT solver 形成的退化多数。"""
     if not anchor_answer or anchor_answer == majority_answer:
         return False
     if _row_is_degraded(anchor_row):
@@ -273,6 +286,7 @@ def _should_prefer_clean_anchor_over_degraded_majority(
 
 
 def _row_is_degraded(row: dict[str, Any]) -> bool:
+    """识别会降低聚合可信度的 Stage A 行。"""
     if bool(row.get("stage_a_safe_retry_used")):
         return True
     validated_output = row.get("validated_output")
@@ -283,6 +297,7 @@ def _row_is_degraded(row: dict[str, Any]) -> bool:
 
 
 def _row_has_structured_constraint_fields(row: dict[str, Any]) -> bool:
+    """检查模型输出是否包含结构化类型与约束字段。"""
     validated_output = row.get("validated_output")
     if not isinstance(validated_output, dict):
         return False
@@ -292,6 +307,7 @@ def _row_has_structured_constraint_fields(row: dict[str, Any]) -> bool:
 
 
 def _row_has_meaningful_evidence(row: dict[str, Any]) -> bool:
+    """检查候选行是否带有可用于证据打分的 span 或 evidence。"""
     claim_span = str(row.get("claim_span") or "").strip()
     key_evidence = str(row.get("key_evidence") or "").strip()
     if claim_span and claim_span.lower() not in _NON_ANSWER_VALUES:
@@ -300,6 +316,7 @@ def _row_has_meaningful_evidence(row: dict[str, Any]) -> bool:
 
 
 def _claim_or_evidence_matches_answer(row: dict[str, Any], answer: str) -> bool:
+    """判断声明 span 或证据文本是否支持当前答案。"""
     normalized_answer = _coarse_normalize_text(answer)
     if not normalized_answer:
         return False
@@ -311,11 +328,13 @@ def _claim_or_evidence_matches_answer(row: dict[str, Any], answer: str) -> bool:
 
 
 def _answer_group_has_type_conflict(rows: list[dict[str, Any]]) -> bool:
+    """判断同一答案组内部是否出现 answer_type 冲突。"""
     normalized_types = sorted({_normalized_answer_type(row) for row in rows if _normalized_answer_type(row)})
     return len(normalized_types) > 1
 
 
 def _coarse_normalize_text(text: str) -> str:
+    """执行聚合比较使用的粗粒度英文文本归一化。"""
     lowered = str(text or "").strip().lower()
     return re.sub(r"[^a-z0-9]+", " ", lowered).strip()
 
@@ -326,6 +345,7 @@ def _slot_complete_preference_bonus(
     grouped: dict[str, list[dict[str, Any]]],
     question: str,
 ) -> float:
+    """给更贴合题目槽位的完整答案加分，压低布尔解释性溢出。"""
     normalized_answer = _coarse_normalize_text(answer)
     if not normalized_answer:
         return 0.0
@@ -363,6 +383,7 @@ def _slot_complete_preference_bonus(
 
 
 def _longer_answer_looks_slot_complete(*, question: str, longer: str, shorter: str) -> bool:
+    """判断较长答案是否比短答案更完整地填充题目槽位。"""
     if shorter in {"yes", "no"}:
         return False
     longer_tokens = [token for token in longer.split() if token]
@@ -404,6 +425,7 @@ def _longer_answer_looks_slot_complete(*, question: str, longer: str, shorter: s
 
 
 def _is_boolean_explanatory_overrun(*, longer: str, shorter: str) -> bool:
+    """识别把 yes/no 答案扩写成解释句的情况。"""
     if shorter not in {"yes", "no"}:
         return False
     longer_tokens = [token for token in longer.split() if token]
@@ -415,6 +437,7 @@ def _should_prefer_typed_minority(
     minority_row: dict[str, Any],
     majority_rows: list[dict[str, Any]],
 ) -> bool:
+    """在少数派类型更精确且多数派无退化时，允许少数派覆盖。"""
     if _row_is_degraded(minority_row) or not _row_has_structured_constraint_fields(minority_row):
         return False
     if any(_row_is_degraded(row) for row in majority_rows):
@@ -434,6 +457,7 @@ def _should_prefer_typed_minority(
 
 
 def _rows_form_clean_expression_consensus(rows: list[dict[str, Any]]) -> bool:
+    """判断候选行是否形成干净的表达式类型多数。"""
     if len(rows) < 2:
         return False
     return all(
@@ -445,6 +469,7 @@ def _rows_form_clean_expression_consensus(rows: list[dict[str, Any]]) -> bool:
 
 
 def _rows_form_clean_slot_majority(rows: list[dict[str, Any]]) -> bool:
+    """判断候选行是否形成干净的答案槽类型多数。"""
     if len(rows) < 2:
         return False
     if not all(not _row_is_degraded(row) and _row_has_structured_constraint_fields(row) for row in rows):
@@ -456,6 +481,7 @@ def _rows_form_clean_slot_majority(rows: list[dict[str, Any]]) -> bool:
 
 
 def _normalized_answer_type(row: dict[str, Any]) -> str:
+    """把模型输出的 answer_type 归一到聚合逻辑使用的粗粒度类型。"""
     validated_output = row.get("validated_output")
     raw_value = ""
     if isinstance(validated_output, dict):
@@ -481,6 +507,7 @@ def _normalized_answer_type(row: dict[str, Any]) -> str:
 
 
 def _reasoning_looks_mathy(text: str) -> bool:
+    """用轻量特征判断推理文本是否包含数学线索。"""
     normalized = str(text or "")
     if not normalized:
         return False
@@ -489,6 +516,7 @@ def _reasoning_looks_mathy(text: str) -> bool:
 
 
 def _majority_pattern(grouped: dict[str, list[dict[str, Any]]]) -> str:
+    """把三 solver 答案分布归类为常见多数模式。"""
     sizes = sorted((len(rows) for rows in grouped.values()), reverse=True)
     if sizes == [3]:
         return "three_to_zero"
@@ -500,6 +528,7 @@ def _majority_pattern(grouped: dict[str, list[dict[str, Any]]]) -> str:
 
 
 def _row_confidence(row: dict[str, Any]) -> float:
+    """读取候选行置信度，缺失或异常时使用默认值。"""
     value = row.get("confidence_value")
     if value is None:
         return DEFAULT_CONFIDENCE

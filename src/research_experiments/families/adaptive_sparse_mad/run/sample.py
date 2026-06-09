@@ -1,4 +1,8 @@
-"""A-SMAD 样本级执行与聚合逻辑。"""
+"""A-SMAD 样本级执行、聚合与诊断逻辑。
+
+本模块覆盖单题 Stage A 求解、可选自适应追加 solver、对照方法执行，以及 run 级指标诊断的构造。
+所有写盘动作由 `execute.py` 编排，这里只返回结构化行数据。
+"""
 
 from __future__ import annotations
 
@@ -76,6 +80,8 @@ _MULTIPLE_CHOICE_DATASETS = {"mmlu_pro", "gpqa_diamond", "mmlu", "mmlu_abstract_
 
 @dataclass(frozen=True)
 class SampleResult:
+    """单个样本执行后的 turn、router 与 prediction 行集合。"""
+
     stage_a_turns: list[dict[str, Any]]
     control_turns: list[dict[str, Any]]
     router_rows: list[dict[str, Any]]
@@ -83,6 +89,7 @@ class SampleResult:
 
 
 def _is_core_stage_a_row(row: dict[str, Any]) -> bool:
+    """判断一行是否来自三个核心 Stage A solver。"""
     return str(row.get("solver_mode") or "") in SOLVER_MODES
 
 
@@ -101,6 +108,7 @@ def run_sample_batch(
     throttle: RequestThrottle,
     on_complete: Callable[[SampleResult], None] | None = None,
 ) -> None:
+    """并发执行一个 benchmark split 的样本，并在完成时回调写入结果。"""
     def worker(sample: DatasetSample) -> SampleResult:
         return _run_sample(
             sample,
@@ -131,6 +139,7 @@ def refresh_stage_a_prediction_rows(
     *,
     prompt_version: str,
 ) -> list[dict[str, Any]]:
+    """基于已有 Stage A 行重算 `hetero_vote_3` 预测行。"""
     by_sample: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in stage_a_rows:
         if not _is_core_stage_a_row(row):
@@ -176,6 +185,7 @@ def refresh_prediction_rows_for_run(
     model_name: str,
     prompt_version: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """重放已完成 run 的聚合策略，刷新预测行与 router 行。"""
     del prompt_version
     core_rows_by_sample: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     adaptive_rows_by_policy_sample: dict[tuple[tuple[str, str], str], list[dict[str, Any]]] = defaultdict(list)
@@ -308,6 +318,7 @@ def append_sample_result(
     all_router_rows: list[dict[str, Any]],
     all_prediction_rows: list[dict[str, Any]],
 ) -> None:
+    """把单样本结果写入缓冲 writer，并同步更新进度和内存汇总。"""
     for row in result.stage_a_turns:
         stage_a_handle.write_row(row)
         progress.record_call(row, method_key="method_name")
@@ -326,6 +337,7 @@ def append_sample_result(
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
+    """从 metrics 视图生成轻量 run 摘要。"""
     path = Path(run_dir) / "views" / "metrics.json"
     if not path.exists():
         return {"run_dir": str(Path(run_dir)), "row_count": 0, "datasets": [], "summary_by_dataset": {}}
@@ -343,6 +355,7 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
 
 
 def build_metrics_payload(prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """按数据集与总体维度汇总 prediction 行指标。"""
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     overall_grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in prediction_rows:
@@ -361,6 +374,7 @@ def build_metrics_payload(prediction_rows: list[dict[str, Any]]) -> dict[str, An
 
 
 def build_router_eval_payload(router_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """汇总自适应 router 的触发率、改答案率和追加 solver 分布。"""
     if not router_rows:
         return {"sample_rows": [], "summary_rows": []}
 
@@ -406,6 +420,7 @@ def build_policy_diagnostics(
     prediction_rows: list[dict[str, Any]],
     router_eval_payload: dict[str, Any],
 ) -> dict[str, Any]:
+    """构造策略级诊断，包括两两比较、晋级门和主线准入门。"""
     del router_eval_payload
     aggregate_rows = [row for row in prediction_rows if str(row.get("method_kind") or "") == "aggregate"]
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -451,6 +466,7 @@ def build_policy_diagnostics(
 
 
 def build_method_pairwise_rows(prediction_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """按同一样本配对比较方法，生成 corrected/harmed 与显著性统计。"""
     by_sample: dict[tuple[str, str], dict[str, dict[str, Any]]] = defaultdict(dict)
     for row in prediction_rows:
         dataset = str(row.get("dataset") or "")
@@ -531,6 +547,7 @@ def build_promotion_gate_payload(
     pairwise_rows: list[dict[str, Any]],
     baseline_method_name: str = "hetero_vote_3",
 ) -> dict[str, Any]:
+    """生成 count20 到 count100 的 promotion gate 判断依据。"""
     aggregate_rows = [row for row in prediction_rows if str(row.get("method_kind") or "") == "aggregate"]
     candidate_method_names = sorted(
         {
@@ -634,6 +651,7 @@ def build_mainline_gate_payload(
     baseline_method_name: str = "hetero_vote_3",
     min_paired_n: int = 700,
 ) -> dict[str, Any]:
+    """生成正式主线准入判断，要求足够配对样本和跨类别净收益。"""
     aggregate_rows = [row for row in prediction_rows if str(row.get("method_kind") or "") == "aggregate"]
     candidate_method_names = sorted(
         {
@@ -744,6 +762,7 @@ def build_mainline_gate_payload(
 
 
 def _exact_mcnemar_p(corrected_count: int, harmed_count: int) -> float:
+    """计算二分类配对差异的双侧 McNemar 精确 p 值。"""
     total = corrected_count + harmed_count
     if total <= 0:
         return 1.0
@@ -752,6 +771,7 @@ def _exact_mcnemar_p(corrected_count: int, harmed_count: int) -> float:
 
 
 def _bootstrap_accuracy_delta_ci(per_sample_delta: list[int], *, seed: int = 0, draws: int = 2000) -> tuple[float, float]:
+    """对逐样本准确率差值做 bootstrap，返回 95% 置信区间。"""
     if not per_sample_delta:
         return 0.0, 0.0
     rng = random.Random(seed)
@@ -769,6 +789,7 @@ def _bootstrap_accuracy_delta_ci(per_sample_delta: list[int], *, seed: int = 0, 
 
 
 def _apply_holm_adjustment(pairwise_rows: list[dict[str, Any]]) -> None:
+    """按数据集与基线方法分组写入 Holm 多重比较校正 p 值。"""
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in pairwise_rows:
         grouped[(str(row.get("dataset") or ""), str(row.get("baseline_method_name") or ""))].append(row)
@@ -784,6 +805,7 @@ def _apply_holm_adjustment(pairwise_rows: list[dict[str, Any]]) -> None:
 
 
 def _promotion_category_for_dataset(dataset: str) -> str:
+    """把数据集映射到晋级门使用的任务类别。"""
     normalized = str(dataset or "").strip().lower()
     if normalized == "hotpotqa":
         return "open_qa"
@@ -795,6 +817,7 @@ def _promotion_category_for_dataset(dataset: str) -> str:
 
 
 def _promotion_category_definition_payload() -> dict[str, list[str]]:
+    """返回晋级门报告中展示的任务类别定义。"""
     return {
         "open_qa": ["hotpotqa"],
         "mcqa": ["mmlu_pro", "gpqa_diamond"],
@@ -807,6 +830,7 @@ def build_stage_a_resolver_breakdown_payload(
     stage_a_rows: list[dict[str, Any]],
     prediction_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    """统计不同 Stage A resolver 的正确率，并抽取错误样例。"""
     by_sample: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in stage_a_rows:
         if not _is_core_stage_a_row(row):
@@ -877,6 +901,7 @@ def build_stage_a_error_bucket_payload(
     stage_a_rows: list[dict[str, Any]],
     prediction_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    """把 `hetero_vote_3` 错误样本归入 Stage A 诊断分桶。"""
     hetero_predictions = {
         (str(row.get("dataset") or ""), str(row.get("sample_id") or "")): row
         for row in prediction_rows
@@ -972,6 +997,7 @@ def build_stage_a_error_bucket_payload(
 
 
 def build_stage_a_solver_contribution_payload(stage_a_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """统计各核心 solver 对正确候选、独立正确和多数错误场景的贡献。"""
     by_sample: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in stage_a_rows:
         if not _is_core_stage_a_row(row):
@@ -1073,6 +1099,7 @@ def _classify_stage_a_error_bucket(
     *,
     prediction_row: dict[str, Any],
 ) -> str:
+    """为单个错误样本选择最能解释失败来源的 Stage A 分桶。"""
     grouped = _group_rows_by_answer(rows)
     predicted_answer = str(prediction_row.get("prediction") or "").strip() or "unknown"
     predicted_group = grouped.get(predicted_answer, [])
@@ -1093,6 +1120,7 @@ def _classify_stage_a_error_bucket(
 
 
 def _group_rows_by_answer(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """按规范化答案对同一样本的 Stage A 行分组。"""
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         answer = str(row.get("normalized_answer") or "").strip() or "unknown"
@@ -1104,6 +1132,7 @@ def _is_confidence_miscalibration(
     predicted_group: list[dict[str, Any]],
     correct_group: list[dict[str, Any]],
 ) -> bool:
+    """判断错误多数是否由错误候选的置信度虚高导致。"""
     predicted_confidences = [
         float(row["confidence_value"])
         for row in predicted_group
@@ -1123,6 +1152,7 @@ def _has_constraint_mismatch(
     predicted_group: list[dict[str, Any]],
     correct_group: list[dict[str, Any]],
 ) -> bool:
+    """判断错误候选组是否比正确候选组存在更多结构约束问题。"""
     if not predicted_group or not correct_group:
         return False
     predicted_violations = sum(1 for row in predicted_group if _row_has_structural_violation(row))
@@ -1131,6 +1161,7 @@ def _has_constraint_mismatch(
 
 
 def _row_has_structural_violation(row: dict[str, Any]) -> bool:
+    """检查单行答案是否违反已声明的答案类型或恢复状态约束。"""
     answer = str(row.get("normalized_answer") or "").strip()
     if answer.lower() in {"", "unknown"}:
         return True
@@ -1141,6 +1172,7 @@ def _row_has_structural_violation(row: dict[str, Any]) -> bool:
 
 
 def _stage_a_row_answer_type(row: dict[str, Any]) -> str:
+    """从扁平字段或 validated_output 中读取 Stage A 的答案类型。"""
     direct_value = str(row.get("answer_type") or "").strip()
     if direct_value:
         return direct_value
@@ -1151,6 +1183,7 @@ def _stage_a_row_answer_type(row: dict[str, Any]) -> str:
 
 
 def _normalize_stage_a_answer_type(raw_value: object) -> str:
+    """归一化 Stage A 诊断使用的答案类型。"""
     normalized = str(raw_value or "").strip().lower().replace("-", "_").replace(" ", "_")
     if not normalized:
         return ""
@@ -1164,6 +1197,7 @@ def _normalize_stage_a_answer_type(raw_value: object) -> str:
 
 
 def _answer_matches_declared_type(answer: str, declared_type: str) -> bool:
+    """判断答案文本是否符合声明的粗粒度类型。"""
     stripped = str(answer or "").strip()
     lowered = stripped.lower()
     if declared_type == "option":
@@ -1176,6 +1210,7 @@ def _answer_matches_declared_type(answer: str, declared_type: str) -> bool:
 
 
 def _stage_a_row_is_degraded(row: dict[str, Any]) -> bool:
+    """判断 Stage A 行是否使用过安全重试或结构化恢复兜底。"""
     validated_output = row.get("validated_output")
     return bool(row.get("stage_a_safe_retry_used")) or (
         isinstance(validated_output, dict) and bool(validated_output.get("stage_a_recovery_fallback"))
@@ -1188,6 +1223,7 @@ def estimate_work(
     benchmarks,
     controls: dict[str, MethodConfig],
 ) -> tuple[int, int]:
+    """估算本 phase 的模型调用数和预测行数，用于进度条上限。"""
     total_calls = 0
     total_predictions = 0
     for benchmark in benchmarks:
@@ -1225,6 +1261,7 @@ def _run_sample(
     cache: RequestCache,
     throttle: RequestThrottle,
 ) -> SampleResult:
+    """执行单个样本的核心 Stage A、聚合方法与 no-comm 对照。"""
     core_stage_a_rows = []
     for agent_id, solver_mode in enumerate(SOLVER_MODES, start=1):
         stage_a_seed = experiment.global_seed + agent_id
@@ -1386,6 +1423,7 @@ def _run_adaptive_variant(
     stage_a_resolver: str,
     stage_a_trace_hash: str,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None, dict[str, Any]]:
+    """运行一个自适应聚合变体，必要时追加 solver 并生成 router 行。"""
     if experiment.adaptive_prompt_version != STAGE_A_V4_PROMPT_VERSION:
         raise ValueError(f"{method_name} requires the adaptive_sparse_mad_v4_evidence_gate prompt version.")
     if method_name not in ADAPTIVE_POLICY_METHODS:
@@ -1564,6 +1602,7 @@ def _replay_adaptive_variant(
     stage_a_resolver: str,
     stage_a_trace_hash: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    """基于已落盘的 turn 行重放自适应策略，不发起新的模型请求。"""
     use_evidence_primary = _sample_prefers_evidence_primary(sample)
     pre_answer = stage_a_answer
     pre_resolver = stage_a_resolver
@@ -1691,6 +1730,7 @@ def _build_ega_only_prediction_row(
     stage_a_score: float,
     stage_a_trace_hash: str,
 ) -> dict[str, Any]:
+    """构造仅使用证据聚合器的 `ega_only_v4` prediction 行。"""
     final_answer, final_support, final_resolver = aggregate_evidence_grounded_stage_a(
         core_stage_a_rows,
         anchor_answer=stage_a_answer,
@@ -1728,6 +1768,7 @@ def _build_adaptive_gate_decision(
     stage_a_rows: list[dict[str, Any]],
     support: dict[str, float],
 ) -> dict[str, Any]:
+    """根据分歧、置信度、退化输出和结构冲突决定是否触发追加 solver。"""
     grouped = _group_rows_by_answer(stage_a_rows)
     unique_answer_count = len(grouped)
     has_disagreement = unique_answer_count > 1
@@ -1829,6 +1870,7 @@ def _build_adaptive_gate_decision(
 
 
 def _select_adaptive_addon_solver(sample: DatasetSample) -> str:
+    """按题型选择默认追加 solver。"""
     if _sample_is_multiple_choice(sample):
         return "solver_option_elim"
     if sample.prompt_context:
@@ -1842,6 +1884,7 @@ def _select_adaptive_addon_solver_sequence(
     sample: DatasetSample,
     gate_decision: dict[str, Any],
 ) -> list[str]:
+    """为具体自适应策略选择追加 solver 序列。"""
     base_solver = str(gate_decision.get("selected_addon_solver") or _select_adaptive_addon_solver(sample))
     if method_name == "adaptive_counterfactual_v1":
         severe_counterfactual_need = _adaptive_counterfactual_needed(
@@ -1871,6 +1914,7 @@ def _select_adaptive_addon_solver_sequence(
 
 
 def _sample_prefers_evidence_primary(sample: DatasetSample) -> bool:
+    """判断样本是否更适合优先使用证据聚合。"""
     if _sample_is_multiple_choice(sample):
         return False
     if not sample.prompt_context:
@@ -1883,6 +1927,7 @@ def _adaptive_counterfactual_needed(
     sample: DatasetSample,
     gate_decision: dict[str, Any],
 ) -> bool:
+    """判断当前分歧形态是否需要反事实候选。"""
     del sample
     trigger_reasons = set(str(item) for item in (gate_decision.get("trigger_reasons") or []))
     unique_answer_count = int(gate_decision.get("unique_answer_count") or 0)
@@ -1902,6 +1947,7 @@ def _adaptive_counterfactual_needed(
 
 
 def _answers_share_family(left: str, right: str) -> bool:
+    """用粗粒度文本包含关系判断两个答案是否属于同一答案族。"""
     normalized_left = _normalize_router_text(left)
     normalized_right = _normalize_router_text(right)
     if not normalized_left or not normalized_right:
@@ -1914,6 +1960,7 @@ def _answers_share_family(left: str, right: str) -> bool:
 
 
 def _core_supports_answer_family(core_stage_a_rows: list[dict[str, Any]], answer: str) -> bool:
+    """检查核心 Stage A 中是否已有 solver 支持该答案族。"""
     return any(
         _answers_share_family(str(row.get("normalized_answer") or ""), answer)
         for row in core_stage_a_rows
@@ -1927,6 +1974,7 @@ def _should_accept_counterfactual_override(
     gate_decision: dict[str, Any],
     sample: DatasetSample,
 ) -> bool:
+    """判断反事实候选是否足够可靠，能覆盖基线答案。"""
     if counterfactual_row is None:
         return False
     candidate_answer = str(counterfactual_row.get("normalized_answer") or counterfactual_row.get("prediction") or "").strip()
@@ -2030,6 +2078,7 @@ def _execute_turn(
     prompt_version: str = STAGE_A_V2_PROMPT_VERSION,
     extra_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """执行一次 Stage A 或追加 Stage A 调用，并进行安全重试与答案槽修正。"""
     if output_mode != "stage_a":
         raise ValueError(f"Unsupported output_mode: {output_mode}")
 
@@ -2153,10 +2202,12 @@ def _execute_turn(
 
 
 def _is_soft_rejection_result(result) -> bool:
+    """判断模型回复是否像安全拒答或软拒答。"""
     return looks_like_soft_rejection_text(str(result.response_payload.get("assistant_text") or ""))
 
 
 def _should_safe_retry_stage_a_result(result) -> bool:
+    """识别需要用兜底提示词重试的 Stage A 结果。"""
     if result.output_status != "ok":
         return True
     if _is_soft_rejection_result(result):
@@ -2190,6 +2241,7 @@ def _execute_control_turn(
     max_output_tokens: int,
     seed: int | None,
 ) -> dict[str, Any]:
+    """执行 no-comm 对照方法的一次模型调用。"""
     def validator(raw_text: str, provider_reasoning_text: str) -> dict[str, Any]:
         return _validate_control_output(
             raw_text,
@@ -2259,6 +2311,7 @@ def _build_control_prediction_row(
     split_name: str,
     run_id: str,
 ) -> dict[str, Any]:
+    """把对照方法的 turn 行汇总成 prediction 行。"""
     costs = summarize_row_cost(turn_rows)
     return {
         "run_id": run_id,
@@ -2298,10 +2351,12 @@ def _resolve_stage_a_aggregate(
     prompt_version: str,
     question: str | None,
 ) -> tuple[str, dict[str, float], str]:
+    """选择当前 Stage A 聚合器；保留参数以兼容刷新与未来版本分支。"""
     return aggregate_constraint_aware_stage_a(stage_a_rows)
 
 
 def _score_existing_stage_a_answer(stage_a_rows: list[dict[str, Any]], answer: str) -> float:
+    """从已有 Stage A 行中取出某个答案对应的评分。"""
     normalized_answer = str(answer or "").strip()
     for row in stage_a_rows:
         if str(row.get("normalized_answer") or "").strip() == normalized_answer:
@@ -2315,6 +2370,7 @@ def _validate_control_output(
     dataset: str,
     provider_reasoning_text: str = "",
 ) -> dict[str, Any]:
+    """校验 no-comm 对照输出，必要时从推理文本恢复答案。"""
     try:
         return validate_or_recover_structured_output(
             raw_text,
@@ -2353,6 +2409,7 @@ def _build_hetero_prediction_row(
     stage_a_resolver: str,
     stage_a_trace_hash: str,
 ) -> dict[str, Any]:
+    """构造 `hetero_vote_3` 的 prediction 行。"""
     costs = summarize_row_cost(stage_a_rows)
     return {
         "run_id": run_id,
@@ -2404,6 +2461,7 @@ def _build_adaptive_prediction_row(
     baseline_answer: str,
     baseline_score: float,
 ) -> dict[str, Any]:
+    """构造自适应聚合方法的 prediction 行。"""
     costs = summarize_row_cost(final_rows)
     return {
         "run_id": run_id,
@@ -2452,6 +2510,7 @@ def _build_adaptive_router_row(
     final_score: float,
     final_resolver: str,
 ) -> dict[str, Any]:
+    """构造记录自适应触发原因和最终答案变化的 router 行。"""
     return {
         "run_id": run_id,
         "dataset": benchmark_slug,
@@ -2500,6 +2559,7 @@ def _build_aggregate_prediction_row(
     support_payload: dict[str, Any],
     stage_a_trace_hash: str,
 ) -> dict[str, Any]:
+    """构造只依赖 Stage A 行的聚合 prediction 行。"""
     costs = summarize_row_cost(stage_a_rows)
     return {
         "run_id": run_id,
@@ -2533,6 +2593,7 @@ def _build_aggregate_prediction_row(
 
 
 def _build_summary_row(dataset: str, method_name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """按方法聚合准确率、成本和触发相关指标。"""
     question_count = len(rows)
     return {
         "dataset": dataset,
@@ -2563,6 +2624,7 @@ def _build_summary_row(dataset: str, method_name: str, rows: list[dict[str, Any]
 
 
 def _validate_stage_a_output(raw_text: str, *, dataset: str, provider_reasoning_text: str = "") -> dict[str, Any]:
+    """校验 Stage A 结构化输出，失败时尽量恢复最小可用答案。"""
     try:
         payload = _decode_json_object(raw_text)
         final_answer = _require_textish(payload.get("final_answer"), "final_answer")
@@ -2620,6 +2682,7 @@ def _validate_stage_a_output(raw_text: str, *, dataset: str, provider_reasoning_
 
 
 def _clamp_probability_threshold(value: object, *, default: float) -> float:
+    """把配置阈值限制在概率区间内。"""
     try:
         numeric_value = float(value)
     except (TypeError, ValueError):
@@ -2628,6 +2691,7 @@ def _clamp_probability_threshold(value: object, *, default: float) -> float:
 
 
 def _row_has_valid_confidence_signal(row: dict[str, Any]) -> bool:
+    """判断一行是否提供可用于 router 的置信度信号。"""
     if row.get("confidence_value") is None:
         return False
     if "confidence_valid" not in row:
@@ -2641,6 +2705,7 @@ def _apply_stage_a_consistency_safeguard(
     dataset: str,
     allow_numeric_tail_recovery: bool = True,
 ) -> dict[str, Any]:
+    """用推理文本恢复可能写错的 Stage A 答案槽。"""
     final_answer = str(payload.get("final_answer") or "").strip()
     reasoning = str(payload.get("reasoning") or "").strip()
     if not final_answer or not reasoning:
@@ -2673,6 +2738,7 @@ def _recover_stage_a_answer_from_reasoning(
     dataset: str,
     allow_numeric_tail_recovery: bool,
 ) -> str:
+    """从推理文本中恢复数据集可评分的候选答案。"""
     try:
         recovered = recover_answer_from_reasoning_text(reasoning, dataset)
         recovered_answer = str(recovered.get("final_answer") or "").strip()
@@ -2697,6 +2763,7 @@ def _apply_stage_a_answer_slot_safeguard(
     dataset: str,
     sample: DatasetSample | None = None,
 ) -> str:
+    """按数据集约束修正 Stage A 的答案槽格式。"""
     answer = final_answer.strip()
     if not answer:
         return answer
@@ -2749,6 +2816,7 @@ def _apply_multiple_choice_answer_safeguard(
     reasoning: str,
     sample: DatasetSample | None,
 ) -> str:
+    """把多选题答案统一修正为可见选项字母。"""
     options = _multiple_choice_options(sample)
     valid_letters = _valid_option_letters(options)
     answer = final_answer.strip()
@@ -2769,6 +2837,7 @@ def _apply_multiple_choice_answer_safeguard(
 
 
 def _multiple_choice_options(sample: DatasetSample | None) -> list[str]:
+    """从样本元数据中提取多选题选项文本。"""
     if sample is None:
         return []
     raw_options = sample.metadata.get("options") or sample.metadata.get("choices") or []
@@ -2778,6 +2847,7 @@ def _multiple_choice_options(sample: DatasetSample | None) -> list[str]:
 
 
 def _sample_is_multiple_choice(sample: DatasetSample | None) -> bool:
+    """根据数据集名或选项元数据判断样本是否为多选题。"""
     if sample is None:
         return False
     if sample.dataset in _MULTIPLE_CHOICE_DATASETS:
@@ -2786,6 +2856,7 @@ def _sample_is_multiple_choice(sample: DatasetSample | None) -> bool:
 
 
 def _question_looks_mathy(question: str) -> bool:
+    """用关键词和数字粗判题目是否偏数学推理。"""
     text = str(question or "").lower()
     math_markers = (
         "solve",
@@ -2803,11 +2874,13 @@ def _question_looks_mathy(question: str) -> bool:
 
 
 def _valid_option_letters(options: list[str]) -> set[str]:
+    """根据选项数量生成合法选项字母集合。"""
     option_count = len(options) if options else 10
     return {chr(ord("A") + index) for index in range(min(option_count, 10))}
 
 
 def _extract_multiple_choice_letter(text: str, valid_letters: set[str]) -> str:
+    """从答案文本开头或常见表达中提取多选字母。"""
     cleaned = str(text or "").strip()
     if not cleaned:
         return ""
@@ -2824,6 +2897,7 @@ def _extract_multiple_choice_letter(text: str, valid_letters: set[str]) -> str:
 
 
 def _extract_multiple_choice_letter_from_reasoning(reasoning: str, valid_letters: set[str]) -> str:
+    """从推理文本中的 final answer 表达提取多选字母。"""
     text = str(reasoning or "")
     patterns = (
         r'"final_answer"\s*:\s*"([A-J])"',
@@ -2840,6 +2914,7 @@ def _extract_multiple_choice_letter_from_reasoning(reasoning: str, valid_letters
 
 
 def _match_option_text(answer: str, options: list[str]) -> str:
+    """将完整选项文本匹配回对应的选项字母。"""
     if not options:
         return ""
     normalized_answer = normalize_text(answer)
@@ -2852,6 +2927,7 @@ def _match_option_text(answer: str, options: list[str]) -> str:
 
 
 def _decode_json_object(raw_text: str) -> dict[str, Any]:
+    """从模型回复中截取并解析第一个 JSON 对象。"""
     cleaned = raw_text.strip()
     start = cleaned.find("{")
     end = cleaned.rfind("}")
@@ -2864,6 +2940,7 @@ def _decode_json_object(raw_text: str) -> dict[str, Any]:
 
 
 def _require_textish(value: object, field_name: str) -> str:
+    """读取必填文本字段，拒绝空值和布尔值。"""
     if value is None or isinstance(value, bool):
         raise ValueError(f"{field_name} is required.")
     normalized = str(value).strip()
@@ -2873,6 +2950,7 @@ def _require_textish(value: object, field_name: str) -> str:
 
 
 def _optional_text(value: object) -> str | None:
+    """读取可选文本字段，空字符串归一为 None。"""
     if value is None:
         return None
     normalized = str(value).strip()
@@ -2880,10 +2958,12 @@ def _optional_text(value: object) -> str | None:
 
 
 def _normalize_router_text(value: str) -> str:
+    """归一化 router 判断使用的英文文本。"""
     return re.sub(r"[^a-z0-9]+", " ", str(value or "").strip().lower()).strip()
 
 
 def _row_has_risk_signal(row: dict[str, Any]) -> bool:
+    """判断候选行是否自报风险或体现低置信度。"""
     failure_risk = str(row.get("failure_risk") or "").strip()
     uncertainty_type = str(row.get("uncertainty_type") or "").strip()
     try:
@@ -2894,4 +2974,5 @@ def _row_has_risk_signal(row: dict[str, Any]) -> bool:
 
 
 def _trace_hash(rows: list[dict[str, Any]], keys: list[str]) -> str:
+    """按指定字段生成稳定 trace hash。"""
     return stable_trace_hash(rows, keys)

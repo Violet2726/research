@@ -1,4 +1,8 @@
-"""A-SMAD 配置加载。"""
+"""A-SMAD 配置加载与实验入口解析。
+
+本模块把 TOML 配置转换为运行时 dataclass，并集中校验聚合方法与提示词版本的兼容性。
+路径字段在这里保持为 `Path`，由运行层再解析到具体工作区位置。
+"""
 
 from __future__ import annotations
 
@@ -42,6 +46,8 @@ ADAPTIVE_POLICY_METHODS = frozenset(
 
 @dataclass(frozen=True)
 class AdaptiveSparseMadProtocolConfig:
+    """A-SMAD 协议级参数，控制 Stage A 调用和基础聚合阈值。"""
+
     agent_count: int
     top_p: float
     stage_a_temperature: float
@@ -53,6 +59,8 @@ class AdaptiveSparseMadProtocolConfig:
 
 @dataclass(frozen=True)
 class AdaptiveSparseMadExperimentConfig:
+    """单个 A-SMAD 实验配置，承载数据集、方法、模型与运行时限流参数。"""
+
     name: str
     description: str
     benchmark_configs: list[Path]
@@ -72,6 +80,7 @@ class AdaptiveSparseMadExperimentConfig:
 
 
 def load_protocol_config(path: str | Path) -> AdaptiveSparseMadProtocolConfig:
+    """读取协议 TOML，并返回强类型的协议配置。"""
     payload = load_toml(path)
     return AdaptiveSparseMadProtocolConfig(
         agent_count=int(payload["agent_count"]),
@@ -85,10 +94,12 @@ def load_protocol_config(path: str | Path) -> AdaptiveSparseMadProtocolConfig:
 
 
 def load_control_catalog(path: str | Path) -> dict[str, MethodConfig]:
+    """加载 no-comm 对照方法目录。"""
     return load_method_catalog(path)
 
 
 def load_experiment_config(path: str | Path) -> AdaptiveSparseMadExperimentConfig:
+    """读取实验 TOML，校验 A-SMAD 方法组合并补齐运行时默认值。"""
     payload = load_toml(path)
     runtime = apply_runtime_defaults(payload)
     aggregate_methods = tuple(str(item) for item in payload.get("aggregate_methods", ["hetero_vote_3"]))
@@ -147,9 +158,11 @@ def load_experiment_config(path: str | Path) -> AdaptiveSparseMadExperimentConfi
 
 
 def inspect_methods(experiment: AdaptiveSparseMadExperimentConfig) -> list[str]:
+    """返回 CLI inspect 视图展示的全部方法名。"""
     controls = load_control_catalog(experiment.control_catalog)
     return list(controls) + list(experiment.aggregate_methods)
 
 
 def inspect_benchmarks(experiment: AdaptiveSparseMadExperimentConfig) -> list[str]:
+    """返回实验实际引用的 benchmark slug 列表。"""
     return [benchmark.slug for benchmark in load_benchmarks(experiment)]
