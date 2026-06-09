@@ -1,8 +1,8 @@
-"""budget_comm run validation.
+"""budget_comm 运行产物校验。
 
-Validates from research constraints rather than mere file completeness:
-budget overrun, shard leakage, paired design integrity, knapsack replayability,
-and DALA-lite tier allocation consistency.
+校验重点不是单纯检查文件是否齐全，而是约束研究口径：
+预算超支、分片泄漏、配对设计完整性、背包选择可重放性，
+以及 DALA-lite 档位分配一致性。
 """
 
 from __future__ import annotations

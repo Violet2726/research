@@ -1,4 +1,4 @@
-"""Sample-level execution helpers for DMAD."""
+"""DMAD 样本级执行辅助逻辑。"""
 
 from __future__ import annotations
 

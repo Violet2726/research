@@ -1,4 +1,4 @@
-"""MacNet run artifact validation."""
+"""MacNet 运行产物校验。"""
 
 from __future__ import annotations
 

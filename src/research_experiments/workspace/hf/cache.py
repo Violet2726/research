@@ -1,4 +1,4 @@
-"""Rewritten Hugging Face cache sync services."""
+"""重写后的 Hugging Face cache 同步服务。"""
 
 from __future__ import annotations
 

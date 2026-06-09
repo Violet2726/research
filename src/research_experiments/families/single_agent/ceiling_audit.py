@@ -1,4 +1,4 @@
-"""Canonical simple-baseline recheck tool for single-agent baselines."""
+"""单智能体 canonical simple-baseline 复核工具。"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""DMAD run validation."""
+"""DMAD 运行产物校验。"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Shared request-cache helpers backed by SQLite shards."""
+"""基于 SQLite 分片的共享请求缓存工具。"""
 
 from __future__ import annotations
 

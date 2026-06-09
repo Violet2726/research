@@ -1,4 +1,4 @@
-"""Shared helpers for the Hugging Face sync stack."""
+"""Hugging Face 同步栈共享辅助函数。"""
 
 from __future__ import annotations
 

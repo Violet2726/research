@@ -1,4 +1,4 @@
-"""`sid_lite` family registration."""
+"""`sid_lite` family 注册入口。"""
 
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ REGISTRATION = make_family_registration(
     family_name="sid_lite",
     prototype="packet_belief_update",
     cli_help=FamilyCliHelp(
-        description="SID-lite experiment runner.",
+        description="SID-lite 实验运行器。",
         inspect_help="Show resolved SID-lite config.",
         run_help="Execute one SID-lite phase.",
         summarize_help="Print SID-lite summary.",

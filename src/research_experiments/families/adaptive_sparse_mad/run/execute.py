@@ -1,4 +1,4 @@
-"""A-SMAD experiment execution."""
+"""A-SMAD 实验执行入口。"""
 
 from __future__ import annotations
 

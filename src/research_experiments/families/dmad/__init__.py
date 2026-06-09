@@ -1,1 +1,1 @@
-"""DMAD family package."""
+"""DMAD family 包。"""

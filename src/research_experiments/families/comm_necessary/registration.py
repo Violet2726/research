@@ -1,4 +1,4 @@
-"""`comm_necessary` family registration."""
+"""`comm_necessary` family 注册入口。"""
 
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ REGISTRATION = make_family_registration(
     family_name="comm_necessary",
     prototype="packet_belief_update",
     cli_help=FamilyCliHelp(
-        description="Communication-necessary HotpotQA experiment runner.",
+        description="HotpotQA 通信必要性实验运行器。",
         inspect_help="Show resolved comm_necessary experiment configuration.",
         run_help="Execute one configured comm_necessary phase.",
         summarize_help="Print a concise run summary.",

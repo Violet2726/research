@@ -1,4 +1,4 @@
-"""`econ` family registration."""
+"""`econ` family 注册入口。"""
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ REGISTRATION = make_family_registration(
     family_name="econ",
     prototype="packet_belief_update",
     cli_help=FamilyCliHelp(
-        description="ECON low-communication coordination experiment runner.",
+        description="ECON 低通信协同实验运行器。",
         inspect_help="Show the resolved ECON experiment configuration.",
         run_help="Execute one configured ECON experiment phase.",
         summarize_help="Print a concise ECON run summary.",

@@ -1,2 +1,2 @@
-"""ECON run package."""
+"""ECON 运行子包。"""
 

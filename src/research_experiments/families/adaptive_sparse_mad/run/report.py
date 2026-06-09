@@ -1,4 +1,4 @@
-"""A-SMAD report rendering."""
+"""A-SMAD 报告渲染入口。"""
 
 from __future__ import annotations
 

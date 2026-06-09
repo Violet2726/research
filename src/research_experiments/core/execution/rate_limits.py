@@ -1,4 +1,4 @@
-"""Shared network request throttling and concurrency control."""
+"""共享的网络请求限流与并发控制。"""
 
 from __future__ import annotations
 

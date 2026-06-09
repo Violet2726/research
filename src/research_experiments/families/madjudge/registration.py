@@ -1,4 +1,4 @@
-"""`madjudge` family registration."""
+"""`madjudge` family 注册入口。"""
 
 from __future__ import annotations
 
@@ -78,7 +78,7 @@ REGISTRATION = make_family_registration(
     family_name="madjudge",
     prototype="debate_rounds",
     cli_help=FamilyCliHelp(
-        description="MADJudge: Multi-Agent Debate with Adaptive Stability Detection (arXiv:2510.12697).",
+        description="MADJudge：带自适应稳定性检测的多智能体辩论实验运行器。",
         inspect_help="Show the resolved MADJudge experiment configuration.",
         run_help="Execute one configured MADJudge experiment phase.",
         summarize_help="Print a concise run summary from metrics.json.",

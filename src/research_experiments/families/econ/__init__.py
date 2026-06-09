@@ -1,2 +1,1 @@
-"""ECON family package."""
-
+"""ECON family 包。"""

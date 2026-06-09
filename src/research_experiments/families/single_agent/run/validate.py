@@ -1,8 +1,7 @@
-"""Single-agent run result validation.
+"""单智能体运行结果校验。
 
-Focuses on whether the baseline experiment is "clean and comparable":
-request failure rate, output success rate, and prediction row counts
-aligned across different methods on the same split.
+关注基线实验是否“干净且可比较”：
+请求失败率、输出成功率，以及同一 split 上不同方法的预测行数是否对齐。
 """
 
 from __future__ import annotations

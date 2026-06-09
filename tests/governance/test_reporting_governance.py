@@ -14,29 +14,18 @@ from research_experiments.families.registry import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
+FAMILIES_SRC = ROOT / "src" / "research_experiments" / "families"
 LEGACY_REPORT_COMMANDS = (
     "report-run",
     "report-trigger",
     "report-debate-vs-vote",
 )
+FAMILY_READMES = sorted(FAMILIES_SRC.glob("*/README.md"))
 MARKDOWN_DOCS = [
     ROOT / "README.md",
     ROOT / "docs" / "huggingface_archive_workflow.md",
     ROOT / "docs" / "run_report_pipeline.md",
-    ROOT / "src" / "research_experiments" / "families" / "budget_comm" / "README.md",
-    ROOT / "src" / "research_experiments" / "families" / "colmad" / "README.md",
-    ROOT / "src" / "research_experiments" / "families" / "comm_necessary" / "README.md",
-    ROOT / "src" / "research_experiments" / "families" / "consensagent" / "README.md",
-    ROOT / "src" / "research_experiments" / "families" / "dmad" / "README.md",
-    ROOT / "src" / "research_experiments" / "families" / "econ" / "README.md",
-    ROOT / "src" / "research_experiments" / "families" / "free_mad_lite" / "README.md",
-    ROOT / "src" / "research_experiments" / "families" / "imad" / "README.md",
-    ROOT / "src" / "research_experiments" / "families" / "macnet" / "README.md",
-    ROOT / "src" / "research_experiments" / "families" / "madjudge" / "README.md",
-    ROOT / "src" / "research_experiments" / "families" / "multi_agent" / "README.md",
-    ROOT / "src" / "research_experiments" / "families" / "selective_comm" / "README.md",
-    ROOT / "src" / "research_experiments" / "families" / "sid_lite" / "README.md",
-    ROOT / "src" / "research_experiments" / "families" / "single_agent" / "README.md",
+    *FAMILY_READMES,
 ]
 ACTIVE_PROJECT_DOCS = [
     ROOT / "README.md",
@@ -71,11 +60,23 @@ def test_markdown_docs_reference_existing_config_paths() -> None:
 
 
 def test_family_readmes_use_render_report_example() -> None:
-    family_readmes = [path for path in MARKDOWN_DOCS if path.parent.name not in {"docs", "research"} and path.name == "README.md"]
-    for path in family_readmes:
+    for path in FAMILY_READMES:
         text = path.read_text(encoding="utf-8")
         assert "render-report --run-dir" in text, f"{path} is missing unified render-report example"
         assert "research_cli experiment --family " in text, f"{path} 未使用新的 experiment CLI 入口"
+
+
+def test_family_readme_run_dir_examples_match_experiment_configs() -> None:
+    for path in FAMILY_READMES:
+        text = path.read_text(encoding="utf-8")
+        family_name = path.parent.name
+        experiment_names = _experiment_names_in_doc(text)
+        for run_family, run_experiment in _run_dir_examples_in_doc(text):
+            if run_family != family_name or run_experiment == "<experiment>":
+                continue
+            assert run_experiment in experiment_names, (
+                f"{path} 的 run-dir 示例实验名 {run_experiment!r} 未出现在 --experiment 配置示例中"
+            )
 
 
 def test_active_project_docs_do_not_reference_removed_families() -> None:
@@ -109,3 +110,13 @@ def _subcommands(parser: argparse.ArgumentParser) -> set[str]:
         if isinstance(action, argparse._SubParsersAction):
             return set(action.choices)
     return set()
+
+
+def _experiment_names_in_doc(text: str) -> set[str]:
+    pattern = re.compile(r"--experiment configs/families/[A-Za-z0-9_-]+/experiments/([A-Za-z0-9_./-]+)\.toml")
+    return {Path(match).stem for match in pattern.findall(text)}
+
+
+def _run_dir_examples_in_doc(text: str) -> list[tuple[str, str]]:
+    pattern = re.compile(r"local/runs/([^/\s]+)/([^/\s]+)/")
+    return pattern.findall(text)

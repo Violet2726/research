@@ -1,8 +1,8 @@
-"""SID-lite run artifact validation.
+"""SID-lite 运行产物校验。
 
-Validates shared frontend, fair comparison, and mechanism constraints:
-early-exit zero communication, shared Stage A hash consistency,
-and confidence fail-open behavior.
+校验共享前端、公平比较与机制约束：
+early-exit 零通信、共享 Stage A 哈希一致性，
+以及 confidence fail-open 行为。
 """
 
 from __future__ import annotations

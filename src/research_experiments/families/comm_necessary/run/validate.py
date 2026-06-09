@@ -1,7 +1,7 @@
-"""comm_necessary run artifact validation.
+"""comm_necessary 运行产物校验。
 
-Checks split-context design integrity, message packet cap compliance,
-rate limit constraints, and HotpotQA prediction file export correctness.
+检查 split-context 设计完整性、消息包上限遵守情况、
+限流约束，以及 HotpotQA 预测文件导出的正确性。
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""adaptive_sparse_mad family registration."""
+"""adaptive_sparse_mad family 注册入口。"""
 
 from __future__ import annotations
 
@@ -101,7 +101,7 @@ REGISTRATION = make_family_registration(
     family_name="adaptive_sparse_mad",
     prototype="shared_stage_policy",
     cli_help=FamilyCliHelp(
-        description="A-SMAD same-context experiment runner.",
+        description="A-SMAD same-context 实验运行器。",
         inspect_help="Show the resolved A-SMAD experiment configuration.",
         run_help="Execute one configured A-SMAD experiment phase.",
         summarize_help="Print a concise A-SMAD run summary.",

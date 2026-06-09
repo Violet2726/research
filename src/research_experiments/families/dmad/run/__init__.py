@@ -1,1 +1,1 @@
-"""DMAD run package."""
+"""DMAD 运行子包。"""

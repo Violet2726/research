@@ -1,4 +1,4 @@
-"""`single_agent` family registration."""
+"""`single_agent` family 注册入口。"""
 
 from __future__ import annotations
 
@@ -84,7 +84,7 @@ REGISTRATION = make_family_registration(
     family_name="single_agent",
     prototype="independent_sampling",
     cli_help=FamilyCliHelp(
-        description="Single-agent baseline experiment runner.",
+        description="单智能体基线实验运行器。",
         inspect_help="Show the resolved experiment configuration.",
         run_help="Execute one configured experiment phase.",
         summarize_help="Print a concise run summary from metrics.json.",

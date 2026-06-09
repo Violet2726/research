@@ -1,4 +1,4 @@
-"""`consensagent` family registration."""
+"""`consensagent` family 注册入口。"""
 
 from __future__ import annotations
 
@@ -78,7 +78,7 @@ REGISTRATION = make_family_registration(
     family_name="consensagent",
     prototype="debate_rounds",
     cli_help=FamilyCliHelp(
-        description="CONSENSAGENT: trigger-based multi-agent debate with sycophancy mitigation.",
+        description="CONSENSAGENT：带 sycophancy mitigation 的触发式多智能体辩论运行器。",
         inspect_help="Show the resolved CONSENSAGENT experiment configuration.",
         run_help="Execute one configured CONSENSAGENT experiment phase.",
         summarize_help="Print a concise run summary from metrics.json.",

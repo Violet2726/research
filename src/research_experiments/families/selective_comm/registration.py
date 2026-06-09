@@ -1,4 +1,4 @@
-"""`selective_comm` family registration."""
+"""`selective_comm` family 注册入口。"""
 
 from __future__ import annotations
 
@@ -100,7 +100,7 @@ REGISTRATION = make_family_registration(
     family_name="selective_comm",
     prototype="shared_stage_policy",
     cli_help=FamilyCliHelp(
-        description="Selective communication trigger experiment runner.",
+        description="选择性通信触发实验运行器。",
         inspect_help="Show the resolved selective communication experiment configuration.",
         run_help="Execute one configured selective communication phase.",
         summarize_help="Print a concise run summary from views/metrics.json.",

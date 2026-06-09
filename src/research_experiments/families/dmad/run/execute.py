@@ -1,4 +1,4 @@
-"""Top-level DMAD experiment execution."""
+"""DMAD 顶层实验执行入口。"""
 
 from __future__ import annotations
 

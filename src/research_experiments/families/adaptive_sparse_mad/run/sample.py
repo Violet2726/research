@@ -1,4 +1,4 @@
-"""A-SMAD sample execution and aggregation."""
+"""A-SMAD 样本级执行与聚合逻辑。"""
 
 from __future__ import annotations
 

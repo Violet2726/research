@@ -1,4 +1,4 @@
-"""Public entrypoints for the rewritten Hugging Face sync stack."""
+"""重写后的 Hugging Face 同步栈公开入口。"""
 
 from research_experiments.workspace.hf.cache import (
     pull_cache_from_hub,

@@ -1,4 +1,4 @@
-"""A-SMAD prompts."""
+"""A-SMAD 提示词构造。"""
 
 from __future__ import annotations
 

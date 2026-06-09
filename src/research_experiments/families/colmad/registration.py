@@ -1,4 +1,4 @@
-"""`colmad` family registration."""
+"""`colmad` family 注册入口。"""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ REGISTRATION = make_family_registration(
     family_name="colmad",
     prototype="topology_or_graph",
     cli_help=FamilyCliHelp(
-        description="ColMAD collaborative oversight reproduction runner.",
+        description="ColMAD 协作监督复现实验运行器。",
         inspect_help="Show the resolved ColMAD experiment configuration.",
         run_help="Execute one configured ColMAD experiment phase.",
         summarize_help="Print a concise ColMAD run summary.",

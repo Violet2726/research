@@ -1,4 +1,4 @@
-"""`free_mad_lite` family registration."""
+"""`free_mad_lite` family 注册入口。"""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ REGISTRATION = make_family_registration(
     family_name="free_mad_lite",
     prototype="debate_rounds",
     cli_help=FamilyCliHelp(
-        description="Free-MAD-lite experiment runner.",
+        description="Free-MAD-lite 实验运行器。",
         inspect_help="Show resolved Free-MAD-lite config.",
         run_help="Execute one Free-MAD-lite phase.",
         summarize_help="Print Free-MAD-lite summary.",

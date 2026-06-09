@@ -1,4 +1,4 @@
-"""A-SMAD run validation."""
+"""A-SMAD 运行产物校验。"""
 
 from __future__ import annotations
 

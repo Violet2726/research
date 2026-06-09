@@ -1,4 +1,4 @@
-"""`imad` family registration."""
+"""`imad` family 注册入口。"""
 
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ REGISTRATION = make_family_registration(
     family_name="imad",
     prototype="debate_rounds",
     cli_help=FamilyCliHelp(
-        description="Adaptive stopping debate experiment runner.",
+        description="自适应停止辩论实验运行器。",
         inspect_help="Show the resolved iMAD experiment configuration.",
         run_help="Execute one configured iMAD experiment phase.",
         summarize_help="Print a concise iMAD run summary.",

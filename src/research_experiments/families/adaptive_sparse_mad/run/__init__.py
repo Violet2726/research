@@ -1,1 +1,1 @@
-"""A-SMAD run package."""
+"""A-SMAD 运行子包。"""

@@ -1,4 +1,4 @@
-"""Hugging Face runs sync services."""
+"""Hugging Face runs 同步服务。"""
 
 from __future__ import annotations
 

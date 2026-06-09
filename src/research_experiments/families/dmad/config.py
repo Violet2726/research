@@ -1,4 +1,4 @@
-"""DMAD family configuration loading."""
+"""DMAD family 配置加载。"""
 
 from __future__ import annotations
 

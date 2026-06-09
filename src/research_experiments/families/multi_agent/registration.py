@@ -1,4 +1,4 @@
-"""`multi_agent` family registration."""
+"""`multi_agent` family 注册入口。"""
 
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ REGISTRATION = make_family_registration(
     family_name="multi_agent",
     prototype="debate_rounds",
     cli_help=FamilyCliHelp(
-        description="Vanilla MAD multi-agent baseline runner.",
+        description="Vanilla MAD 多智能体基线运行器。",
         inspect_help="Show the resolved multi-agent experiment configuration.",
         run_help="Execute one configured multi-agent experiment phase.",
         summarize_help="Print a concise run summary from metrics.json.",

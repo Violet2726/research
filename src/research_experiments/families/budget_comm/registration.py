@@ -1,4 +1,4 @@
-"""`budget_comm` family registration."""
+"""`budget_comm` family 注册入口。"""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ REGISTRATION = make_family_registration(
     family_name="budget_comm",
     prototype="packet_belief_update",
     cli_help=FamilyCliHelp(
-        description="Budget-aware DALA-lite experiment runner.",
+        description="预算感知的 DALA-lite 实验运行器。",
         inspect_help="Show the resolved budget_comm experiment configuration.",
         run_help="Execute one configured budget_comm experiment phase.",
         summarize_help="Print a concise budget_comm run summary.",

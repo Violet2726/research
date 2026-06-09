@@ -1,4 +1,4 @@
-"""`dmad` family registration."""
+"""`dmad` family 注册入口。"""
 
 from __future__ import annotations
 

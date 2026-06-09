@@ -1,7 +1,7 @@
-"""Free-MAD-lite run artifact validation.
+"""Free-MAD-lite 运行产物校验。
 
-Checks shared frontend hashes, single-round constraint, judge output
-structure, and trajectory judge log-level reproducibility.
+检查共享前端哈希、单轮约束、judge 输出结构，
+以及 trajectory judge 日志级别的可复现性。
 """
 
 from __future__ import annotations

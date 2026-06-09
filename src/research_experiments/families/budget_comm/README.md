@@ -14,5 +14,5 @@
 ```powershell
 uv run research_cli experiment --family budget_comm inspect-experiment --experiment configs/families/budget_comm/experiments/dala_lite_same_context_main.toml
 uv run research_cli experiment --family budget_comm run --experiment configs/families/budget_comm/experiments/dala_lite_same_context_main.toml --phase count20 --model xiaomimimo/mimo-v2.5
-uv run research_cli experiment --family budget_comm render-report --run-dir local/runs/budget_comm/dala_lite_split_context_main/count20/<run_id>
+uv run research_cli experiment --family budget_comm render-report --run-dir local/runs/budget_comm/dala_lite_same_context_main/count20/<run_id>
 ```
