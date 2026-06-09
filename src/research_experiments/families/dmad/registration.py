@@ -23,6 +23,8 @@ from research_experiments.workspace.layout import workspace_defaults
 
 
 def inspect_experiment(experiment_path: str, model_override: str | None) -> dict[str, object]:
+    """解析 DMAD 实验配置，返回 CLI inspect 使用的可序列化摘要。"""
+
     experiment = load_experiment_config(experiment_path)
     protocol = load_protocol_config(experiment.protocol)
     benchmarks = load_benchmarks(experiment)
@@ -64,12 +66,12 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
 
 ARTIFACT_ALIASES = {
     "agent_turns": "turns/agent_turns.jsonl",
-"debate_messages": "turns/debate_messages.jsonl",
-"final_predictions": "views/predictions.jsonl",
-"strategy_diagnostics": "diagnostics/strategy_diagnostics.json",
-"cost_breakdown": "diagnostics/cost_breakdown.json",
-"paper_tables": "exports/paper_tables.json",
-"run_validation": "run_validation.json",
+    "debate_messages": "turns/debate_messages.jsonl",
+    "final_predictions": "views/predictions.jsonl",
+    "strategy_diagnostics": "diagnostics/strategy_diagnostics.json",
+    "cost_breakdown": "diagnostics/cost_breakdown.json",
+    "paper_tables": "exports/paper_tables.json",
+    "run_validation": "run_validation.json",
 }
 
 REGISTRATION = make_family_registration(

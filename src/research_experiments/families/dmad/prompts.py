@@ -18,6 +18,8 @@ def build_reasoning_stage_messages(
     prior_rounds: list[list[dict[str, str]]] | None = None,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造分离式辩论中的推理过程阶段消息。"""
+
     _assert_prompt_version(prompt_version)
     method_spec = resolve_reasoning_method(sample.dataset, agent_profile.strategy_name)
     history_block = _render_prior_rounds(agent_profile.agent_id, prior_rounds or [])
@@ -72,6 +74,8 @@ def build_answer_stage_messages(
     prior_rounds: list[list[dict[str, str]]] | None = None,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造分离式辩论中的最终答案阶段消息。"""
+
     _assert_prompt_version(prompt_version)
     method_spec = resolve_reasoning_method(sample.dataset, agent_profile.strategy_name)
     history_block = _render_prior_rounds(agent_profile.agent_id, prior_rounds or [])
@@ -129,6 +133,8 @@ def build_joint_round_messages(
     prior_rounds: list[list[dict[str, str]]] | None = None,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造单次调用同时产出推理与答案的辩论轮消息。"""
+
     _assert_prompt_version(prompt_version)
     method_spec = resolve_reasoning_method(sample.dataset, agent_profile.strategy_name)
     history_block = _render_prior_rounds(agent_profile.agent_id, prior_rounds or [])
@@ -180,6 +186,8 @@ def build_initial_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造独立初答阶段的系统与用户消息。"""
+
     _assert_prompt_version(prompt_version)
     method_spec = resolve_reasoning_method(sample.dataset, agent_profile.strategy_name)
     user_prompt = (
@@ -226,6 +234,8 @@ def build_reflection_feedback_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造 self-refine 基线的反馈审稿消息。"""
+
     _assert_prompt_version(prompt_version)
     user_prompt = (
         "You are the critique stage of a reflective single-agent baseline.\n"
@@ -256,6 +266,8 @@ def build_reflection_revision_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造 self-refine 基线的修订答复消息。"""
+
     _assert_prompt_version(prompt_version)
     user_prompt = (
         "You are the revise stage of a reflective single-agent baseline.\n"
@@ -287,6 +299,8 @@ def build_self_contrast_checklist_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造 Self-Contrast 基线的候选解对比清单消息。"""
+
     _assert_prompt_version(prompt_version)
     candidates_block = _render_candidate_solutions(candidate_solutions)
     user_prompt = (
@@ -315,6 +329,8 @@ def build_self_contrast_revision_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造 Self-Contrast 基线的最终综合修订消息。"""
+
     _assert_prompt_version(prompt_version)
     candidates_block = _render_candidate_solutions(candidate_solutions)
     user_prompt = (
@@ -346,6 +362,8 @@ def build_mrp_method_selection_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造 Meta-Reasoning Prompting 的方法选择消息。"""
+
     _assert_prompt_version(prompt_version)
     rendered_methods = []
     for method_name in candidate_methods:
@@ -377,6 +395,8 @@ def build_mrp_solution_messages(
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
+    """构造 MRP 选定推理方法后的求解消息。"""
+
     _assert_prompt_version(prompt_version)
     agent_profile = AgentProfile(
         agent_id=1,
@@ -389,10 +409,14 @@ def build_mrp_solution_messages(
 
 
 def normalize_reasoning_method_label(dataset: str, method_name: str) -> str:
+    """返回面向提示词展示的标准化推理方法标签。"""
+
     return resolve_reasoning_method(dataset, method_name).label.lower()
 
 
 def _agent_header(agent_profile: AgentProfile, method_spec) -> str:
+    """渲染智能体人设、策略与方法约束头部。"""
+
     return (
         f"You are agent_{agent_profile.agent_id} in a Diverse Multi-Agent Debate experiment.\n"
         f"Persona: {agent_profile.persona_name}\n"
@@ -405,6 +429,8 @@ def _agent_header(agent_profile: AgentProfile, method_spec) -> str:
 
 
 def _render_candidate_solutions(candidate_solutions: list[dict[str, str]]) -> str:
+    """将候选解列表渲染为 Self-Contrast 可读文本块。"""
+
     return "\n\n".join(
         "\n".join(
             [
@@ -419,6 +445,8 @@ def _render_candidate_solutions(candidate_solutions: list[dict[str, str]]) -> st
 
 
 def _system_prompt() -> str:
+    """返回要求 JSON 输出的通用 DMAD 系统提示词。"""
+
     return build_json_system_prompt(
         "You are one reasoning agent in a controlled DMAD reproduction experiment.",
         extra_rules=[
@@ -431,6 +459,8 @@ def _system_prompt() -> str:
 
 
 def _plain_text_system_prompt() -> str:
+    """返回要求纯文本输出的 DMAD 系统提示词。"""
+
     return "\n".join(
         [
             "You are one reasoning agent in a controlled DMAD reproduction experiment.",
@@ -442,6 +472,8 @@ def _plain_text_system_prompt() -> str:
 
 
 def _pot_process_system_prompt() -> str:
+    """返回 PoT 推理阶段专用的纯 Python 系统提示词。"""
+
     return "\n".join(
         [
             "You are one reasoning agent in a controlled DMAD reproduction experiment.",
@@ -454,6 +486,8 @@ def _pot_process_system_prompt() -> str:
 
 
 def _answer_only_system_prompt() -> str:
+    """返回仅允许输出 final_answer JSON 的系统提示词。"""
+
     return build_json_system_prompt(
         "You are one reasoning agent in a controlled DMAD reproduction experiment.",
         extra_rules=[
@@ -465,6 +499,8 @@ def _answer_only_system_prompt() -> str:
 
 
 def _reflection_feedback_system_prompt() -> str:
+    """返回反思反馈阶段的纯文本系统提示词。"""
+
     return "\n".join(
         [
             "You are a concise critique stage for a reflective single-agent baseline.",
@@ -476,17 +512,23 @@ def _reflection_feedback_system_prompt() -> str:
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
+    """按数据集类型选择任务说明模板。"""
+
     if sample.dataset == "hotpotqa":
         return dataset_instruction_for_sample(sample, hotpot_style="short_span")
     return dataset_instruction_for_sample(sample)
 
 
 def _assert_prompt_version(prompt_version: str) -> None:
+    """校验调用方使用的是当前支持的 DMAD prompt 版本。"""
+
     if prompt_version != DEFAULT_PROMPT_VERSION:
         raise ValueError(f"Unsupported DMAD prompt_version: {prompt_version}")
 
 
 def _multiple_choice_guardrails(sample: DatasetSample) -> str:
+    """为选择题数据集追加答案字母与证据约束。"""
+
     if sample.dataset not in {"mmlu_pro", "gpqa_diamond", "mmlu_abstract_algebra"}:
         return ""
     return (
@@ -501,6 +543,8 @@ def _multiple_choice_guardrails(sample: DatasetSample) -> str:
 
 
 def _counting_probability_guardrails(sample: DatasetSample) -> str:
+    """为竞赛数学中的计数概率题追加复核约束。"""
+
     if sample.dataset != "competition_math":
         return ""
     subject = str(sample.metadata.get("subject") or "").strip().lower()
@@ -512,6 +556,8 @@ def _counting_probability_guardrails(sample: DatasetSample) -> str:
 
 
 def _execution_note(status: str | None) -> str:
+    """将 PoT 执行状态转换为提示词中的简短说明。"""
+
     mapping = {
         "missing_program": "the previous code block was incomplete",
         "missing_result": "the previous code did not expose a final result",
@@ -522,6 +568,8 @@ def _execution_note(status: str | None) -> str:
 
 
 def _execution_detail(error: str | None) -> str:
+    """裁剪 PoT 执行错误，避免提示词携带过长细节。"""
+
     cleaned = str(error or "").strip()
     if not cleaned:
         return "unknown"
@@ -529,6 +577,8 @@ def _execution_detail(error: str | None) -> str:
 
 
 def _render_prior_rounds(agent_id: int, prior_rounds: list[list[dict[str, str]]]) -> str:
+    """渲染当前智能体可见的历史轮次记录。"""
+
     if not prior_rounds:
         return ""
     blocks: list[str] = []

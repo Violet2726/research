@@ -26,10 +26,14 @@ from research_experiments.reporting.run_figures import (
 
 
 def load_metrics(run_dir: str | Path) -> dict[str, Any]:
+    """读取 DMAD run 的指标视图。"""
+
     return load_metrics_payload(run_dir, family_name="dmad")
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
+    """按数据集汇总 DMAD run 的核心指标行。"""
+
     summary = SummaryTableView.from_metrics_payload(load_metrics(run_dir))
     grouped = summary.grouped_by_dataset()
     return {
@@ -41,6 +45,8 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
 
 
 def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) -> dict[str, Any]:
+    """重新渲染 DMAD 中文报告与配套图表清单。"""
+
     index = resolve_run_artifact_index(run_dir, family_name="dmad")
     root = index.run_dir
     manifest = load_json_payload(index.manifest_path)
@@ -77,6 +83,8 @@ def _render_report_markdown(
     diagnostics: dict[str, Any],
     paper_tables: dict[str, Any],
 ) -> str:
+    """组装 DMAD 科学报告的 Markdown 主体。"""
+
     overall_rows = {str(row["method_name"]): row for row in summary_rows if str(row.get("dataset")) == "overall"}
     evaluation_scope = str(manifest.get("evaluation_scope") or "paper_main")
     dmad_candidates = [row for name, row in overall_rows.items() if name.startswith("dmad")]
@@ -189,6 +197,8 @@ def _render_report_markdown(
 
 
 def _build_grouped_section(evaluation_scope: str, paper_tables: dict[str, Any]) -> dict[str, Any] | None:
+    """根据评测口径生成论文主表、附录或扩展验证分组表。"""
+
     if evaluation_scope == "paper_main":
         rows: list[list[str]] = []
         for item in paper_tables.get("math_subject_rows", []):
@@ -252,6 +262,8 @@ def _build_grouped_section(evaluation_scope: str, paper_tables: dict[str, Any]) 
 
 
 def _build_figure_specs(summary_rows: list[dict[str, Any]], diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
+    """构造 DMAD 报告使用的图表规格。"""
+
     overall_diagnostics = [row for row in diagnostics.get("rows", []) if str(row.get("dataset")) == "overall"]
     return [
         build_frontier_figure_spec(
@@ -309,16 +321,22 @@ def _build_figure_specs(summary_rows: list[dict[str, Any]], diagnostics: dict[st
 
 
 def _delta(left: dict[str, Any], right: dict[str, Any]) -> float:
+    """计算两个指标行的准确率差值。"""
+
     return float(left.get("accuracy_mean") or 0.0) - float(right.get("accuracy_mean") or 0.0)
 
 
 def _fmt(value: Any, digits: int = 4) -> str:
+    """将数值格式化为固定小数位，空值返回空字符串。"""
+
     if value is None:
         return ""
     return f"{float(value):.{digits}f}"
 
 
 def _fmt_signed(value: Any, digits: int = 4) -> str:
+    """将数值格式化为带符号的小数字符串。"""
+
     if value is None:
         return ""
     return f"{float(value):+.{digits}f}"

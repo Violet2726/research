@@ -15,7 +15,7 @@ from research_experiments.family_runtime.method_catalog import MethodConfig, loa
 
 @dataclass(frozen=True)
 class ProtocolConfig:
-    """DMAD debate protocol."""
+    """DMAD 辩论协议参数。"""
 
     agent_count: int
     debate_rounds: int
@@ -28,7 +28,7 @@ class ProtocolConfig:
 
 @dataclass(frozen=True)
 class AgentProfile:
-    """One agent's persona/strategy profile."""
+    """单个智能体的人设与推理策略配置。"""
 
     agent_id: int
     persona_name: str
@@ -39,7 +39,7 @@ class AgentProfile:
 
 @dataclass(frozen=True)
 class RosterConfig:
-    """A DMAD roster definition."""
+    """DMAD 智能体阵容定义。"""
 
     diversity_mode: str
     agents: list[AgentProfile]
@@ -51,7 +51,7 @@ class RosterConfig:
 
 @dataclass(frozen=True)
 class DmadMethodSpec:
-    """A configured DMAD method."""
+    """实验配置中的单个 DMAD 方法规格。"""
 
     name: str
     mode: str
@@ -63,7 +63,7 @@ class DmadMethodSpec:
 
 @dataclass(frozen=True)
 class DmadExperimentConfig:
-    """Top-level DMAD experiment configuration."""
+    """DMAD 顶层实验配置。"""
 
     name: str
     description: str
@@ -83,7 +83,7 @@ class DmadExperimentConfig:
 
 
 def load_protocol_config(path: str | Path) -> ProtocolConfig:
-    """Load a DMAD protocol file."""
+    """从 TOML 加载 DMAD 辩论协议。"""
 
     payload = load_toml(path)
     return ProtocolConfig(
@@ -98,13 +98,13 @@ def load_protocol_config(path: str | Path) -> ProtocolConfig:
 
 
 def load_control_catalog(path: str | Path) -> dict[str, MethodConfig]:
-    """Load the shared baseline/control catalog used by DMAD."""
+    """加载 DMAD 使用的共享基线与对照方法目录。"""
 
     return load_method_catalog(path)
 
 
 def load_roster_config(path: str | Path) -> RosterConfig:
-    """Load a DMAD roster definition."""
+    """从 TOML 加载 DMAD 智能体阵容。"""
 
     payload = load_toml(path)
     agents = [
@@ -124,7 +124,7 @@ def load_roster_config(path: str | Path) -> RosterConfig:
 
 
 def load_experiment_config(path: str | Path) -> DmadExperimentConfig:
-    """Load a DMAD experiment configuration."""
+    """从 TOML 加载 DMAD 实验配置。"""
 
     payload = load_toml(path)
     runtime = apply_runtime_defaults(payload)

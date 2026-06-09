@@ -48,7 +48,7 @@ def run_experiment(
     cache_root: str | Path | None = None,
     splits_root: str | Path = "configs/core/shared/benchmarks/splits",
 ) -> Path:
-    """Run one DMAD phase and write a complete run directory."""
+    """执行一个 DMAD phase，并写出完整运行目录。"""
 
     load_dotenv(".env.local", override=False)
     run_root = run_root or default_runs_root("dmad")

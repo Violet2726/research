@@ -36,7 +36,7 @@ from research_experiments.family_runtime.reasoning_methods import normalize_reas
 
 @dataclass(frozen=True)
 class AgentTurnRecord:
-    """One model call inside a DMAD run."""
+    """DMAD run 中一次模型调用的完整记录。"""
 
     run_id: str
     dataset: str
@@ -73,7 +73,7 @@ class AgentTurnRecord:
 
 @dataclass(frozen=True)
 class DebateMessageRecord:
-    """One visible peer message inside a debate round."""
+    """辩论轮中一条对接收方可见的同伴消息。"""
 
     run_id: str
     dataset: str
@@ -92,7 +92,7 @@ class DebateMessageRecord:
 
 @dataclass(frozen=True)
 class FinalPredictionRecord:
-    """The final question-level output for one method."""
+    """单个方法在题目级别的最终预测记录。"""
 
     run_id: str
     dataset: str
@@ -144,6 +144,8 @@ class FinalPredictionRecord:
 
 @dataclass(frozen=True)
 class RoundAgentState:
+    """单个智能体在某一辩论轮内的过程与答案状态。"""
+
     round_index: int
     agent_id: int
     persona_name: str
@@ -156,10 +158,14 @@ class RoundAgentState:
 
 
 def _resolved_strategy_name(dataset: str, strategy_name: str) -> str:
+    """按数据集规则解析实际执行的推理策略名。"""
+
     return normalize_reasoning_method_name(dataset, strategy_name)
 
 
 def _configured_strategy_name(strategy_name: str) -> str:
+    """将配置策略名归约为论文表格使用的基础标签。"""
+
     normalized = str(strategy_name or "").strip().lower()
     if normalized == "pot_l2m":
         return "pot"
@@ -169,10 +175,14 @@ def _configured_strategy_name(strategy_name: str) -> str:
 
 
 def _configured_strategy_names(strategy_names: list[str]) -> list[str]:
+    """批量标准化配置策略标签。"""
+
     return [_configured_strategy_name(item) for item in strategy_names]
 
 
 def _turn_artifact_fields(validated_output: dict[str, Any]) -> dict[str, Any]:
+    """抽取可选执行产物字段，过滤空值以压缩记录。"""
+
     fields = {
         "program_text": _nullable_string(validated_output.get("program_text")),
         "execution_result": _nullable_string(validated_output.get("execution_result")),
@@ -184,6 +194,8 @@ def _turn_artifact_fields(validated_output: dict[str, Any]) -> dict[str, Any]:
 
 
 def _serialize_turn_record(record: AgentTurnRecord, *, normalized_answer: str) -> dict[str, Any]:
+    """将模型调用记录序列化为 JSONL 行。"""
+
     payload = asdict(record)
     payload["validated_output"] = _compact_validated_output(payload.get("validated_output") or {})
     for key in ["program_text", "execution_result", "execution_status", "execution_resolution", "execution_error"]:
@@ -193,6 +205,8 @@ def _serialize_turn_record(record: AgentTurnRecord, *, normalized_answer: str) -
 
 
 def _compact_validated_output(validated_output: dict[str, Any]) -> dict[str, Any]:
+    """压缩结构化输出中的空执行字段。"""
+
     keys_to_drop = ["program_text", "execution_result", "execution_status", "execution_resolution", "execution_error"]
     payload = dict(validated_output)
     for key in keys_to_drop:
@@ -202,6 +216,8 @@ def _compact_validated_output(validated_output: dict[str, Any]) -> dict[str, Any
 
 
 def _active_methods(experiment: DmadExperimentConfig) -> list[DmadMethodSpec]:
+    """返回当前实验启用的方法列表。"""
+
     return list(experiment.methods)
 
 
@@ -215,6 +231,8 @@ def _estimate_work(
     controls: dict[str, Any],
     splits_root,
 ) -> tuple[int, int]:
+    """估算当前 phase 的模型调用数与预测数。"""
+
     total_calls = 0
     total_predictions = 0
     for benchmark in benchmarks:
@@ -227,10 +245,14 @@ def _estimate_work(
 
 
 def _resolve_split_name(experiment: DmadExperimentConfig, phase_name: str, benchmark_slug: str) -> str:
+    """解析指定 benchmark 在当前 phase 使用的数据划分。"""
+
     return resolve_phase_split_name(experiment, phase_name, benchmark_slug)
 
 
 def _load_selected_samples(benchmark, split_name: str, splits_root) -> list[DatasetSample]:
+    """加载指定划分内实际要运行的样本。"""
+
     return select_samples(benchmark, split_name, splits_root=splits_root)
 
 
@@ -250,6 +272,8 @@ def _run_sample_batch(
     cache,
     throttle,
 ) -> Iterator[tuple[int, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]]:
+    """并发执行一个 benchmark 的样本批次。"""
+
     worker = partial(
         _run_sample,
         run_id=run_id,
@@ -285,6 +309,8 @@ def _write_sample_outputs(
     debate_messages: list[dict[str, Any]],
     final_predictions: list[dict[str, Any]],
 ) -> None:
+    """写出样本级 turn、辩论消息和最终预测产物。"""
+
     for _, turn_rows, debate_rows, prediction_rows in sample_results:
         for row in turn_rows:
             turn_handle.write_row(row)
@@ -315,6 +341,8 @@ def _run_sample(
     cache,
     throttle,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """在单个样本上依次运行配置中的所有 DMAD 方法。"""
+
     turn_rows: list[dict[str, Any]] = []
     debate_rows: list[dict[str, Any]] = []
     prediction_rows: list[dict[str, Any]] = []
@@ -446,6 +474,8 @@ def _run_single_reasoning(
     protocol: ProtocolConfig,
     seed_offset: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """运行一次单智能体推理基线并生成最终预测。"""
+
     del protocol
     profile = _profile_for_method(agent_id=1, strategy_name=_mode_to_reasoning_method(method.mode))
     turn = _execute_reasoning_answer_turn(
@@ -510,6 +540,8 @@ def _run_single_agent_reflection(
     protocol: ProtocolConfig,
     seed_offset: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """运行 self-refine 单智能体反思基线。"""
+
     del protocol
     profile = _profile_for_method(agent_id=1, strategy_name="cot")
     initial_turn = _execute_turn(
@@ -633,6 +665,8 @@ def _run_self_consistency(
     protocol: ProtocolConfig,
     seed_offset: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """运行三次采样投票的 self-consistency 基线。"""
+
     del protocol
     strategy_name = _mode_to_reasoning_method(method.mode)
     turns: list[dict[str, Any]] = []
@@ -702,6 +736,8 @@ def _run_self_contrast(
     protocol: ProtocolConfig,
     seed_offset: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """运行 Self-Contrast 候选生成、清单审阅与最终修订流程。"""
+
     del protocol
     strategy_names = _contrast_reasoning_methods(method.mode)
     candidate_turns: list[dict[str, Any]] = []
@@ -832,6 +868,8 @@ def _run_mrp(
     protocol: ProtocolConfig,
     seed_offset: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """运行 Meta-Reasoning Prompting 的方法路由与求解流程。"""
+
     del protocol
     strategy_names = _contrast_reasoning_methods(method.mode)
     selection_turn = _execute_method_selection_turn(
@@ -914,6 +952,8 @@ def _run_mad_method(
     protocol: ProtocolConfig,
     seed_offset: int,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    """运行多智能体辩论方法并收集通信与最终投票结果。"""
+
     if roster is None:
         raise RuntimeError(f"DMAD method {method.name} requires a roster.")
     joint_calls = _is_joint_debate_call_style(method)
@@ -1148,6 +1188,8 @@ def _build_final_prediction(
     debate_rounds: int,
     agent_count: int,
 ) -> dict[str, Any]:
+    """基于初始轮与最终轮投票构造题目级预测记录。"""
+
     initial_answers = [str(row["normalized_answer"]) for row in initial_rows]
     final_answers = [str(row["normalized_answer"]) for row in final_rows]
     initial_vote, initial_vote_counts = aggregate_majority(initial_answers)
@@ -1233,6 +1275,8 @@ def _build_final_prediction(
 
 
 def _build_metrics(prediction_rows: list[dict[str, Any]], model_name: str) -> dict[str, Any]:
+    """从题目级预测记录聚合指标视图。"""
+
     grouped = _group_prediction_rows(prediction_rows)
     summary: list[dict[str, Any]] = []
     for key, rows in sorted(grouped.items()):
@@ -1250,6 +1294,8 @@ def _build_paper_tables(
     *,
     evaluation_scope: str,
 ) -> dict[str, Any]:
+    """构造论文主表、附录表与扩展验证表所需的分组数据。"""
+
     math_rows = [row for row in prediction_rows if str(row.get("dataset")) == "competition_math"]
     gpqa_rows = [row for row in prediction_rows if str(row.get("dataset")) == "gpqa_diamond"]
     appendix_rows = [row for row in prediction_rows if str(row.get("dataset")) == "mmlu_abstract_algebra"]
@@ -1282,6 +1328,8 @@ def _build_strategy_diagnostics(
     *,
     evaluation_scope: str,
 ) -> dict[str, Any]:
+    """生成策略动态诊断，包括分歧、一致、纠错与退化率。"""
+
     grouped = _group_prediction_rows(prediction_rows)
     rows: list[dict[str, Any]] = []
     for key, grouped_rows in sorted(grouped.items()):
@@ -1323,6 +1371,8 @@ def _build_strategy_diagnostics(
 
 
 def _build_cost_breakdown(turn_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """按数据集和方法汇总各阶段 token 成本。"""
+
     grouped: dict[tuple[str, str], dict[str, float | str]] = {}
     for row in turn_rows:
         key = (str(row["dataset"]), str(row["method_name"]))
@@ -1367,6 +1417,8 @@ def _build_cost_breakdown(turn_rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _group_prediction_rows(prediction_rows: list[dict[str, Any]]) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    """按数据集和方法分组题目级预测记录。"""
+
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for row in prediction_rows:
         key = (str(row["dataset"]), str(row["method_name"]))
@@ -1375,6 +1427,8 @@ def _group_prediction_rows(prediction_rows: list[dict[str, Any]]) -> dict[tuple[
 
 
 def _group_overall_rows(prediction_rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """按方法分组所有数据集上的预测记录。"""
+
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in prediction_rows:
         grouped.setdefault(str(row["method_name"]), []).append(row)
@@ -1382,6 +1436,8 @@ def _group_overall_rows(prediction_rows: list[dict[str, Any]]) -> dict[str, list
 
 
 def _group_accuracy_rows(rows: list[dict[str, Any]], *, field_name: str | None) -> list[dict[str, Any]]:
+    """按指定字段聚合准确率表行。"""
+
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for row in rows:
         group_name = "overall" if field_name is None else str(row.get(field_name) or "unknown")
@@ -1398,6 +1454,8 @@ def _group_accuracy_rows(rows: list[dict[str, Any]], *, field_name: str | None) 
 
 
 def _build_summary_row(*, dataset: str, method_name: str, rows: list[dict[str, Any]], model_name: str) -> dict[str, Any]:
+    """构造指标视图中的单行方法摘要。"""
+
     accuracy_mean = safe_mean(float(row["score"]) for row in rows)
     total_tokens_mean = safe_mean(float(row["total_tokens_per_question"]) for row in rows)
     configured_strategy_name = _joined_unique_labels(rows, "configured_strategy_names")
@@ -1432,6 +1490,8 @@ def _build_summary_row(*, dataset: str, method_name: str, rows: list[dict[str, A
 
 
 def _build_strategy_row(*, dataset: str, method_name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """构造策略诊断视图中的单行摘要。"""
+
     configured_strategy_name = _joined_unique_labels(rows, "configured_strategy_names")
     effective_strategy_name = _effective_strategy_label(dataset=dataset, rows=rows)
     return {
@@ -1456,6 +1516,8 @@ def _build_strategy_row(*, dataset: str, method_name: str, rows: list[dict[str, 
 
 
 def _annotate_gain_rows(rows: list[dict[str, Any]]) -> None:
+    """为摘要行补充相对固定 MAD 与 persona 基线的增益。"""
+
     lookup = {(str(row["dataset"]), str(row["method_name"])): row for row in rows}
     for row in rows:
         dataset = str(row["dataset"])
@@ -1485,11 +1547,15 @@ def _annotate_gain_rows(rows: list[dict[str, Any]]) -> None:
 
 
 def _joined_unique_labels(rows: list[dict[str, Any]], key: str) -> str:
+    """收集并拼接指定字段中的唯一标签。"""
+
     labels = sorted({str(item) for row in rows for item in row.get(key, [])})
     return ", ".join(labels)
 
 
 def _nullable_string(value: object) -> str | None:
+    """将空白值归一为空，否则返回清理后的字符串。"""
+
     if value is None:
         return None
     cleaned = str(value).strip()
@@ -1497,6 +1563,8 @@ def _nullable_string(value: object) -> str | None:
 
 
 def _should_backfill_execution_from_answer(process_row: dict[str, Any], answer_row: dict[str, Any]) -> bool:
+    """判断是否可用答案阶段结果回填失败的 PoT 执行结果。"""
+
     process_status = str(process_row.get("execution_status") or "")
     if not process_status or process_status == "ok":
         return False
@@ -1505,6 +1573,8 @@ def _should_backfill_execution_from_answer(process_row: dict[str, Any], answer_r
 
 
 def _backfill_execution_from_answer(process_row: dict[str, Any], answer_row: dict[str, Any]) -> None:
+    """将答案阶段 final_answer 回填到过程阶段的执行产物字段。"""
+
     final_answer = str(answer_row.get("validated_output", {}).get("final_answer") or "").strip()
     if not final_answer:
         return
@@ -1521,6 +1591,8 @@ def _backfill_execution_from_answer(process_row: dict[str, Any], answer_row: dic
 
 
 def _effective_strategy_label(*, dataset: str, rows: list[dict[str, Any]]) -> str:
+    """生成按数据集展开的实际策略标签。"""
+
     if dataset != "overall":
         return _joined_unique_labels(rows, "effective_strategy_names")
     grouped_by_dataset: dict[str, list[dict[str, Any]]] = {}
@@ -1537,6 +1609,8 @@ def _build_paper_main_gap_rows(
     *,
     evaluation_scope: str,
 ) -> list[dict[str, Any]]:
+    """列出 paper_main 范围内 DMAD 落后于关键 MAD 基线的样本。"""
+
     if evaluation_scope != "paper_main":
         return []
     grouped: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
@@ -1584,6 +1658,8 @@ def _build_paper_main_gap_rows(
 
 
 def _profile_for_method(agent_id: int, strategy_name: str):
+    """为单智能体基线构造默认通用推理者画像。"""
+
     from research_experiments.families.dmad.config import AgentProfile
 
     return AgentProfile(
@@ -1596,6 +1672,8 @@ def _profile_for_method(agent_id: int, strategy_name: str):
 
 
 def _mode_to_reasoning_method(mode: str) -> str:
+    """将单智能体方法 mode 映射为基础推理方法名。"""
+
     mapping = {
         "single_cot": "cot",
         "single_sbp": "sbp",
@@ -1613,6 +1691,8 @@ def _mode_to_reasoning_method(mode: str) -> str:
 
 
 def _contrast_reasoning_methods(mode: str) -> list[str]:
+    """解析 Self-Contrast 与 MRP 使用的候选推理方法集。"""
+
     mapping = {
         "self_contrast_cot_sbp_pot": ["cot", "sbp", "pot"],
         "self_contrast_cot_sbp_l2m": ["cot", "sbp", "l2m"],
@@ -1626,6 +1706,8 @@ def _contrast_reasoning_methods(mode: str) -> list[str]:
 
 
 def _is_joint_debate_call_style(method: DmadMethodSpec) -> bool:
+    """判断方法是否使用联合推理与答案调用风格。"""
+
     normalized = str(method.debate_call_style or "split_process_answer").strip().lower()
     if normalized not in {"split_process_answer", "joint_reasoning_answer"}:
         raise ValueError(f"Unsupported debate_call_style for {method.name}: {method.debate_call_style}")
@@ -1633,10 +1715,14 @@ def _is_joint_debate_call_style(method: DmadMethodSpec) -> bool:
 
 
 def _joint_round_max_output_tokens(protocol: ProtocolConfig) -> int:
+    """计算联合调用辩论轮允许的最大输出 token 数。"""
+
     return int(protocol.max_output_tokens) + min(128, int(protocol.max_output_tokens))
 
 
 def _joint_round_temperature(protocol: ProtocolConfig, *, round_index: int) -> float:
+    """计算联合调用辩论轮的保守温度。"""
+
     base = protocol.initial_temperature if round_index == 1 else protocol.debate_temperature
     return min(float(base), 0.15)
 
@@ -1647,6 +1733,8 @@ def _calls_per_question(
     roster: RosterConfig | None,
     controls: dict[str, Any],
 ) -> int:
+    """估算单题在指定方法下需要的模型调用次数。"""
+
     del controls
     if method.mode in {"single_cot", "single_sbp", "single_pot", "single_l2m"}:
         return 1
@@ -1689,6 +1777,8 @@ def _execute_process_turn(
     max_output_tokens: int,
     seed: int,
 ) -> dict[str, Any]:
+    """执行只产出推理过程的模型调用。"""
+
     def validator(assistant_text, provider_reasoning_text):
         return (asdict(
                 build_pot_process_artifact(assistant_text, provider_reasoning_text)
@@ -1771,6 +1861,8 @@ def _execute_feedback_turn(
     max_output_tokens: int,
     seed: int,
 ) -> dict[str, Any]:
+    """执行纯文本反馈类模型调用。"""
+
     result = execute_cached_turn(
         backbone=backbone,
         provider=provider,
@@ -1844,6 +1936,8 @@ def _execute_reasoning_answer_turn(
     max_output_tokens: int,
     seed: int,
 ) -> dict[str, Any]:
+    """执行标准答案调用，PoT 方法会额外解析并运行程序产物。"""
+
     if not is_pot_reasoning(dataset, strategy_name):
         return _execute_turn(
             run_id=run_id,
@@ -1940,6 +2034,8 @@ def _execute_method_selection_turn(
     seed: int,
     prompt_version: str,
 ) -> dict[str, Any]:
+    """执行 MRP 方法选择调用并记录结构化选择结果。"""
+
     result = execute_cached_turn(
         backbone=backbone,
         provider=provider,
@@ -2019,6 +2115,8 @@ def _execute_turn(
     max_output_tokens: int,
     seed: int,
 ) -> dict[str, Any]:
+    """执行返回 final_answer 的通用结构化模型调用。"""
+
     result = execute_cached_turn(
         backbone=backbone,
         provider=provider,
@@ -2070,6 +2168,8 @@ def _execute_turn(
 
 
 def _validate_reasoning_process_output(assistant_text: str, provider_reasoning_text: str) -> dict[str, Any]:
+    """校验并包装纯文本推理过程输出。"""
+
     text = str(assistant_text or "").strip() or str(provider_reasoning_text or "").strip()
     if not text:
         raise ValueError("Reasoning process output is empty.")
@@ -2077,6 +2177,8 @@ def _validate_reasoning_process_output(assistant_text: str, provider_reasoning_t
 
 
 def _validate_feedback_output(assistant_text: str, provider_reasoning_text: str) -> dict[str, Any]:
+    """校验并包装反馈阶段纯文本输出。"""
+
     text = str(assistant_text or "").strip() or str(provider_reasoning_text or "").strip()
     if not text:
         raise ValueError("Reflection feedback output is empty.")
@@ -2089,6 +2191,8 @@ def _validate_method_selection_output(
     *,
     candidate_methods: list[str],
 ) -> dict[str, Any]:
+    """校验 MRP 方法选择输出并归一化选中方法。"""
+
     text = str(assistant_text or "").strip() or str(provider_reasoning_text or "").strip()
     if not text:
         raise ValueError("Method selection output is empty.")

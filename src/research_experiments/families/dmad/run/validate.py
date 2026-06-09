@@ -23,6 +23,8 @@ from research_experiments.family_runtime.validation import (
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
+    """校验 DMAD run 目录是否包含完整产物且共享契约通过。"""
+
     index = resolve_run_artifact_index(run_dir, family_name="dmad")
     root = index.run_dir
     turn_paths = named_turn_record_paths(root, family_name="dmad")
