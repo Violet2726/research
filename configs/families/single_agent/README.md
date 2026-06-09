@@ -11,3 +11,6 @@
 
 - `experiments/` 负责组合 benchmark、method 集合和 phase 约束。
 - `methods/` 只描述单个方法本身，不在这里复制 benchmark 信息。
+- `experiments/canonical_simple_baselines.toml` 是 `xiaomimimo/mimo-v2.5` 当前正式 simple baseline 入口。
+- Canonical simple baseline 固定为 `cot_1@temp=0.7`、`mv_3@temp=0.7`、`sc_5@temp=0.7`。
+- `count20` 只用于实现校验和轻量筛查；`count100` 使用 3 reruns，是当前 authoritative 口径。

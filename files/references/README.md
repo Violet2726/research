@@ -27,6 +27,7 @@
 
 - `files/论文阅读与复现计划.md` 中的本地论文链接应统一使用相对路径 `../references/<文件名>.pdf`
 - 当前目录中的论文已经可以直接作为本地主引用，不再依赖额外的说明页
+- `baseline_ceiling_audit.md` 和 `canonical_baseline_recheck.md` 记录 `xiaomimimo/mimo-v2.5` simple baseline 的冻结口径与主结论复核表
 - 如需补充下载新论文，优先保持“英文标题文件名 + PDF 原件”的命名方式
 
 ## 备注

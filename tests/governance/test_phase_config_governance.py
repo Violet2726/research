@@ -34,6 +34,7 @@ def test_phase_method_references_exist_for_single_agent_style_experiments() -> N
         "configs/families/single_agent/experiments/same_context_core_benchmarks.toml",
         "configs/families/single_agent/experiments/same_context_main_table.toml",
         "configs/families/single_agent/experiments/cross_provider_robustness.toml",
+        "configs/families/single_agent/experiments/canonical_simple_baselines.toml",
         "configs/families/single_agent/experiments/baseline_ceiling_v1_current_prompt.toml",
         "configs/families/single_agent/experiments/baseline_ceiling_v1_unified_control.toml",
         "configs/families/single_agent/experiments/baseline_ceiling_v1_zero_shot_cot.toml",
@@ -52,6 +53,18 @@ def test_phase_method_references_exist_for_single_agent_style_experiments() -> N
                     assert phase_methods.issubset(declared), f"{relative_path}:{phase_name} 引用了未声明 method"
                 else:
                     assert "split_suffix" in phase_payload or "split_overrides" in phase_payload, f"{relative_path}:{phase_name} 缺少执行范围"
+
+
+def test_canonical_single_agent_baseline_config_is_fixed_to_temp_0p7() -> None:
+    experiment = _load("configs/families/single_agent/experiments/canonical_simple_baselines.toml")
+    catalog = _load(experiment["method_catalog"])
+    assert experiment["cot_uses_reruns"] is True
+    assert experiment["phases"]["count100"]["split_overrides"]["competition_math"] == "count100_total_seed0"
+    assert experiment["phases"]["count100"]["methods"] == ["cot_1", "mv_3", "sc_5"]
+    assert experiment["phases"]["count100"]["reruns_override"] == 3
+
+    for method_name in ("cot_1", "mv_3", "sc_5"):
+        assert catalog["methods"][method_name]["temperature"] == 0.7
 
 
 def test_imad_declared_methods_have_unique_names_and_valid_round_limits() -> None:

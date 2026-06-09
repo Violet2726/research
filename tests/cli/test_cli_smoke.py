@@ -54,6 +54,27 @@ def test_single_agent_baseline_ceiling_inspect_cli() -> None:
     assert "mv_3_temp_0p7" in payload["methods"]
 
 
+def test_single_agent_canonical_simple_baselines_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "experiment",
+            "--family",
+            "single_agent",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/single_agent/experiments/canonical_simple_baselines.toml",
+        ],
+    )
+    assert payload["name"] == "canonical_simple_baselines"
+    assert payload["cot_uses_reruns"] is True
+    assert payload["phases"]["count100"]["methods"] == ["cot_1", "mv_3", "sc_5"]
+    assert payload["phases"]["count100"]["split_overrides"]["competition_math"] == "count100_total_seed0"
+    assert payload["methods"]["cot_1"]["temperature"] == 0.7
+    assert payload["methods"]["mv_3"]["temperature"] == 0.7
+    assert payload["methods"]["sc_5"]["temperature"] == 0.7
+
+
 def test_faithful_matrix_inspect_cli() -> None:
     payload = run_cli_json(
         [

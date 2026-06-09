@@ -1,0 +1,31 @@
+name = "canonical_simple_baselines"
+description = "Canonical fixed-budget simple baselines for xiaomimimo/mimo-v2.5."
+experiment_note = """
+实验定位：正式 simple baseline 口径入口，覆盖 baseline ceiling 审计确认的 6 个核心数据集。
+核心问题：在固定调用预算 1/3/5 下，使用全局统一的 `temp=0.7` simple baseline 重新校验主结论。
+结果用途：作为后续同模型主结果、delta 表和 equal-budget 质疑的统一 no-comm 参考。
+"""
+method_catalog = "configs/families/single_agent/methods/common.toml"
+benchmark_configs = [
+  "configs/core/shared/benchmarks/competition_math/MATH.toml",
+  "configs/core/shared/benchmarks/gpqa/dataset.toml",
+  "configs/core/shared/benchmarks/gsm8k/test.toml",
+  "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
+  "configs/core/shared/benchmarks/math500/test.toml",
+  "configs/core/shared/benchmarks/mmlu-pro/test.toml",
+]
+global_seed = 42
+reruns_per_method = 3
+cot_uses_reruns = true
+prompt_version = "single_agent_reasoning_json_v1"
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+
+[phases.count20]
+split_overrides = { competition_math = "count20_seed0", gpqa_diamond = "count20_seed42", gsm8k = "count20_seed42", hotpotqa = "count20_seed42", math500 = "count20_seed42", mmlu_pro = "count20_seed42" }
+methods = ["cot_1", "mv_3", "sc_5"]
+reruns_override = 1
+
+[phases.count100]
+split_overrides = { competition_math = "count100_total_seed0", gpqa_diamond = "count100_seed42", gsm8k = "count100_seed42", hotpotqa = "count100_seed42", math500 = "count100_seed42", mmlu_pro = "count100_seed42" }
+methods = ["cot_1", "mv_3", "sc_5"]
+reruns_override = 3

@@ -18,6 +18,25 @@ uv run research_cli experiment --family single_agent validate-run --run-dir loca
 uv run research_cli experiment --family single_agent render-report --run-dir local/runs/single_agent/same_context_core_benchmarks/count20/<run_id>
 ```
 
+## Canonical Simple Baseline
+
+`xiaomimimo/mimo-v2.5` 的正式 simple baseline 口径已经固定为：
+
+- `cot_1@temp=0.7`
+- `mv_3@temp=0.7`
+- `sc_5@temp=0.7`
+
+统一入口为：
+
+```powershell
+uv run research_cli experiment --family single_agent inspect-experiment --experiment configs/families/single_agent/experiments/canonical_simple_baselines.toml
+uv run research_cli experiment --family single_agent run --experiment configs/families/single_agent/experiments/canonical_simple_baselines.toml --phase count100 --model xiaomimimo/mimo-v2.5
+```
+
+该入口覆盖 `competition_math / gpqa_diamond / gsm8k / hotpotqa / math500 / mmlu_pro`，其中 `competition_math` 的 count100 split 固定为 `count100_total_seed0`。`count100` 使用 3 reruns；后续主结论应优先对齐这组 canonical baseline，而不是旧的 `cot_1@temp=0.0`。
+
+## Baseline Ceiling Audit
+
 ```powershell
 uv run research_cli experiment --family single_agent inspect-experiment --experiment configs/families/single_agent/experiments/baseline_ceiling_v1_current_prompt.toml
 uv run research_cli experiment --family single_agent run --experiment configs/families/single_agent/experiments/baseline_ceiling_v1_unified_control.toml --phase count20 --model xiaomimimo/mimo-v2.5
