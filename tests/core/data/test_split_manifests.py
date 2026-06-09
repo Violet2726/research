@@ -108,6 +108,58 @@ def test_select_samples_raises_on_missing_manifest_sample_ids(tmp_path: Path) ->
         select_samples(benchmark, "count20_seed42", tmp_path / "splits")
 
 
+def test_count_split_covering_full_dataset_uses_full_manifest_name(tmp_path: Path) -> None:
+    source_path = tmp_path / "gsm8k.jsonl"
+    source_path.write_text(
+        "\n".join(
+            [
+                json.dumps({"question": "1+1?", "answer": "#### 2"}, ensure_ascii=False),
+                json.dumps({"question": "2+2?", "answer": "#### 4"}, ensure_ascii=False),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    benchmark_path = tmp_path / "benchmark.toml"
+    benchmark_path.write_text(
+        "\n".join(
+            [
+                'name = "Toy GSM8K"',
+                'slug = "toy_gsm8k"',
+                'loader = "gsm8k_jsonl"',
+                f'source_path = "{source_path.as_posix()}"',
+                'source_split = "test"',
+                'sample_id_prefix = "toy"',
+                'question_field = "question"',
+                'answer_field = "answer"',
+                'smoke_size = 1',
+                'pilot_size = 2',
+                'main_size = 2',
+                'random_seed = 42',
+                'notes = ""',
+                "",
+                "[[split_presets]]",
+                'name = "count300_seed42"',
+                'strategy = "shuffle"',
+                "size = 2",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    benchmark = load_benchmark_config(benchmark_path)
+
+    created = generate_split_manifests([benchmark], tmp_path / "splits")
+    assert [path.parent.name for path in created] == ["full"]
+    assert json.loads(created[0].read_text(encoding="utf-8"))["split_name"] == "full2_seed42"
+
+    sample_ids = load_split_ids(benchmark.cache_namespace or benchmark.slug, "count300_seed42", tmp_path / "splits")
+    samples = select_samples(benchmark, "count300_seed42", tmp_path / "splits")
+
+    assert len(sample_ids) == 2
+    assert [sample.sample_id for sample in samples] == sample_ids
+
+
 def test_generate_stratified_split_manifest_for_competition_math(tmp_path: Path) -> None:
     zip_path = tmp_path / "MATH.zip"
     with zipfile.ZipFile(zip_path, "w") as archive:
@@ -140,11 +192,11 @@ def test_generate_stratified_split_manifest_for_competition_math(tmp_path: Path)
                 "smoke_size = 2",
                 "pilot_size = 2",
                 "main_size = 2",
-                "random_seed = 0",
+                "random_seed = 42",
                 'notes = ""',
                 "",
                 "[[split_presets]]",
-                'name = "count20_seed0"',
+                'name = "count20_seed42"',
                 'strategy = "stratified"',
                 'field = "subject"',
                 "size = 2",
@@ -156,8 +208,8 @@ def test_generate_stratified_split_manifest_for_competition_math(tmp_path: Path)
     benchmark = load_benchmark_config(benchmark_path)
 
     generate_split_manifests([benchmark], tmp_path / "splits")
-    sample_ids = load_split_ids(benchmark.cache_namespace or benchmark.slug, "count20_seed0", tmp_path / "splits", random_seed=0)
-    samples = select_samples(benchmark, "count20_seed0", tmp_path / "splits")
+    sample_ids = load_split_ids(benchmark.cache_namespace or benchmark.slug, "count20_seed42", tmp_path / "splits")
+    samples = select_samples(benchmark, "count20_seed42", tmp_path / "splits")
 
     assert len(sample_ids) == 2
     assert len(samples) == 2

@@ -15,6 +15,7 @@ import json
 import random
 import re
 import zipfile
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -129,10 +130,18 @@ def _resolve_split_specs(
     samples: list[DatasetSample],
 ) -> list[tuple[str, list[str]]]:
     if config.split_presets:
-        return [
-            (str(preset["name"]), _build_split_ids(config, samples, preset))
+        return _dedupe_split_specs(
+            (
+                _canonical_split_name(
+                    str(preset["name"]),
+                    sample_ids := _build_split_ids(config, samples, preset),
+                    total_count=len(samples),
+                    fallback_seed=config.random_seed,
+                ),
+                sample_ids,
+            )
             for preset in config.split_presets
-        ]
+        )
 
     indexed_ids = [sample.sample_id for sample in samples]
     shuffled = indexed_ids[:]
@@ -146,7 +155,18 @@ def _resolve_split_specs(
     if len(indexed_ids) > 500:
         split_specs.append(("count500_seed42", shuffled[:500]))
     split_specs.append((f"full{len(indexed_ids)}_seed42", indexed_ids[:]))
-    return split_specs
+    return _dedupe_split_specs(
+        (
+            _canonical_split_name(
+                split_name,
+                sample_ids,
+                total_count=len(indexed_ids),
+                fallback_seed=config.random_seed,
+            ),
+            sample_ids,
+        )
+        for split_name, sample_ids in split_specs
+    )
 
 
 def _build_split_ids(
@@ -171,6 +191,43 @@ def _build_split_ids(
             raise ValueError(f"Stratified split preset for {config.slug} requires a non-empty field.")
         return _stratified_sample_ids(samples, field_name=field_name, size=size, seed=config.random_seed)
     raise ValueError(f"Unsupported split preset strategy {strategy!r} for benchmark {config.slug}.")
+
+
+def _dedupe_split_specs(split_specs: Iterable[tuple[str, list[str]]]) -> list[tuple[str, list[str]]]:
+    deduped: dict[str, list[str]] = {}
+    for split_name, sample_ids in split_specs:
+        deduped.setdefault(split_name, sample_ids)
+    return list(deduped.items())
+
+
+def _canonical_split_name(
+    split_name: str,
+    sample_ids: list[str],
+    *,
+    total_count: int,
+    fallback_seed: int,
+) -> str:
+    raw_name, seed = _split_name_and_seed(split_name, fallback_seed)
+    if re.fullmatch(r"full\d*", raw_name):
+        return f"full{total_count}_seed{seed}"
+    count_target = _count_split_target(raw_name)
+    if count_target is not None and len(sample_ids) >= total_count and total_count <= count_target:
+        return f"full{total_count}_seed{seed}"
+    return split_name
+
+
+def _split_name_and_seed(split_name: str, fallback_seed: int) -> tuple[str, int]:
+    match = re.fullmatch(r"(?P<name>.+?)_seed(?P<seed>\d+)", split_name)
+    if match:
+        return match.group("name"), int(match.group("seed"))
+    return split_name, int(fallback_seed)
+
+
+def _count_split_target(split_name_without_seed: str) -> int | None:
+    match = re.fullmatch(r"count(?P<count>\d+)(?:_.+)?", split_name_without_seed)
+    if not match:
+        return None
+    return int(match.group("count"))
 
 
 def _stratified_sample_ids(
@@ -251,10 +308,18 @@ def load_split_ids(
         random_seed=random_seed,
     )
     if not manifest_path.exists():
-        raise FileNotFoundError(
-            f"Split manifest not found for dataset={dataset_slug!r}, split={split_name!r}. "
-            f"Expected path: {manifest_path}"
+        fallback_path = _resolve_full_fallback_manifest_path(
+            dataset_slug,
+            split_name,
+            splits_root=splits_root,
+            random_seed=random_seed,
         )
+        if fallback_path is None:
+            raise FileNotFoundError(
+                f"Split manifest not found for dataset={dataset_slug!r}, split={split_name!r}. "
+                f"Expected path: {manifest_path}"
+            )
+        manifest_path = fallback_path
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     sample_ids = payload.get("sample_ids")
     if not isinstance(sample_ids, list):
@@ -268,6 +333,32 @@ def load_split_ids(
             f"{manifest_path}"
         )
     return sample_ids
+
+
+def _resolve_full_fallback_manifest_path(
+    dataset_slug: str,
+    split_name: str,
+    *,
+    splits_root: str | Path,
+    random_seed: int,
+) -> Path | None:
+    raw_name, seed = _split_name_and_seed(split_name, random_seed)
+    count_target = _count_split_target(raw_name)
+    if count_target is None:
+        return None
+    full_path = resolve_split_manifest_path(
+        dataset_slug,
+        f"full0_seed{seed}",
+        splits_root=splits_root,
+        random_seed=random_seed,
+    )
+    if not full_path.exists():
+        return None
+    payload = json.loads(full_path.read_text(encoding="utf-8"))
+    sample_count = int(payload.get("sample_count") or len(payload.get("sample_ids") or []))
+    if sample_count <= count_target:
+        return full_path
+    return None
 
 
 def select_samples(
@@ -1060,5 +1151,3 @@ def _normalize_option_letter(value: object) -> str | None:
     if "A" <= candidate <= "J":
         return candidate
     return None
-
-
