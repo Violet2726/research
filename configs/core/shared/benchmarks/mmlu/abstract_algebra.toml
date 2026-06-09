@@ -22,11 +22,6 @@ strategy = "shuffle"
 size = 20
 
 [[split_presets]]
-name = "count100_seed42"
-strategy = "full"
-size = 100
-
-[[split_presets]]
-name = "count300_seed42"
-strategy = "full"
+name = "full100_seed42"
+strategy = "shuffle"
 size = 100

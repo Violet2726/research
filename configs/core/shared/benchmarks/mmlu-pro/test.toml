@@ -14,7 +14,7 @@ smoke_size = 20
 pilot_size = 100
 main_size = 1200
 random_seed = 42
-notes = "Use stratified count-based subsets for sampled runs and the full 12032-question test split for full runs."
+notes = "Use shared shuffle-prefix count-based subsets for sampled runs and the full 12032-question test split for full runs."
 
 [[split_presets]]
 name = "count20_seed42"
@@ -28,14 +28,12 @@ size = 100
 
 [[split_presets]]
 name = "count300_seed42"
-strategy = "stratified"
-field = "category"
+strategy = "shuffle"
 size = 300
 
 [[split_presets]]
 name = "count500_seed42"
-strategy = "stratified"
-field = "category"
+strategy = "shuffle"
 size = 500
 
 [[split_presets]]

@@ -17,6 +17,5 @@ cache_namespace_override = "realmistake/fine_grained_fact_verification"
 split_presets = [
   { name = "count20_seed42", strategy = "shuffle", size = 20 },
   { name = "count100_seed42", strategy = "shuffle", size = 100 },
-  { name = "count300_seed42", strategy = "shuffle", size = 300 },
   { name = "full300_seed42", strategy = "full" },
 ]

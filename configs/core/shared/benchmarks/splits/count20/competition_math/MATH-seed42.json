@@ -1,0 +1,29 @@
+{
+  "dataset": "competition_math",
+  "split_name": "count20_seed42",
+  "source_split": "test",
+  "sample_count": 20,
+  "sample_ids": [
+    "test/counting_and_probability/276.json",
+    "test/geometry/298.json",
+    "test/precalculus/501.json",
+    "test/counting_and_probability/402.json",
+    "test/precalculus/28.json",
+    "test/algebra/795.json",
+    "test/algebra/318.json",
+    "test/algebra/269.json",
+    "test/algebra/198.json",
+    "test/algebra/575.json",
+    "test/prealgebra/463.json",
+    "test/counting_and_probability/231.json",
+    "test/algebra/987.json",
+    "test/geometry/278.json",
+    "test/prealgebra/632.json",
+    "test/prealgebra/639.json",
+    "test/counting_and_probability/156.json",
+    "test/number_theory/205.json",
+    "test/geometry/204.json",
+    "test/precalculus/461.json"
+  ],
+  "random_seed": 42
+}

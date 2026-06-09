@@ -9,28 +9,25 @@ answer_field = "answer"
 smoke_size = 20
 pilot_size = 700
 main_size = 700
-random_seed = 0
-notes = "Paper-aligned Hendrycks MATH benchmark for DMAD main-text reproduction. The count100 split means 100 samples per subject, i.e. 700 questions total."
+random_seed = 42
+notes = "Paper-aligned Hendrycks MATH benchmark for DMAD main-text reproduction. Count-based sampled splits use the shared shuffle-prefix policy."
 
 [[split_presets]]
-name = "count20_seed0"
-strategy = "stratified"
-field = "subject"
+name = "count20_seed42"
+strategy = "shuffle"
 size = 20
 
 [[split_presets]]
-name = "count100_seed0"
-strategy = "stratified"
-field = "subject"
+name = "count100_seed42"
+strategy = "shuffle"
 size = 700
 
 [[split_presets]]
-name = "count100_total_seed0"
-strategy = "stratified"
-field = "subject"
+name = "count100_total_seed42"
+strategy = "shuffle"
 size = 100
 
 [[split_presets]]
-name = "full_seed0"
+name = "full5000_seed42"
 strategy = "full"
 size = 0

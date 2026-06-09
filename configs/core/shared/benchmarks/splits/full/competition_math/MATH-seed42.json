@@ -1,6 +1,6 @@
 {
   "dataset": "competition_math",
-  "split_name": "full_seed0",
+  "split_name": "full5000_seed42",
   "source_split": "test",
   "sample_count": 5000,
   "sample_ids": [
@@ -5005,5 +5005,5 @@
     "test/precalculus/98.json",
     "test/precalculus/99.json"
   ],
-  "random_seed": 0
+  "random_seed": 42
 }
