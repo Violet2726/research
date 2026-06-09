@@ -123,6 +123,7 @@ def asdict_view(view: HotpotView) -> dict[str, Any]:
 
 
 def _paragraph_map(raw_context: dict[str, Any]) -> list[tuple[str, list[str]]]:
+    """从 HotpotQA raw_context 中抽取标题与句子列表。"""
     titles = raw_context.get("title", [])
     paragraphs = raw_context.get("sentences", [])
     rendered: list[tuple[str, list[str]]] = []
@@ -135,6 +136,7 @@ def _paragraph_map(raw_context: dict[str, Any]) -> list[tuple[str, list[str]]]:
 
 
 def _supporting_titles(raw_supporting_facts: dict[str, Any]) -> list[str]:
+    """读取 gold supporting facts 中去重后的 paragraph 标题。"""
     titles: list[str] = []
     for title in raw_supporting_facts.get("title", []):
         normalized = str(title).strip()
@@ -150,6 +152,7 @@ def _render_paragraphs(
     include_title_inventory: bool,
     title_inventory: list[str] | None = None,
 ) -> str:
+    """把选中的段落渲染成带标题和句号编号的可见上下文。"""
     selected = set(selected_titles)
     sections: list[str] = []
     for title, sentences in paragraph_map:
@@ -165,10 +168,12 @@ def _render_paragraphs(
 
 
 def _slice(items: list[str], start: int, stop: int) -> list[str]:
+    """返回非空标题切片，避免空字符串进入视图。"""
     return [item for item in items[start:stop] if item]
 
 
 def _stable_hash(text: str) -> str:
+    """生成用于视图泄漏检查的稳定 UTF-8 哈希。"""
     return sha256(text.encode("utf-8")).hexdigest()
 
 

@@ -229,6 +229,7 @@ def _fit_fields_to_cap(fields: dict[str, Any], token_cap: int) -> dict[str, Any]
 
 
 def _has_content(value: object) -> bool:
+    """判断字段是否值得保留到通信包中。"""
     if value is None:
         return False
     if isinstance(value, str):
@@ -239,12 +240,14 @@ def _has_content(value: object) -> bool:
 
 
 def _as_list(value: object) -> list[object]:
+    """把单值或列表统一成列表形态。"""
     if isinstance(value, list):
         return value
     return [value]
 
 
 def _normalize_answer_for_f1(value: str) -> list[str]:
+    """按 HotpotQA answer F1 口径做轻量词级归一化。"""
     lowered = value.lower()
     lowered = re.sub(r"\b(a|an|the)\b", " ", lowered)
     lowered = lowered.translate(str.maketrans("", "", string.punctuation))
@@ -252,6 +255,7 @@ def _normalize_answer_for_f1(value: str) -> list[str]:
 
 
 def _answer_prf(predicted: str, gold: str) -> tuple[float, float, float]:
+    """计算答案文本的 precision、recall 和 F1。"""
     predicted_tokens = _normalize_answer_for_f1(predicted)
     gold_tokens = _normalize_answer_for_f1(gold)
     if not predicted_tokens and not gold_tokens:
@@ -268,6 +272,7 @@ def _answer_prf(predicted: str, gold: str) -> tuple[float, float, float]:
 
 
 def _set_prf(predicted: set[tuple[str, int]], gold: set[tuple[str, int]]) -> tuple[float, float, float]:
+    """计算 supporting fact 集合的 precision、recall 和 F1。"""
     if not predicted and not gold:
         return 1.0, 1.0, 1.0
     if not predicted or not gold:
@@ -279,16 +284,19 @@ def _set_prf(predicted: set[tuple[str, int]], gold: set[tuple[str, int]]) -> tup
 
 
 def _safe_f1(precision: float, recall: float) -> float:
+    """在分母为 0 时安全返回 0 的 F1 计算。"""
     if math.isclose(precision + recall, 0.0):
         return 0.0
     return 2 * precision * recall / (precision + recall)
 
 
 def _normalize_fact(fact: tuple[str, int]) -> tuple[str, int]:
+    """归一化 supporting fact 的标题和句子编号。"""
     return (fact[0].strip(), int(fact[1]))
 
 
 def _title_recall(predicted: set[tuple[str, int]], gold: set[tuple[str, int]]) -> float:
+    """按 paragraph title 维度计算 supporting fact 召回率。"""
     gold_titles = {title for title, _ in gold}
     if not gold_titles:
         return 0.0

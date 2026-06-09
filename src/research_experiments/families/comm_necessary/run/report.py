@@ -1,4 +1,8 @@
-"""`comm_necessary` 实验的科研报告与图资产生成。"""
+"""`comm_necessary` 实验的科研报告与图资产生成。
+
+本模块只消费已落盘的 metrics、diagnostics 与 prediction 行，
+生成中文科研报告、图表规格和 split-context 附录。
+"""
 
 from __future__ import annotations
 
@@ -39,6 +43,7 @@ from research_experiments.workspace.layout import default_reports_root
 
 
 def summarize_run(run_dir: str | Path) -> dict[str, Any]:
+    """读取 metrics 视图并返回按数据集分组的运行摘要。"""
     summary = SummaryTableView.from_metrics_payload(load_metrics_payload(run_dir, family_name="comm_necessary"))
     grouped = summary.grouped_by_dataset()
     return {
@@ -53,6 +58,7 @@ def render_report(
     run_dir: str | Path,
     publish_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    """渲染 comm_necessary 中文报告、图资产和发布目录摘要。"""
     publish_dir = publish_dir or default_reports_root("comm_necessary")
     index = resolve_run_artifact_index(run_dir, family_name="comm_necessary")
     root = index.run_dir
@@ -96,6 +102,7 @@ def render_report(
 
 
 def _build_figure_specs(metrics: dict[str, Any], diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
+    """根据指标和诊断生成固定图表规格。"""
     summary = SummaryTableView.from_metrics_payload(metrics)
     diagnostic_rows = DiagnosticTableView.from_rows(diagnostics.get("key_deltas", []))
     rows = [row.raw for row in summary.rows]
@@ -179,6 +186,7 @@ def _render_markdown(
     predictions: list[dict[str, Any]],
     run_dir: Path,
 ) -> str:
+    """把 run 产物组装成最终中文科研报告 markdown。"""
     phase = str(manifest.get("phase") or "unknown_phase")
     backbone_name = resolve_manifest_model_name(manifest)
     summary = SummaryTableView.from_metrics_payload(metrics)
@@ -305,6 +313,7 @@ def _render_markdown(
 
 
 def _ordered_rows(rows: list[Any]) -> list[Any]:
+    """按通信必要性方法的报告顺序排列指标行。"""
     return sorted(rows, key=lambda row: METHOD_ORDER.index(row.method_name) if row.method_name in METHOD_ORDER else 999)
 
 

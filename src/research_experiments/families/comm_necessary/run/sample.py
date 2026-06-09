@@ -119,6 +119,7 @@ def _run_sample(
     global_seed: int,
     prompt_version: str,
 ) -> SampleResult:
+    """执行单个 HotpotQA 样本的 full-context、split Stage A 与三档通信方法。"""
     views = build_hotpot_views(sample)
     split_views = [view for view in views if view.agent_id in {1, 2, 3}]
     full_view = next(view for view in views if view.view_kind == "full_context")
@@ -247,6 +248,7 @@ def _build_message_packets(
     split_stage_a: list[dict[str, Any]],
     protocol: CommNecessaryProtocolConfig,
 ) -> list[dict[str, Any]]:
+    """把 split Stage A 行压缩成 answer/evidence/full 三档消息包。"""
     rows: list[dict[str, Any]] = []
     specs = [
         ("answer_only_exchange", "answer_only", protocol.answer_only_token_cap),
@@ -289,6 +291,7 @@ def _run_belief_updates(
     global_seed: int,
     prompt_version: str,
 ) -> list[dict[str, Any]]:
+    """对每个 split agent 执行基于 peer packet 的 belief update。"""
     stage_a_by_agent = {int(row["agent_id"]): row for row in split_stage_a}
     packet_by_agent = {int(row["agent_id"]): row for row in packets}
     rows: list[dict[str, Any]] = []
@@ -360,6 +363,7 @@ def _build_prediction_rows(
     stage_b_rows: list[dict[str, Any]],
     protocol: CommNecessaryProtocolConfig,
 ) -> list[dict[str, Any]]:
+    """构造 full-context、no-comm 和三档通信方法的 prediction 行。"""
     gold_facts = gold_supporting_facts(sample.metadata)
     split_vote, split_counts, split_consensus = majority_vote_with_counts([str(row.get("normalized_answer") or "") for row in split_stage_a])
     split_support = aggregate_supporting_facts(split_stage_a, split_vote)
@@ -502,6 +506,7 @@ def _prediction_row(
     baseline_answer_em: float,
     gold_facts: list[tuple[str, int]],
 ) -> dict[str, Any]:
+    """把单个方法的答案、证据、成本和联合指标封装为 prediction 行。"""
     scores = score_hotpot_prediction(
         predicted_answer=prediction,
         gold_answer=sample.reference_answer,
@@ -573,6 +578,7 @@ def _execute_turn(
     seed: int,
     extra_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """执行一次 solver 或 belief-update 模型调用，并封装为 turn 行。"""
     result = execute_cached_turn(
         backbone=backbone,
         provider=provider,
@@ -652,6 +658,7 @@ def _validate_output(raw_text: str, output_mode: str, *, provider_reasoning_text
 
 
 def _decode_json_object(raw_text: str) -> dict[str, Any]:
+    """从模型回复中截取并解析 JSON 对象。"""
     cleaned = raw_text.strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.strip("`").strip()
@@ -668,12 +675,14 @@ def _decode_json_object(raw_text: str) -> dict[str, Any]:
 
 
 def _textish(value: object) -> str:
+    """读取文本字段，过滤 None 和 bool。"""
     if value is None or isinstance(value, bool):
         return ""
     return str(value).strip()
 
 
 def _normalize_confidence_raw(value: object) -> float | str | None:
+    """把置信度文本或数字归一到 `[0, 1]`，无效值返回 None。"""
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
@@ -768,6 +777,7 @@ def _build_diagnostics(prediction_rows: list[dict[str, Any]], sample_views: list
 
 
 def _write_hotpot_predictions(output_dir: Path, prediction_rows: list[dict[str, Any]]) -> None:
+    """按方法导出 HotpotQA 官方评测脚本兼容的 prediction JSON。"""
     output_dir.mkdir(parents=True, exist_ok=True)
     for method in METHOD_ORDER:
         rows = [row for row in prediction_rows if row["method_name"] == method]
@@ -778,6 +788,7 @@ def _write_hotpot_predictions(output_dir: Path, prediction_rows: list[dict[str, 
 
 
 def _write_paper_summary(path: Path, metrics: dict[str, Any]) -> None:
+    """导出论文表格用的 CSV 摘要。"""
     fieldnames = [
         "dataset",
         "model_name",
@@ -806,6 +817,7 @@ def _estimate_work(
     benchmarks,
     protocol: CommNecessaryProtocolConfig,
 ) -> tuple[int, int]:
+    """估算本 phase 的模型调用数和 prediction 行数。"""
     sample_count = 0
     for benchmark in benchmarks:
         split_name = _resolve_split_name(experiment, phase_name, benchmark.slug)
@@ -815,10 +827,12 @@ def _estimate_work(
 
 
 def _resolve_split_name(experiment: CommNecessaryExperimentConfig, phase_name: str, benchmark_slug: str) -> str:
+    """解析某个 benchmark 在指定 phase 中使用的 split。"""
     return resolve_phase_split_name(experiment, phase_name, benchmark_slug)
 
 
 def _cost(rows: list[dict[str, Any]]) -> dict[str, float]:
+    """汇总一组 turn 行的 token 和延迟成本。"""
     return {
         "prompt_tokens": round(sum(float(row.get("prompt_tokens") or 0.0) for row in rows), 6),
         "completion_tokens": round(sum(float(row.get("completion_tokens") or 0.0) for row in rows), 6),
@@ -828,23 +842,28 @@ def _cost(rows: list[dict[str, Any]]) -> dict[str, float]:
 
 
 def _broadcast_packet_tokens(packets: list[dict[str, Any]], agent_count: int) -> float:
+    """估算广播通信量，每个包发送给除自身外的 agent。"""
     return float(sum(int(packet.get("approx_packet_tokens") or 0) for packet in packets) * max(0, agent_count - 1))
 
 
 def _trace_hash(rows: list[dict[str, Any]], keys: list[str]) -> str:
+    """按指定字段生成稳定 trace hash。"""
     payload = [{key: row.get(key) for key in keys} for row in rows]
     return sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def _stable_sample_seed(sample_id: str) -> int:
+    """从样本 ID 生成稳定 seed 偏移。"""
     return sum(ord(char) for char in sample_id)
 
 
 def _method_seed_offset(method_name: str) -> int:
+    """为不同通信方法分配固定 seed 偏移。"""
     return {"answer_only_exchange": 1000, "evidence_exchange": 2000, "full_packet_exchange": 3000}.get(method_name, 0)
 
 
 def _mean(values) -> float:
+    """计算均值，空集合返回 0。"""
     materialized = list(values)
     if not materialized:
         return 0.0

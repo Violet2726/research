@@ -44,7 +44,7 @@ REQUIRED_FILES = [
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
-    """Validate comm_necessary run meets experiment contract."""
+    """校验 comm_necessary run 是否满足产物与 split-context 设计契约。"""
     index = resolve_run_artifact_index(run_dir, family_name="comm_necessary")
     root = index.run_dir
     turn_paths = named_turn_record_paths(root, family_name="comm_necessary")
@@ -122,6 +122,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
 
 
 def _paired_design_check(manifest: dict[str, Any], prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """确认每个样本都包含所有登记方法的 prediction 行。"""
     methods = list(manifest.get("methods") or METHOD_ORDER)
     by_sample: dict[tuple[str, str], set[str]] = defaultdict(set)
     for row in prediction_rows:
@@ -147,6 +148,7 @@ def _paired_design_check(manifest: dict[str, Any], prediction_rows: list[dict[st
 
 
 def _context_leak_check(sample_views: list[dict[str, Any]]) -> dict[str, Any]:
+    """确认 split agent 没有拿到 full-context 视图。"""
     violations = [
         {
             "dataset": row.get("dataset"),
@@ -162,6 +164,7 @@ def _context_leak_check(sample_views: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _shard_union_check(sample_views: list[dict[str, Any]]) -> dict[str, Any]:
+    """确认三个 split 视图联合覆盖 gold supporting titles。"""
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in sample_views:
         if int(row.get("agent_id") or -1) in {1, 2, 3}:
@@ -179,6 +182,7 @@ def _shard_union_check(sample_views: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _packet_cap_check(packet_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """确认实际消息包 token 估算没有超过配置上限。"""
     violations = [
         {
             "dataset": row.get("dataset"),
@@ -195,6 +199,7 @@ def _packet_cap_check(packet_rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _hotpot_prediction_files_check(output_dir: Path, prediction_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """确认每个方法都导出了 HotpotQA 官方格式 prediction 文件。"""
     missing = [method for method in METHOD_ORDER if not (output_dir / f"{method}.json").exists()]
     invalid: list[dict[str, Any]] = []
     expected_ids_by_method = {

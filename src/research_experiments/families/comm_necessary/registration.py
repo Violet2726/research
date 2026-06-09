@@ -1,4 +1,8 @@
-"""`comm_necessary` family 注册入口。"""
+"""`comm_necessary` family 注册入口。
+
+本模块把 HotpotQA 通信必要性实验接入统一 family CLI，
+集中登记 inspect、run、report、validate 与导出产物别名。
+"""
 
 from __future__ import annotations
 
@@ -18,6 +22,7 @@ from research_experiments.workspace.layout import workspace_defaults
 
 
 def inspect_experiment(experiment_path: str, model_override: str | None) -> dict[str, object]:
+    """返回 CLI inspect-experiment 使用的解析后配置视图。"""
     experiment = load_experiment_config(experiment_path)
     protocol = load_protocol_config(experiment.protocol)
     backbone = resolve_model(model_override or experiment.primary_model_ref)
@@ -50,15 +55,15 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
 
 ARTIFACT_ALIASES = {
     "sample_views": "turns/sample_views.jsonl",
-"stage_a_turns": "turns/stage_a_turns.jsonl",
-"message_packets": "turns/message_packets.jsonl",
-"stage_b_turns": "turns/stage_b_turns.jsonl",
-"final_predictions": "views/predictions.jsonl",
-"hotpot_predictions": "exports/hotpot_predictions",
-"diagnostics_path": "diagnostics/diagnostics.json",
-"run_validation": "run_validation.json",
-"report_markdown": "report.md",
-"paper_summary": "exports/paper_summary.csv",
+    "stage_a_turns": "turns/stage_a_turns.jsonl",
+    "message_packets": "turns/message_packets.jsonl",
+    "stage_b_turns": "turns/stage_b_turns.jsonl",
+    "final_predictions": "views/predictions.jsonl",
+    "hotpot_predictions": "exports/hotpot_predictions",
+    "diagnostics_path": "diagnostics/diagnostics.json",
+    "run_validation": "run_validation.json",
+    "report_markdown": "report.md",
+    "paper_summary": "exports/paper_summary.csv",
 }
 
 REGISTRATION = make_family_registration(
@@ -87,8 +92,13 @@ REGISTRATION = make_family_registration(
     artifact_aliases=ARTIFACT_ALIASES,
     metrics_view_path="views/metrics.json",
     prediction_records_path="views/predictions.jsonl",
-    turn_record_paths=('turns/sample_views.jsonl', 'turns/stage_a_turns.jsonl', 'turns/message_packets.jsonl', 'turns/stage_b_turns.jsonl'),
-    diagnostic_paths=('diagnostics/diagnostics.json',),
-    export_paths=('exports/paper_summary.csv', 'exports/hotpot_predictions'),
+    turn_record_paths=(
+        "turns/sample_views.jsonl",
+        "turns/stage_a_turns.jsonl",
+        "turns/message_packets.jsonl",
+        "turns/stage_b_turns.jsonl",
+    ),
+    diagnostic_paths=("diagnostics/diagnostics.json",),
+    export_paths=("exports/paper_summary.csv", "exports/hotpot_predictions"),
 )
 

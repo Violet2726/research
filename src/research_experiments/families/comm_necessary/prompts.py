@@ -1,4 +1,8 @@
-"""split-context communication-necessary 实验的提示词构造器。"""
+"""split-context communication-necessary 实验的提示词构造器。
+
+本模块把 HotpotQA 可见视图和通信阶段转换成模型消息。
+提示词正文保持英文，以便稳定复用实验版本、缓存键和历史产物。
+"""
 
 from __future__ import annotations
 
@@ -83,6 +87,7 @@ def build_belief_update_messages(
 
 
 def _system_prompt() -> str:
+    """生成 split-context 求解与 belief update 共用的 JSON 输出约束。"""
     return build_json_system_prompt(
         "You are a careful HotpotQA reasoning agent.",
         extra_rules=[
@@ -95,6 +100,7 @@ def _system_prompt() -> str:
 
 
 def _assert_prompt_version(prompt_version: str) -> None:
+    """拒绝未登记的提示词版本，避免混用缓存与协议。"""
     if prompt_version != DEFAULT_PROMPT_VERSION:
         raise ValueError(f"Unsupported prompt_version: {prompt_version}")
 
