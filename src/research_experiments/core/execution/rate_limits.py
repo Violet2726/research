@@ -48,6 +48,14 @@ class _SharedThrottleState:
     limiter: SlidingWindowRateLimiter
 
 
+@dataclass
+class _ThrottleMetrics:
+    """Per-throttle run-local metrics that must not leak across experiments."""
+
+    rate_limit_429_count: int = 0
+    total_wait_seconds: float = 0.0
+
+
 class SlidingWindowRateLimiter:
     """Thread-safe RPM/TPM sliding window limiter for one process."""
 
@@ -64,8 +72,6 @@ class SlidingWindowRateLimiter:
         self.token_events: deque[_TokenEvent] = deque()
         self.condition = threading.Condition()
         self.last_request_admission: float | None = None
-        self.rate_limit_429_count = 0
-        self.total_wait_seconds = 0.0
         self.request_spacing_seconds = _request_spacing_seconds(requests_per_minute, window_seconds)
 
     def acquire(self, estimated_tokens: int) -> RateLimitReservation:
@@ -92,34 +98,22 @@ class SlidingWindowRateLimiter:
                         reserved_tokens=token_event.tokens,
                         token_event=token_event,
                     )
-                wait_started = time.monotonic()
                 self.condition.wait(timeout=wait_seconds)
-                self.total_wait_seconds += max(0.0, time.monotonic() - wait_started)
 
-    def settle(
-        self,
-        reservation: RateLimitReservation,
-        actual_tokens: int,
-        *,
-        http_status: int | None = None,
-    ) -> None:
-        """Replace reserved tokens with actual usage and record any 429."""
+    def settle(self, reservation: RateLimitReservation, actual_tokens: int) -> None:
+        """Replace reserved tokens with actual usage."""
 
         with self.condition:
             reservation.token_event.tokens = max(0, int(actual_tokens))
-            if http_status == 429:
-                self.rate_limit_429_count += 1
             self.condition.notify_all()
 
     def snapshot(self) -> dict[str, float | int | None]:
-        """Return a progress-compatible limiter snapshot."""
+        """Return shared admission-limit configuration."""
 
         with self.condition:
             return {
                 "target_network_rpm": self.requests_per_minute,
                 "effective_network_rpm_limit": self.requests_per_minute,
-                "rate_limit_429_count": self.rate_limit_429_count,
-                "rate_limit_wait_seconds": round(self.total_wait_seconds, 2),
                 "last_retry_after_seconds": None,
                 "cooldown_remaining_seconds": 0.0,
             }
@@ -174,6 +168,8 @@ class RequestThrottle:
     ) -> None:
         max_workers = max(1, int(max_concurrent_requests or 1))
         self.max_concurrent_requests = max_workers
+        self._metrics = _ThrottleMetrics()
+        self._metrics_lock = threading.Lock()
         if scope_key is None:
             self._semaphore = threading.BoundedSemaphore(max_workers)
             self.limiter = SlidingWindowRateLimiter(
@@ -217,7 +213,12 @@ class RequestThrottle:
         """Reserve both a concurrency slot and a rate-limit slot for one request."""
 
         self._semaphore.acquire()
+        wait_started = time.monotonic()
         reservation = self.limiter.acquire(estimated_tokens)
+        waited_seconds = max(0.0, time.monotonic() - wait_started)
+        if waited_seconds > 0:
+            with self._metrics_lock:
+                self._metrics.total_wait_seconds += waited_seconds
         try:
             yield reservation
         finally:
@@ -232,14 +233,23 @@ class RequestThrottle:
     ) -> None:
         """Settle a prior reservation against actual usage."""
 
-        self.limiter.settle(reservation, actual_tokens, http_status=http_status)
+        if http_status == 429:
+            with self._metrics_lock:
+                self._metrics.rate_limit_429_count += 1
+        self.limiter.settle(reservation, actual_tokens)
 
     def snapshot(self) -> dict[str, float | int | None]:
         """Return a progress snapshot for the current throttle state."""
 
+        limiter_snapshot = self.limiter.snapshot()
+        with self._metrics_lock:
+            rate_limit_429_count = self._metrics.rate_limit_429_count
+            total_wait_seconds = round(self._metrics.total_wait_seconds, 2)
         return {
             "max_concurrent_requests": self.max_concurrent_requests,
-            **self.limiter.snapshot(),
+            **limiter_snapshot,
+            "rate_limit_429_count": rate_limit_429_count,
+            "rate_limit_wait_seconds": total_wait_seconds,
         }
 
     @classmethod
