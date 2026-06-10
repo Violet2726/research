@@ -4,6 +4,7 @@ from pathlib import Path
 
 from testsupport.filesystem import write_json, write_registered_family_manifest
 
+from research_experiments.families.baseline_compare.run.report import render_report as render_baseline_compare_report
 from research_experiments.families.selective_comm.run.report import render_report as render_selective_report
 from research_experiments.families.single_agent.run.report import render_report as render_single_agent_report
 
@@ -193,3 +194,132 @@ def test_selective_comm_render_report_outputs_scientific_markdown(tmp_path: Path
     assert "## 图表资产" in local_report
     assert Path(payload["frontier_report"]).exists()
     assert Path(payload["trigger_diagnostic_report"]).exists()
+
+
+def test_baseline_compare_render_report_exports_comparison_bundle(tmp_path: Path) -> None:
+    write_registered_family_manifest(
+        tmp_path / "manifest.json",
+        family_name="baseline_compare",
+        payload={
+            "created_at": "2026-05-09T12:00:00+00:00",
+            "experiment": "core_six_method_baseline",
+            "phase": "count20",
+            "resolved_model": {"name": "xiaomimimo/mimo-v2.5"},
+            "prompt_version": "multi_agent_controlled_json",
+            "method_order": ["cot_1", "mad_3a_r1"],
+            "control_method_names": ["cot_1"],
+            "dataset_order": ["gsm8k"],
+        },
+    )
+    write_json(
+        tmp_path / "views" / "metrics.json",
+        {
+            "summary": [
+                {
+                    "dataset": "overall",
+                    "aggregate_kind": "macro",
+                    "method_name": "cot_1",
+                    "method_type": "control",
+                    "accuracy_mean": 0.60,
+                    "accuracy_delta_vs_cot_1": 0.0,
+                    "accuracy_delta_vs_best_no_comm": 0.0,
+                    "initial_vote_accuracy_mean": 0.60,
+                    "debate_gain_over_initial_vote": 0.0,
+                    "total_tokens_mean": 100.0,
+                    "calls_per_question_mean": 1.0,
+                    "accuracy_per_1k_tokens": 6.0,
+                    "corrected_rate": 0.0,
+                    "harmed_rate": 0.0,
+                    "flip_rate": 0.0,
+                    "initial_consensus_rate": 1.0,
+                    "final_consensus_rate": 1.0,
+                    "communication_tokens_mean": 0.0,
+                },
+                {
+                    "dataset": "overall",
+                    "aggregate_kind": "macro",
+                    "method_name": "mad_3a_r1",
+                    "method_type": "mad",
+                    "accuracy_mean": 0.70,
+                    "accuracy_delta_vs_cot_1": 0.10,
+                    "accuracy_delta_vs_best_no_comm": 0.10,
+                    "initial_vote_accuracy_mean": 0.65,
+                    "debate_gain_over_initial_vote": 0.05,
+                    "total_tokens_mean": 300.0,
+                    "calls_per_question_mean": 6.0,
+                    "accuracy_per_1k_tokens": 2.333333,
+                    "corrected_rate": 0.10,
+                    "harmed_rate": 0.02,
+                    "flip_rate": 0.12,
+                    "initial_consensus_rate": 0.40,
+                    "final_consensus_rate": 0.58,
+                    "communication_tokens_mean": 120.0,
+                },
+                {
+                    "dataset": "overall_micro",
+                    "aggregate_kind": "micro",
+                    "method_name": "cot_1",
+                    "method_type": "control",
+                    "accuracy_mean": 0.60,
+                    "accuracy_delta_vs_cot_1": 0.0,
+                    "accuracy_delta_vs_best_no_comm": 0.0,
+                    "initial_vote_accuracy_mean": 0.60,
+                    "debate_gain_over_initial_vote": 0.0,
+                    "total_tokens_mean": 100.0,
+                    "calls_per_question_mean": 1.0,
+                    "accuracy_per_1k_tokens": 6.0,
+                },
+                {
+                    "dataset": "overall_micro",
+                    "aggregate_kind": "micro",
+                    "method_name": "mad_3a_r1",
+                    "method_type": "mad",
+                    "accuracy_mean": 0.70,
+                    "accuracy_delta_vs_cot_1": 0.10,
+                    "accuracy_delta_vs_best_no_comm": 0.10,
+                    "initial_vote_accuracy_mean": 0.65,
+                    "debate_gain_over_initial_vote": 0.05,
+                    "total_tokens_mean": 300.0,
+                    "calls_per_question_mean": 6.0,
+                    "accuracy_per_1k_tokens": 2.333333,
+                },
+                {
+                    "dataset": "gsm8k",
+                    "aggregate_kind": "dataset",
+                    "method_name": "cot_1",
+                    "method_type": "control",
+                    "accuracy_mean": 0.60,
+                    "accuracy_delta_vs_cot_1": 0.0,
+                    "accuracy_delta_vs_best_no_comm": 0.0,
+                    "initial_vote_accuracy_mean": 0.60,
+                    "debate_gain_over_initial_vote": 0.0,
+                    "total_tokens_mean": 100.0,
+                    "calls_per_question_mean": 1.0,
+                    "accuracy_per_1k_tokens": 6.0,
+                },
+                {
+                    "dataset": "gsm8k",
+                    "aggregate_kind": "dataset",
+                    "method_name": "mad_3a_r1",
+                    "method_type": "mad",
+                    "accuracy_mean": 0.70,
+                    "accuracy_delta_vs_cot_1": 0.10,
+                    "accuracy_delta_vs_best_no_comm": 0.10,
+                    "initial_vote_accuracy_mean": 0.65,
+                    "debate_gain_over_initial_vote": 0.05,
+                    "total_tokens_mean": 300.0,
+                    "calls_per_question_mean": 6.0,
+                    "accuracy_per_1k_tokens": 2.333333,
+                },
+            ]
+        },
+    )
+    (tmp_path / "views" / "predictions.jsonl").write_text("", encoding="utf-8")
+
+    payload = render_baseline_compare_report(tmp_path, publish_dir=tmp_path / "published")
+    local_report = Path(payload["local_report"]).read_text(encoding="utf-8")
+
+    assert "Baseline Compare" in local_report
+    assert "figures/frontier_overall.svg" in local_report
+    assert Path(payload["baseline_comparison"]).exists()
+    assert Path(payload["paper_summary"]).exists()

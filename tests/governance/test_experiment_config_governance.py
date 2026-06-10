@@ -7,6 +7,9 @@ from pathlib import Path
 
 from research_experiments.family_runtime.comparators import (
     COT_1,
+    MAD_3A_R1,
+    MAD_3A_R2,
+    MAD_5A_R1,
     MAD_FIXED_R1,
     MV_5,
     MV_6,
@@ -46,6 +49,19 @@ def test_consensagent_and_madjudge_controls_stay_aligned() -> None:
     judge_setups = {row["name"]: row for row in madjudge["setups"]}
     assert judge_setups["madjudge_7a"]["matched_controls"] == [COT_1, MV_7]
     assert judge_setups["madjudge_5a"]["matched_controls"] == [COT_1, MV_5]
+
+
+def test_baseline_compare_inventory_stays_aligned() -> None:
+    payload = _load_toml("configs/families/baseline_compare/experiments/core_six_method_baseline.toml")
+    control_catalog = _load_toml(payload["control_catalog"])
+    control_methods = payload["control_methods"]
+    method_order = payload["method_order"]
+    setup_names = [item["name"] for item in payload["setups"]]
+
+    assert control_methods == [COT_1, "sc_3", "sc_5"]
+    assert setup_names == [MAD_3A_R1, MAD_3A_R2, MAD_5A_R1]
+    assert set(method_order) == set(control_methods) | set(setup_names)
+    assert set(control_methods).issubset(set(control_catalog["methods"]))
 
 
 def test_dmad_family_local_methods_do_not_use_protected_bare_names() -> None:

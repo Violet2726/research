@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 
 from research_experiments.families.budget_comm.run.sample import _run_sample as budget_run_sample
+from research_experiments.families.baseline_compare.run.sample import _run_mad_sample as baseline_compare_run_sample
 from research_experiments.families.comm_necessary.run.sample import _run_sample as comm_necessary_run_sample
 from research_experiments.families.dmad.run.sample import _run_sample as dmad_run_sample
 from research_experiments.families.free_mad_lite.run.sample import _run_sample as free_mad_run_sample
@@ -16,6 +17,7 @@ from research_experiments.families.sid_lite.run.sample import _run_sample as sid
 def test_sample_batch_workers_accept_sample_as_first_positional_argument() -> None:
     worker_functions = [
         budget_run_sample,
+        baseline_compare_run_sample,
         comm_necessary_run_sample,
         dmad_run_sample,
         free_mad_run_sample,

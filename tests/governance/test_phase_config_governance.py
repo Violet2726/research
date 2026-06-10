@@ -34,7 +34,7 @@ def _load_benchmarks_by_slug(experiment_payload: dict) -> dict[str, dict]:
 def test_phase_setup_references_exist_for_multi_agent_style_experiments() -> None:
     for relative_path in (
         "configs/families/multi_agent/experiments/same_context_controlled_debate.toml",
-        "configs/families/multi_agent/experiments/standard_baseline_controls.toml",
+        "configs/families/baseline_compare/experiments/core_six_method_baseline.toml",
         "configs/families/consensagent/experiments/consensagent_main.toml",
         "configs/families/madjudge/experiments/madjudge_main.toml",
     ):
@@ -69,7 +69,9 @@ def test_phase_method_references_exist_for_single_agent_style_experiments() -> N
                 if phase_methods:
                     assert phase_methods.issubset(declared), f"{relative_path}:{phase_name} 引用了未声明 method"
                 else:
-                    assert "split_suffix" in phase_payload or "split_overrides" in phase_payload, f"{relative_path}:{phase_name} 缺少执行范围"
+                    assert "split_suffix" in phase_payload or "split_overrides" in phase_payload, (
+                        f"{relative_path}:{phase_name} 缺少执行范围"
+                    )
 
 
 def test_canonical_single_agent_baseline_config_is_fixed_to_temp_0p7() -> None:
@@ -118,7 +120,9 @@ def test_count_phase_full_split_fallbacks_match_declared_dataset_size() -> None:
                 if dataset_name == "*":
                     candidates = benchmarks.values()
                 else:
-                    assert dataset_name in benchmarks, f"{path}:{phase_name}:{dataset_name} 未在 benchmark_configs 中声明"
+                    assert dataset_name in benchmarks, (
+                        f"{path}:{phase_name}:{dataset_name} 未在 benchmark_configs 中声明"
+                    )
                     candidates = [benchmarks[dataset_name]]
                 for benchmark in candidates:
                     declared_size = int(benchmark["main_size"])
