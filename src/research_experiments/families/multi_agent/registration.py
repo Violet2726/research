@@ -33,6 +33,7 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "benchmarks": [benchmark.slug for benchmark in benchmarks],
         "control_catalog": str(experiment.control_catalog),
         "control_methods": {name: asdict(method) for name, method in sorted(controls.items())},
+        "prompt_version": experiment.prompt_version,
         "workspace_defaults": workspace_defaults("multi_agent"),
         "primary_model_ref": experiment.primary_model_ref,
         "phases": experiment.raw["phases"],
@@ -55,21 +56,18 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
             "split_suffix": phase.get("split_suffix"),
             "split_overrides": phase.get("split_overrides"),
         }
-        for phase_name, phase in (
-            (name, phase_metadata(experiment, name))
-            for name in experiment.raw["phases"]
-        )
+        for phase_name, phase in ((name, phase_metadata(experiment, name)) for name in experiment.raw["phases"])
     }
     return payload
 
 
 ARTIFACT_ALIASES = {
     "agent_turns": "turns/agent_turns.jsonl",
-"debate_messages": "turns/debate_messages.jsonl",
-"final_predictions": "views/predictions.jsonl",
-"cost_breakdown": "diagnostics/cost_breakdown.json",
-"debate_diagnostics": "diagnostics/debate_diagnostics.json",
-"run_validation": "run_validation.json",
+    "debate_messages": "turns/debate_messages.jsonl",
+    "final_predictions": "views/predictions.jsonl",
+    "cost_breakdown": "diagnostics/cost_breakdown.json",
+    "debate_diagnostics": "diagnostics/debate_diagnostics.json",
+    "run_validation": "run_validation.json",
 }
 
 REGISTRATION = make_family_registration(
@@ -98,8 +96,7 @@ REGISTRATION = make_family_registration(
     artifact_aliases=ARTIFACT_ALIASES,
     metrics_view_path="views/metrics.json",
     prediction_records_path="views/predictions.jsonl",
-    turn_record_paths=('turns/agent_turns.jsonl', 'turns/debate_messages.jsonl'),
-    diagnostic_paths=('diagnostics/cost_breakdown.json', 'diagnostics/debate_diagnostics.json'),
+    turn_record_paths=("turns/agent_turns.jsonl", "turns/debate_messages.jsonl"),
+    diagnostic_paths=("diagnostics/cost_breakdown.json", "diagnostics/debate_diagnostics.json"),
     export_paths=(),
 )
-

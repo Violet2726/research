@@ -100,8 +100,6 @@ def generate_split_manifests(benchmark_configs: list[BenchmarkConfig], output_di
     return core_generate_split_manifests(benchmark_configs, output_dir)
 
 
-
-
 def _run_method_batch(
     run_id: str,
     phase_name: str,
@@ -395,6 +393,7 @@ def _execute_shared_no_comm_turn(
         max_output_tokens=max_output_tokens,
         seed=seed,
         schema_id=SCHEMA_ANSWER_CORE,
+        dataset=dataset,
     )
     final_answer = str(result.validated_output.get("final_answer") or "")
     normalized_answer = normalize_prediction(dataset, final_answer) if final_answer else ""
@@ -497,6 +496,7 @@ def _execute_call(
             max_output_tokens=spec.max_output_tokens,
             seed=spec.seed,
             schema_id=SCHEMA_ANSWER_CORE,
+            dataset=spec.dataset,
         )
     else:
         cached = cache.get(spec.cache_key)
@@ -520,6 +520,7 @@ def _execute_call(
                 validated_output = validate_or_recover_structured_output(
                     str(response_payload.get("assistant_text") or ""),
                     SCHEMA_ANSWER_CORE,
+                    dataset=spec.dataset,
                     provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
                 )
                 output_status = "ok"
@@ -535,16 +536,20 @@ def _execute_call(
                 output_status = "schema_fail"
 
         usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
-        result = type("CompatTurnResult", (), {
-            "prompt_hash": spec.prompt_hash,
-            "response_payload": response_payload,
-            "validated_output": validated_output,
-            "output_status": output_status,
-            "usage": usage,
-            "request_error": str(request_error) if request_error else None,
-            "cache_hit": cache_hit,
-            "payload": spec.payload,
-        })()
+        result = type(
+            "CompatTurnResult",
+            (),
+            {
+                "prompt_hash": spec.prompt_hash,
+                "response_payload": response_payload,
+                "validated_output": validated_output,
+                "output_status": output_status,
+                "usage": usage,
+                "request_error": str(request_error) if request_error else None,
+                "cache_hit": cache_hit,
+                "payload": spec.payload,
+            },
+        )()
 
     final_answer = str(result.validated_output.get("final_answer") or "")
     normalized_answer = normalize_prediction(spec.dataset, final_answer) if final_answer else ""
@@ -681,8 +686,6 @@ def _reruns_for_method(experiment: ExperimentConfig, phase_name: str, method: Me
     return reruns_override
 
 
-
-
 def _resolve_split_name(experiment: ExperimentConfig, phase_name: str, benchmark_slug: str) -> str:
     """解析某个 benchmark 在当前 phase 下实际使用的 split 名称。"""
     return resolve_phase_split_name(experiment, phase_name, benchmark_slug)
@@ -709,7 +712,9 @@ def _benchmark_is_allowed(
     return required_tags_for_benchmark.issubset(set(model.tags))
 
 
-def _phase_methods(experiment: ExperimentConfig, phase_name: str, method_catalog: dict[str, MethodConfig]) -> list[MethodConfig]:
+def _phase_methods(
+    experiment: ExperimentConfig, phase_name: str, method_catalog: dict[str, MethodConfig]
+) -> list[MethodConfig]:
     """把 phase 中声明的方法名解析成完整方法配置，并在缺失时立即报错。"""
     method_names = experiment.raw["phases"][phase_name]["methods"]
     missing = [name for name in method_names if name not in method_catalog]
@@ -786,14 +791,10 @@ def _ensure_run_has_eligible_work(
             return
 
         benchmark_requirements = {
-            benchmark.slug: required_benchmark_tags(experiment, phase_name, benchmark.slug)
-            for benchmark in benchmarks
+            benchmark.slug: required_benchmark_tags(experiment, phase_name, benchmark.slug) for benchmark in benchmarks
         }
         raise RuntimeError(
             f"Model {model.name} is not eligible for any benchmark in phase {phase_name}. "
             f"Benchmark tag requirements: {json.dumps(benchmark_requirements, ensure_ascii=False)} | "
             f"model tags: [{', '.join(model.tags)}]"
         )
-
-
-

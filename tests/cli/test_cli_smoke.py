@@ -355,6 +355,35 @@ def test_baseline_compare_inspect_cli() -> None:
     assert payload["control_methods"]["sc_5"]["budget_calls"] == 5
 
 
+def test_baseline_compare_paper_mad_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "experiment",
+            "--family",
+            "baseline_compare",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/baseline_compare/experiments/core_six_method_baseline_paper_mad.toml",
+        ],
+    )
+    assert payload["name"] == "core_six_method_baseline_paper_mad"
+    assert payload["method_order"] == [
+        "cot_1",
+        "sc_3",
+        "sc_5",
+        "mad_paper_3a_r1",
+        "mad_paper_3a_r2",
+        "mad_paper_5a_r1",
+    ]
+    assert [setup["name"] for setup in payload["setups"]] == [
+        "mad_paper_3a_r1",
+        "mad_paper_3a_r2",
+        "mad_paper_5a_r1",
+    ]
+    assert payload["prompt_version"] == "multi_agent_paper_text"
+
+
 def test_selective_comm_inspect_cli() -> None:
     payload = run_cli_json(
         [

@@ -64,6 +64,20 @@ def test_baseline_compare_inventory_stays_aligned() -> None:
     assert set(control_methods).issubset(set(control_catalog["methods"]))
 
 
+def test_baseline_compare_paper_inventory_stays_aligned() -> None:
+    payload = _load_toml("configs/families/baseline_compare/experiments/core_six_method_baseline_paper_mad.toml")
+    control_catalog = _load_toml(payload["control_catalog"])
+    control_methods = payload["control_methods"]
+    method_order = payload["method_order"]
+    setup_names = [item["name"] for item in payload["setups"]]
+
+    assert control_methods == [COT_1, "sc_3", "sc_5"]
+    assert setup_names == ["mad_paper_3a_r1", "mad_paper_3a_r2", "mad_paper_5a_r1"]
+    assert payload["prompt_version"] == "multi_agent_paper_text"
+    assert set(method_order) == set(control_methods) | set(setup_names)
+    assert set(control_methods).issubset(set(control_catalog["methods"]))
+
+
 def test_dmad_family_local_methods_do_not_use_protected_bare_names() -> None:
     targets = [
         "configs/families/dmad/experiments/dmad_reasoning_main.toml",

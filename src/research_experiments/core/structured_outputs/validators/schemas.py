@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from research_experiments.core.data.evaluation import normalize_prediction
+
 UNCERTAINTY_TYPE_CHOICES = {
     "none",
     "calculation",
@@ -15,17 +17,27 @@ UNCERTAINTY_TYPE_CHOICES = {
     "other",
 }
 
+_MULTIPLE_CHOICE_DATASETS = {
+    "gpqa_diamond",
+    "mmlu",
+    "mmlu_abstract_algebra",
+    "mmlu_pro",
+}
 
-def validate_answer_core_payload(payload: dict[str, Any]) -> dict[str, Any]:
+
+def validate_answer_core_payload(payload: dict[str, Any], *, dataset: str | None = None) -> dict[str, Any]:
     allowed_keys = {"final_answer", "reasoning"}
     actual_keys = set(payload)
     if "final_answer" not in payload:
         raise ValueError('Assistant output must include "final_answer".')
     if not actual_keys.issubset(allowed_keys):
-        raise ValueError(
-            f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}."
+        raise ValueError(f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}.")
+    validated = {
+        "final_answer": _normalize_answer_core_value(
+            _require_answer_value(payload.get("final_answer"), "final_answer"),
+            dataset=dataset,
         )
-    validated = {"final_answer": _require_answer_value(payload.get("final_answer"), "final_answer")}
+    }
     if "reasoning" in payload:
         validated["reasoning"] = _require_non_empty_string(payload.get("reasoning"), "reasoning")
     return validated
@@ -58,9 +70,7 @@ def validate_deliberation_packet_payload(payload: dict[str, Any]) -> dict[str, A
     if "final_answer" not in payload:
         raise ValueError('Assistant output must include "final_answer".')
     if not actual_keys.issubset(allowed_keys):
-        raise ValueError(
-            f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}."
-        )
+        raise ValueError(f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}.")
     return {
         "final_answer": _require_answer_value(payload.get("final_answer"), "final_answer"),
         "reasoning_trace": _require_nullable_hint(payload.get("reasoning_trace"), "reasoning_trace"),
@@ -84,9 +94,7 @@ def validate_belief_update_delta_payload(payload: dict[str, Any]) -> dict[str, A
     if missing:
         raise ValueError(f"Assistant output is missing required keys: {missing}.")
     if not actual_keys.issubset(allowed_keys):
-        raise ValueError(
-            f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}."
-        )
+        raise ValueError(f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}.")
     changed_answer = _require_bool(payload.get("changed_answer"), "changed_answer")
     new_answer = _optional_answer_value(payload.get("new_answer"), "new_answer")
     if changed_answer and new_answer is None:
@@ -96,7 +104,9 @@ def validate_belief_update_delta_payload(payload: dict[str, Any]) -> dict[str, A
         "new_answer": new_answer,
         "confidence_delta": _optional_float(payload.get("confidence_delta"), "confidence_delta"),
         "reason_for_change": _require_nullable_hint(payload.get("reason_for_change"), "reason_for_change"),
-        "remaining_disagreement": _require_nullable_hint(payload.get("remaining_disagreement"), "remaining_disagreement"),
+        "remaining_disagreement": _require_nullable_hint(
+            payload.get("remaining_disagreement"), "remaining_disagreement"
+        ),
     }
 
 
@@ -108,9 +118,7 @@ def validate_audit_verdict_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if missing:
         raise ValueError(f"Assistant output is missing required keys: {missing}.")
     if not actual_keys.issubset(allowed_keys):
-        raise ValueError(
-            f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}."
-        )
+        raise ValueError(f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}.")
     return {
         "decision": _require_enum(
             payload.get("decision"),
@@ -136,9 +144,7 @@ def validate_split_context_solver_payload(payload: dict[str, Any]) -> dict[str, 
     if "final_answer" not in payload:
         raise ValueError('Assistant output must include "final_answer".')
     if not actual_keys.issubset(allowed_keys):
-        raise ValueError(
-            f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}."
-        )
+        raise ValueError(f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}.")
     return {
         "final_answer": _optional_answer_value(payload.get("final_answer"), "final_answer"),
         "reasoning_trace": _require_nullable_hint(
@@ -173,9 +179,7 @@ def validate_split_context_belief_payload(payload: dict[str, Any]) -> dict[str, 
     if "final_answer" not in payload and "new_answer" not in payload:
         raise ValueError('Assistant output must include "final_answer" or "new_answer".')
     if not actual_keys.issubset(allowed_keys):
-        raise ValueError(
-            f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}."
-        )
+        raise ValueError(f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}.")
     normalized_answer = _optional_answer_value(
         payload.get("final_answer", payload.get("new_answer")),
         "final_answer",
@@ -215,9 +219,7 @@ def _validate_selective_proxy_signal_payload(payload: dict[str, Any], *, dataset
     if missing:
         raise ValueError(f"Assistant output is missing required keys: {missing}.")
     if not actual_keys.issubset(allowed_keys):
-        raise ValueError(
-            f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}."
-        )
+        raise ValueError(f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}.")
     validated: dict[str, Any] = {
         "final_answer": _require_answer_value(payload.get("final_answer"), "final_answer"),
         "confidence_raw": _optional_confidence_raw(payload.get("confidence_raw")),
@@ -264,9 +266,7 @@ def _validate_deliberation_proxy_signal_payload(payload: dict[str, Any]) -> dict
     if "final_answer" not in payload:
         raise ValueError('Assistant output must include "final_answer".')
     if not actual_keys.issubset(allowed_keys):
-        raise ValueError(
-            f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}."
-        )
+        raise ValueError(f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}.")
     return {
         "final_answer": _require_answer_value(payload.get("final_answer"), "final_answer"),
         "reasoning_trace": _require_nullable_hint(
@@ -297,9 +297,7 @@ def _validate_budget_proxy_signal_payload(payload: dict[str, Any]) -> dict[str, 
     if missing:
         raise ValueError(f"Assistant output is missing required keys: {missing}.")
     if not actual_keys.issubset(allowed_keys):
-        raise ValueError(
-            f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}."
-        )
+        raise ValueError(f"Assistant output may only include keys {sorted(allowed_keys)}; got {sorted(actual_keys)}.")
     return {
         "final_answer": _require_answer_value(payload.get("final_answer"), "final_answer"),
         "reasoning_trace": _require_nullable_hint(
@@ -337,6 +335,23 @@ def _optional_answer_value(value: object, field_name: str) -> str | None:
     if isinstance(value, str) and not value.strip():
         return None
     return _require_answer_value(value, field_name)
+
+
+def _normalize_answer_core_value(value: str, *, dataset: str | None) -> str:
+    normalized = str(value).strip()
+    if not dataset:
+        return normalized
+    if dataset in _MULTIPLE_CHOICE_DATASETS:
+        candidate = normalize_prediction(dataset, normalized)
+        if candidate not in set("ABCDEFGHIJ"):
+            raise ValueError("final_answer must be a multiple-choice option letter for this dataset.")
+        return candidate
+    if dataset == "strategyqa":
+        candidate = normalize_prediction(dataset, normalized)
+        if candidate not in {"yes", "no"}:
+            raise ValueError('final_answer must be "yes" or "no" for strategyqa.')
+        return candidate
+    return normalized
 
 
 def _require_nullable_hint(value: object, field_name: str) -> str | None:

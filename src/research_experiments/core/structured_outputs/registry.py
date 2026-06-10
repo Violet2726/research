@@ -92,7 +92,7 @@ def validate_or_recover_structured_output(
             return validate_structured_output(candidate_text, schema_id, dataset=dataset)
         except Exception as exc:
             candidate_errors.append(f"{source}: {exc}")
-            recovered = recover_partial_payload(candidate_text, schema_id)
+            recovered = recover_partial_payload(candidate_text, schema_id, dataset=dataset)
             if recovered is not None:
                 return _validate_payload(recovered, schema_id, dataset=dataset)
     soft_rejection_fallback = _recover_soft_rejection_output(
@@ -113,7 +113,7 @@ def parse_proxy_signal_answer(raw_text: str, dataset: str) -> dict[str, Any]:
 
 def _validate_payload(payload: dict[str, Any], schema_id: SchemaId, *, dataset: str | None) -> dict[str, Any]:
     if schema_id == SCHEMA_ANSWER_CORE:
-        return validate_answer_core_payload(payload)
+        return validate_answer_core_payload(payload, dataset=dataset)
     if schema_id == SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE:
         return validate_proxy_signal_answer_payload(payload, dataset=dataset, profile="selective")
     if schema_id == SCHEMA_ANSWER_WITH_PROXY_SIGNALS_DELIBERATION:

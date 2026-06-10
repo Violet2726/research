@@ -9,6 +9,8 @@ from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.data.evaluation import aggregate_majority, score_prediction
 from research_experiments.family_runtime.vanilla_mad_prompting import (
     CONTROLLED_PROMPT_VERSION,
+    PAPER_PROMPT_VERSION,
+    SUPPORTED_SHARED_PROMPT_VERSIONS,
 )
 from research_experiments.family_runtime.vanilla_mad_prompting import (
     build_debate_messages as build_standard_mad_debate_messages,
@@ -23,10 +25,10 @@ BuildDebateRowFn = Callable[[dict[str, Any], int, int], dict[str, Any]]
 
 def assert_standard_vanilla_mad_prompt_version(prompt_version: str, *, method_name: str) -> None:
     """约束标准 MAD comparator 只能使用共享 controlled prompt 版本。"""
-    if prompt_version != CONTROLLED_PROMPT_VERSION:
+    if prompt_version not in SUPPORTED_SHARED_PROMPT_VERSIONS:
         raise ValueError(
             f"Standard vanilla MAD comparator {method_name} must use prompt_version="
-            f"{CONTROLLED_PROMPT_VERSION}, got {prompt_version}."
+            f"one of {SUPPORTED_SHARED_PROMPT_VERSIONS}, got {prompt_version}."
         )
 
 
@@ -122,6 +124,7 @@ def run_shared_vanilla_mad_rounds(
                     top_p=top_p,
                     max_output_tokens=max_output_tokens,
                     seed=global_seed + agent_id,
+                    prompt_version=prompt_version,
                 )
             )
         initial_turns = generated_initial_turns
@@ -143,7 +146,8 @@ def run_shared_vanilla_mad_rounds(
                     {
                         "agent": f"agent_{sender['agent_id']}",
                         "answer": str(sender["validated_output"].get("final_answer", "")).strip(),
-                        "reasoning": str(sender["validated_output"].get("reasoning", "")).strip(),
+                        "reasoning": _turn_reasoning_for_prompt(sender, prompt_version=prompt_version),
+                        "response_text": str(sender.get("assistant_text", "")).strip(),
                     }
                 )
                 debate_rows.append(build_debate_row(sender, recipient_id, round_index))
@@ -151,9 +155,10 @@ def run_shared_vanilla_mad_rounds(
                 sample=sample,
                 agent_id=recipient_id,
                 round_index=round_index,
-                previous_reasoning=str(recipient_previous["validated_output"].get("reasoning", "")).strip(),
+                previous_reasoning=_turn_reasoning_for_prompt(recipient_previous, prompt_version=prompt_version),
                 previous_answer=str(recipient_previous["validated_output"].get("final_answer", "")).strip(),
                 peer_messages=peer_messages,
+                previous_response_text=str(recipient_previous.get("assistant_text", "")).strip(),
                 prompt_version=prompt_version,
             )
             current_round.append(
@@ -167,6 +172,7 @@ def run_shared_vanilla_mad_rounds(
                     top_p=top_p,
                     max_output_tokens=max_output_tokens,
                     seed=global_seed + recipient_id + round_index * 100,
+                    prompt_version=prompt_version,
                 )
             )
         turn_rows.extend(current_round)
@@ -288,3 +294,8 @@ def build_shared_vanilla_mad_prediction(
         row.update(extra_fields)
     return row
 
+
+def _turn_reasoning_for_prompt(turn_row: dict[str, Any], *, prompt_version: str) -> str:
+    if prompt_version == PAPER_PROMPT_VERSION:
+        return str(turn_row.get("assistant_text", "")).strip()
+    return str(turn_row["validated_output"].get("reasoning", "")).strip()

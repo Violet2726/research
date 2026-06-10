@@ -24,6 +24,7 @@ from research_experiments.family_runtime.comparator_impls import (
     run_shared_vanilla_mad_rounds,
 )
 from research_experiments.family_runtime.vanilla_mad_prompting import CONTROLLED_PROMPT_VERSION
+from research_experiments.family_runtime.vanilla_mad_prompting import prompt_version_uses_json_response_format
 
 
 def _active_methods(experiment: ImadExperimentConfig) -> list[DebateMethodSpec]:
@@ -264,7 +265,9 @@ def _run_method_sample(
                     "support_rate": round(support_count / protocol.agent_count, 6),
                     "posterior_mean": posterior_mean,
                     "ks_statistic": ks_statistic,
-                    "same_top_as_previous": previous_top_answer == round_vote if previous_top_answer is not None else False,
+                    "same_top_as_previous": previous_top_answer == round_vote
+                    if previous_top_answer is not None
+                    else False,
                     "stability_gate_passed": stability_gate_passed,
                     "round_score": round_score,
                     "stop_triggered": False,
@@ -298,10 +301,14 @@ def _run_method_sample(
                 "round_1_score": round_scores[1],
                 "round_2_score": round_scores[2],
                 "round_3_score": round_scores[3],
-                "corrected_by_debate": shared_result["initial_vote_score"] < 1.0 and shared_result["final_vote_score"] == 1.0,
-                "harmed_by_debate": shared_result["initial_vote_score"] == 1.0 and shared_result["final_vote_score"] < 1.0,
-                "unchanged_correct": shared_result["initial_vote_score"] == 1.0 and shared_result["final_vote_score"] == 1.0,
-                "unchanged_wrong": shared_result["initial_vote_score"] < 1.0 and shared_result["final_vote_score"] < 1.0,
+                "corrected_by_debate": shared_result["initial_vote_score"] < 1.0
+                and shared_result["final_vote_score"] == 1.0,
+                "harmed_by_debate": shared_result["initial_vote_score"] == 1.0
+                and shared_result["final_vote_score"] < 1.0,
+                "unchanged_correct": shared_result["initial_vote_score"] == 1.0
+                and shared_result["final_vote_score"] == 1.0,
+                "unchanged_wrong": shared_result["initial_vote_score"] < 1.0
+                and shared_result["final_vote_score"] < 1.0,
                 "vote_counts": shared_result["final_vote_counts"],
             },
         )
@@ -668,6 +675,7 @@ def _execute_turn(
     top_p: float,
     max_output_tokens: int,
     seed: int,
+    prompt_version: str = CONTROLLED_PROMPT_VERSION,
 ) -> dict[str, Any]:
     """执行单次 agent turn，并返回统一日志结构。"""
 
@@ -682,6 +690,8 @@ def _execute_turn(
         max_output_tokens=max_output_tokens,
         seed=seed,
         schema_id=SCHEMA_ANSWER_CORE,
+        dataset=dataset,
+        use_response_format=prompt_version_uses_json_response_format(prompt_version),
     )
     final_answer = str(result.validated_output.get("final_answer") or "")
     normalized = normalize_prediction(dataset, final_answer) if final_answer else ""
@@ -765,11 +775,7 @@ def _build_metrics(
             }
         )
 
-    direct_overall_keys = {
-        (row["model_name"], row["method_name"])
-        for row in summary
-        if row["dataset"] == "overall"
-    }
+    direct_overall_keys = {(row["model_name"], row["method_name"]) for row in summary if row["dataset"] == "overall"}
     grouped_overall: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for row in summary:
         if row["dataset"] == "overall":
@@ -803,7 +809,9 @@ def _build_metrics(
                 "stability_stop_rate": _mean(float(row["stability_stop_rate"]) for row in rows),
                 "ks_statistic_last_mean": _optional_mean(row.get("ks_statistic_last_mean") for row in rows),
                 "posterior_mean_last_mean": _optional_mean(row.get("posterior_mean_last_mean") for row in rows),
-                "matched_vote_control": next((row.get("matched_vote_control") for row in rows if row.get("matched_vote_control")), None),
+                "matched_vote_control": next(
+                    (row.get("matched_vote_control") for row in rows if row.get("matched_vote_control")), None
+                ),
             }
         )
 
@@ -843,7 +851,9 @@ def _build_stability_diagnostics(
                 "executed_round_count_mean": _mean(float(row["executed_round_count"]) for row in rows),
                 "stopped_early_rate": _mean(1.0 if row["stopped_early"] else 0.0 for row in rows),
                 "stability_stop_rate": _mean(1.0 if row["stop_reason"] == "stability_gate" else 0.0 for row in rows),
-                "max_round_reached_rate": _mean(1.0 if row["stop_reason"] == "max_rounds_reached" else 0.0 for row in rows),
+                "max_round_reached_rate": _mean(
+                    1.0 if row["stop_reason"] == "max_rounds_reached" else 0.0 for row in rows
+                ),
                 "ks_statistic_last_mean": _optional_mean(row.get("ks_statistic_last") for row in rows),
                 "posterior_mean_last_mean": _optional_mean(row.get("posterior_mean_last") for row in rows),
             }
@@ -1024,4 +1034,3 @@ def _optional_mean(values) -> float | None:
     if not materialized:
         return None
     return round(sum(materialized) / len(materialized), 6)
-

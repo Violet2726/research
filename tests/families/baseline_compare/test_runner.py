@@ -26,6 +26,29 @@ def test_load_experiment_config_reads_control_methods_and_setups() -> None:
     assert experiment.raw["phases"]["count300"]["split_overrides"]["gpqa_diamond"] == "full198_seed42"
 
 
+def test_load_paper_mad_experiment_config_uses_faithful_prompt_inventory() -> None:
+    experiment = load_experiment_config(
+        "configs/families/baseline_compare/experiments/core_six_method_baseline_paper_mad.toml"
+    )
+
+    assert experiment.name == "core_six_method_baseline_paper_mad"
+    assert experiment.prompt_version == "multi_agent_paper_text"
+    assert experiment.control_methods == ["cot_1", "sc_3", "sc_5"]
+    assert experiment.method_order == [
+        "cot_1",
+        "sc_3",
+        "sc_5",
+        "mad_paper_3a_r1",
+        "mad_paper_3a_r2",
+        "mad_paper_5a_r1",
+    ]
+    assert [setup.name for setup in experiment.setups] == [
+        "mad_paper_3a_r1",
+        "mad_paper_3a_r2",
+        "mad_paper_5a_r1",
+    ]
+
+
 def test_build_metrics_adds_macro_micro_and_relative_fields() -> None:
     metrics = _build_metrics(
         [

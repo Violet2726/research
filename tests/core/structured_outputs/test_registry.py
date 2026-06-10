@@ -1,4 +1,3 @@
-
 """覆盖结构化输出注册表、恢复逻辑与各类 schema 校验。"""
 
 from __future__ import annotations
@@ -36,6 +35,7 @@ def test_validate_core_structured_output() -> None:
     assert payload["final_answer"] == "yes"
     assert payload["reasoning"] == "short"
 
+
 def test_validate_or_recover_core_output_from_truncated_json() -> None:
     payload = validate_or_recover_structured_output(
         '{"final_answer": 42, "reasoning": "simple arithmetic"',
@@ -61,6 +61,39 @@ def test_validate_or_recover_core_output_does_not_merge_interval_numbers() -> No
     )
     assert payload["final_answer"] == "0"
 
+
+def test_validate_core_structured_output_normalizes_multiple_choice_answer() -> None:
+    payload = validate_structured_output(
+        json.dumps(
+            {
+                "final_answer": "(c)",
+                "reasoning": "The third option is correct.",
+            }
+        ),
+        SCHEMA_ANSWER_CORE,
+        dataset="gpqa_diamond",
+    )
+    assert payload["final_answer"] == "C"
+
+
+def test_validate_or_recover_core_output_rejects_dirty_multiple_choice_fallback() -> None:
+    with pytest.raises(ValueError):
+        validate_or_recover_structured_output(
+            '{"reasoning":"The compound has no stereocenter, and there are 4 active compounds overall."',
+            SCHEMA_ANSWER_CORE,
+            dataset="gpqa_diamond",
+        )
+
+
+def test_validate_or_recover_core_output_recovers_boxed_math_answer() -> None:
+    payload = validate_or_recover_structured_output(
+        "We compute carefully and conclude the final result is \\boxed{17/4}.",
+        SCHEMA_ANSWER_CORE,
+        dataset="competition_math",
+    )
+    assert payload["final_answer"] == "17/4"
+
+
 def test_validate_selective_structured_output() -> None:
     payload = validate_structured_output(
         json.dumps(
@@ -82,6 +115,7 @@ def test_validate_selective_structured_output() -> None:
     assert payload["key_evidence"] == "one clue"
     assert payload["uncertain_point"] is None
 
+
 def test_validate_selective_structured_output_allows_missing_confidence() -> None:
     payload = validate_structured_output(
         json.dumps(
@@ -96,6 +130,7 @@ def test_validate_selective_structured_output_allows_missing_confidence() -> Non
     assert payload["final_answer"] == "42"
     assert payload["confidence_raw"] is None
 
+
 def test_validate_or_recover_selective_output_uses_reasoning_fallback() -> None:
     payload = validate_or_recover_structured_output(
         "[answer]",
@@ -105,6 +140,7 @@ def test_validate_or_recover_selective_output_uses_reasoning_fallback() -> None:
     )
     assert payload["final_answer"] == "36"
     assert payload["uncertainty_type"] == "calculation"
+
 
 def test_validate_selective_structured_output_rejects_invalid_uncertainty_type() -> None:
     with pytest.raises(ValueError):
@@ -119,6 +155,7 @@ def test_validate_selective_structured_output_rejects_invalid_uncertainty_type()
             ),
             SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE,
         )
+
 
 def test_parse_selective_output_accepts_tagged_lines() -> None:
     payload = parse_proxy_signal_answer(
@@ -138,6 +175,7 @@ def test_parse_selective_output_accepts_tagged_lines() -> None:
     assert payload["uncertainty_type"] == "calculation"
     assert payload["confidence_raw"] == "0.82"
 
+
 def test_parse_selective_output_recovers_from_free_form_math_text() -> None:
     payload = parse_proxy_signal_answer(
         "To solve it, total seats are 72, admins use 18, parents use 18, so students are 36. The final answer is 36.",
@@ -155,6 +193,7 @@ def test_parse_selective_output_does_not_merge_interval_numbers() -> None:
         dataset="math500",
     )
     assert payload["final_answer"] == "0"
+
 
 def test_parse_selective_output_prefers_last_real_label_after_thought_block() -> None:
     payload = parse_proxy_signal_answer(
@@ -177,6 +216,7 @@ def test_parse_selective_output_prefers_last_real_label_after_thought_block() ->
     assert payload["confidence_raw"] == "1"
     assert payload["claim_span"] == "47, 52, 57 -> average 52"
 
+
 def test_parse_selective_output_recovers_from_truncated_thought_math() -> None:
     payload = parse_proxy_signal_answer(
         "\n".join(
@@ -192,6 +232,7 @@ def test_parse_selective_output_recovers_from_truncated_thought_math() -> None:
     )
     assert payload["final_answer"] == "48"
     assert payload["confidence_raw"] is None
+
 
 def test_parse_selective_output_accepts_json_with_tagged_keys() -> None:
     payload = parse_proxy_signal_answer(
@@ -212,6 +253,7 @@ def test_parse_selective_output_accepts_json_with_tagged_keys() -> None:
     assert payload["confidence_raw"] == 1.0
     assert payload["reasoning"] == "Simple arithmetic with clear counts."
 
+
 def test_parse_selective_output_accepts_json_with_na_confidence() -> None:
     payload = parse_proxy_signal_answer(
         json.dumps(
@@ -227,6 +269,7 @@ def test_parse_selective_output_accepts_json_with_na_confidence() -> None:
     )
     assert payload["final_answer"] == "14"
     assert payload["confidence_raw"] is None
+
 
 def test_parse_selective_output_recovers_from_truncated_json() -> None:
     payload = parse_proxy_signal_answer(
@@ -247,6 +290,7 @@ def test_parse_selective_output_recovers_from_truncated_json() -> None:
     assert payload["uncertainty_type"] == "calculation"
     assert payload["confidence_raw"] is None
 
+
 def test_validate_comm_necessary_solver_output_allows_empty_final_answer_as_abstention() -> None:
     payload = validate_structured_output(
         json.dumps(
@@ -262,6 +306,7 @@ def test_validate_comm_necessary_solver_output_allows_empty_final_answer_as_abst
     )
     assert payload["final_answer"] is None
     assert payload["evidence_summary"] == "No grounded answer in this shard."
+
 
 def test_validate_comm_necessary_belief_output_normalizes_empty_answer_to_no_change() -> None:
     payload = validate_structured_output(
@@ -279,6 +324,7 @@ def test_validate_comm_necessary_belief_output_normalizes_empty_answer_to_no_cha
     )
     assert payload["changed_answer"] is False
     assert payload["final_answer"] is None
+
 
 def test_validate_budget_solver_structured_output() -> None:
     payload = validate_structured_output(
@@ -298,6 +344,7 @@ def test_validate_budget_solver_structured_output() -> None:
     assert payload["keyword_clues"] == ["alpha", "beta"]
     assert payload["confidence_raw"] == 0.8
 
+
 def test_validate_or_recover_budget_solver_from_partial_json() -> None:
     payload = validate_or_recover_structured_output(
         '{"final_answer": 50, "confidence_raw": 0.8, "keyword_clues": ["50"], "reasoning_trace": "done"',
@@ -307,6 +354,7 @@ def test_validate_or_recover_budget_solver_from_partial_json() -> None:
     assert payload["confidence_raw"] == 0.8
     assert payload["keyword_clues"] == ["50"]
 
+
 def test_validate_or_recover_budget_solver_defaults_missing_confidence() -> None:
     payload = validate_or_recover_structured_output(
         '{"final_answer":"82","reasoning_trace":"done","claim_span":"capacity math","key_evidence":"5000-3755"}',
@@ -315,6 +363,7 @@ def test_validate_or_recover_budget_solver_defaults_missing_confidence() -> None
     assert payload["final_answer"] == "82"
     assert payload["confidence_raw"] == 0.5
     assert payload["keyword_clues"] == ["capacity math"]
+
 
 def test_validate_budget_belief_update_structured_output() -> None:
     payload = validate_structured_output(
@@ -332,6 +381,7 @@ def test_validate_budget_belief_update_structured_output() -> None:
     assert payload["changed_answer"] is False
     assert payload["new_answer"] == "no"
 
+
 def test_validate_comm_necessary_solver_structured_output() -> None:
     payload = validate_structured_output(
         json.dumps(
@@ -348,6 +398,7 @@ def test_validate_comm_necessary_solver_structured_output() -> None:
     assert payload["final_answer"] == "Scott Adkins"
     assert payload["supporting_facts"] == [{"title": "Scott Adkins", "sent_id": 0}]
 
+
 def test_validate_or_recover_comm_necessary_belief_from_partial_json() -> None:
     payload = validate_or_recover_structured_output(
         '{"changed_answer": false, "final_answer": "Saoirse Ronan", "reasoning_trace": "peer confirms", '
@@ -358,6 +409,7 @@ def test_validate_or_recover_comm_necessary_belief_from_partial_json() -> None:
     assert payload["final_answer"] == "Saoirse Ronan"
     assert payload["supporting_facts"] == [{"title": "Billy Howle", "sent_id": 2}]
 
+
 def test_validate_or_recover_core_soft_rejection_fail_opens() -> None:
     payload = validate_or_recover_structured_output(
         "The request was rejected because it was considered high risk",
@@ -366,6 +418,7 @@ def test_validate_or_recover_core_soft_rejection_fail_opens() -> None:
     assert payload["final_answer"] == "unknown"
     assert payload["reasoning"] == "provider_soft_rejection"
 
+
 def test_validate_or_recover_comm_necessary_soft_rejection_fail_opens() -> None:
     payload = validate_or_recover_structured_output(
         "The request was rejected because it was considered high risk",
@@ -373,6 +426,7 @@ def test_validate_or_recover_comm_necessary_soft_rejection_fail_opens() -> None:
     )
     assert payload["final_answer"] == "unknown"
     assert payload["supporting_facts"] == []
+
 
 def test_validate_deliberation_solver_structured_output() -> None:
     payload = validate_structured_output(
@@ -391,6 +445,7 @@ def test_validate_deliberation_solver_structured_output() -> None:
     assert payload["final_answer"] == "42"
     assert payload["confidence_raw"] == 0.7
 
+
 def test_validate_deliberation_packet_structured_output() -> None:
     payload = validate_structured_output(
         json.dumps(
@@ -403,6 +458,7 @@ def test_validate_deliberation_packet_structured_output() -> None:
         SCHEMA_DELIBERATION_PACKET,
     )
     assert payload["claim_span"] == "the key factual claim"
+
 
 def test_validate_belief_update_structured_output() -> None:
     payload = validate_structured_output(
@@ -419,6 +475,7 @@ def test_validate_belief_update_structured_output() -> None:
     )
     assert payload["changed_answer"] is True
     assert payload["new_answer"] == "no"
+
 
 def test_validate_audit_verdict_structured_output() -> None:
     payload = validate_structured_output(
@@ -439,8 +496,14 @@ def test_validate_audit_verdict_structured_output() -> None:
     [
         ('```json\n{"final_answer":"yes","reasoning":"short"}\n```', SCHEMA_ANSWER_CORE),
         ("The answer is yes.", SCHEMA_ANSWER_CORE),
-        ('{"final_answer":"yes","confidence_raw":"high","reasoning":"short","key_evidence":null,"uncertain_point":null}', SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE),
-        ('{"final_answer":"yes","reasoning_trace":"short","claim_span":"claim","key_evidence":"evidence","keyword_clues":[],"confidence_raw":0.8,"uncertain_point":null}', SCHEMA_ANSWER_WITH_PROXY_SIGNALS_BUDGET),
+        (
+            '{"final_answer":"yes","confidence_raw":"high","reasoning":"short","key_evidence":null,"uncertain_point":null}',
+            SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE,
+        ),
+        (
+            '{"final_answer":"yes","reasoning_trace":"short","claim_span":"claim","key_evidence":"evidence","keyword_clues":[],"confidence_raw":0.8,"uncertain_point":null}',
+            SCHEMA_ANSWER_WITH_PROXY_SIGNALS_BUDGET,
+        ),
         ('{"final_answer":"yes","reasoning":"short"}{"final_answer":"no","reasoning":"alt"}', SCHEMA_ANSWER_CORE),
         ('{"reasoning":"short"}', SCHEMA_ANSWER_CORE),
         ('{"final_answer":"yes","uncertainty_type":"bad_label"}', SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE),
@@ -450,4 +513,3 @@ def test_validate_audit_verdict_structured_output() -> None:
 def test_validate_structured_output_rejects_malformed_payloads(raw_text: str, mode: str) -> None:
     with pytest.raises(ValueError):
         validate_structured_output(raw_text, mode)  # type: ignore[arg-type]
-

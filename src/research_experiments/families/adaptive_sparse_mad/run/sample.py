@@ -109,6 +109,7 @@ def run_sample_batch(
     on_complete: Callable[[SampleResult], None] | None = None,
 ) -> None:
     """并发执行一个 benchmark split 的样本，并在完成时回调写入结果。"""
+
     def worker(sample: DatasetSample) -> SampleResult:
         return _run_sample(
             sample,
@@ -241,9 +242,7 @@ def refresh_prediction_rows_for_run(
         )
         stage_a_prediction = normalize_prediction(dataset, stage_a_answer) if stage_a_answer else ""
         stage_a_score = (
-            score_prediction(dataset, stage_a_prediction, sample.reference_answer)
-            if stage_a_prediction
-            else 0.0
+            score_prediction(dataset, stage_a_prediction, sample.reference_answer) if stage_a_prediction else 0.0
         )
 
         if method_name == "hetero_vote_3":
@@ -380,11 +379,15 @@ def build_router_eval_payload(router_rows: list[dict[str, Any]]) -> dict[str, An
 
     summary_rows: list[dict[str, Any]] = []
     datasets = sorted({str(row.get("dataset") or "") for row in router_rows})
-    policy_names = sorted({str(row.get("policy_name") or "") for row in router_rows if str(row.get("policy_name") or "")})
+    policy_names = sorted(
+        {str(row.get("policy_name") or "") for row in router_rows if str(row.get("policy_name") or "")}
+    )
     for policy_name in policy_names:
         policy_rows = [row for row in router_rows if str(row.get("policy_name") or "") == policy_name]
         for dataset in [*datasets, "overall"]:
-            rows = policy_rows if dataset == "overall" else [row for row in policy_rows if row.get("dataset") == dataset]
+            rows = (
+                policy_rows if dataset == "overall" else [row for row in policy_rows if row.get("dataset") == dataset]
+            )
             question_count = len(rows)
             if not question_count:
                 continue
@@ -398,8 +401,12 @@ def build_router_eval_payload(router_rows: list[dict[str, Any]]) -> dict[str, An
                     "dataset": dataset,
                     "policy_name": policy_name,
                     "question_count": question_count,
-                    "trigger_rate": round(sum(1.0 if row.get("triggered") else 0.0 for row in rows) / question_count, 6),
-                    "changed_answer_rate": round(sum(1.0 if row.get("changed_answer") else 0.0 for row in rows) / question_count, 6),
+                    "trigger_rate": round(
+                        sum(1.0 if row.get("triggered") else 0.0 for row in rows) / question_count, 6
+                    ),
+                    "changed_answer_rate": round(
+                        sum(1.0 if row.get("changed_answer") else 0.0 for row in rows) / question_count, 6
+                    ),
                     "corrected_count": sum(1 for row in rows if row.get("corrected_by_method")),
                     "harmed_count": sum(1 for row in rows if row.get("harmed_by_method")),
                     "avg_support_gap": round(
@@ -476,7 +483,9 @@ def build_method_pairwise_rows(prediction_rows: list[dict[str, Any]]) -> list[di
         method_name = str(row.get("method_name") or "")
         by_sample[(dataset, sample_id)][method_name] = row
 
-    method_names = sorted({str(row.get("method_name") or "") for row in prediction_rows if str(row.get("method_name") or "")})
+    method_names = sorted(
+        {str(row.get("method_name") or "") for row in prediction_rows if str(row.get("method_name") or "")}
+    )
     datasets = sorted({dataset for dataset, _sample_id in by_sample})
     pairwise_rows: list[dict[str, Any]] = []
     for dataset in [*datasets, "overall"]:
@@ -572,7 +581,8 @@ def build_promotion_gate_payload(
     for method_name in candidate_method_names:
         overall_pair = next(
             (
-                row for row in pairwise_rows
+                row
+                for row in pairwise_rows
                 if row.get("dataset") == "overall"
                 and str(row.get("method_name") or "") == method_name
                 and str(row.get("baseline_method_name") or "") == baseline_method_name
@@ -619,8 +629,12 @@ def build_promotion_gate_payload(
             {
                 "method_name": method_name,
                 "baseline_method_name": baseline_method_name,
-                "overall_accuracy_mean": float(summary_by_method_name.get(method_name, {}).get("accuracy_mean", 0.0) or 0.0),
-                "baseline_accuracy_mean": float(summary_by_method_name.get(baseline_method_name, {}).get("accuracy_mean", 0.0) or 0.0),
+                "overall_accuracy_mean": float(
+                    summary_by_method_name.get(method_name, {}).get("accuracy_mean", 0.0) or 0.0
+                ),
+                "baseline_accuracy_mean": float(
+                    summary_by_method_name.get(baseline_method_name, {}).get("accuracy_mean", 0.0) or 0.0
+                ),
                 "overall_accuracy_delta": float(overall_pair.get("accuracy_delta") or 0.0),
                 "corrected_count": int(overall_pair.get("corrected_count") or 0),
                 "harmed_count": int(overall_pair.get("harmed_count") or 0),
@@ -669,7 +683,8 @@ def build_mainline_gate_payload(
     for method_name in candidate_method_names:
         overall_pair = next(
             (
-                row for row in pairwise_rows
+                row
+                for row in pairwise_rows
                 if row.get("dataset") == "overall"
                 and str(row.get("method_name") or "") == method_name
                 and str(row.get("baseline_method_name") or "") == baseline_method_name
@@ -733,8 +748,12 @@ def build_mainline_gate_payload(
             {
                 "method_name": method_name,
                 "baseline_method_name": baseline_method_name,
-                "overall_accuracy_mean": float(summary_by_method_name.get(method_name, {}).get("accuracy_mean", 0.0) or 0.0),
-                "baseline_accuracy_mean": float(summary_by_method_name.get(baseline_method_name, {}).get("accuracy_mean", 0.0) or 0.0),
+                "overall_accuracy_mean": float(
+                    summary_by_method_name.get(method_name, {}).get("accuracy_mean", 0.0) or 0.0
+                ),
+                "baseline_accuracy_mean": float(
+                    summary_by_method_name.get(baseline_method_name, {}).get("accuracy_mean", 0.0) or 0.0
+                ),
                 "overall_accuracy_delta": overall_delta,
                 "bootstrap_ci_low": ci_low,
                 "bootstrap_ci_high": float(overall_pair.get("bootstrap_ci_high") or 0.0),
@@ -770,7 +789,9 @@ def _exact_mcnemar_p(corrected_count: int, harmed_count: int) -> float:
     return min(1.0, 2.0 * tail / (2**total))
 
 
-def _bootstrap_accuracy_delta_ci(per_sample_delta: list[int], *, seed: int = 0, draws: int = 2000) -> tuple[float, float]:
+def _bootstrap_accuracy_delta_ci(
+    per_sample_delta: list[int], *, seed: int = 0, draws: int = 2000
+) -> tuple[float, float]:
     """对逐样本准确率差值做 bootstrap，返回 95% 置信区间。"""
     if not per_sample_delta:
         return 0.0, 0.0
@@ -837,9 +858,7 @@ def build_stage_a_resolver_breakdown_payload(
             continue
         by_sample[(str(row.get("dataset") or ""), str(row.get("sample_id") or ""))].append(row)
 
-    resolver_rows = [
-        row for row in prediction_rows if str(row.get("method_name") or "") == "hetero_vote_3"
-    ]
+    resolver_rows = [row for row in prediction_rows if str(row.get("method_name") or "") == "hetero_vote_3"]
     summary_counts: dict[tuple[str, str], dict[str, int]] = defaultdict(lambda: {"total": 0, "correct": 0, "wrong": 0})
     sample_rows: list[dict[str, Any]] = []
 
@@ -953,11 +972,7 @@ def build_stage_a_error_bucket_payload(
                         "degraded_count": sum(1 for row in answer_rows if _stage_a_row_is_degraded(row)),
                         "solvers": [str(row.get("solver_mode") or row.get("method_name") or "") for row in answer_rows],
                         "answer_types": sorted(
-                            {
-                                _stage_a_row_answer_type(row)
-                                for row in answer_rows
-                                if _stage_a_row_answer_type(row)
-                            }
+                            {_stage_a_row_answer_type(row) for row in answer_rows if _stage_a_row_answer_type(row)}
                         ),
                     }
                     for answer, answer_rows in sorted(grouped.items())
@@ -966,8 +981,7 @@ def build_stage_a_error_bucket_payload(
         )
 
     overall_counts = {
-        bucket_name: sum(1 for row in sample_rows if row["bucket"] == bucket_name)
-        for bucket_name in bucket_names
+        bucket_name: sum(1 for row in sample_rows if row["bucket"] == bucket_name) for bucket_name in bucket_names
     }
     dataset_rows = []
     for dataset in sorted({row["dataset"] for row in sample_rows}):
@@ -1005,6 +1019,7 @@ def build_stage_a_solver_contribution_payload(stage_a_rows: list[dict[str, Any]]
         by_sample[(str(row.get("dataset") or ""), str(row.get("sample_id") or ""))].append(row)
 
     solver_names = ("solver_cot", "solver_l2m", "solver_skeptic")
+
     def _blank_counter() -> dict[str, Any]:
         return {
             "any_correct": {solver_name: 0 for solver_name in solver_names},
@@ -1237,10 +1252,7 @@ def estimate_work(
             generate_split_manifests([benchmark], manifest_path.parents[2])
         sample_count = len(load_split_ids(benchmark.cache_namespace or benchmark.slug, split_name))
         total_calls += sample_count * len(SOLVER_MODES)
-        if any(
-            method_name in ADAPTIVE_POLICY_METHODS
-            for method_name in experiment.aggregate_methods
-        ):
+        if any(method_name in ADAPTIVE_POLICY_METHODS for method_name in experiment.aggregate_methods):
             total_calls += sample_count * experiment.max_adaptive_addon_calls
         total_calls += sample_count * sum(method.budget_calls for method in controls.values())
         total_predictions += sample_count * (len(controls) + len(experiment.aggregate_methods))
@@ -1310,7 +1322,9 @@ def _run_sample(
         question=sample.question,
     )
     stage_a_prediction = normalize_prediction(benchmark_slug, stage_a_answer) if stage_a_answer else ""
-    stage_a_score = score_prediction(benchmark_slug, stage_a_prediction, sample.reference_answer) if stage_a_prediction else 0.0
+    stage_a_score = (
+        score_prediction(benchmark_slug, stage_a_prediction, sample.reference_answer) if stage_a_prediction else 0.0
+    )
     for row in core_stage_a_rows:
         row["stage_a_trace_hash"] = stage_a_trace_hash
 
@@ -1777,17 +1791,13 @@ def _build_adaptive_gate_decision(
     second_support = support_values[1] if len(support_values) > 1 else 0.0
     support_gap = top_support - second_support
     valid_confidence_values = [
-        float(row["confidence_value"])
-        for row in stage_a_rows
-        if _row_has_valid_confidence_signal(row)
+        float(row["confidence_value"]) for row in stage_a_rows if _row_has_valid_confidence_signal(row)
     ]
     avg_confidence = safe_mean(valid_confidence_values) if valid_confidence_values else None
     valid_confidence_count = len(valid_confidence_values)
     confidence_signal_available = valid_confidence_count >= 2
     unknown_count = sum(
-        1
-        for row in stage_a_rows
-        if str(row.get("normalized_answer") or "").strip().lower() in {"", "unknown"}
+        1 for row in stage_a_rows if str(row.get("normalized_answer") or "").strip().lower() in {"", "unknown"}
     )
     degraded_count = sum(1 for row in stage_a_rows if _stage_a_row_is_degraded(row))
     structured_types = {
@@ -1815,21 +1825,19 @@ def _build_adaptive_gate_decision(
         and top_support >= (protocol.agent_count * consensus_confidence_floor)
     )
     low_confidence_consensus = (
-        not has_disagreement
-        and confidence_signal_available
-        and avg_confidence < consensus_confidence_floor
+        not has_disagreement and confidence_signal_available and avg_confidence < consensus_confidence_floor
     )
     low_confidence_disagreement = (
-        has_disagreement
-        and confidence_signal_available
-        and avg_confidence < disagreement_confidence_floor
+        has_disagreement and confidence_signal_available and avg_confidence < disagreement_confidence_floor
     )
     narrow_support_gap = has_disagreement and support_gap < disagreement_gap_threshold
     structural_disagreement = has_disagreement and (type_conflict or evidence_conflict)
     degraded_or_unknown = unknown_count > 0 or degraded_count > 0
 
     trigger_reasons: list[str] = []
-    if has_disagreement and (structural_disagreement or degraded_or_unknown or low_confidence_disagreement or narrow_support_gap):
+    if has_disagreement and (
+        structural_disagreement or degraded_or_unknown or low_confidence_disagreement or narrow_support_gap
+    ):
         trigger_reasons.append("answer_disagreement")
     if unknown_count:
         trigger_reasons.append("unknown_answer")
@@ -1961,10 +1969,7 @@ def _answers_share_family(left: str, right: str) -> bool:
 
 def _core_supports_answer_family(core_stage_a_rows: list[dict[str, Any]], answer: str) -> bool:
     """检查核心 Stage A 中是否已有 solver 支持该答案族。"""
-    return any(
-        _answers_share_family(str(row.get("normalized_answer") or ""), answer)
-        for row in core_stage_a_rows
-    )
+    return any(_answers_share_family(str(row.get("normalized_answer") or ""), answer) for row in core_stage_a_rows)
 
 
 def _should_accept_counterfactual_override(
@@ -1977,7 +1982,9 @@ def _should_accept_counterfactual_override(
     """判断反事实候选是否足够可靠，能覆盖基线答案。"""
     if counterfactual_row is None:
         return False
-    candidate_answer = str(counterfactual_row.get("normalized_answer") or counterfactual_row.get("prediction") or "").strip()
+    candidate_answer = str(
+        counterfactual_row.get("normalized_answer") or counterfactual_row.get("prediction") or ""
+    ).strip()
     if candidate_answer.lower() in {"", "unknown"}:
         return False
     if _answers_share_family(candidate_answer, baseline_answer):
@@ -1991,9 +1998,7 @@ def _should_accept_counterfactual_override(
     if not any((answer_type, key_constraints, claim_span, key_evidence)):
         return False
     if _sample_is_multiple_choice(sample) and not (
-        len(candidate_answer) == 1
-        and candidate_answer.isalpha()
-        and candidate_answer.upper() == candidate_answer
+        len(candidate_answer) == 1 and candidate_answer.isalpha() and candidate_answer.upper() == candidate_answer
     ):
         return False
     trigger_reasons = set(str(item) for item in (gate_decision.get("trigger_reasons") or []))
@@ -2242,6 +2247,7 @@ def _execute_control_turn(
     seed: int | None,
 ) -> dict[str, Any]:
     """执行 no-comm 对照方法的一次模型调用。"""
+
     def validator(raw_text: str, provider_reasoning_text: str) -> dict[str, Any]:
         return _validate_control_output(
             raw_text,
@@ -2602,22 +2608,63 @@ def _build_summary_row(dataset: str, method_name: str, rows: list[dict[str, Any]
         "display_name": DISPLAY_NAME_MAP.get(method_name, method_name),
         "method_kind": rows[0].get("method_kind", ""),
         "question_count": question_count,
-        "accuracy_mean": round(sum(float(row.get("score") or 0.0) for row in rows) / question_count, 6) if question_count else 0.0,
-        "prompt_tokens_mean": round(sum(float(row.get("prompt_tokens_per_question") or 0.0) for row in rows) / question_count, 6) if question_count else 0.0,
-        "completion_tokens_mean": round(sum(float(row.get("completion_tokens_per_question") or 0.0) for row in rows) / question_count, 6) if question_count else 0.0,
-        "total_tokens_mean": round(sum(float(row.get("total_tokens_per_question") or 0.0) for row in rows) / question_count, 6) if question_count else 0.0,
-        "communication_tokens_mean": round(sum(float(row.get("communication_tokens_per_question") or 0.0) for row in rows) / question_count, 6) if question_count else 0.0,
-        "latency_ms_mean": round(sum(float(row.get("latency_ms_per_question") or 0.0) for row in rows) / question_count, 6) if question_count else 0.0,
-        "calls_per_question_mean": round(sum(float(row.get("calls_per_question") or 0.0) for row in rows) / question_count, 6) if question_count else 0.0,
+        "accuracy_mean": round(sum(float(row.get("score") or 0.0) for row in rows) / question_count, 6)
+        if question_count
+        else 0.0,
+        "prompt_tokens_mean": round(
+            sum(float(row.get("prompt_tokens_per_question") or 0.0) for row in rows) / question_count, 6
+        )
+        if question_count
+        else 0.0,
+        "completion_tokens_mean": round(
+            sum(float(row.get("completion_tokens_per_question") or 0.0) for row in rows) / question_count, 6
+        )
+        if question_count
+        else 0.0,
+        "total_tokens_mean": round(
+            sum(float(row.get("total_tokens_per_question") or 0.0) for row in rows) / question_count, 6
+        )
+        if question_count
+        else 0.0,
+        "communication_tokens_mean": round(
+            sum(float(row.get("communication_tokens_per_question") or 0.0) for row in rows) / question_count, 6
+        )
+        if question_count
+        else 0.0,
+        "latency_ms_mean": round(
+            sum(float(row.get("latency_ms_per_question") or 0.0) for row in rows) / question_count, 6
+        )
+        if question_count
+        else 0.0,
+        "calls_per_question_mean": round(
+            sum(float(row.get("calls_per_question") or 0.0) for row in rows) / question_count, 6
+        )
+        if question_count
+        else 0.0,
         "acc_per_1k_tokens": round(
-            (sum(float(row.get("score") or 0.0) for row in rows) / max(sum(float(row.get("total_tokens_per_question") or 0.0) for row in rows) / 1000.0, 1e-9)),
+            (
+                sum(float(row.get("score") or 0.0) for row in rows)
+                / max(sum(float(row.get("total_tokens_per_question") or 0.0) for row in rows) / 1000.0, 1e-9)
+            ),
             6,
-        ) if question_count else 0.0,
-        "trigger_rate": round(sum(1.0 if row.get("triggered") else 0.0 for row in rows) / question_count, 6) if question_count else 0.0,
-        "early_exit_rate": round(sum(1.0 if row.get("early_exit") else 0.0 for row in rows) / question_count, 6) if question_count else 0.0,
-        "changed_answer_rate": round(sum(1.0 if row.get("changed_answer") else 0.0 for row in rows) / question_count, 6) if question_count else 0.0,
-        "corrected_rate": round(sum(1.0 if row.get("corrected_by_method") else 0.0 for row in rows) / question_count, 6) if question_count else 0.0,
-        "harmed_rate": round(sum(1.0 if row.get("harmed_by_method") else 0.0 for row in rows) / question_count, 6) if question_count else 0.0,
+        )
+        if question_count
+        else 0.0,
+        "trigger_rate": round(sum(1.0 if row.get("triggered") else 0.0 for row in rows) / question_count, 6)
+        if question_count
+        else 0.0,
+        "early_exit_rate": round(sum(1.0 if row.get("early_exit") else 0.0 for row in rows) / question_count, 6)
+        if question_count
+        else 0.0,
+        "changed_answer_rate": round(sum(1.0 if row.get("changed_answer") else 0.0 for row in rows) / question_count, 6)
+        if question_count
+        else 0.0,
+        "corrected_rate": round(sum(1.0 if row.get("corrected_by_method") else 0.0 for row in rows) / question_count, 6)
+        if question_count
+        else 0.0,
+        "harmed_rate": round(sum(1.0 if row.get("harmed_by_method") else 0.0 for row in rows) / question_count, 6)
+        if question_count
+        else 0.0,
         "corrected_count": sum(1 for row in rows if row.get("corrected_by_method")),
         "harmed_count": sum(1 for row in rows if row.get("harmed_by_method")),
     }
@@ -2634,7 +2681,8 @@ def _validate_stage_a_output(raw_text: str, *, dataset: str, provider_reasoning_
             "confidence_raw": payload.get("confidence_raw"),
             "uncertainty_type": _optional_text(payload.get("uncertainty_type")),
             "claim_span": _optional_text(payload.get("claim_span")) or final_answer,
-            "key_evidence": _optional_text(payload.get("key_evidence")) or (_optional_text(payload.get("reasoning")) or final_answer),
+            "key_evidence": _optional_text(payload.get("key_evidence"))
+            or (_optional_text(payload.get("reasoning")) or final_answer),
             "uncertain_point": _optional_text(payload.get("uncertain_point")),
             "answer_type": _optional_text(payload.get("answer_type")),
             "key_constraints": _optional_text(payload.get("key_constraints")),
@@ -2652,6 +2700,7 @@ def _validate_stage_a_output(raw_text: str, *, dataset: str, provider_reasoning_
             recovered = validate_or_recover_structured_output(
                 raw_text,
                 "answer_core",
+                dataset=dataset,
                 provider_reasoning_text=provider_reasoning_text,
             )
             final_answer = str(recovered.get("final_answer") or "")
@@ -2801,11 +2850,7 @@ def _apply_stage_a_answer_slot_safeguard(
         if match and match.group(2).strip() == answer_lower:
             merged = f"{match.group(1).strip()} {match.group(2).strip()}"
             return " ".join(part.capitalize() if part not in {"of", "and"} else part for part in merged.split())
-    if (
-        "what wbc title" in question_lower
-        and answer_lower.startswith("wbc ")
-        and answer_lower.endswith(" title")
-    ):
+    if "what wbc title" in question_lower and answer_lower.startswith("wbc ") and answer_lower.endswith(" title"):
         return answer[4:-6].strip()
     return answer
 

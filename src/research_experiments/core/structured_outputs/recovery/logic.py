@@ -116,9 +116,14 @@ def recover_answer_from_reasoning_text(reasoning_text: str, dataset: str) -> dic
     }
 
 
-def recover_partial_payload(raw_text: str, schema_id: str) -> dict[str, Any] | None:
+def recover_partial_payload(
+    raw_text: str,
+    schema_id: str,
+    *,
+    dataset: str | None = None,
+) -> dict[str, Any] | None:
     if schema_id == "answer_core":
-        return _recover_answer_core_payload(raw_text)
+        return _recover_answer_core_payload(raw_text, dataset=dataset)
     if schema_id == "answer_with_proxy_signals.budget":
         return _recover_budget_proxy_signal_payload(raw_text)
     if schema_id == "answer_with_proxy_signals.deliberation":
@@ -220,13 +225,15 @@ def looks_like_soft_rejection_text(text: str) -> bool:
     }
 
 
-def _recover_answer_core_payload(raw_text: str) -> dict[str, Any] | None:
+def _recover_answer_core_payload(raw_text: str, *, dataset: str | None) -> dict[str, Any] | None:
     final_answer = _extract_json_answer_field(raw_text, "final_answer")
     reasoning = _extract_json_string_field(raw_text, "reasoning")
+    if final_answer and not _answer_candidate_matches_dataset(final_answer, dataset=dataset):
+        final_answer = ""
     if not final_answer:
-        final_answer = _extract_answer_phrase(raw_text)
+        final_answer = _extract_answer_phrase(raw_text, dataset=dataset)
     if not final_answer:
-        final_answer = _extract_answer_guess_from_text(raw_text)
+        final_answer = _extract_answer_guess_from_text(raw_text, dataset=dataset)
     if not final_answer:
         return None
     payload: dict[str, Any] = {"final_answer": final_answer}
@@ -258,15 +265,28 @@ def _recover_budget_proxy_signal_payload(raw_text: str) -> dict[str, Any] | None
 
 
 def _recover_split_context_payload(raw_text: str, *, schema_id: str) -> dict[str, Any] | None:
-    final_answer = _extract_json_answer_field(raw_text, "final_answer") or _extract_json_answer_field(raw_text, "new_answer")
-    reasoning_trace = _extract_json_string_field(raw_text, "reasoning_trace") or _extract_json_string_field(raw_text, "reasoning")
-    evidence_summary = _extract_json_string_field(raw_text, "evidence_summary") or _extract_json_string_field(raw_text, "key_evidence")
+    final_answer = _extract_json_answer_field(raw_text, "final_answer") or _extract_json_answer_field(
+        raw_text, "new_answer"
+    )
+    reasoning_trace = _extract_json_string_field(raw_text, "reasoning_trace") or _extract_json_string_field(
+        raw_text, "reasoning"
+    )
+    evidence_summary = _extract_json_string_field(raw_text, "evidence_summary") or _extract_json_string_field(
+        raw_text, "key_evidence"
+    )
     supporting_facts = _extract_json_array_field(raw_text, "supporting_facts") or []
     confidence_raw = _extract_json_number_field(raw_text, "confidence_raw")
     if confidence_raw is None:
         confidence_raw = _extract_json_string_field(raw_text, "confidence_raw")
     changed_answer = _extract_json_bool_field(raw_text, "changed_answer")
-    has_recoverable_content = bool(final_answer or reasoning_trace or evidence_summary or supporting_facts or confidence_raw is not None or changed_answer is not None)
+    has_recoverable_content = bool(
+        final_answer
+        or reasoning_trace
+        or evidence_summary
+        or supporting_facts
+        or confidence_raw is not None
+        or changed_answer is not None
+    )
     if not has_recoverable_content:
         return None
     payload: dict[str, Any] = {
@@ -391,8 +411,21 @@ def _looks_like_placeholder_visible_output(text: str) -> bool:
     return re.fullmatch(r"\[\s*[\w\s,.\-]*\s*\]", trimmed, re.S) is not None
 
 
-def _extract_answer_phrase(text: str) -> str | None:
+def _extract_answer_phrase(text: str, *, dataset: str | None = None) -> str | None:
     import re
+
+    if dataset in {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro"}:
+        return _extract_multiple_choice_answer(text)
+    if dataset in {"gsm8k", "math500", "competition_math"}:
+        boxed = _extract_boxed_answer(text)
+        if boxed:
+            return boxed
+    if dataset == "hotpotqa":
+        import re
+
+        match = re.search(r"(?im)^\s*answer\s*:\s*(.+)$", text)
+        if match:
+            return _clean_extracted_value(match.group(1))
 
     patterns = [
         r"(?i)\b(?:therefore|thus|so)?\s*,?\s*(?:the\s+)?(?:final\s+)?answer\s+(?:should\s+be|is)\s*[:\-]?\s*([^\n.]+)",
@@ -461,7 +494,9 @@ def _extract_selective_final_answer(text: str, dataset: str) -> str | None:
         match = re.search(r"(?i)(?:final answer\s*(?:is|[:：])|answer is)\s*([^\n.]+)", text)
         if match:
             return match.group(1).strip()
-        cutoff_text = re.split(r"(?i)\b(?:the output must have|return only the following|final_answer\s*:)\b", text, maxsplit=1)[0]
+        cutoff_text = re.split(
+            r"(?i)\b(?:the output must have|return only the following|final_answer\s*:)\b", text, maxsplit=1
+        )[0]
         equals_matches = re.findall(rf"=\s*({_NUMERIC_TOKEN_PATTERN})", cutoff_text)
         if equals_matches:
             return _normalize_numeric_token(equals_matches[-1])
@@ -481,6 +516,42 @@ def _extract_selective_final_answer(text: str, dataset: str) -> str | None:
             return lines[-1].strip().strip("\"'")
         return None
     return None
+
+
+def _extract_boxed_answer(text: str) -> str | None:
+    import re
+
+    matches = re.findall(r"\\boxed\{([^{}]+)\}", text)
+    if matches:
+        return _clean_extracted_value(matches[-1])
+    return None
+
+
+def _extract_multiple_choice_answer(text: str) -> str | None:
+    import re
+
+    patterns = [
+        r"(?i)\b(?:final\s+answer|answer|option|choice)\s*(?:is|:)?\s*\(?([A-J])\)?\b",
+        r"\(([A-J])\)",
+        r"\b([A-J])\)",
+    ]
+    for pattern in patterns:
+        matches = re.findall(pattern, text)
+        if matches:
+            return str(matches[-1]).upper()
+    return None
+
+
+def _answer_candidate_matches_dataset(value: str, *, dataset: str | None) -> bool:
+    cleaned = str(value or "").strip()
+    if not cleaned or not dataset:
+        return bool(cleaned)
+    if dataset in {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro"}:
+        return _extract_multiple_choice_answer(cleaned) is not None
+    if dataset == "strategyqa":
+        lowered = cleaned.lower()
+        return lowered.startswith("yes") or lowered.startswith("no")
+    return True
 
 
 def _infer_claim_span(text: str, final_answer: str) -> str:
@@ -508,16 +579,21 @@ def _default_uncertainty_type(dataset: str | None) -> str:
 
 def _normalize_uncertainty_type_candidate(value: object) -> str:
     normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
-    return normalized if normalized in {
-        "none",
-        "calculation",
-        "evidence_selection",
-        "entity_linking",
-        "multi_hop",
-        "commonsense_gap",
-        "format_extraction",
-        "other",
-    } else "other"
+    return (
+        normalized
+        if normalized
+        in {
+            "none",
+            "calculation",
+            "evidence_selection",
+            "entity_linking",
+            "multi_hop",
+            "commonsense_gap",
+            "format_extraction",
+            "other",
+        }
+        else "other"
+    )
 
 
 def _clip_selective_field(value: str, max_chars: int) -> str:
@@ -659,9 +735,15 @@ def _extract_json_answer_field(raw_text: str, field_name: str) -> str | None:
     return match.group(1).replace(",", "")
 
 
-def _extract_answer_guess_from_text(raw_text: str) -> str | None:
+def _extract_answer_guess_from_text(raw_text: str, *, dataset: str | None = None) -> str | None:
     import re
 
+    if dataset in {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro"}:
+        return _extract_multiple_choice_answer(raw_text)
+    if dataset in {"gsm8k", "math500", "competition_math"}:
+        boxed = _extract_boxed_answer(raw_text)
+        if boxed:
+            return boxed
     yes_no = re.findall(r"\b(?:yes|no)\b", raw_text.lower())
     if yes_no:
         return yes_no[-1]

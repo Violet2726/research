@@ -219,12 +219,10 @@ def _run_consensagent_sample(
         )
 
         initial_answers = [
-            str(row["validated_output"].get("final_answer", "")).strip()
-            for row in shared_result["initial_turns"]
+            str(row["validated_output"].get("final_answer", "")).strip() for row in shared_result["initial_turns"]
         ]
         final_answers = [
-            str(row["validated_output"].get("final_answer", "")).strip()
-            for row in shared_result["final_round_turns"]
+            str(row["validated_output"].get("final_answer", "")).strip() for row in shared_result["final_round_turns"]
         ]
         initial_consistency = compute_consistency_score(initial_answers)
         final_consistency = compute_consistency_score(final_answers)
@@ -269,7 +267,10 @@ def _run_consensagent_sample(
             else protocol.initial_temperature
         )
         messages = build_initial_messages(
-            sample, agent_id, prompt_version=prompt_version, persona_instruction=persona,
+            sample,
+            agent_id,
+            prompt_version=prompt_version,
+            persona_instruction=persona,
         )
         initial_turns.append(
             _execute_turn(
@@ -327,26 +328,30 @@ def _run_consensagent_sample(
             for sender in previous_round:
                 if sender["agent_id"] == recipient_id:
                     continue
-                peer_messages.append({
-                    "agent": f"agent_{sender['agent_id']}",
-                    "answer": str(sender["validated_output"].get("final_answer", "")).strip(),
-                    "reasoning": str(sender["validated_output"].get("reasoning", "")).strip(),
-                    "confidence": float(sender["validated_output"].get("confidence", 0.5)),
-                })
+                peer_messages.append(
+                    {
+                        "agent": f"agent_{sender['agent_id']}",
+                        "answer": str(sender["validated_output"].get("final_answer", "")).strip(),
+                        "reasoning": str(sender["validated_output"].get("reasoning", "")).strip(),
+                        "confidence": float(sender["validated_output"].get("confidence", 0.5)),
+                    }
+                )
                 debate_rows.append(
-                    asdict(DebateMessageRecord(
-                        run_id=run_id,
-                        dataset=benchmark_slug,
-                        split=split_name,
-                        sample_id=sample.sample_id,
-                        method_name=setup.name,
-                        round_index=round_index,
-                        sender_agent_id=sender["agent_id"],
-                        recipient_agent_id=recipient_id,
-                        sender_answer=str(sender["validated_output"].get("final_answer", "")).strip(),
-                        sender_reasoning=str(sender["validated_output"].get("reasoning", "")).strip(),
-                        sender_confidence=float(sender["validated_output"].get("confidence", 0.5)),
-                    ))
+                    asdict(
+                        DebateMessageRecord(
+                            run_id=run_id,
+                            dataset=benchmark_slug,
+                            split=split_name,
+                            sample_id=sample.sample_id,
+                            method_name=setup.name,
+                            round_index=round_index,
+                            sender_agent_id=sender["agent_id"],
+                            recipient_agent_id=recipient_id,
+                            sender_answer=str(sender["validated_output"].get("final_answer", "")).strip(),
+                            sender_reasoning=str(sender["validated_output"].get("reasoning", "")).strip(),
+                            sender_confidence=float(sender["validated_output"].get("confidence", 0.5)),
+                        )
+                    )
                 )
 
             # 构造辩论消息
@@ -395,17 +400,21 @@ def _run_consensagent_sample(
         for i, turn in enumerate(current_round):
             answer = str(turn["validated_output"].get("final_answer", "")).strip()
             confidence = float(turn["validated_output"].get("confidence", 0.5))
-            current_round_data.append({
-                "agent_id": turn["agent_id"],
-                "answer": answer,
-                "confidence": confidence,
-                "previous_answer": str(previous_round[i]["validated_output"].get("final_answer", "")).strip(),
-            })
-            round_answers_for_memory.append({
-                "agent_id": turn["agent_id"],
-                "answer": answer,
-                "confidence": confidence,
-            })
+            current_round_data.append(
+                {
+                    "agent_id": turn["agent_id"],
+                    "answer": answer,
+                    "confidence": confidence,
+                    "previous_answer": str(previous_round[i]["validated_output"].get("final_answer", "")).strip(),
+                }
+            )
+            round_answers_for_memory.append(
+                {
+                    "agent_id": turn["agent_id"],
+                    "answer": answer,
+                    "confidence": confidence,
+                }
+            )
         debate_memory.append({"round": round_index, "answers": round_answers_for_memory})
 
         # 检查触发条件
@@ -491,12 +500,14 @@ def _run_consensagent_sample(
                     for sender in previous_round:
                         if sender["agent_id"] == recipient_id:
                             continue
-                        peer_msgs.append({
-                            "agent": f"Agent {sender['agent_id']}",
-                            "answer": str(sender["validated_output"].get("final_answer", "")).strip(),
-                            "reasoning": str(sender["validated_output"].get("reasoning", "")).strip(),
-                            "confidence": float(sender["validated_output"].get("confidence", 0.5)),
-                        })
+                        peer_msgs.append(
+                            {
+                                "agent": f"Agent {sender['agent_id']}",
+                                "answer": str(sender["validated_output"].get("final_answer", "")).strip(),
+                                "reasoning": str(sender["validated_output"].get("reasoning", "")).strip(),
+                                "confidence": float(sender["validated_output"].get("confidence", 0.5)),
+                            }
+                        )
                         debate_rows.append(
                             asdict(
                                 DebateMessageRecord(
@@ -518,38 +529,43 @@ def _run_consensagent_sample(
                     # 构造优化后的辩论消息（用 optimized_prompt 替换原始问题）
                     opt_messages = [
                         {"role": "system", "content": _optimized_system_prompt(persona)},
-                        {"role": "user", "content": _format_optimized_debate_prompt(
-                            sample=sample,
-                            agent_id=recipient_id,
-                            optimized_prompt=optimized_prompt,
-                            previous_answer=str(recipient_prev["validated_output"].get("final_answer", "")).strip(),
-                            previous_reasoning=str(recipient_prev["validated_output"].get("reasoning", "")).strip(),
-                            previous_confidence=float(recipient_prev["validated_output"].get("confidence", 0.5)),
-                            peer_messages=peer_msgs,
-                        )},
+                        {
+                            "role": "user",
+                            "content": _format_optimized_debate_prompt(
+                                sample=sample,
+                                agent_id=recipient_id,
+                                optimized_prompt=optimized_prompt,
+                                previous_answer=str(recipient_prev["validated_output"].get("final_answer", "")).strip(),
+                                previous_reasoning=str(recipient_prev["validated_output"].get("reasoning", "")).strip(),
+                                previous_confidence=float(recipient_prev["validated_output"].get("confidence", 0.5)),
+                                peer_messages=peer_msgs,
+                            ),
+                        },
                     ]
 
-                    opt_round.append(_execute_turn(
-                        run_id=run_id,
-                        dataset=benchmark_slug,
-                        split_name=split_name,
-                        sample=sample,
-                        method_name=setup.name,
-                        method_type=method_type,
-                        round_index=optimized_round_index,
-                        agent_id=recipient_id,
-                        role="debate_optimized",
-                        visible_peer_count=len(peer_msgs),
-                        messages=opt_messages,
-                        backbone=backbone,
-                        provider=provider,
-                        cache=cache,
-                        throttle=throttle,
-                        temperature=agent_temp,
-                        top_p=protocol.top_p,
-                        max_output_tokens=protocol.max_output_tokens,
-                        seed=global_seed + recipient_id + optimized_round_index * 100,
-                    ))
+                    opt_round.append(
+                        _execute_turn(
+                            run_id=run_id,
+                            dataset=benchmark_slug,
+                            split_name=split_name,
+                            sample=sample,
+                            method_name=setup.name,
+                            method_type=method_type,
+                            round_index=optimized_round_index,
+                            agent_id=recipient_id,
+                            role="debate_optimized",
+                            visible_peer_count=len(peer_msgs),
+                            messages=opt_messages,
+                            backbone=backbone,
+                            provider=provider,
+                            cache=cache,
+                            throttle=throttle,
+                            temperature=agent_temp,
+                            top_p=protocol.top_p,
+                            max_output_tokens=protocol.max_output_tokens,
+                            seed=global_seed + recipient_id + optimized_round_index * 100,
+                        )
+                    )
                 phase3_turn_rows.extend(opt_round)
                 turn_rows.extend(opt_round)
                 previous_round = opt_round
@@ -574,12 +590,14 @@ def _run_consensagent_sample(
     # 使用置信度加权聚合
     agent_answers_for_weighting = []
     for turn in previous_round:
-        agent_answers_for_weighting.append({
-            "agent_id": turn["agent_id"],
-            "answer": str(turn["validated_output"].get("final_answer", "")).strip(),
-            "reasoning": str(turn["validated_output"].get("reasoning", "")).strip(),
-            "confidence": float(turn["validated_output"].get("confidence", 0.5)),
-        })
+        agent_answers_for_weighting.append(
+            {
+                "agent_id": turn["agent_id"],
+                "answer": str(turn["validated_output"].get("final_answer", "")).strip(),
+                "reasoning": str(turn["validated_output"].get("reasoning", "")).strip(),
+                "confidence": float(turn["validated_output"].get("confidence", 0.5)),
+            }
+        )
     weighted_prediction, weighted_counts = aggregate_weighted_answer(agent_answers_for_weighting)
 
     # 使用多数投票聚合（用于对比）
@@ -614,55 +632,57 @@ def _run_consensagent_sample(
     unchanged_correct = initial_vote_score == 1.0 and weighted_score == 1.0
     unchanged_wrong = initial_vote_score < 1.0 and weighted_score < 1.0
 
-    prediction_row = asdict(FinalPredictionRecord(
-        run_id=run_id,
-        dataset=benchmark_slug,
-        split=split_name,
-        sample_id=sample.sample_id,
-        method_name=setup.name,
-        method_type=method_type,
-        model_name=backbone.name,
-        prediction=weighted_prediction,
-        gold=sample.reference_answer,
-        score=weighted_score,
-        initial_vote_prediction=initial_vote,
-        initial_vote_score=initial_vote_score,
-        initial_vote_counts=initial_vote_counts,
-        initial_consensus=initial_consistency.is_consensus,
-        final_vote_prediction=final_vote,
-        final_vote_score=final_vote_score,
-        final_vote_counts=final_vote_counts,
-        weighted_prediction=weighted_prediction,
-        weighted_score=weighted_score,
-        weighted_vote_counts=weighted_counts,
-        prompt_tokens_per_question=question_prompt_tokens,
-        completion_tokens_per_question=question_completion_tokens,
-        total_tokens_per_question=question_total_tokens,
-        latency_ms_per_question=question_latency,
-        initial_prompt_tokens_per_question=initial_prompt_tokens,
-        initial_completion_tokens_per_question=initial_completion_tokens,
-        initial_total_tokens_per_question=initial_total_tokens,
-        initial_latency_ms_per_question=initial_latency,
-        debate_prompt_tokens_per_question=debate_prompt_tokens,
-        debate_completion_tokens_per_question=debate_completion_tokens,
-        debate_total_tokens_per_question=debate_total_tokens,
-        debate_latency_ms_per_question=debate_latency,
-        calls_per_question=len(turn_rows),
-        actual_debate_rounds=actual_debate_rounds,
-        agent_count=roster.agent_count,
-        final_consensus=final_consistency.is_consensus,
-        initial_disagreement=not initial_consistency.is_consensus,
-        vote_flipped=initial_vote != weighted_prediction,
-        corrected_by_debate=corrected_by_debate,
-        harmed_by_debate=harmed_by_debate,
-        unchanged_correct=unchanged_correct,
-        unchanged_wrong=unchanged_wrong,
-        trigger_type=trigger_state.trigger_type,
-        trigger_round=trigger_state.trigger_round,
-        sycophancy_rate=sycophancy_rate,
-        initial_consistency_score=initial_consistency.score,
-        final_consistency_score=final_consistency.score,
-    ))
+    prediction_row = asdict(
+        FinalPredictionRecord(
+            run_id=run_id,
+            dataset=benchmark_slug,
+            split=split_name,
+            sample_id=sample.sample_id,
+            method_name=setup.name,
+            method_type=method_type,
+            model_name=backbone.name,
+            prediction=weighted_prediction,
+            gold=sample.reference_answer,
+            score=weighted_score,
+            initial_vote_prediction=initial_vote,
+            initial_vote_score=initial_vote_score,
+            initial_vote_counts=initial_vote_counts,
+            initial_consensus=initial_consistency.is_consensus,
+            final_vote_prediction=final_vote,
+            final_vote_score=final_vote_score,
+            final_vote_counts=final_vote_counts,
+            weighted_prediction=weighted_prediction,
+            weighted_score=weighted_score,
+            weighted_vote_counts=weighted_counts,
+            prompt_tokens_per_question=question_prompt_tokens,
+            completion_tokens_per_question=question_completion_tokens,
+            total_tokens_per_question=question_total_tokens,
+            latency_ms_per_question=question_latency,
+            initial_prompt_tokens_per_question=initial_prompt_tokens,
+            initial_completion_tokens_per_question=initial_completion_tokens,
+            initial_total_tokens_per_question=initial_total_tokens,
+            initial_latency_ms_per_question=initial_latency,
+            debate_prompt_tokens_per_question=debate_prompt_tokens,
+            debate_completion_tokens_per_question=debate_completion_tokens,
+            debate_total_tokens_per_question=debate_total_tokens,
+            debate_latency_ms_per_question=debate_latency,
+            calls_per_question=len(turn_rows),
+            actual_debate_rounds=actual_debate_rounds,
+            agent_count=roster.agent_count,
+            final_consensus=final_consistency.is_consensus,
+            initial_disagreement=not initial_consistency.is_consensus,
+            vote_flipped=initial_vote != weighted_prediction,
+            corrected_by_debate=corrected_by_debate,
+            harmed_by_debate=harmed_by_debate,
+            unchanged_correct=unchanged_correct,
+            unchanged_wrong=unchanged_wrong,
+            trigger_type=trigger_state.trigger_type,
+            trigger_round=trigger_state.trigger_round,
+            sycophancy_rate=sycophancy_rate,
+            initial_consistency_score=initial_consistency.score,
+            final_consistency_score=final_consistency.score,
+        )
+    )
     prediction_row["vote_counts"] = weighted_counts
     return turn_rows, debate_rows, prediction_row
 
@@ -687,8 +707,10 @@ def _execute_turn(
     top_p: float,
     max_output_tokens: int,
     seed: int,
+    prompt_version: str = CONTROLLED_PROMPT_VERSION,
 ) -> dict[str, Any]:
     """执行单次 agent turn，并统一返回日志行结构。"""
+    del prompt_version
     validator = _validate_optimizer_output if role == "optimizer" else _validate_consensagent_output
     result = execute_cached_turn(
         backbone=backbone,
@@ -769,7 +791,8 @@ def _build_metrics(
             "actual_debate_rounds_mean": sum(float(item["actual_debate_rounds"]) for item in rows) / len(rows),
             "agent_count": rows[0]["agent_count"],
             "sycophancy_rate_mean": sum(float(item["sycophancy_rate"]) for item in rows) / len(rows),
-            "initial_consistency_score_mean": sum(float(item["initial_consistency_score"]) for item in rows) / len(rows),
+            "initial_consistency_score_mean": sum(float(item["initial_consistency_score"]) for item in rows)
+            / len(rows),
             "final_consistency_score_mean": sum(float(item["final_consistency_score"]) for item in rows) / len(rows),
             "trigger_rate": sum(1 for item in rows if item["trigger_type"] is not None) / len(rows),
         }
@@ -841,21 +864,27 @@ def _build_debate_diagnostics(prediction_rows: list[dict[str, Any]]) -> dict[str
     rows = []
     for (dataset, method_name), rows_for_key in sorted(grouped.items()):
         total = len(rows_for_key)
-        rows.append({
-            "dataset": dataset,
-            "method_name": method_name,
-            "question_count": total,
-            "initial_disagreement_rate": safe_ratio(sum(1 for row in rows_for_key if row["initial_disagreement"]), total),
-            "post_debate_consensus_rate": safe_ratio(sum(1 for row in rows_for_key if row["final_consensus"]), total),
-            "vote_flip_rate": safe_ratio(sum(1 for row in rows_for_key if row["vote_flipped"]), total),
-            "wrong_consensus_rate": safe_ratio(
-                sum(1 for row in rows_for_key if row["final_consensus"] and float(row["score"]) < 1.0),
-                total,
-            ),
-            "sycophancy_rate_mean": safe_mean(float(row["sycophancy_rate"]) for row in rows_for_key),
-            "trigger_rate": safe_ratio(sum(1 for row in rows_for_key if row["trigger_type"] is not None), total),
-            "avg_debate_rounds": safe_mean(float(row["actual_debate_rounds"]) for row in rows_for_key),
-        })
+        rows.append(
+            {
+                "dataset": dataset,
+                "method_name": method_name,
+                "question_count": total,
+                "initial_disagreement_rate": safe_ratio(
+                    sum(1 for row in rows_for_key if row["initial_disagreement"]), total
+                ),
+                "post_debate_consensus_rate": safe_ratio(
+                    sum(1 for row in rows_for_key if row["final_consensus"]), total
+                ),
+                "vote_flip_rate": safe_ratio(sum(1 for row in rows_for_key if row["vote_flipped"]), total),
+                "wrong_consensus_rate": safe_ratio(
+                    sum(1 for row in rows_for_key if row["final_consensus"] and float(row["score"]) < 1.0),
+                    total,
+                ),
+                "sycophancy_rate_mean": safe_mean(float(row["sycophancy_rate"]) for row in rows_for_key),
+                "trigger_rate": safe_ratio(sum(1 for row in rows_for_key if row["trigger_type"] is not None), total),
+                "avg_debate_rounds": safe_mean(float(row["actual_debate_rounds"]) for row in rows_for_key),
+            }
+        )
     return {"rows": rows}
 
 
@@ -976,9 +1005,7 @@ def _recover_consensagent_payload(text: str) -> dict[str, Any] | None:
         return None
 
     reasoning = (
-        _extract_json_string_field(text, "reasoning")
-        or _extract_json_string_field(text, "explanation")
-        or ""
+        _extract_json_string_field(text, "reasoning") or _extract_json_string_field(text, "explanation") or ""
     ).strip()
     confidence = _extract_json_number_field(text, "confidence")
     return {
@@ -1005,7 +1032,7 @@ def _try_parse_json(text: str) -> dict[str, Any] | None:
             return result
     except Exception:
         pass
-    match = re.search(r'\{.*\}', stripped, re.DOTALL)
+    match = re.search(r"\{.*\}", stripped, re.DOTALL)
     if match:
         try:
             result = json.loads(match.group())
@@ -1123,55 +1150,57 @@ def _build_control_prediction_row(
     completion_tokens = sum(float(row["completion_tokens"]) for row in turn_rows)
     total_tokens = sum(float(row["total_tokens"]) for row in turn_rows)
     latency_ms = sum(float(row["latency_ms"]) for row in turn_rows)
-    return asdict(FinalPredictionRecord(
-        run_id=run_id,
-        dataset=benchmark_slug,
-        split=split_name,
-        sample_id=sample.sample_id,
-        method_name=control_name,
-        method_type="control",
-        model_name=backbone.name,
-        prediction=final_vote,
-        gold=sample.reference_answer,
-        score=final_score,
-        initial_vote_prediction=final_vote,
-        initial_vote_score=final_score,
-        initial_vote_counts=vote_counts,
-        initial_consensus=final_consensus,
-        final_vote_prediction=final_vote,
-        final_vote_score=final_score,
-        final_vote_counts=vote_counts,
-        weighted_prediction=final_vote,
-        weighted_score=final_score,
-        weighted_vote_counts=vote_counts,
-        prompt_tokens_per_question=prompt_tokens,
-        completion_tokens_per_question=completion_tokens,
-        total_tokens_per_question=total_tokens,
-        latency_ms_per_question=latency_ms,
-        initial_prompt_tokens_per_question=prompt_tokens,
-        initial_completion_tokens_per_question=completion_tokens,
-        initial_total_tokens_per_question=total_tokens,
-        initial_latency_ms_per_question=latency_ms,
-        debate_prompt_tokens_per_question=0.0,
-        debate_completion_tokens_per_question=0.0,
-        debate_total_tokens_per_question=0.0,
-        debate_latency_ms_per_question=0.0,
-        calls_per_question=method.budget_calls,
-        actual_debate_rounds=0,
-        agent_count=1 if method.family == "cot" else method.budget_calls,
-        final_consensus=final_consensus,
-        initial_disagreement=False,
-        vote_flipped=False,
-        corrected_by_debate=False,
-        harmed_by_debate=False,
-        unchanged_correct=final_score == 1.0,
-        unchanged_wrong=final_score < 1.0,
-        trigger_type=None,
-        trigger_round=None,
-        sycophancy_rate=0.0,
-        initial_consistency_score=1.0,
-        final_consistency_score=1.0,
-    )) | {"vote_counts": vote_counts}
+    return asdict(
+        FinalPredictionRecord(
+            run_id=run_id,
+            dataset=benchmark_slug,
+            split=split_name,
+            sample_id=sample.sample_id,
+            method_name=control_name,
+            method_type="control",
+            model_name=backbone.name,
+            prediction=final_vote,
+            gold=sample.reference_answer,
+            score=final_score,
+            initial_vote_prediction=final_vote,
+            initial_vote_score=final_score,
+            initial_vote_counts=vote_counts,
+            initial_consensus=final_consensus,
+            final_vote_prediction=final_vote,
+            final_vote_score=final_score,
+            final_vote_counts=vote_counts,
+            weighted_prediction=final_vote,
+            weighted_score=final_score,
+            weighted_vote_counts=vote_counts,
+            prompt_tokens_per_question=prompt_tokens,
+            completion_tokens_per_question=completion_tokens,
+            total_tokens_per_question=total_tokens,
+            latency_ms_per_question=latency_ms,
+            initial_prompt_tokens_per_question=prompt_tokens,
+            initial_completion_tokens_per_question=completion_tokens,
+            initial_total_tokens_per_question=total_tokens,
+            initial_latency_ms_per_question=latency_ms,
+            debate_prompt_tokens_per_question=0.0,
+            debate_completion_tokens_per_question=0.0,
+            debate_total_tokens_per_question=0.0,
+            debate_latency_ms_per_question=0.0,
+            calls_per_question=method.budget_calls,
+            actual_debate_rounds=0,
+            agent_count=1 if method.family == "cot" else method.budget_calls,
+            final_consensus=final_consensus,
+            initial_disagreement=False,
+            vote_flipped=False,
+            corrected_by_debate=False,
+            harmed_by_debate=False,
+            unchanged_correct=final_score == 1.0,
+            unchanged_wrong=final_score < 1.0,
+            trigger_type=None,
+            trigger_round=None,
+            sycophancy_rate=0.0,
+            initial_consistency_score=1.0,
+            final_consistency_score=1.0,
+        )
+    ) | {"vote_counts": vote_counts}
 
 
 # ── Phase 3 辅助函数 ─────────────────────────────────────────────────────
@@ -1200,11 +1229,15 @@ def _format_optimized_debate_prompt(
 ) -> str:
     """构造 Phase 3 优化后的辩论用户 prompt。"""
     context_block = f"\nContext:\n{sample.prompt_context}" if sample.prompt_context else ""
-    peer_block = "\n".join(
-        f"Agent {m['agent']} said the answer is {m['answer']} "
-        f"and their explanation is {m['reasoning']} with confidence {m['confidence']:.2f}"
-        for m in peer_messages
-    ) if peer_messages else "(No peer messages)"
+    peer_block = (
+        "\n".join(
+            f"Agent {m['agent']} said the answer is {m['answer']} "
+            f"and their explanation is {m['reasoning']} with confidence {m['confidence']:.2f}"
+            for m in peer_messages
+        )
+        if peer_messages
+        else "(No peer messages)"
+    )
 
     return (
         f"{optimized_prompt}{context_block}\n\n"
@@ -1213,6 +1246,5 @@ def _format_optimized_debate_prompt(
         f"Your previous confidence: {previous_confidence:.2f}\n\n"
         f"Other agents' responses:\n{peer_block}\n\n"
         f"Update your response if the refined prompt leads you to a different conclusion.\n"
-        "Return exactly one JSON object with keys \"final_answer\", \"reasoning\", and \"confidence\". Return JSON only."
+        'Return exactly one JSON object with keys "final_answer", "reasoning", and "confidence". Return JSON only.'
     )
-

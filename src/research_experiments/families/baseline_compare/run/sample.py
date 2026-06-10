@@ -29,6 +29,11 @@ from research_experiments.family_runtime.comparator_impls import (
     run_shared_vanilla_mad_rounds,
 )
 from research_experiments.family_runtime.config_helpers import phase_metadata
+from research_experiments.family_runtime.vanilla_mad_prompting import (
+    CONTROLLED_PROMPT_VERSION,
+    PAPER_PROMPT_VERSION,
+    prompt_version_uses_json_response_format,
+)
 
 
 @dataclass(frozen=True)
@@ -233,7 +238,11 @@ def _run_mad_sample(
                 sender_agent_id=sender["agent_id"],
                 recipient_agent_id=recipient_id,
                 sender_answer=str(sender["validated_output"].get("final_answer", "")).strip(),
-                sender_reasoning=str(sender["validated_output"].get("reasoning", "")).strip(),
+                sender_reasoning=(
+                    str(sender.get("assistant_text", "")).strip()
+                    if prompt_version == PAPER_PROMPT_VERSION
+                    else str(sender["validated_output"].get("reasoning", "")).strip()
+                ),
             )
         ),
     )
@@ -336,6 +345,7 @@ def _execute_turn(
     top_p: float,
     max_output_tokens: int,
     seed: int,
+    prompt_version: str = CONTROLLED_PROMPT_VERSION,
 ) -> dict[str, Any]:
     result = execute_cached_turn(
         backbone=backbone,
@@ -348,6 +358,8 @@ def _execute_turn(
         max_output_tokens=max_output_tokens,
         seed=seed,
         schema_id=SCHEMA_ANSWER_CORE,
+        dataset=dataset,
+        use_response_format=prompt_version_uses_json_response_format(prompt_version),
     )
     final_answer = str(result.validated_output.get("final_answer") or "")
     normalized = normalize_prediction(dataset, final_answer) if final_answer else ""

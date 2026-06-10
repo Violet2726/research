@@ -1,0 +1,43 @@
+name = "core_six_method_baseline_paper_mad"
+description = "Six-benchmark baseline package with faithful paper-style vanilla MAD prompts."
+benchmark_configs = [
+  "configs/core/shared/benchmarks/competition_math/MATH.toml",
+  "configs/core/shared/benchmarks/gpqa/dataset.toml",
+  "configs/core/shared/benchmarks/gsm8k/test.toml",
+  "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
+  "configs/core/shared/benchmarks/math500/test.toml",
+  "configs/core/shared/benchmarks/mmlu-pro/test.toml",
+]
+control_catalog = "configs/families/single_agent/methods/common.toml"
+control_methods = ["cot_1", "sc_3", "sc_5"]
+method_order = ["cot_1", "sc_3", "sc_5", "mad_paper_3a_r1", "mad_paper_3a_r2", "mad_paper_5a_r1"]
+global_seed = 42
+prompt_version = "multi_agent_paper_text"
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+
+[[setups]]
+name = "mad_paper_3a_r1"
+protocol = "configs/families/multi_agent/protocols/vanilla_mad_r1.toml"
+roster = "configs/families/multi_agent/rosters/homogeneous_3agent.toml"
+
+[[setups]]
+name = "mad_paper_3a_r2"
+protocol = "configs/families/multi_agent/protocols/vanilla_mad_r2.toml"
+roster = "configs/families/multi_agent/rosters/homogeneous_3agent.toml"
+
+[[setups]]
+name = "mad_paper_5a_r1"
+protocol = "configs/families/multi_agent/protocols/vanilla_mad_r1.toml"
+roster = "configs/families/multi_agent/rosters/homogeneous_5agent.toml"
+
+[phases.count20]
+split_suffix = "count20_seed42"
+setups = ["mad_paper_3a_r1", "mad_paper_3a_r2", "mad_paper_5a_r1"]
+
+[phases.count100]
+split_suffix = "count100_seed42"
+setups = ["mad_paper_3a_r1", "mad_paper_3a_r2", "mad_paper_5a_r1"]
+
+[phases.count300]
+split_overrides = { competition_math = "count300_seed42", gpqa_diamond = "full198_seed42", gsm8k = "count300_seed42", hotpotqa = "count300_seed42", math500 = "count300_seed42", mmlu_pro = "count300_seed42" }
+setups = ["mad_paper_3a_r1", "mad_paper_3a_r2", "mad_paper_5a_r1"]

@@ -335,12 +335,20 @@ def _build_outputs(
     judge_row: dict[str, Any],
     stage_a_trace_hash: str,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    initial_vote, initial_counts, initial_consensus = majority_vote_with_counts([row["normalized_answer"] for row in initial_rows])
-    vanilla_vote, vanilla_counts, vanilla_consensus = majority_vote_with_counts([row["normalized_answer"] for row in vanilla_rows])
+    initial_vote, initial_counts, initial_consensus = majority_vote_with_counts(
+        [row["normalized_answer"] for row in initial_rows]
+    )
+    vanilla_vote, vanilla_counts, vanilla_consensus = majority_vote_with_counts(
+        [row["normalized_answer"] for row in vanilla_rows]
+    )
     anti_vote, anti_counts, anti_consensus = majority_vote_with_counts([row["normalized_answer"] for row in anti_rows])
     trajectory_decision = build_trajectory_decision(judge_row, initial_rows, anti_rows)
-    trajectory_prediction = normalize_prediction(dataset, trajectory_decision.final_answer) if trajectory_decision.final_answer else ""
-    trajectory_score = score_prediction(dataset, trajectory_prediction, sample.reference_answer) if trajectory_prediction else 0.0
+    trajectory_prediction = (
+        normalize_prediction(dataset, trajectory_decision.final_answer) if trajectory_decision.final_answer else ""
+    )
+    trajectory_score = (
+        score_prediction(dataset, trajectory_prediction, sample.reference_answer) if trajectory_prediction else 0.0
+    )
     anti_hash = _trace_hash(anti_rows, ["agent_id", "normalized_answer", "validated_output", "debate_mode"])
     vanilla_hash = _trace_hash(vanilla_rows, ["agent_id", "normalized_answer", "validated_output", "debate_mode"])
     trajectory_content_hash = sha256(trajectory_hash(initial_rows + anti_rows).encode("utf-8")).hexdigest()
@@ -520,6 +528,7 @@ def _execute_turn(
         validator=lambda raw_text, provider_reasoning_text: _validate_output(
             raw_text,
             output_mode,
+            dataset=dataset,
             provider_reasoning_text=provider_reasoning_text,
         ),
     )
@@ -541,7 +550,9 @@ def _execute_turn(
         "normalized_answer": normalize_prediction(dataset, final_answer) if final_answer else "",
         "score": score_prediction(dataset, final_answer, sample.reference_answer) if final_answer else 0.0,
         "reasoning": str(result.validated_output.get("reasoning") or ""),
-        "changed_answer": bool(result.validated_output.get("changed_answer")) if "changed_answer" in result.validated_output else False,
+        "changed_answer": bool(result.validated_output.get("changed_answer"))
+        if "changed_answer" in result.validated_output
+        else False,
         "confidence_raw": confidence_raw,
         "confidence_value": confidence_value,
         "confidence_valid": confidence_valid,
@@ -561,7 +572,13 @@ def _execute_turn(
     return row
 
 
-def _validate_output(raw_text: str, output_mode: str, *, provider_reasoning_text: str = "") -> dict[str, Any]:
+def _validate_output(
+    raw_text: str,
+    output_mode: str,
+    *,
+    dataset: str,
+    provider_reasoning_text: str = "",
+) -> dict[str, Any]:
     if output_mode == "agent":
         try:
             payload = _decode_json_object(raw_text)
@@ -577,6 +594,7 @@ def _validate_output(raw_text: str, output_mode: str, *, provider_reasoning_text
             recovered = validate_or_recover_structured_output(
                 raw_text,
                 SCHEMA_ANSWER_CORE,
+                dataset=dataset,
                 provider_reasoning_text=provider_reasoning_text,
             )
             return {
@@ -651,8 +669,6 @@ def _resolve_split_name(experiment: FreeMadLiteExperimentConfig, phase_name: str
     return resolve_phase_split_name(experiment, phase_name, benchmark_slug)
 
 
-
-
 def _debate_message_tokens(initial_rows: list[dict[str, Any]]) -> float:
     # 这里统计可见 peer message 的近似通信量：每个 agent 的回答会被另外两个 agent 看到。
     text_tokens = 0
@@ -685,6 +701,3 @@ def _trace_hash(rows: list[dict[str, Any]], keys: list[str]) -> str:
 
 def _mean(values) -> float:
     return safe_mean(values)
-
-
-

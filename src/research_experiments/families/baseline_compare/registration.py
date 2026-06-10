@@ -35,6 +35,7 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "control_method_names": experiment.control_methods,
         "control_methods": {name: asdict(controls[name]) for name in experiment.control_methods},
         "method_order": experiment.method_order,
+        "prompt_version": experiment.prompt_version,
         "workspace_defaults": workspace_defaults("baseline_compare"),
         "primary_model_ref": experiment.primary_model_ref,
         "resolved_model": asdict(resolved_model),
