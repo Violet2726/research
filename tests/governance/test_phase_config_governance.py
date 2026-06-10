@@ -34,6 +34,7 @@ def _load_benchmarks_by_slug(experiment_payload: dict) -> dict[str, dict]:
 def test_phase_setup_references_exist_for_multi_agent_style_experiments() -> None:
     for relative_path in (
         "configs/families/multi_agent/experiments/same_context_controlled_debate.toml",
+        "configs/families/multi_agent/experiments/standard_baseline_controls.toml",
         "configs/families/consensagent/experiments/consensagent_main.toml",
         "configs/families/madjudge/experiments/madjudge_main.toml",
     ):

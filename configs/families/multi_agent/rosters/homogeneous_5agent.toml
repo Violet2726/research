@@ -1,0 +1,2 @@
+# Homogeneous 5-agent roster for standard Vanilla MAD baselines.
+agent_count = 5

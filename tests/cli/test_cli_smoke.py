@@ -323,6 +323,37 @@ def test_multi_agent_inspect_cli() -> None:
     assert payload["name"] == "same_context_controlled_debate"
 
 
+def test_multi_agent_standard_baseline_controls_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "experiment",
+            "--family",
+            "multi_agent",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/multi_agent/experiments/standard_baseline_controls.toml",
+        ],
+    )
+    assert payload["name"] == "standard_baseline_controls"
+    assert payload["benchmarks"] == [
+        "competition_math",
+        "gpqa_diamond",
+        "gsm8k",
+        "hotpotqa",
+        "math500",
+        "mmlu_pro",
+    ]
+    assert [setup["name"] for setup in payload["setups"]] == ["mad_3a_r1", "mad_3a_r2", "mad_5a_r1"]
+    assert payload["setups"][0]["matched_controls"] == ["cot_1", "sc_3", "sc_5"]
+    assert payload["phases"]["count20"]["setups"] == ["mad_3a_r1", "mad_3a_r2", "mad_5a_r1"]
+    assert payload["phases"]["count100"]["setups"] == ["mad_3a_r1", "mad_3a_r2", "mad_5a_r1"]
+    assert payload["phases"]["count300"]["split_overrides"]["gpqa_diamond"] == "full198_seed42"
+    assert payload["control_methods"]["cot_1"]["budget_calls"] == 1
+    assert payload["control_methods"]["sc_3"]["budget_calls"] == 3
+    assert payload["control_methods"]["sc_5"]["budget_calls"] == 5
+
+
 def test_selective_comm_inspect_cli() -> None:
     payload = run_cli_json(
         [

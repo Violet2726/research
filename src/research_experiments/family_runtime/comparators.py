@@ -16,6 +16,7 @@ MV_7 = "mv_7"
 
 MAD_3A_R1 = "mad_3a_r1"
 MAD_3A_R2 = "mad_3a_r2"
+MAD_5A_R1 = "mad_5a_r1"
 MAD_FIXED_R1 = "mad_fixed_r1"
 MAD_FIXED_R2 = "mad_fixed_r2"
 MAD_FIXED_R3 = "mad_fixed_r3"
@@ -50,6 +51,7 @@ STANDARD_VANILLA_MAD_BASELINES: frozenset[str] = frozenset(
     {
         MAD_3A_R1,
         MAD_3A_R2,
+        MAD_5A_R1,
         MAD_FIXED_R1,
         MAD_FIXED_R2,
         MAD_FIXED_R3,
