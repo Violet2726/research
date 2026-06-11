@@ -343,7 +343,6 @@ def _run_single_agent_method(
         throttle=throttle,
         temperature=protocol.actor_temperature,
         top_p=protocol.top_p,
-        max_output_tokens=protocol.max_output_tokens,
         seed=sample_seed,
     )
     score = score_prediction(benchmark_slug, str(turn["final_answer"]), sample.reference_answer)
@@ -430,7 +429,6 @@ def _run_topology_method(
                 throttle=throttle,
                 temperature=protocol.critic_temperature,
                 top_p=protocol.top_p,
-                max_output_tokens=min(512, protocol.max_output_tokens),
                 seed=sample_seed + parent_node * 101 + node_id,
             )
             instruction_rows.append(instruction_row)
@@ -461,7 +459,6 @@ def _run_topology_method(
             throttle=throttle,
             temperature=protocol.actor_temperature,
             top_p=protocol.top_p,
-            max_output_tokens=protocol.max_output_tokens,
             seed=sample_seed + node_id * 3,
         )
         state_by_node[node_id] = actor_row
@@ -495,7 +492,6 @@ def _run_topology_method(
             throttle=throttle,
             temperature=protocol.terminal_fuse_temperature,
             top_p=protocol.top_p,
-            max_output_tokens=protocol.max_output_tokens,
             seed=sample_seed + 7777,
         )
         artifact_rows.append(final_state)
@@ -586,7 +582,6 @@ def _run_control_method(
             throttle=throttle,
             temperature=protocol.actor_temperature,
             top_p=protocol.top_p,
-            max_output_tokens=protocol.max_output_tokens,
             seed=sample_seed + offset,
         )
         turns.append(row)
@@ -758,7 +753,6 @@ def _execute_actor_turn(
     throttle,
     temperature: float,
     top_p: float,
-    max_output_tokens: int,
     seed: int,
 ) -> dict[str, Any]:
     result = execute_cached_turn(
@@ -779,7 +773,6 @@ def _execute_actor_turn(
         ),
         temperature=temperature,
         top_p=top_p,
-        max_output_tokens=max_output_tokens,
         seed=seed,
         validator=lambda raw_text, _: validate_actor_output(raw_text, benchmark_slug),
         dataset=benchmark_slug,
@@ -828,7 +821,6 @@ def _execute_instruction_turn(
     throttle,
     temperature: float,
     top_p: float,
-    max_output_tokens: int,
     seed: int,
 ) -> dict[str, Any]:
     result = execute_cached_turn(
@@ -847,7 +839,6 @@ def _execute_instruction_turn(
         ),
         temperature=temperature,
         top_p=top_p,
-        max_output_tokens=max_output_tokens,
         seed=seed,
         validator=lambda raw_text, _: validate_instruction_output(raw_text),
         dataset=benchmark_slug,

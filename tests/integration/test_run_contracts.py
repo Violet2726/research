@@ -9,7 +9,6 @@ from testsupport.filesystem import touch_figure_contract, write_json, write_json
 
 from research_experiments.core.execution.rate_limits import (
     STANDARD_REQUESTS_PER_MINUTE_LIMIT,
-    STANDARD_TOKENS_PER_MINUTE_LIMIT,
 )
 from research_experiments.core.structured_outputs import (
     SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE,
@@ -640,7 +639,6 @@ def test_comm_necessary_validation_contract(tmp_path: Path) -> None:
         payload={
             "methods": methods,
             "requests_per_minute_limit": STANDARD_REQUESTS_PER_MINUTE_LIMIT,
-            "tokens_per_minute_limit": STANDARD_TOKENS_PER_MINUTE_LIMIT,
         },
     )
     write_jsonl(
@@ -704,7 +702,6 @@ def test_comm_necessary_validation_contract(tmp_path: Path) -> None:
                 "output_status": "ok",
                 "cache_hit": False,
                 "request_started_at": "2026-04-24T00:00:00+00:00",
-                "estimated_request_tokens": 100,
             }
         ],
     )
@@ -732,7 +729,6 @@ def test_comm_necessary_validation_contract(tmp_path: Path) -> None:
                 "output_status": "ok",
                 "cache_hit": False,
                 "request_started_at": "2026-04-24T00:00:01+00:00",
-                "estimated_request_tokens": 100,
             }
         ],
     )

@@ -42,7 +42,6 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "prompt_version": experiment.prompt_version,
         "max_concurrent_requests": experiment.max_concurrent_requests,
         "requests_per_minute_limit": experiment.requests_per_minute_limit,
-        "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
         "primary_model_ref": experiment.primary_model_ref,
         "workspace_defaults": workspace_defaults("single_agent"),
         "phases": experiment.raw["phases"],

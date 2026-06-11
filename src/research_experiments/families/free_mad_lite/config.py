@@ -26,8 +26,6 @@ class FreeMadLiteProtocolConfig:
     debate_temperature: float
     judge_temperature: float
     top_p: float
-    max_output_tokens: int
-    judge_max_output_tokens: int
 
 
 @dataclass(frozen=True)
@@ -43,7 +41,6 @@ class FreeMadLiteExperimentConfig:
     prompt_version: str
     max_concurrent_requests: int
     requests_per_minute_limit: int | None
-    tokens_per_minute_limit: int | None
     primary_model_ref: str
     raw: dict[str, Any]
 
@@ -58,8 +55,6 @@ def load_protocol_config(path: str | Path) -> FreeMadLiteProtocolConfig:
         debate_temperature=float(payload["debate_temperature"]),
         judge_temperature=float(payload["judge_temperature"]),
         top_p=float(payload["top_p"]),
-        max_output_tokens=int(payload["max_output_tokens"]),
-        judge_max_output_tokens=int(payload["judge_max_output_tokens"]),
     )
 
 
@@ -77,7 +72,6 @@ def load_experiment_config(path: str | Path) -> FreeMadLiteExperimentConfig:
         prompt_version=str(payload["prompt_version"]),
         max_concurrent_requests=runtime["max_concurrent_requests"],
         requests_per_minute_limit=runtime["requests_per_minute_limit"],
-        tokens_per_minute_limit=runtime["tokens_per_minute_limit"],
         primary_model_ref=str(payload["primary_model_ref"]),
         raw=payload,
     )

@@ -28,7 +28,7 @@ def _build_spec() -> CallSpec:
         "messages": [{"role": "user", "content": "What is 2 + 2?"}],
         "temperature": 0.0,
         "top_p": 1.0,
-        "max_tokens": 32,
+
         "seed": 42,
     }
     return CallSpec(
@@ -76,7 +76,6 @@ def _throttle() -> RequestThrottle:
     return RequestThrottle(
         max_concurrent_requests=8,
         requests_per_minute=10_000,
-        tokens_per_minute=10_000_000,
     )
 
 

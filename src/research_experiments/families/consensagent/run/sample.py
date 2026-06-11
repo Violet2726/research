@@ -185,7 +185,6 @@ def _run_consensagent_sample(
             initial_temperature=protocol.initial_temperature,
             debate_temperature=protocol.debate_temperature,
             top_p=protocol.top_p,
-            max_output_tokens=protocol.max_output_tokens,
             global_seed=global_seed,
             prompt_version=CONTROLLED_PROMPT_VERSION,
             execute_turn=lambda **kwargs: _execute_turn(
@@ -291,7 +290,6 @@ def _run_consensagent_sample(
                 throttle=throttle,
                 temperature=agent_temp,
                 top_p=protocol.top_p,
-                max_output_tokens=protocol.max_output_tokens,
                 seed=global_seed + agent_id,
             )
         )
@@ -386,7 +384,6 @@ def _run_consensagent_sample(
                     throttle=throttle,
                     temperature=agent_temp,
                     top_p=protocol.top_p,
-                    max_output_tokens=protocol.max_output_tokens,
                     seed=global_seed + recipient_id + round_index * 100,
                 )
             )
@@ -473,7 +470,6 @@ def _run_consensagent_sample(
             throttle=throttle,
             temperature=protocol.phase3.optimizer_temperature,
             top_p=protocol.top_p,
-            max_output_tokens=protocol.phase3.max_optimizer_output_tokens,
             seed=global_seed,
         )
         phase3_turn_rows.append(optimizer_result)
@@ -562,7 +558,6 @@ def _run_consensagent_sample(
                             throttle=throttle,
                             temperature=agent_temp,
                             top_p=protocol.top_p,
-                            max_output_tokens=protocol.max_output_tokens,
                             seed=global_seed + recipient_id + optimized_round_index * 100,
                         )
                     )
@@ -705,7 +700,6 @@ def _execute_turn(
     throttle,
     temperature: float,
     top_p: float,
-    max_output_tokens: int,
     seed: int,
     prompt_version: str = CONTROLLED_PROMPT_VERSION,
 ) -> dict[str, Any]:
@@ -720,7 +714,6 @@ def _execute_turn(
         messages=messages,
         temperature=temperature,
         top_p=top_p,
-        max_output_tokens=max_output_tokens,
         seed=seed,
         validator=validator,
         dataset=dataset,

@@ -63,7 +63,6 @@ def run_experiment(
         backbone,
         max_concurrent_requests=experiment.max_concurrent_requests,
         requests_per_minute=experiment.requests_per_minute_limit,
-        tokens_per_minute=experiment.tokens_per_minute_limit,
     )
 
     run_id = build_run_id(backbone.name)
@@ -92,7 +91,6 @@ def run_experiment(
         "global_seed": experiment.global_seed,
         "max_concurrent_requests": experiment.max_concurrent_requests,
         "requests_per_minute_limit": experiment.requests_per_minute_limit,
-        "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
         "total_planned_calls": total_calls,
         "total_planned_predictions": total_predictions,
         "source_note": "HotpotQA distractor provides answer and sentence-level supporting facts; AgentsNet is reserved for later topology experiments.",

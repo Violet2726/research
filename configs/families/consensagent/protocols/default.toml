@@ -4,7 +4,6 @@ max_debate_rounds = 5
 initial_temperature = 0.3
 debate_temperature = 0.3
 top_p = 0.95
-max_output_tokens = 512
 
 [trigger]
 # 论文 t0：多数 agent 连续 stagnation_threshold 轮保持相同答案 → 触发停滞

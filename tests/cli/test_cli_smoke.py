@@ -15,7 +15,6 @@ from research_experiments.cli import main as research_main
 from research_experiments.core.execution.rate_limits import (
     STANDARD_MAX_CONCURRENT_REQUESTS,
     STANDARD_REQUESTS_PER_MINUTE_LIMIT,
-    STANDARD_TOKENS_PER_MINUTE_LIMIT,
 )
 
 
@@ -98,7 +97,6 @@ def test_matrix_assert_success_cli(tmp_path: Path) -> None:
                 "model_ref": "xiaomimimo/mimo-v2.5",
                 "max_concurrent_requests": STANDARD_MAX_CONCURRENT_REQUESTS,
                 "requests_per_minute_limit": STANDARD_REQUESTS_PER_MINUTE_LIMIT,
-                "tokens_per_minute_limit": STANDARD_TOKENS_PER_MINUTE_LIMIT,
             },
             "counts": {"completed": 0, "semantic_unique_targets": 0},
             "entries": [],
@@ -131,7 +129,6 @@ def test_matrix_assert_success_cli_exit_code_for_blockers(tmp_path: Path) -> Non
                 "model_ref": "xiaomimimo/mimo-v2.5",
                 "max_concurrent_requests": STANDARD_MAX_CONCURRENT_REQUESTS,
                 "requests_per_minute_limit": STANDARD_REQUESTS_PER_MINUTE_LIMIT,
-                "tokens_per_minute_limit": STANDARD_TOKENS_PER_MINUTE_LIMIT,
             },
             "counts": {"failed": 1, "semantic_unique_targets": 1},
             "entries": [

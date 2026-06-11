@@ -3,7 +3,6 @@ agent_count = 3
 initial_temperature = 0.0
 belief_temperature = 0.0
 top_p = 1.0
-max_output_tokens = 1024
 peer_packet_token_cap = 120
 
 disagreement_weight = 0.30

@@ -51,7 +51,6 @@ class AdaptiveSparseMadProtocolConfig:
     agent_count: int
     top_p: float
     stage_a_temperature: float
-    stage_a_max_output_tokens: int
     consensus_confidence_threshold: float
     majority_confidence_threshold: float
     majority_margin_threshold: float
@@ -74,7 +73,6 @@ class AdaptiveSparseMadExperimentConfig:
     adaptive_prompt_version: str
     max_concurrent_requests: int
     requests_per_minute_limit: int | None
-    tokens_per_minute_limit: int | None
     primary_model_ref: str
     raw: dict[str, Any]
 
@@ -86,7 +84,6 @@ def load_protocol_config(path: str | Path) -> AdaptiveSparseMadProtocolConfig:
         agent_count=int(payload["agent_count"]),
         top_p=float(payload["top_p"]),
         stage_a_temperature=float(payload["stage_a_temperature"]),
-        stage_a_max_output_tokens=int(payload["stage_a_max_output_tokens"]),
         consensus_confidence_threshold=float(payload["consensus_confidence_threshold"]),
         majority_confidence_threshold=float(payload["majority_confidence_threshold"]),
         majority_margin_threshold=float(payload["majority_margin_threshold"]),
@@ -151,7 +148,6 @@ def load_experiment_config(path: str | Path) -> AdaptiveSparseMadExperimentConfi
         adaptive_prompt_version=adaptive_prompt_version,
         max_concurrent_requests=runtime["max_concurrent_requests"],
         requests_per_minute_limit=runtime["requests_per_minute_limit"],
-        tokens_per_minute_limit=runtime["tokens_per_minute_limit"],
         primary_model_ref=str(payload["primary_model_ref"]),
         raw=payload,
     )

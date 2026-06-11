@@ -345,7 +345,6 @@ def _run_sample(
                 throttle=throttle,
                 temperature=protocol.initial_temperature,
                 top_p=protocol.top_p,
-                max_output_tokens=protocol.max_output_tokens,
                 seed=experiment.global_seed + agent_id,
                 question_preview=question_preview,
             )
@@ -426,7 +425,6 @@ def _run_sample(
                 throttle=throttle,
                 temperature=protocol.debate_temperature,
                 top_p=protocol.top_p,
-                max_output_tokens=protocol.max_output_tokens,
                 seed=experiment.global_seed + recipient_id + round_index * 100,
                 question_preview=question_preview,
             )
@@ -813,7 +811,6 @@ def _execute_turn(
     throttle: RequestThrottle,
     temperature: float,
     top_p: float,
-    max_output_tokens: int,
     seed: int,
     question_preview: str,
     method_type: str | None = None,
@@ -827,7 +824,6 @@ def _execute_turn(
         messages=messages,
         temperature=temperature,
         top_p=top_p,
-        max_output_tokens=max_output_tokens,
         seed=seed,
         schema_id=SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE,
         dataset=dataset,

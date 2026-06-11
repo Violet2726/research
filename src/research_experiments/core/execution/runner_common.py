@@ -104,7 +104,6 @@ def execute_cached_turn(
     messages: list[dict[str, str]],
     temperature: float,
     top_p: float,
-    max_output_tokens: int,
     seed: int | None,
     validator: TurnValidator | None = None,
     schema_id: SchemaId | None = None,
@@ -124,7 +123,6 @@ def execute_cached_turn(
         messages=messages,
         temperature=temperature,
         top_p=top_p,
-        max_output_tokens=max_output_tokens,
         seed=seed,
         use_response_format=use_response_format,
     )

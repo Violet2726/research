@@ -23,7 +23,7 @@ uv run research_cli experiment --family single_agent render-report --run-dir loc
 
 - 数据集固定为 `competition_math / gpqa_diamond / gsm8k / hotpotqa / math500 / mmlu_pro`
 - 方法固定为 `cot_1 / mv_3 / sc_5`
-- 全局解码固定为 `temperature=0.7 / top_p=1.0 / max_output_tokens=256`
+- 全局解码固定为 `temperature=0.7 / top_p=1.0`
 - 预算严格固定为 `1 / 3 / 5` calls
 - `count100` 使用 3 reruns，是当前 authoritative 口径
 - `count20` 只用于轻量 sanity check，不再作为正式筛选链路

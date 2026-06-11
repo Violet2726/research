@@ -1302,7 +1302,6 @@ def _run_sample(
                 throttle=throttle,
                 temperature=protocol.stage_a_temperature,
                 top_p=protocol.top_p,
-                max_output_tokens=protocol.stage_a_max_output_tokens,
                 seed=stage_a_seed,
                 output_mode="stage_a",
                 stage_a_retry_seed=experiment.global_seed,
@@ -1494,7 +1493,6 @@ def _run_adaptive_variant(
                 throttle=throttle,
                 temperature=protocol.stage_a_temperature,
                 top_p=protocol.top_p,
-                max_output_tokens=protocol.stage_a_max_output_tokens,
                 seed=experiment.global_seed + protocol.agent_count + addon_index,
                 output_mode="stage_a",
                 stage_a_retry_seed=experiment.global_seed,
@@ -2076,7 +2074,6 @@ def _execute_turn(
     throttle: RequestThrottle,
     temperature: float,
     top_p: float,
-    max_output_tokens: int,
     seed: int,
     output_mode: str,
     stage_a_retry_seed: int | None = None,
@@ -2103,7 +2100,6 @@ def _execute_turn(
         messages=messages,
         temperature=temperature,
         top_p=top_p,
-        max_output_tokens=max_output_tokens,
         seed=seed,
         validator=validator,
     )
@@ -2120,7 +2116,6 @@ def _execute_turn(
             ),
             temperature=temperature,
             top_p=top_p,
-            max_output_tokens=max_output_tokens,
             seed=seed,
             validator=validator,
         )
@@ -2136,7 +2131,6 @@ def _execute_turn(
                 messages=build_cot_messages(sample, agent_id, None),
                 temperature=temperature,
                 top_p=top_p,
-                max_output_tokens=max_output_tokens,
                 seed=stage_a_retry_seed if stage_a_retry_seed is not None else seed,
                 validator=validator,
             )
@@ -2196,7 +2190,6 @@ def _execute_turn(
         "assistant_text": result.response_payload.get("assistant_text", ""),
         "provider_reasoning_text": result.response_payload.get("provider_reasoning_text", ""),
         "validated_output": validated,
-        "estimated_request_tokens": float(result.payload.get("max_tokens") or 0.0),
         "request_started_at": result.response_payload.get("request_started_at"),
     }
     if extra_fields:
@@ -2243,7 +2236,6 @@ def _execute_control_turn(
     throttle: RequestThrottle,
     temperature: float,
     top_p: float,
-    max_output_tokens: int,
     seed: int | None,
 ) -> dict[str, Any]:
     """执行 no-comm 对照方法的一次模型调用。"""
@@ -2263,7 +2255,6 @@ def _execute_control_turn(
         messages=messages,
         temperature=temperature,
         top_p=top_p,
-        max_output_tokens=max_output_tokens,
         seed=seed,
         validator=validator,
     )
@@ -2297,7 +2288,6 @@ def _execute_control_turn(
         "provider_reasoning_text": result.response_payload.get("provider_reasoning_text", ""),
         "validated_output": result.validated_output,
         "control_recovery_fallback": result.validated_output.get("control_recovery_fallback"),
-        "estimated_request_tokens": float(result.payload.get("max_tokens") or 0.0),
         "request_started_at": result.response_payload.get("request_started_at"),
     }
 

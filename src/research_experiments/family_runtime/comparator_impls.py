@@ -98,7 +98,6 @@ def run_shared_vanilla_mad_rounds(
     initial_temperature: float,
     debate_temperature: float,
     top_p: float,
-    max_output_tokens: int,
     global_seed: int,
     execute_turn: ExecuteVanillaMadTurnFn,
     build_debate_row: BuildDebateRowFn,
@@ -122,7 +121,6 @@ def run_shared_vanilla_mad_rounds(
                     messages=messages,
                     temperature=initial_temperature,
                     top_p=top_p,
-                    max_output_tokens=max_output_tokens,
                     seed=global_seed + agent_id,
                     prompt_version=prompt_version,
                 )
@@ -170,7 +168,6 @@ def run_shared_vanilla_mad_rounds(
                     messages=messages,
                     temperature=debate_temperature,
                     top_p=top_p,
-                    max_output_tokens=max_output_tokens,
                     seed=global_seed + recipient_id + round_index * 100,
                     prompt_version=prompt_version,
                 )

@@ -20,7 +20,7 @@ from research_experiments.core.config import ResolvedModelConfig
 from research_experiments.core.data.datasets import DatasetSample, load_split_ids
 from research_experiments.core.data.evaluation import normalize_prediction
 from research_experiments.core.execution.cache import RequestCache
-from research_experiments.core.execution.providers import OpenAICompatibleProvider, estimate_request_tokens
+from research_experiments.core.execution.providers import OpenAICompatibleProvider
 from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.execution.runner_common import (
     execute_cached_turn,
@@ -144,7 +144,6 @@ def _run_sample(
         throttle=throttle,
         temperature=protocol.initial_temperature,
         top_p=protocol.top_p,
-        max_output_tokens=protocol.max_output_tokens,
         seed=global_seed + _stable_sample_seed(sample.sample_id),
     )
     stage_a_rows.append(full_context_row)
@@ -169,7 +168,6 @@ def _run_sample(
             throttle=throttle,
             temperature=protocol.initial_temperature,
             top_p=protocol.top_p,
-            max_output_tokens=protocol.max_output_tokens,
             seed=global_seed + _stable_sample_seed(sample.sample_id) + int(view.agent_id),
         )
         split_stage_a.append(row)
@@ -334,7 +332,6 @@ def _run_belief_updates(
                 throttle=throttle,
                 temperature=protocol.update_temperature,
                 top_p=protocol.top_p,
-                max_output_tokens=protocol.max_output_tokens,
                 seed=global_seed + _stable_sample_seed(sample.sample_id) + recipient_id + _method_seed_offset(method_name),
                 extra_fields={
                     "packet_mode": packet_mode,
@@ -574,7 +571,6 @@ def _execute_turn(
     throttle: RequestThrottle,
     temperature: float,
     top_p: float,
-    max_output_tokens: int,
     seed: int,
     extra_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -587,7 +583,6 @@ def _execute_turn(
         messages=messages,
         temperature=temperature,
         top_p=top_p,
-        max_output_tokens=max_output_tokens,
         seed=seed,
         validator=lambda raw_text, provider_reasoning_text: _validate_output(
             raw_text,
@@ -626,7 +621,6 @@ def _execute_turn(
         "latency_ms": float(result.response_payload.get("latency_ms") or 0.0),
         "cache_hit": result.cache_hit,
         "request_started_at": result.response_payload.get("request_started_at"),
-        "estimated_request_tokens": int(result.response_payload.get("estimated_request_tokens") or estimate_request_tokens(result.payload)),
         "request_error": result.request_error,
         "assistant_text": result.response_payload.get("assistant_text", ""),
         "provider_reasoning_text": result.response_payload.get("provider_reasoning_text", ""),

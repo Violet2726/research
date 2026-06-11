@@ -46,7 +46,6 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "calibration_sample_size": experiment.calibration_sample_size,
         "max_concurrent_requests": experiment.max_concurrent_requests,
         "requests_per_minute_limit": experiment.requests_per_minute_limit,
-        "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
         "workspace_defaults": workspace_defaults("budget_comm"),
         "primary_model_ref": experiment.primary_model_ref,
         "resolved_model": {

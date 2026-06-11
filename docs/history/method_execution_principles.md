@@ -173,7 +173,6 @@
    - `model_ref`
    - `max_concurrent_requests`
    - `requests_per_minute_limit`
-   - `tokens_per_minute_limit`
 4. 顺序执行主矩阵。
 5. 对每个 run 做健康复核：
    - `progress.json` 是否 completed

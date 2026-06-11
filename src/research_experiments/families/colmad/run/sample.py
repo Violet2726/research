@@ -217,7 +217,6 @@ def _run_single_agent_method(
         throttle=throttle,
         temperature=protocol.opening_temperature,
         top_p=protocol.top_p,
-        max_output_tokens=protocol.max_output_tokens,
         seed=seed,
     )
     payload = _coerce_debater_payload(turn_row)
@@ -284,7 +283,6 @@ def _run_debate_method(
         throttle=throttle,
         temperature=protocol.opening_temperature,
         top_p=protocol.top_p,
-        max_output_tokens=protocol.max_output_tokens,
         seed=seed + 11,
     )
     debate_rows.append(opening_alice)
@@ -310,7 +308,6 @@ def _run_debate_method(
         throttle=throttle,
         temperature=protocol.opening_temperature,
         top_p=protocol.top_p,
-        max_output_tokens=protocol.max_output_tokens,
         seed=seed + 23,
     )
     debate_rows.append(opening_bob)
@@ -346,7 +343,6 @@ def _run_debate_method(
         throttle=throttle,
         temperature=protocol.reply_temperature,
         top_p=protocol.top_p,
-        max_output_tokens=protocol.max_output_tokens,
         seed=seed + 37,
     )
     debate_rows.append(reply_alice)
@@ -378,7 +374,6 @@ def _run_debate_method(
         throttle=throttle,
         temperature=protocol.reply_temperature,
         top_p=protocol.top_p,
-        max_output_tokens=protocol.max_output_tokens,
         seed=seed + 41,
     )
     debate_rows.append(reply_bob)
@@ -397,7 +392,6 @@ def _run_debate_method(
         throttle=throttle,
         temperature=protocol.judge_temperature,
         top_p=protocol.top_p,
-        max_output_tokens=protocol.max_output_tokens,
         seed=seed + 53,
     )
     judge_payload = _coerce_judge_payload(judge_row, debate_rows)
@@ -468,7 +462,6 @@ def _execute_structured_turn(
     throttle: RequestThrottle,
     temperature: float,
     top_p: float,
-    max_output_tokens: int,
     seed: int,
 ) -> dict[str, Any]:
     """执行一次结构化模型调用，并封装为 ColMAD turn 行。"""
@@ -480,7 +473,6 @@ def _execute_structured_turn(
         messages=messages,
         temperature=temperature,
         top_p=top_p,
-        max_output_tokens=max_output_tokens,
         seed=seed,
         validator=validator,
     )

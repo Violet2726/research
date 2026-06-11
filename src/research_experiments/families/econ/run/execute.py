@@ -53,7 +53,6 @@ def run_experiment(
         backbone,
         max_concurrent_requests=experiment.max_concurrent_requests,
         requests_per_minute=experiment.requests_per_minute_limit,
-        tokens_per_minute=experiment.tokens_per_minute_limit,
     )
     run_id = build_run_id(backbone.name)
     run_paths = prepare_registered_run_layout('econ', run_root, experiment.name, phase_name, run_id)

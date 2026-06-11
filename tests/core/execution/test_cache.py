@@ -56,26 +56,21 @@ def test_build_request_cache_key_depends_only_on_payload() -> None:
     )
 
 
-def test_build_request_cache_key_ignores_max_tokens() -> None:
+def test_build_request_cache_key_tracks_payload_fields_without_special_cases() -> None:
     payload = {
         "model": "demo",
         "messages": [{"role": "user", "content": "hi"}],
         "temperature": 0.0,
-        "max_tokens": 256,
     }
-    assert normalize_payload_for_cache_key(payload) == {
-        "model": "demo",
-        "messages": [{"role": "user", "content": "hi"}],
-        "temperature": 0.0,
-    }
+    assert normalize_payload_for_cache_key(payload) == payload
     assert build_request_cache_key(
         provider="demo_provider",
         request_model="demo_model",
         payload=payload,
-    ) == build_request_cache_key(
+    ) != build_request_cache_key(
         provider="demo_provider",
         request_model="demo_model",
-        payload={**payload, "max_tokens": 512},
+        payload={**payload, "seed": 42},
     )
 
 def test_cache_successful_response_rejects_failed_request(tmp_path: Path) -> None:

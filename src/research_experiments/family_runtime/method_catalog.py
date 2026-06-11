@@ -21,7 +21,6 @@ class MethodConfig:
     budget_calls: int
     temperature: float
     top_p: float
-    max_output_tokens: int
 
 
 def load_method_catalog(path: str | Path) -> dict[str, MethodConfig]:

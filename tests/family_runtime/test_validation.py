@@ -25,7 +25,6 @@ def test_validate_rate_limit_check_detects_window_violation(tmp_path: Path) -> N
             "agent_id": None,
             "cache_hit": False,
             "request_started_at": "2026-04-24T00:00:00+00:00",
-            "estimated_request_tokens": 80,
         },
         {
             "dataset": "gsm8k",
@@ -34,7 +33,6 @@ def test_validate_rate_limit_check_detects_window_violation(tmp_path: Path) -> N
             "agent_id": None,
             "cache_hit": False,
             "request_started_at": "2026-04-24T00:00:01+00:00",
-            "estimated_request_tokens": 80,
         },
     ]
 
@@ -42,12 +40,11 @@ def test_validate_rate_limit_check_detects_window_violation(tmp_path: Path) -> N
         progress_path,
         turn_rows,
         requests_per_minute_limit=1,
-        tokens_per_minute_limit=100,
     )
 
     assert result["passed"] is False
     assert result["network_event_count"] == 2
-    assert result["violation_count"] == 2
+    assert result["violation_count"] == 1
 
 
 def test_single_agent_validator_fails_when_progress_records_429(tmp_path: Path) -> None:
@@ -56,7 +53,6 @@ def test_single_agent_validator_fails_when_progress_records_429(tmp_path: Path) 
         family_name="single_agent",
         payload={
             "requests_per_minute_limit": 95,
-            "tokens_per_minute_limit": 9000000,
         },
     )
     write_jsonl(
@@ -112,7 +108,6 @@ def test_validate_rate_limit_check_allows_soft_429_when_event_replay_stays_withi
             "agent_id": None,
             "cache_hit": False,
             "request_started_at": "2026-04-24T00:00:00+00:00",
-            "estimated_request_tokens": 80,
         }
     ]
 
@@ -120,7 +115,6 @@ def test_validate_rate_limit_check_allows_soft_429_when_event_replay_stays_withi
         progress_path,
         turn_rows,
         requests_per_minute_limit=10,
-        tokens_per_minute_limit=1000,
     )
 
     assert result["event_replay_available"] is True

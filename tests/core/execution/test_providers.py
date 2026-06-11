@@ -24,7 +24,6 @@ def test_build_payload_maps_thinking_control_by_provider() -> None:
         [{"role": "user", "content": "hi"}],
         temperature=0.0,
         top_p=1.0,
-        max_output_tokens=16,
         seed=42,
     )
     assert local_payload["reasoning_effort"] == "none"
@@ -36,7 +35,6 @@ def test_build_payload_maps_thinking_control_by_provider() -> None:
         [{"role": "user", "content": "hi"}],
         temperature=0.0,
         top_p=1.0,
-        max_output_tokens=16,
         seed=42,
     )
     assert deepseek_payload["thinking"] == {"type": "disabled"}
@@ -48,7 +46,6 @@ def test_build_payload_maps_thinking_control_by_provider() -> None:
         [{"role": "user", "content": "hi"}],
         temperature=0.0,
         top_p=1.0,
-        max_output_tokens=16,
         seed=42,
     )
     assert xiaomimimo_payload["thinking"] == {"type": "disabled"}
@@ -61,7 +58,6 @@ def test_build_payload_maps_thinking_control_by_provider() -> None:
         [{"role": "user", "content": "hi"}],
         temperature=0.0,
         top_p=1.0,
-        max_output_tokens=16,
         seed=42,
         use_response_format=False,
     )
@@ -104,19 +100,16 @@ def test_execute_completion_request_reconciles_usage() -> None:
     throttle = RequestThrottle(
         max_concurrent_requests=2,
         requests_per_minute=None,
-        tokens_per_minute=200,
         window_seconds=0.05,
     )
     payload = {
         "messages": [{"role": "user", "content": "hello"}],
-        "max_tokens": 512,
     }
     response_payload = execute_completion_request(FakeProvider(), payload, throttle=throttle)
     assert response_payload["request_error"] is None
     assert response_payload["usage_reported"]["total_tokens"] == 20
     assert response_payload["request_started_at"]
-    assert response_payload["estimated_request_tokens"] > 0
-    assert sum(event.tokens for event in throttle.limiter.token_events) == 20
+    assert len(throttle.limiter.request_events) == 1
 
 
 def test_execute_completion_request_does_not_retry_429() -> None:
@@ -140,7 +133,6 @@ def test_execute_completion_request_does_not_retry_429() -> None:
     throttle = RequestThrottle(
         max_concurrent_requests=2,
         requests_per_minute=None,
-        tokens_per_minute=None,
     )
     response_payload = execute_completion_request(
         provider,
@@ -231,7 +223,6 @@ def test_provider_rotates_shared_http_client_after_protocol_error(monkeypatch: p
                 "messages": [{"role": "user", "content": "hello"}],
                 "temperature": 0.0,
                 "top_p": 1.0,
-                "max_tokens": 64,
             }
         )
         assert response.http_status == 200

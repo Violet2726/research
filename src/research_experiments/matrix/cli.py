@@ -19,7 +19,6 @@ from research_experiments.matrix.orchestrator import (
     DEFAULT_MODEL_REF,
     DEFAULT_PHASE,
     DEFAULT_REQUESTS_PER_MINUTE,
-    DEFAULT_TOKENS_PER_MINUTE,
     RuntimeOverrides,
     _resolve_matrix_id_from_state,
     collect_blocking_entries,
@@ -61,7 +60,6 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--model", default=DEFAULT_MODEL_REF)
         command.add_argument("--max-concurrent-requests", type=int, default=DEFAULT_MAX_CONCURRENT_REQUESTS)
         command.add_argument("--requests-per-minute-limit", type=int, default=DEFAULT_REQUESTS_PER_MINUTE)
-        command.add_argument("--tokens-per-minute-limit", type=int, default=DEFAULT_TOKENS_PER_MINUTE)
 
     run_cmd.add_argument("--state-root", default=None)
     run_cmd.add_argument("--reference-state-path")
@@ -95,7 +93,6 @@ def main(argv: list[str] | None = None) -> None:
             model_ref=args.model,
             max_concurrent_requests=args.max_concurrent_requests,
             requests_per_minute_limit=args.requests_per_minute_limit,
-            tokens_per_minute_limit=args.tokens_per_minute_limit,
         )
         matrix = build_run_matrix(overrides, matrix_id=args.matrix)
         profile = get_matrix_profile(args.matrix)
@@ -118,7 +115,6 @@ def main(argv: list[str] | None = None) -> None:
             model_ref=args.model,
             max_concurrent_requests=args.max_concurrent_requests,
             requests_per_minute_limit=args.requests_per_minute_limit,
-            tokens_per_minute_limit=args.tokens_per_minute_limit,
         )
         run_dir = run_matrix(
             args.matrix,

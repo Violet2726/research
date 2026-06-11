@@ -20,11 +20,7 @@ from research_experiments.core.execution.providers.normalization import (
     extract_finish_reason,
     extract_message_channels,
 )
-from research_experiments.core.execution.providers.payloads import (
-    estimate_request_tokens,
-    realized_total_tokens,
-)
-from research_experiments.core.execution.rate_limits import RateLimitReservation, RequestThrottle
+from research_experiments.core.execution.rate_limits import RequestThrottle
 
 
 @dataclass
@@ -160,13 +156,11 @@ def execute_completion_request(
     HTTP 429 不在这里重试。重试会把同一个限流事件放大成请求风暴；
     provider 返回的 Retry-After 只用于推进共享限流器的全局冷却窗口。
     """
-    reservation: RateLimitReservation | None = None
-    throttle_context = throttle.reserve(estimate_request_tokens(payload)) if throttle is not None else None
+    throttle_context = throttle.reserve() if throttle is not None else None
     try:
         if throttle_context is not None:
-            reservation = throttle_context.__enter__()
+            throttle_context.__enter__()
         request_started_at = datetime.now(UTC).isoformat()
-        estimated_request_tokens = estimate_request_tokens(payload)
         response = provider.chat_completion(payload)
         response_payload = {
             "http_status": response.http_status,
@@ -181,15 +175,12 @@ def execute_completion_request(
             "provider_request_id": response.provider_request_id,
             "response_id": response.response_id,
             "request_started_at": request_started_at,
-            "estimated_request_tokens": estimated_request_tokens,
             "request_error": None,
         }
-        if throttle is not None and reservation is not None:
-            throttle.settle(reservation, realized_total_tokens(response_payload))
         return response_payload
     except httpx.HTTPStatusError as exc:
-        if throttle is not None and reservation is not None:
-            throttle.settle(reservation, 0, http_status=exc.response.status_code)
+        if throttle is not None:
+            throttle.settle(http_status=exc.response.status_code)
         response_text = exc.response.text
         provider_request_id = (
             exc.response.headers.get("x-request-id")
@@ -208,13 +199,10 @@ def execute_completion_request(
             "provider_request_id": provider_request_id,
             "response_id": None,
             "request_started_at": request_started_at,
-            "estimated_request_tokens": estimated_request_tokens,
             "request_error": f"Provider returned HTTP {exc.response.status_code}: {response_text}",
         }
     except httpx.TransportError as exc:
         provider._reset_shared_client(provider._client_handle.client)
-        if throttle is not None and reservation is not None:
-            throttle.settle(reservation, 0)
         return {
             "http_status": None,
             "raw_payload": {"error": f"Provider connection error: {exc}"},
@@ -228,12 +216,11 @@ def execute_completion_request(
             "provider_request_id": None,
             "response_id": None,
             "request_started_at": request_started_at,
-            "estimated_request_tokens": estimated_request_tokens,
             "request_error": f"Provider connection error: {exc}",
         }
     except ProviderRequestError as exc:
-        if throttle is not None and reservation is not None:
-            throttle.settle(reservation, 0, http_status=exc.http_status)
+        if throttle is not None:
+            throttle.settle(http_status=exc.http_status)
         return {
             "http_status": exc.http_status,
             "raw_payload": {"error": exc.message},
@@ -247,7 +234,6 @@ def execute_completion_request(
             "provider_request_id": exc.provider_request_id,
             "response_id": None,
             "request_started_at": request_started_at,
-            "estimated_request_tokens": estimated_request_tokens,
             "request_error": exc.message,
         }
     finally:

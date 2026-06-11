@@ -49,7 +49,6 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "global_seed": experiment.global_seed,
         "max_concurrent_requests": experiment.max_concurrent_requests,
         "requests_per_minute_limit": experiment.requests_per_minute_limit,
-        "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
         "workspace_defaults": workspace_defaults("adaptive_sparse_mad"),
         "primary_model_ref": experiment.primary_model_ref,
         "resolved_model": asdict(resolved_model),

@@ -10,7 +10,6 @@ chat_path = "/chat/completions"
 # 这些默认采样参数会被该 provider 下的大多数模型继承。
 default_temperature = 0.0
 default_top_p = 1.0
-default_max_output_tokens = 256
 # 是否支持 response_format，以及默认使用什么格式约束输出。
 supports_response_format = true
 response_format = "json_object"

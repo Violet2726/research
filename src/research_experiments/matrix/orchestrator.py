@@ -14,7 +14,6 @@ from research_experiments.core.config import load_benchmark_config
 from research_experiments.core.execution.rate_limits import (
     STANDARD_MAX_CONCURRENT_REQUESTS,
     STANDARD_REQUESTS_PER_MINUTE_LIMIT,
-    STANDARD_TOKENS_PER_MINUTE_LIMIT,
 )
 from research_experiments.core.io import read_json, read_toml, write_json, write_markdown
 from research_experiments.families.registry import get_family_registration, validator_map
@@ -42,7 +41,6 @@ DEFAULT_PHASE = "count20"
 DEFAULT_MODEL_REF = "xiaomimimo/mimo-v2.5"
 DEFAULT_MAX_CONCURRENT_REQUESTS = STANDARD_MAX_CONCURRENT_REQUESTS
 DEFAULT_REQUESTS_PER_MINUTE = STANDARD_REQUESTS_PER_MINUTE_LIMIT
-DEFAULT_TOKENS_PER_MINUTE = STANDARD_TOKENS_PER_MINUTE_LIMIT
 MATRIX_EXPERIMENT_KIND = MATRIX_RUN_KIND_FAITHFUL
 REPRODUCTION_MATRIX_EXPERIMENT_KIND = "reproduction_matrix"
 
@@ -57,7 +55,6 @@ class RuntimeOverrides:
     model_ref: str = DEFAULT_MODEL_REF
     max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS
     requests_per_minute_limit: int = DEFAULT_REQUESTS_PER_MINUTE
-    tokens_per_minute_limit: int = DEFAULT_TOKENS_PER_MINUTE
 
 
 @dataclass(frozen=True)
@@ -482,12 +479,10 @@ def apply_runtime_overrides(family: str, experiment: Any, overrides: RuntimeOver
     raw = copy.deepcopy(experiment.raw)
     raw["max_concurrent_requests"] = overrides.max_concurrent_requests
     raw["requests_per_minute_limit"] = overrides.requests_per_minute_limit
-    raw["tokens_per_minute_limit"] = overrides.tokens_per_minute_limit
 
     replace_kwargs: dict[str, Any] = {
         "max_concurrent_requests": overrides.max_concurrent_requests,
         "requests_per_minute_limit": overrides.requests_per_minute_limit,
-        "tokens_per_minute_limit": overrides.tokens_per_minute_limit,
         "raw": raw,
     }
 
@@ -621,7 +616,7 @@ def _render_matrix_report(matrix: MatrixBuild, counts: dict[str, int]) -> str:
         f"- generated_at: `{datetime.now(UTC).isoformat()}`",
         f"- matrix_id: `{matrix.matrix_id}`",
         f"- model: `{matrix.overrides.model_ref}`",
-        f"- rate_limits: `{matrix.overrides.max_concurrent_requests}` / `{matrix.overrides.requests_per_minute_limit}` / `{matrix.overrides.tokens_per_minute_limit}`",
+        f"- rate_limits: `{matrix.overrides.max_concurrent_requests}` / `{matrix.overrides.requests_per_minute_limit}`",
         f"- counts: `{json.dumps(counts, ensure_ascii=False)}`",
         "",
         "| family | config | track | role | status | run_dir | notes |",

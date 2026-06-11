@@ -91,7 +91,6 @@ class CallSpec:
     messages: list[dict[str, str]] | None = None
     temperature: float | None = None
     top_p: float | None = None
-    max_output_tokens: int | None = None
     seed: int | None = None
 
 
@@ -151,7 +150,6 @@ def _run_method_batch(
                 messages=messages,
                 temperature=method.temperature,
                 top_p=method.top_p,
-                max_output_tokens=method.max_output_tokens,
                 seed=seed,
             )
             cache_key = build_request_cache_key(
@@ -182,7 +180,6 @@ def _run_method_batch(
                     messages=messages,
                     temperature=method.temperature,
                     top_p=method.top_p,
-                    max_output_tokens=method.max_output_tokens,
                     seed=seed,
                 )
             )
@@ -374,7 +371,6 @@ def _execute_shared_no_comm_turn(
     throttle,
     temperature: float,
     top_p: float,
-    max_output_tokens: int,
     seed: int,
     method_family: str,
     sample_order: int,
@@ -390,7 +386,6 @@ def _execute_shared_no_comm_turn(
         messages=messages,
         temperature=temperature,
         top_p=top_p,
-        max_output_tokens=max_output_tokens,
         seed=seed,
         schema_id=SCHEMA_ANSWER_CORE,
         dataset=dataset,
@@ -483,7 +478,6 @@ def _execute_call(
         and spec.messages is not None
         and spec.temperature is not None
         and spec.top_p is not None
-        and spec.max_output_tokens is not None
     ):
         result = execute_cached_turn(
             backbone=spec.backbone,
@@ -493,7 +487,6 @@ def _execute_call(
             messages=spec.messages,
             temperature=spec.temperature,
             top_p=spec.top_p,
-            max_output_tokens=spec.max_output_tokens,
             seed=spec.seed,
             schema_id=SCHEMA_ANSWER_CORE,
             dataset=spec.dataset,

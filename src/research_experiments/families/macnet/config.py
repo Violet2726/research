@@ -20,7 +20,6 @@ class ProtocolConfig:
     actor_temperature: float
     critic_temperature: float
     top_p: float
-    max_output_tokens: int
     parent_artifact_token_cap: int
     inbound_instruction_token_cap: int
     memory_control_max_parents: int
@@ -53,7 +52,6 @@ class MacnetExperimentConfig:
     prompt_version: str
     max_concurrent_requests: int
     requests_per_minute_limit: int | None
-    tokens_per_minute_limit: int | None
     primary_model_ref: str
     raw: dict[str, Any]
 
@@ -67,7 +65,6 @@ def load_protocol_config(path: str | Path) -> ProtocolConfig:
         actor_temperature=float(payload["actor_temperature"]),
         critic_temperature=float(payload["critic_temperature"]),
         top_p=float(payload["top_p"]),
-        max_output_tokens=int(payload["max_output_tokens"]),
         parent_artifact_token_cap=int(payload["parent_artifact_token_cap"]),
         inbound_instruction_token_cap=int(payload["inbound_instruction_token_cap"]),
         memory_control_max_parents=int(payload["memory_control_max_parents"]),
@@ -102,7 +99,6 @@ def load_experiment_config(path: str | Path) -> MacnetExperimentConfig:
         prompt_version=str(payload["prompt_version"]),
         max_concurrent_requests=runtime["max_concurrent_requests"],
         requests_per_minute_limit=runtime["requests_per_minute_limit"],
-        tokens_per_minute_limit=runtime["tokens_per_minute_limit"],
         primary_model_ref=str(payload["primary_model_ref"]),
         raw=payload,
     )

@@ -71,7 +71,6 @@ def run_experiment(
         backbone,
         max_concurrent_requests=experiment.max_concurrent_requests,
         requests_per_minute=experiment.requests_per_minute_limit,
-        tokens_per_minute=experiment.tokens_per_minute_limit,
     )
     run_id = build_run_id(backbone.name)
     run_paths = prepare_registered_run_layout(
@@ -105,7 +104,6 @@ def run_experiment(
                 "agent_count": protocol.agent_count,
                 "top_p": protocol.top_p,
                 "stage_a_temperature": protocol.stage_a_temperature,
-                "stage_a_max_output_tokens": protocol.stage_a_max_output_tokens,
                 "consensus_confidence_threshold": protocol.consensus_confidence_threshold,
                 "majority_confidence_threshold": protocol.majority_confidence_threshold,
                 "majority_margin_threshold": protocol.majority_margin_threshold,
@@ -120,7 +118,6 @@ def run_experiment(
             "global_seed": experiment.global_seed,
             "max_concurrent_requests": experiment.max_concurrent_requests,
             "requests_per_minute_limit": experiment.requests_per_minute_limit,
-            "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
             "family_name": "adaptive_sparse_mad",
             "experiment_name": experiment.name,
             "phase_name": phase_name,
@@ -237,7 +234,6 @@ def refresh_stage_a_only_run_artifacts(run_dir: str | Path) -> Path:
         agent_count=int(protocol_payload.get("agent_count") or 3),
         top_p=float(protocol_payload.get("top_p") or 1.0),
         stage_a_temperature=float(protocol_payload.get("stage_a_temperature") or 0.7),
-        stage_a_max_output_tokens=int(protocol_payload.get("stage_a_max_output_tokens") or 256),
         consensus_confidence_threshold=float(protocol_payload.get("consensus_confidence_threshold") or 0.65),
         majority_confidence_threshold=float(protocol_payload.get("majority_confidence_threshold") or 0.6),
         majority_margin_threshold=float(protocol_payload.get("majority_margin_threshold") or 0.25),

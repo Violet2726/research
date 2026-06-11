@@ -138,7 +138,6 @@ def run_unified_control_sample(
                 throttle=throttle,
                 temperature=method.temperature,
                 top_p=method.top_p,
-                max_output_tokens=method.max_output_tokens,
                 seed=seed,
             )
         )

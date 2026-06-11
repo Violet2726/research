@@ -209,9 +209,7 @@ def build_request_cache_key(
 def normalize_payload_for_cache_key(payload: dict[str, Any]) -> dict[str, Any]:
     """Return the canonical payload fingerprint used for cache keys."""
 
-    normalized = dict(payload)
-    normalized.pop("max_tokens", None)
-    return normalized
+    return dict(payload)
 
 
 def cache_successful_response(

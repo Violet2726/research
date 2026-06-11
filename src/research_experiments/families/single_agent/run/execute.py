@@ -88,13 +88,11 @@ def run_experiment(
             primary_model,
             max_concurrent_requests=experiment.max_concurrent_requests,
             requests_per_minute=experiment.requests_per_minute_limit,
-            tokens_per_minute=experiment.tokens_per_minute_limit,
         )
         if primary_model is not None
         else RequestThrottle(
             max_concurrent_requests=experiment.max_concurrent_requests,
             requests_per_minute=experiment.requests_per_minute_limit,
-            tokens_per_minute=experiment.tokens_per_minute_limit,
         )
     )
     total_planned_calls, total_planned_predictions = _estimate_run_work(
@@ -131,7 +129,6 @@ def run_experiment(
         "reruns_per_method": experiment.reruns_per_method,
         "max_concurrent_requests": experiment.max_concurrent_requests,
         "requests_per_minute_limit": experiment.requests_per_minute_limit,
-        "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
         "models": [asdict(model) for model in models],
         "benchmarks": [asdict(benchmark) for benchmark in benchmarks],
         "phase_metadata": phase,

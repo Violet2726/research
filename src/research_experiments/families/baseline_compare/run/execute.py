@@ -64,7 +64,6 @@ def run_experiment(
         backbone,
         max_concurrent_requests=experiment.max_concurrent_requests,
         requests_per_minute=experiment.requests_per_minute_limit,
-        tokens_per_minute=experiment.tokens_per_minute_limit,
     )
     run_id = build_run_id(backbone.name)
     run_paths = prepare_registered_run_layout(
@@ -104,7 +103,6 @@ def run_experiment(
         "prompt_version": experiment.prompt_version,
         "max_concurrent_requests": experiment.max_concurrent_requests,
         "requests_per_minute_limit": experiment.requests_per_minute_limit,
-        "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
         "artifact_version": ARTIFACT_VERSION,
         "backbone": asdict(backbone),
         "benchmarks": [asdict(item) for item in benchmarks],

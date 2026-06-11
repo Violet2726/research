@@ -25,7 +25,6 @@ class CommNecessaryProtocolConfig:
     initial_temperature: float
     update_temperature: float
     top_p: float
-    max_output_tokens: int
     answer_only_token_cap: int
     evidence_token_cap: int
     full_packet_token_cap: int
@@ -44,7 +43,6 @@ class CommNecessaryExperimentConfig:
     prompt_version: str
     max_concurrent_requests: int
     requests_per_minute_limit: int | None
-    tokens_per_minute_limit: int | None
     primary_model_ref: str
     raw: dict[str, Any]
 
@@ -58,7 +56,6 @@ def load_protocol_config(path: str | Path) -> CommNecessaryProtocolConfig:
         initial_temperature=float(payload["initial_temperature"]),
         update_temperature=float(payload["update_temperature"]),
         top_p=float(payload["top_p"]),
-        max_output_tokens=int(payload["max_output_tokens"]),
         answer_only_token_cap=int(payload["answer_only_token_cap"]),
         evidence_token_cap=int(payload["evidence_token_cap"]),
         full_packet_token_cap=int(payload["full_packet_token_cap"]),
@@ -79,7 +76,6 @@ def load_experiment_config(path: str | Path) -> CommNecessaryExperimentConfig:
         prompt_version=str(payload["prompt_version"]),
         max_concurrent_requests=runtime["max_concurrent_requests"],
         requests_per_minute_limit=runtime["requests_per_minute_limit"],
-        tokens_per_minute_limit=runtime["tokens_per_minute_limit"],
         primary_model_ref=str(payload["primary_model_ref"]),
         raw=payload,
     )

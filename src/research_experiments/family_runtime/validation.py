@@ -51,7 +51,6 @@ def validate_rate_limit_check(
     *,
     manifest: dict[str, Any] | None = None,
     requests_per_minute_limit: int | None = None,
-    tokens_per_minute_limit: int | None = None,
 ) -> dict[str, Any]:
     """Validate that a run stayed within its configured rate limits."""
 
@@ -64,55 +63,37 @@ def validate_rate_limit_check(
         if requests_per_minute_limit is not None
         else (manifest or {}).get("requests_per_minute_limit")
     )
-    tpm_limit = _optional_int(
-        tokens_per_minute_limit
-        if tokens_per_minute_limit is not None
-        else (manifest or {}).get("tokens_per_minute_limit")
-    )
-
-    events: list[tuple[datetime, int, dict[str, Any]]] = []
+    events: list[tuple[datetime, dict[str, Any]]] = []
     for row in turn_rows:
         if row.get("cache_hit"):
             continue
         timestamp = row.get("request_started_at")
         if not timestamp:
             continue
-        events.append(
-            (
-                _parse_timestamp(str(timestamp)),
-                max(0, int(row.get("estimated_request_tokens") or 0)),
-                row,
-            )
-        )
+        events.append((_parse_timestamp(str(timestamp)), row))
     events.sort(key=lambda item: item[0])
 
-    active_window: deque[tuple[datetime, int, dict[str, Any]]] = deque()
-    active_token_total = 0
+    active_window: deque[tuple[datetime, dict[str, Any]]] = deque()
     violations: list[dict[str, Any]] = []
-    for timestamp, estimated_tokens, row in events:
+    for timestamp, row in events:
         while active_window and (timestamp - active_window[0][0]).total_seconds() >= 60.0:
-            _, expired_tokens, _ = active_window.popleft()
-            active_token_total -= expired_tokens
-        active_window.append((timestamp, estimated_tokens, row))
-        active_token_total += estimated_tokens
+            active_window.popleft()
+        active_window.append((timestamp, row))
 
         if rpm_limit is not None and len(active_window) > rpm_limit:
             violations.append(_rate_violation("rpm", len(active_window), rpm_limit, row))
-        if tpm_limit is not None and active_token_total > tpm_limit:
-            violations.append(_rate_violation("tpm", active_token_total, tpm_limit, row))
 
     replay_confirms_no_violation = bool(events) and not violations
     passed = not violations and (progress_429_count == 0 or replay_confirms_no_violation)
     return {
         "passed": passed,
-        "enabled": bool(rpm_limit or tpm_limit),
+        "enabled": bool(rpm_limit),
         "progress_present": progress_file.exists(),
         "progress_429_count": progress_429_count,
         "network_event_count": len(events),
         "event_replay_available": bool(events),
         "replay_confirms_no_violation": replay_confirms_no_violation,
         "requests_per_minute_limit": rpm_limit,
-        "tokens_per_minute_limit": tpm_limit,
         "violation_count": len(violations),
         "violations": violations[:20],
     }

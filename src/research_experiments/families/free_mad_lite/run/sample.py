@@ -121,7 +121,6 @@ def _run_sample(
                 throttle=throttle,
                 temperature=protocol.initial_temperature,
                 top_p=protocol.top_p,
-                max_output_tokens=protocol.max_output_tokens,
                 seed=global_seed + agent_id,
             )
         )
@@ -261,7 +260,6 @@ def _run_debate_round(
                 throttle=throttle,
                 temperature=protocol.debate_temperature,
                 top_p=protocol.top_p,
-                max_output_tokens=protocol.max_output_tokens,
                 seed=global_seed + recipient_id + (100 if mode == "vanilla" else 2000),
                 extra_fields={"debate_mode": mode, "visible_peer_count": len(peer_messages)},
             )
@@ -316,7 +314,6 @@ def _run_trajectory_judge(
         throttle=throttle,
         temperature=protocol.judge_temperature,
         top_p=protocol.top_p,
-        max_output_tokens=protocol.judge_max_output_tokens,
         seed=global_seed + 9000,
         extra_fields={"visible_trajectory_count": len(trajectories)},
     )
@@ -511,7 +508,6 @@ def _execute_turn(
     throttle: RequestThrottle,
     temperature: float,
     top_p: float,
-    max_output_tokens: int,
     seed: int,
     extra_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -523,7 +519,6 @@ def _execute_turn(
         messages=messages,
         temperature=temperature,
         top_p=top_p,
-        max_output_tokens=max_output_tokens,
         seed=seed,
         validator=lambda raw_text, provider_reasoning_text: _validate_output(
             raw_text,

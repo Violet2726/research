@@ -498,7 +498,6 @@ def _run_single_reasoning(
         throttle=throttle,
         temperature=0.0,
         top_p=1.0,
-        max_output_tokens=256,
         seed=experiment.global_seed + seed_offset,
         agent_id=profile.agent_id,
     )
@@ -564,7 +563,6 @@ def _run_single_agent_reflection(
         throttle=throttle,
         temperature=0.0,
         top_p=1.0,
-        max_output_tokens=256,
         seed=experiment.global_seed + seed_offset,
         agent_id=profile.agent_id,
     )
@@ -593,7 +591,6 @@ def _run_single_agent_reflection(
         throttle=throttle,
         temperature=0.0,
         top_p=1.0,
-        max_output_tokens=160,
         seed=experiment.global_seed + seed_offset + 1,
         agent_id=profile.agent_id,
     )
@@ -623,7 +620,6 @@ def _run_single_agent_reflection(
         throttle=throttle,
         temperature=0.0,
         top_p=1.0,
-        max_output_tokens=256,
         seed=experiment.global_seed + seed_offset + 2,
         agent_id=profile.agent_id,
     )
@@ -693,7 +689,6 @@ def _run_self_consistency(
                 throttle=throttle,
                 temperature=0.7,
                 top_p=1.0,
-                max_output_tokens=256,
                 seed=experiment.global_seed + seed_offset + replicate_index,
                 agent_id=profile.agent_id,
             )
@@ -764,7 +759,6 @@ def _run_self_contrast(
             throttle=throttle,
             temperature=0.0,
             top_p=1.0,
-            max_output_tokens=256,
             seed=experiment.global_seed + seed_offset + index,
             agent_id=profile.agent_id,
         )
@@ -796,7 +790,6 @@ def _run_self_contrast(
         throttle=throttle,
         temperature=0.0,
         top_p=1.0,
-        max_output_tokens=256,
         seed=experiment.global_seed + seed_offset + 100,
         agent_id=0,
     )
@@ -825,7 +818,6 @@ def _run_self_contrast(
         throttle=throttle,
         temperature=0.0,
         top_p=1.0,
-        max_output_tokens=256,
         seed=experiment.global_seed + seed_offset + 101,
         agent_id=0,
     )
@@ -908,7 +900,6 @@ def _run_mrp(
         throttle=throttle,
         temperature=0.0,
         top_p=1.0,
-        max_output_tokens=256,
         seed=experiment.global_seed + seed_offset + 1,
         agent_id=solve_profile.agent_id,
     )
@@ -1019,7 +1010,6 @@ def _run_mad_method(
                     throttle=throttle,
                     temperature=_joint_round_temperature(protocol, round_index=round_index),
                     top_p=protocol.top_p,
-                    max_output_tokens=_joint_round_max_output_tokens(protocol),
                     seed=experiment.global_seed + seed_offset + round_index * 100 + index,
                     agent_id=profile.agent_id,
                 )
@@ -1068,7 +1058,6 @@ def _run_mad_method(
                     throttle=throttle,
                     temperature=protocol.initial_temperature if round_index == 1 else protocol.debate_temperature,
                     top_p=protocol.top_p,
-                    max_output_tokens=protocol.max_output_tokens,
                     seed=experiment.global_seed + seed_offset + round_index * 100 + index * 2,
                     agent_id=profile.agent_id,
                 )
@@ -1106,7 +1095,6 @@ def _run_mad_method(
                     throttle=throttle,
                     temperature=0.0,
                     top_p=protocol.top_p,
-                    max_output_tokens=min(128, protocol.max_output_tokens),
                     seed=experiment.global_seed + seed_offset + round_index * 100 + index * 2 + 1,
                     agent_id=profile.agent_id,
                 )
@@ -1714,12 +1702,6 @@ def _is_joint_debate_call_style(method: DmadMethodSpec) -> bool:
     return normalized == "joint_reasoning_answer"
 
 
-def _joint_round_max_output_tokens(protocol: ProtocolConfig) -> int:
-    """计算联合调用辩论轮允许的最大输出 token 数。"""
-
-    return int(protocol.max_output_tokens) + min(128, int(protocol.max_output_tokens))
-
-
 def _joint_round_temperature(protocol: ProtocolConfig, *, round_index: int) -> float:
     """计算联合调用辩论轮的保守温度。"""
 
@@ -1774,7 +1756,6 @@ def _execute_process_turn(
     throttle,
     temperature: float,
     top_p: float,
-    max_output_tokens: int,
     seed: int,
 ) -> dict[str, Any]:
     """执行只产出推理过程的模型调用。"""
@@ -1793,7 +1774,6 @@ def _execute_process_turn(
         messages=messages,
         temperature=temperature,
         top_p=top_p,
-        max_output_tokens=max_output_tokens,
         seed=seed,
         validator=validator,
         dataset=dataset,
@@ -1858,7 +1838,6 @@ def _execute_feedback_turn(
     throttle,
     temperature: float,
     top_p: float,
-    max_output_tokens: int,
     seed: int,
 ) -> dict[str, Any]:
     """执行纯文本反馈类模型调用。"""
@@ -1871,7 +1850,6 @@ def _execute_feedback_turn(
         messages=messages,
         temperature=temperature,
         top_p=top_p,
-        max_output_tokens=max_output_tokens,
         seed=seed,
         validator=_validate_feedback_output,
         dataset=dataset,
@@ -1933,7 +1911,6 @@ def _execute_reasoning_answer_turn(
     throttle,
     temperature: float,
     top_p: float,
-    max_output_tokens: int,
     seed: int,
 ) -> dict[str, Any]:
     """执行标准答案调用，PoT 方法会额外解析并运行程序产物。"""
@@ -1960,7 +1937,6 @@ def _execute_reasoning_answer_turn(
             throttle=throttle,
             temperature=temperature,
             top_p=top_p,
-            max_output_tokens=max_output_tokens,
             seed=seed,
         )
     result = execute_cached_turn(
@@ -1971,7 +1947,6 @@ def _execute_reasoning_answer_turn(
         messages=messages,
         temperature=temperature,
         top_p=top_p,
-        max_output_tokens=max_output_tokens,
         seed=seed,
         validator=lambda assistant_text, provider_reasoning_text: asdict(
             build_pot_answer_artifact(
@@ -2048,7 +2023,6 @@ def _execute_method_selection_turn(
         ),
         temperature=0.0,
         top_p=1.0,
-        max_output_tokens=192,
         seed=seed,
         validator=lambda assistant_text, provider_reasoning_text: _validate_method_selection_output(
             assistant_text,
@@ -2112,7 +2086,6 @@ def _execute_turn(
     throttle,
     temperature: float,
     top_p: float,
-    max_output_tokens: int,
     seed: int,
 ) -> dict[str, Any]:
     """执行返回 final_answer 的通用结构化模型调用。"""
@@ -2125,7 +2098,6 @@ def _execute_turn(
         messages=messages,
         temperature=temperature,
         top_p=top_p,
-        max_output_tokens=max_output_tokens,
         seed=seed,
         schema_id=SCHEMA_ANSWER_CORE,
         dataset=dataset,

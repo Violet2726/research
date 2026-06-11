@@ -29,7 +29,6 @@ class ProviderConfig:
     chat_path: str
     default_temperature: float
     default_top_p: float
-    default_max_output_tokens: int
     supports_response_format: bool
     response_format: str | None
     timeout_seconds: int
@@ -44,7 +43,6 @@ class ModelCatalogEntry:
     reasoning_effort: str | None
     supports_response_format: bool | None
     response_format: str | None
-    default_max_output_tokens: int | None
     timeout_seconds: int | None
 
 
@@ -60,7 +58,6 @@ class ResolvedModelConfig:
     chat_path: str
     default_temperature: float
     default_top_p: float
-    default_max_output_tokens: int
     reasoning_effort: str | None
     supports_response_format: bool
     response_format: str | None
@@ -116,7 +113,6 @@ def load_provider_config(path: str | Path) -> ProviderConfig:
         chat_path=str(payload["chat_path"]),
         default_temperature=float(payload["default_temperature"]),
         default_top_p=float(payload["default_top_p"]),
-        default_max_output_tokens=int(payload["default_max_output_tokens"]),
         supports_response_format=bool(payload["supports_response_format"]),
         response_format=payload.get("response_format"),
         timeout_seconds=int(payload["timeout_seconds"]),
@@ -140,7 +136,6 @@ def load_model_catalog(path: str | Path = DEFAULT_MODEL_CATALOG_PATH) -> dict[st
             reasoning_effort=_optional_reasoning_effort(item, "reasoning_effort"),
             supports_response_format=_optional_bool(item, "supports_response_format"),
             response_format=item.get("response_format"),
-            default_max_output_tokens=_optional_int(item, "default_max_output_tokens"),
             timeout_seconds=_optional_int(item, "timeout_seconds"),
         )
         for model_ref, item in models.items()
@@ -187,11 +182,6 @@ def resolve_model_ref(
         chat_path=provider.chat_path,
         default_temperature=provider.default_temperature,
         default_top_p=provider.default_top_p,
-        default_max_output_tokens=(
-            catalog_entry.default_max_output_tokens
-            if catalog_entry and catalog_entry.default_max_output_tokens is not None
-            else provider.default_max_output_tokens
-        ),
         reasoning_effort=(
             catalog_entry.reasoning_effort
             if catalog_entry and catalog_entry.reasoning_effort is not None

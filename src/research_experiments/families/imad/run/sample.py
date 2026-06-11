@@ -169,7 +169,6 @@ def _run_method_sample(
             initial_temperature=protocol.initial_temperature,
             debate_temperature=protocol.debate_temperature,
             top_p=protocol.top_p,
-            max_output_tokens=protocol.max_output_tokens,
             global_seed=global_seed,
             prompt_version=CONTROLLED_PROMPT_VERSION,
             execute_turn=lambda **kwargs: _execute_turn(
@@ -341,7 +340,6 @@ def _run_method_sample(
                 throttle=throttle,
                 temperature=protocol.initial_temperature,
                 top_p=protocol.top_p,
-                max_output_tokens=protocol.max_output_tokens,
                 seed=global_seed + agent_id,
             )
         )
@@ -434,7 +432,6 @@ def _run_method_sample(
                     throttle=throttle,
                     temperature=protocol.debate_temperature,
                     top_p=protocol.top_p,
-                    max_output_tokens=protocol.max_output_tokens,
                     seed=global_seed + recipient_id + round_index * 100,
                 )
             )
@@ -673,7 +670,6 @@ def _execute_turn(
     throttle: RequestThrottle,
     temperature: float,
     top_p: float,
-    max_output_tokens: int,
     seed: int,
     prompt_version: str = CONTROLLED_PROMPT_VERSION,
 ) -> dict[str, Any]:
@@ -687,7 +683,6 @@ def _execute_turn(
         messages=messages,
         temperature=temperature,
         top_p=top_p,
-        max_output_tokens=max_output_tokens,
         seed=seed,
         schema_id=SCHEMA_ANSWER_CORE,
         dataset=dataset,

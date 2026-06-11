@@ -28,7 +28,6 @@ def test_run_consensagent_sample_keeps_last_debate_round_when_consensus_breaks(m
         initial_temperature=0.3,
         debate_temperature=0.3,
         top_p=0.95,
-        max_output_tokens=128,
         trigger=TriggerConfig(stagnation_threshold=1, sycophancy_consistency_threshold=0.67, check_sycophancy_on_consensus=True),
         phase3=Phase3Config(enabled=False),
     )
@@ -75,7 +74,6 @@ def test_run_consensagent_sample_logs_phase3_rounds_and_uses_latest_round_for_fi
         initial_temperature=0.3,
         debate_temperature=0.3,
         top_p=0.95,
-        max_output_tokens=128,
         trigger=TriggerConfig(stagnation_threshold=1, sycophancy_consistency_threshold=0.67, check_sycophancy_on_consensus=True),
         phase3=Phase3Config(enabled=True, post_optimization_rounds=1),
     )

@@ -33,7 +33,7 @@ def send_request(index: int) -> dict:
     payload = {
         "model": MODEL,
         "messages": [{"role": "user", "content": f"说一个数字：{index}"}],
-        "max_tokens": 10,
+
     }
     start = time.time()
     try:

@@ -81,7 +81,6 @@ def run_experiment(
         backbone,
         max_concurrent_requests=experiment.max_concurrent_requests,
         requests_per_minute=experiment.requests_per_minute_limit,
-        tokens_per_minute=experiment.tokens_per_minute_limit,
     )
 
     # 先固定每个 benchmark 的 split，再一次性加载本轮样本，
@@ -135,7 +134,6 @@ def run_experiment(
         "global_seed": experiment.global_seed,
         "max_concurrent_requests": experiment.max_concurrent_requests,
         "requests_per_minute_limit": experiment.requests_per_minute_limit,
-        "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
         "family_name": "budget_comm",
         "experiment_name": experiment.name,
         "phase_name": phase_name,

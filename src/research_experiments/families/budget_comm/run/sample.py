@@ -404,7 +404,6 @@ def _prepare_shared_context(
             throttle=throttle,
             temperature=protocol.initial_temperature,
             top_p=protocol.top_p,
-            max_output_tokens=protocol.max_output_tokens,
             seed=experiment.global_seed + view.agent_id,
             output_mode=SCHEMA_ANSWER_WITH_PROXY_SIGNALS_BUDGET,
         )
@@ -504,7 +503,6 @@ def _run_stage_b_method(
             throttle=shared_context["throttle"],
             temperature=shared_context["protocol"].debate_temperature,
             top_p=shared_context["protocol"].top_p,
-            max_output_tokens=shared_context["protocol"].max_output_tokens,
             seed=shared_context["experiment"].global_seed + view.agent_id + 100,
             output_mode=SCHEMA_BELIEF_UPDATE_DELTA,
         )
@@ -803,7 +801,6 @@ def _execute_turn(
     throttle: RequestThrottle,
     temperature: float,
     top_p: float,
-    max_output_tokens: int,
     seed: int,
     output_mode: str,
 ) -> dict[str, Any]:
@@ -820,7 +817,6 @@ def _execute_turn(
         messages=messages,
         temperature=temperature,
         top_p=top_p,
-        max_output_tokens=max_output_tokens,
         seed=seed,
         schema_id=output_mode,
     )

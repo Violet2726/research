@@ -9,7 +9,6 @@ from pathlib import Path
 from research_experiments.core.execution.rate_limits import (
     STANDARD_MAX_CONCURRENT_REQUESTS,
     STANDARD_REQUESTS_PER_MINUTE_LIMIT,
-    STANDARD_TOKENS_PER_MINUTE_LIMIT,
 )
 from research_experiments.families.registry import (
     registered_family_names,
@@ -80,7 +79,6 @@ def test_family_experiment_configs_use_standard_runtime_limits() -> None:
     expected = {
         "max_concurrent_requests": STANDARD_MAX_CONCURRENT_REQUESTS,
         "requests_per_minute_limit": STANDARD_REQUESTS_PER_MINUTE_LIMIT,
-        "tokens_per_minute_limit": STANDARD_TOKENS_PER_MINUTE_LIMIT,
     }
     mismatches: list[str] = []
     registrations = {item.family_name: item for item in registered_family_registrations()}
@@ -91,7 +89,6 @@ def test_family_experiment_configs_use_standard_runtime_limits() -> None:
         actual = {
             "max_concurrent_requests": experiment.max_concurrent_requests,
             "requests_per_minute_limit": experiment.requests_per_minute_limit,
-            "tokens_per_minute_limit": experiment.tokens_per_minute_limit,
         }
         if actual != expected:
             rel_path = path.relative_to(ROOT).as_posix()

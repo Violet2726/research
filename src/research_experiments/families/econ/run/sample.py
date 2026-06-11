@@ -175,7 +175,6 @@ def _run_sample(
         throttle=throttle,
         temperature=protocol.initial_temperature,
         top_p=protocol.top_p,
-        max_output_tokens=protocol.max_output_tokens,
         seed=sample_seed,
         output_mode=SCHEMA_ANSWER_WITH_PROXY_SIGNALS_BUDGET,
     )
@@ -211,7 +210,6 @@ def _run_sample(
             throttle=throttle,
             temperature=protocol.initial_temperature,
             top_p=protocol.top_p,
-            max_output_tokens=protocol.max_output_tokens,
             seed=sample_seed + agent_id,
             output_mode=SCHEMA_ANSWER_WITH_PROXY_SIGNALS_BUDGET,
         )
@@ -408,7 +406,6 @@ def _run_coordination_method(
                 throttle=throttle,
                 temperature=protocol.belief_temperature,
                 top_p=protocol.top_p,
-                max_output_tokens=protocol.max_output_tokens,
                 seed=sample_seed + 100 + agent_id,
                 output_mode=SCHEMA_BELIEF_UPDATE_DELTA,
             )
@@ -750,7 +747,6 @@ def _execute_turn(
     throttle,
     temperature: float,
     top_p: float,
-    max_output_tokens: int,
     seed: int,
     output_mode: str,
 ) -> dict[str, Any]:
@@ -764,7 +760,6 @@ def _execute_turn(
         messages=messages,
         temperature=temperature,
         top_p=top_p,
-        max_output_tokens=max_output_tokens,
         seed=seed,
         schema_id=output_mode,
         dataset=dataset,

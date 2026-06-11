@@ -46,7 +46,6 @@ class Phase3Config:
     enabled: bool = True
     optimizer_temperature: float = 0.3
     post_optimization_rounds: int = 1
-    max_optimizer_output_tokens: int = 512
 
 
 @dataclass(frozen=True)
@@ -58,7 +57,6 @@ class ProtocolConfig:
     initial_temperature: float
     debate_temperature: float
     top_p: float
-    max_output_tokens: int
     trigger: TriggerConfig
     phase3: Phase3Config = field(default_factory=Phase3Config)
     method_type: str = "consensagent"
@@ -109,7 +107,6 @@ class ConsensagentExperimentConfig:
     prompt_version: str
     max_concurrent_requests: int
     requests_per_minute_limit: int | None
-    tokens_per_minute_limit: int | None
     primary_model_ref: str
     raw: dict[str, Any]
 
@@ -133,7 +130,6 @@ def load_protocol_config(path: str | Path) -> ProtocolConfig:
         initial_temperature=float(payload["initial_temperature"]),
         debate_temperature=float(payload["debate_temperature"]),
         top_p=float(payload["top_p"]),
-        max_output_tokens=int(payload["max_output_tokens"]),
         trigger=load_trigger_config(payload),
         phase3=load_phase3_config(payload),
         method_type=str(payload.get("method_type", "consensagent")),
@@ -147,7 +143,6 @@ def load_phase3_config(payload: dict[str, Any]) -> Phase3Config:
         enabled=bool(p3.get("enabled", True)),
         optimizer_temperature=float(p3.get("optimizer_temperature", 0.3)),
         post_optimization_rounds=int(p3.get("post_optimization_rounds", 1)),
-        max_optimizer_output_tokens=int(p3.get("max_optimizer_output_tokens", 512)),
     )
 
 
@@ -194,7 +189,6 @@ def load_experiment_config(path: str | Path) -> ConsensagentExperimentConfig:
         prompt_version=str(payload["prompt_version"]),
         max_concurrent_requests=runtime["max_concurrent_requests"],
         requests_per_minute_limit=runtime["requests_per_minute_limit"],
-        tokens_per_minute_limit=runtime["tokens_per_minute_limit"],
         primary_model_ref=str(payload["primary_model_ref"]),
         raw=payload,
     )

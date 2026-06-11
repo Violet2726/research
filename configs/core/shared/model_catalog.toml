@@ -7,14 +7,12 @@ tags = ["text", "reasoning", "general_qa", "provider_deepseek", "budget_comm_pri
 reasoning_effort = "none"
 supports_response_format = true
 response_format = "json_object"
-default_max_output_tokens = 256
 
 [models."siliconflow/deepseek-ai/DeepSeek-V4-Flash"]
 tags = ["text", "reasoning", "general_qa", "provider_siliconflow", "selective_comm_primary"]
 reasoning_effort = "none"
 supports_response_format = true
 response_format = "json_object"
-default_max_output_tokens = 256
 
 [models."zhipu/glm-4.6v-flash"]
 tags = ["text", "reasoning", "general_qa", "vision", "provider_zhipu"]
@@ -24,17 +22,14 @@ tags = ["text", "reasoning", "general_qa", "provider_xiaomimimo"]
 reasoning_effort = "none"
 supports_response_format = true
 response_format = "json_object"
-default_max_output_tokens = 256
 
 [models."local_ollama/qwen2.5:3b-instruct"]
 tags = ["text", "reasoning", "general_qa", "provider_local_ollama", "local_gpu_4gb"]
 supports_response_format = true
 response_format = "json_object"
-default_max_output_tokens = 256
 
 [models."local_ollama/qwen3:4b"]
 tags = ["text", "reasoning", "general_qa", "provider_local_ollama", "local_gpu_4gb", "qwen_latest"]
 reasoning_effort = "none"
 supports_response_format = true
 response_format = "json_object"
-default_max_output_tokens = 256

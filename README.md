@@ -50,7 +50,7 @@ tests/                自动化测试
 - 跨 family 共享的运行骨架统一放在 `src/research_experiments/family_runtime/`
 - family 之间不直接互相导入
 - 公开配置字段统一使用 `primary_model_ref`
-- 实验配置可以省略 `max_concurrent_requests / requests_per_minute_limit / tokens_per_minute_limit`；未显式声明时统一回落到 `90 / 95 / 9000000`
+- 实验配置可以省略 `max_concurrent_requests / requests_per_minute_limit`；未显式声明时统一回落到 `15 / 18`
 - faithful matrix 规格统一放在 `configs/core/matrix/faithful_matrix.toml`
 - 默认工作区统一放在 `local/`
   - `local/runs/<family>/<experiment>/<phase>/<run_id>/`

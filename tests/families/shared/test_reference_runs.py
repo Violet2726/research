@@ -212,7 +212,6 @@ def _resolved_model(name: str, provider: str, model_id: str) -> ResolvedModelCon
         chat_path="/chat/completions",
         default_temperature=0.0,
         default_top_p=1.0,
-        default_max_output_tokens=256,
         reasoning_effort="none",
         supports_response_format=True,
         response_format="json_object",

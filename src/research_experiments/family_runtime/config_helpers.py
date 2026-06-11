@@ -36,7 +36,6 @@ class RuntimeConfigPayload(Protocol):
 
     max_concurrent_requests: int
     requests_per_minute_limit: int | None
-    tokens_per_minute_limit: int | None
 
 
 def load_toml(path: str | Path) -> dict[str, Any]:
@@ -92,7 +91,6 @@ def apply_runtime_defaults(payload: dict[str, Any]) -> dict[str, int]:
         "requests_per_minute_limit": int(
             payload.get("requests_per_minute_limit", defaults["requests_per_minute_limit"])
         ),
-        "tokens_per_minute_limit": int(payload.get("tokens_per_minute_limit", defaults["tokens_per_minute_limit"])),
     }
 
 
