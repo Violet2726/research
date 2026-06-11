@@ -18,6 +18,7 @@ control_methods = ["cot_1", "sc_3", "sc_5"]
 method_order = ["cot_1", "sc_3", "sc_5", "mad_3a_r1", "mad_3a_r2", "mad_5a_r1"]
 global_seed = 42
 prompt_version = "multi_agent_controlled_json"
+answer_contract = "json_answer_core"
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 
 [[setups]]

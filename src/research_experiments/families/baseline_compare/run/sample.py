@@ -12,9 +12,8 @@ from research_experiments.core.data.evaluation import normalize_prediction
 from research_experiments.core.execution.cache import RequestCache
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
 from research_experiments.core.execution.rate_limits import RequestThrottle
-from research_experiments.core.execution.runner_common import execute_cached_turn, iter_indexed_batch
+from research_experiments.core.execution.runner_common import iter_indexed_batch
 from research_experiments.core.execution.runtime import RunProgressTracker
-from research_experiments.core.structured_outputs import SCHEMA_ANSWER_CORE
 from research_experiments.families.baseline_compare.config import (
     BaselineCompareExperimentConfig,
     ExperimentSetup,
@@ -23,8 +22,13 @@ from research_experiments.families.baseline_compare.config import (
     load_protocol_config,
     load_roster_config,
 )
+from research_experiments.family_runtime.answer_contracts import (
+    JSON_ANSWER_CORE_CONTRACT,
+    execute_answer_contract_turn,
+)
 from research_experiments.family_runtime.common import resolve_phase_split_name, safe_mean, safe_ratio
 from research_experiments.family_runtime.comparator_impls import (
+    build_shared_answer_extraction_diagnostics,
     build_shared_vanilla_mad_prediction,
     run_shared_vanilla_mad_rounds,
 )
@@ -57,6 +61,28 @@ class AgentTurnRecord:
     latency_ms: float
     cache_hit: bool
     request_error: str | None
+    request_status: str
+    raw_finish_reason: str | None
+    answer_extraction_status: str
+    answer_extraction_source: str | None
+    answer_extraction_error: str | None
+    raw_output_incomplete_suspected: bool
+    repair_call_used: bool
+    request_count: int
+    cache_request_count: int
+    network_request_count: int
+    raw_prompt_tokens: float
+    raw_completion_tokens: float
+    raw_total_tokens: float
+    raw_latency_ms: float
+    repair_prompt_tokens: float
+    repair_completion_tokens: float
+    repair_total_tokens: float
+    repair_latency_ms: float
+    repair_output_status: str | None
+    repair_request_error: str | None
+    repair_cache_hit: bool
+    repair_request_started_at: str | None
     visible_peer_count: int
     payload: dict[str, Any]
     assistant_text: str
@@ -119,6 +145,11 @@ class FinalPredictionRecord:
     harmed_by_debate: bool
     unchanged_correct: bool
     unchanged_wrong: bool
+    answer_extraction_failures_per_question: int
+    repair_calls_per_question: int
+    repair_failures_per_question: int
+    raw_output_incomplete_turns_per_question: int
+    repair_total_tokens_per_question: float
 
 
 def _run_mad_setup_batch(
@@ -135,6 +166,7 @@ def _run_mad_setup_batch(
     throttle: RequestThrottle,
     global_seed: int,
     prompt_version: str,
+    answer_contract: str,
     max_concurrent_requests: int,
 ) -> Iterator[tuple[int, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]]:
     worker = partial(
@@ -151,6 +183,7 @@ def _run_mad_setup_batch(
         throttle=throttle,
         global_seed=global_seed,
         prompt_version=prompt_version,
+        answer_contract=answer_contract,
     )
     for sample_index, result in iter_indexed_batch(
         samples,
@@ -199,6 +232,7 @@ def _run_mad_sample(
     throttle: RequestThrottle,
     global_seed: int,
     prompt_version: str,
+    answer_contract: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     shared_result = run_shared_vanilla_mad_rounds(
         sample=sample,
@@ -224,6 +258,7 @@ def _run_mad_sample(
             provider=provider,
             cache=cache,
             throttle=throttle,
+            answer_contract=answer_contract,
             **kwargs,
         ),
         build_debate_row=lambda sender, recipient_id, round_index: asdict(
@@ -277,6 +312,7 @@ def _build_control_prediction_row(
     completion_tokens = sum(float(row["completion_tokens"]) for row in turn_rows)
     total_tokens = sum(float(row["total_tokens"]) for row in turn_rows)
     latency_ms = sum(float(row["latency_ms"]) for row in turn_rows)
+    repair_total_tokens = sum(float(row.get("repair_total_tokens") or 0.0) for row in turn_rows)
     prediction_row = asdict(
         FinalPredictionRecord(
             run_id=run_id,
@@ -318,6 +354,19 @@ def _build_control_prediction_row(
             harmed_by_debate=False,
             unchanged_correct=final_score == 1.0,
             unchanged_wrong=final_score < 1.0,
+            answer_extraction_failures_per_question=sum(
+                1 for row in turn_rows if row.get("answer_extraction_status") == "failed"
+            ),
+            repair_calls_per_question=sum(1 for row in turn_rows if row.get("repair_call_used")),
+            repair_failures_per_question=sum(
+                1
+                for row in turn_rows
+                if row.get("repair_call_used") and str(row.get("repair_output_status") or "") != "ok"
+            ),
+            raw_output_incomplete_turns_per_question=sum(
+                1 for row in turn_rows if row.get("raw_output_incomplete_suspected")
+            ),
+            repair_total_tokens_per_question=repair_total_tokens,
         )
     )
     prediction_row["vote_counts"] = vote_counts
@@ -344,19 +393,22 @@ def _execute_turn(
     top_p: float,
     seed: int,
     prompt_version: str = CONTROLLED_PROMPT_VERSION,
+    answer_contract: str = JSON_ANSWER_CORE_CONTRACT,
 ) -> dict[str, Any]:
-    result = execute_cached_turn(
+    result = execute_answer_contract_turn(
         backbone=backbone,
         provider=provider,
         cache=cache,
         throttle=throttle,
+        sample=sample,
         messages=messages,
         temperature=temperature,
         top_p=top_p,
         seed=seed,
-        schema_id=SCHEMA_ANSWER_CORE,
         dataset=dataset,
+        answer_contract=answer_contract,
         use_response_format=prompt_version_uses_json_response_format(prompt_version),
+        allow_network_repair=answer_contract != JSON_ANSWER_CORE_CONTRACT,
     )
     final_answer = str(result.validated_output.get("final_answer") or "")
     normalized = normalize_prediction(dataset, final_answer) if final_answer else ""
@@ -378,9 +430,31 @@ def _execute_turn(
             prompt_tokens=float(result.usage.get("prompt_tokens") or 0.0),
             completion_tokens=float(result.usage.get("completion_tokens") or 0.0),
             total_tokens=float(result.usage.get("total_tokens") or 0.0),
-            latency_ms=float(result.response_payload.get("latency_ms") or 0.0),
+            latency_ms=float(float(result.response_payload.get("latency_ms") or 0.0) + result.repair_latency_ms),
             cache_hit=result.cache_hit,
             request_error=result.request_error,
+            request_status=result.request_status,
+            raw_finish_reason=result.raw_finish_reason,
+            answer_extraction_status=result.answer_extraction_status,
+            answer_extraction_source=result.answer_extraction_source,
+            answer_extraction_error=result.answer_extraction_error,
+            raw_output_incomplete_suspected=result.raw_output_incomplete_suspected,
+            repair_call_used=result.repair_call_used,
+            request_count=result.request_count,
+            cache_request_count=result.cache_request_count,
+            network_request_count=result.network_request_count,
+            raw_prompt_tokens=float(result.raw_usage.get("prompt_tokens") or 0.0),
+            raw_completion_tokens=float(result.raw_usage.get("completion_tokens") or 0.0),
+            raw_total_tokens=float(result.raw_usage.get("total_tokens") or 0.0),
+            raw_latency_ms=float(result.response_payload.get("latency_ms") or 0.0),
+            repair_prompt_tokens=float(result.repair_usage.get("prompt_tokens") or 0.0),
+            repair_completion_tokens=float(result.repair_usage.get("completion_tokens") or 0.0),
+            repair_total_tokens=float(result.repair_usage.get("total_tokens") or 0.0),
+            repair_latency_ms=float(result.repair_latency_ms),
+            repair_output_status=result.repair_output_status,
+            repair_request_error=result.repair_request_error,
+            repair_cache_hit=result.repair_cache_hit,
+            repair_request_started_at=result.repair_request_started_at,
             visible_peer_count=visible_peer_count,
             payload=result.payload,
             assistant_text=result.response_payload.get("assistant_text", ""),
@@ -441,9 +515,11 @@ def _build_cost_breakdown(
                 "initial_tokens": 0.0,
                 "debate_tokens": 0.0,
                 "control_tokens": 0.0,
+                "repair_tokens": 0.0,
             },
         )
         total_tokens = float(row["total_tokens"])
+        raw_total_tokens = float(row.get("raw_total_tokens") or total_tokens)
         bucket["prompt_tokens"] += float(row["prompt_tokens"])
         bucket["completion_tokens"] += float(row["completion_tokens"])
         bucket["total_tokens"] += total_tokens
@@ -451,11 +527,12 @@ def _build_cost_breakdown(
         bucket["turn_count"] += 1.0
         role = str(row.get("role") or "")
         if role == "initial":
-            bucket["initial_tokens"] += total_tokens
+            bucket["initial_tokens"] += raw_total_tokens
         elif role == "debate":
-            bucket["debate_tokens"] += total_tokens
+            bucket["debate_tokens"] += raw_total_tokens
         else:
-            bucket["control_tokens"] += total_tokens
+            bucket["control_tokens"] += raw_total_tokens
+        bucket["repair_tokens"] += float(row.get("repair_total_tokens") or 0.0)
 
     rows: list[dict[str, Any]] = []
     for (dataset, method_name, method_type), bucket in grouped.items():
@@ -554,6 +631,19 @@ def _build_debate_diagnostics(
     return {"rows": rows}
 
 
+def _build_answer_extraction_diagnostics(
+    turn_rows: list[dict[str, Any]],
+    *,
+    dataset_order: list[str],
+    method_order: list[str],
+) -> dict[str, Any]:
+    return build_shared_answer_extraction_diagnostics(
+        turn_rows,
+        dataset_order=dataset_order,
+        method_order=method_order,
+    )
+
+
 def _estimate_work(
     experiment: BaselineCompareExperimentConfig,
     phase_name: str,
@@ -637,6 +727,19 @@ def _summarize_prediction_rows(
         "communication_tokens_mean": safe_mean(float(row["debate_total_tokens_per_question"]) for row in rows),
         "latency_ms_mean": safe_mean(float(row["latency_ms_per_question"]) for row in rows),
         "calls_per_question_mean": safe_mean(float(row["calls_per_question"]) for row in rows),
+        "answer_extraction_failures_per_question_mean": safe_mean(
+            float(row.get("answer_extraction_failures_per_question") or 0.0) for row in rows
+        ),
+        "repair_calls_per_question_mean": safe_mean(float(row.get("repair_calls_per_question") or 0.0) for row in rows),
+        "repair_failures_per_question_mean": safe_mean(
+            float(row.get("repair_failures_per_question") or 0.0) for row in rows
+        ),
+        "raw_output_incomplete_turns_per_question_mean": safe_mean(
+            float(row.get("raw_output_incomplete_turns_per_question") or 0.0) for row in rows
+        ),
+        "repair_total_tokens_per_question_mean": safe_mean(
+            float(row.get("repair_total_tokens_per_question") or 0.0) for row in rows
+        ),
         "accuracy_per_1k_tokens": round((accuracy / total_tokens * 1000) if total_tokens else 0.0, 6),
         "debate_rounds": safe_mean(float(row["debate_rounds"]) for row in rows),
         "agent_count": safe_mean(float(row["agent_count"]) for row in rows),
@@ -678,6 +781,21 @@ def _build_macro_rows(dataset_rows: list[dict[str, Any]]) -> list[dict[str, Any]
                 "communication_tokens_mean": safe_mean(float(row["communication_tokens_mean"]) for row in rows),
                 "latency_ms_mean": safe_mean(float(row["latency_ms_mean"]) for row in rows),
                 "calls_per_question_mean": safe_mean(float(row["calls_per_question_mean"]) for row in rows),
+                "answer_extraction_failures_per_question_mean": safe_mean(
+                    float(row.get("answer_extraction_failures_per_question_mean") or 0.0) for row in rows
+                ),
+                "repair_calls_per_question_mean": safe_mean(
+                    float(row.get("repair_calls_per_question_mean") or 0.0) for row in rows
+                ),
+                "repair_failures_per_question_mean": safe_mean(
+                    float(row.get("repair_failures_per_question_mean") or 0.0) for row in rows
+                ),
+                "raw_output_incomplete_turns_per_question_mean": safe_mean(
+                    float(row.get("raw_output_incomplete_turns_per_question_mean") or 0.0) for row in rows
+                ),
+                "repair_total_tokens_per_question_mean": safe_mean(
+                    float(row.get("repair_total_tokens_per_question_mean") or 0.0) for row in rows
+                ),
                 "accuracy_per_1k_tokens": round((accuracy / total_tokens * 1000) if total_tokens else 0.0, 6),
                 "debate_rounds": safe_mean(float(row["debate_rounds"]) for row in rows),
                 "agent_count": safe_mean(float(row["agent_count"]) for row in rows),

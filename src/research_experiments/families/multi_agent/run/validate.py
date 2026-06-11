@@ -39,6 +39,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         index.metrics_view_path,
         diagnostic_paths["cost_breakdown.json"],
         diagnostic_paths["debate_diagnostics.json"],
+        diagnostic_paths["answer_extraction_diagnostics.json"],
         index.report_path,
         index.figure_manifest_path,
         index.archive_manifest_path,
@@ -47,6 +48,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     manifest = load_json(index.manifest_path)
     agent_rows = load_jsonl(turn_paths["agent_turns.jsonl"]) if turn_paths["agent_turns.jsonl"].exists() else []
     prediction_rows = load_jsonl(index.prediction_records_path) if index.prediction_records_path.exists() else []
+    answer_extraction_diagnostics = load_json(diagnostic_paths["answer_extraction_diagnostics.json"])
 
     status_summary = summarize_turn_statuses(agent_rows)
     methods = Counter(row.get("method_name") for row in prediction_rows)
@@ -75,5 +77,6 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "rate_limit_check": rate_limit_check,
         "figure_contract": figure_contract,
         "archive_contract": archive_contract,
+        "answer_extraction_diagnostics": answer_extraction_diagnostics,
     }
 

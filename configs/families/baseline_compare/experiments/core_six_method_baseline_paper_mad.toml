@@ -13,6 +13,7 @@ control_methods = ["cot_1", "sc_3", "sc_5"]
 method_order = ["cot_1", "sc_3", "sc_5", "mad_paper_3a_r1", "mad_paper_3a_r2", "mad_paper_5a_r1"]
 global_seed = 42
 prompt_version = "multi_agent_paper_text"
+answer_contract = "paper_transcript_hardened"
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 
 [[setups]]

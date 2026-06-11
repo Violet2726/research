@@ -14,6 +14,7 @@ from research_experiments.family_runtime.config_helpers import (
     apply_runtime_defaults,
     load_toml,
 )
+from research_experiments.family_runtime.answer_contracts import validate_prompt_answer_contract
 from research_experiments.family_runtime.method_catalog import MethodConfig, load_method_catalog
 
 
@@ -55,6 +56,7 @@ class MultiAgentExperimentConfig:
     setups: list[ExperimentSetup]
     global_seed: int
     prompt_version: str
+    answer_contract: str
     max_concurrent_requests: int
     requests_per_minute_limit: int | None
     primary_model_ref: str
@@ -96,6 +98,11 @@ def load_experiment_config(path: str | Path) -> MultiAgentExperimentConfig:
         )
         for item in payload.get("setups", [])
     ]
+    prompt_version = str(payload["prompt_version"])
+    answer_contract = validate_prompt_answer_contract(
+        prompt_version,
+        str(payload["answer_contract"]),
+    )
     return MultiAgentExperimentConfig(
         name=str(payload["name"]),
         description=str(payload["description"]),
@@ -103,7 +110,8 @@ def load_experiment_config(path: str | Path) -> MultiAgentExperimentConfig:
         control_catalog=Path(payload["control_catalog"]),
         setups=setups,
         global_seed=int(payload["global_seed"]),
-        prompt_version=str(payload["prompt_version"]),
+        prompt_version=prompt_version,
+        answer_contract=answer_contract,
         max_concurrent_requests=runtime["max_concurrent_requests"],
         requests_per_minute_limit=runtime["requests_per_minute_limit"],
         primary_model_ref=str(payload["primary_model_ref"]),

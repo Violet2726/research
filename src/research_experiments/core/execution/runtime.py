@@ -72,12 +72,21 @@ class RunProgressTracker:
 
         with self._lock:
             now = time.monotonic()
-            self.completed_calls += 1
-            self._call_events.append(now)
-            if row.get("cache_hit"):
-                self.cache_hits += 1
-            else:
-                self.network_calls += 1
+            request_count = max(1, int(row.get("request_count") or 1))
+            cache_request_count = max(
+                0,
+                int(row.get("cache_request_count") or (1 if row.get("cache_hit") else 0)),
+            )
+            network_request_count = max(
+                0,
+                int(row.get("network_request_count") or (request_count - cache_request_count)),
+            )
+            self.completed_calls += request_count
+            for _ in range(request_count):
+                self._call_events.append(now)
+            self.cache_hits += cache_request_count
+            self.network_calls += network_request_count
+            for _ in range(network_request_count):
                 self._network_call_events.append(now)
             self.last_dataset = str(row.get("dataset") or "")
             self.last_method = str(row.get(method_key) or "")

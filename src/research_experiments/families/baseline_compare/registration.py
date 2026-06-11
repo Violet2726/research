@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import asdict
 
+from research_experiments.cli_support.output import emit_json
 from research_experiments.core.contracts import FamilyCliHelp
 from research_experiments.families.baseline_compare.config import (
     load_control_catalog,
@@ -11,7 +13,7 @@ from research_experiments.families.baseline_compare.config import (
     load_protocol_config,
     load_roster_config,
 )
-from research_experiments.families.baseline_compare.run.execute import run_experiment
+from research_experiments.families.baseline_compare.run.execute import refresh_run_artifacts, run_experiment
 from research_experiments.families.baseline_compare.run.report import render_report, summarize_run
 from research_experiments.families.baseline_compare.run.validate import validate_run
 from research_experiments.family_runtime.config_helpers import load_benchmarks, phase_metadata, resolve_model
@@ -36,6 +38,7 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "control_methods": {name: asdict(controls[name]) for name in experiment.control_methods},
         "method_order": experiment.method_order,
         "prompt_version": experiment.prompt_version,
+        "answer_contract": experiment.answer_contract,
         "workspace_defaults": workspace_defaults("baseline_compare"),
         "primary_model_ref": experiment.primary_model_ref,
         "resolved_model": asdict(resolved_model),
@@ -61,12 +64,38 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
     }
 
 
+def configure_parser(parser) -> None:
+    for action in parser._actions:
+        if not isinstance(action, argparse._SubParsersAction):
+            continue
+        refresh = action.add_parser(
+            "refresh-run-artifacts",
+            help="Refresh metrics/diagnostics/report for one completed baseline_compare run.",
+        )
+        refresh.add_argument("--run-dir", required=True)
+        refresh.add_argument("--allow-network-repair", action="store_true")
+        return
+    raise RuntimeError("Parser is missing subcommands.")
+
+
+def dispatch_extra_command(args) -> bool:
+    if args.command != "refresh-run-artifacts":
+        return False
+    run_dir = refresh_run_artifacts(
+        args.run_dir,
+        allow_network_repair=bool(getattr(args, "allow_network_repair", False)),
+    )
+    emit_json({"run_dir": run_dir.as_posix(), "status": "refreshed"})
+    return True
+
+
 ARTIFACT_ALIASES = {
     "agent_turns": "turns/agent_turns.jsonl",
     "debate_messages": "turns/debate_messages.jsonl",
     "final_predictions": "views/predictions.jsonl",
     "cost_breakdown": "diagnostics/cost_breakdown.json",
     "debate_diagnostics": "diagnostics/debate_diagnostics.json",
+    "answer_extraction_diagnostics": "diagnostics/answer_extraction_diagnostics.json",
     "baseline_comparison": "exports/baseline_comparison.json",
     "paper_summary": "exports/paper_summary.csv",
     "run_validation": "run_validation.json",
@@ -95,10 +124,16 @@ REGISTRATION = make_family_registration(
     summarize_run=summarize_run,
     validate_run=validate_run,
     render_report=render_report,
+    configure_parser=configure_parser,
+    dispatch_extra_command=dispatch_extra_command,
     artifact_aliases=ARTIFACT_ALIASES,
     metrics_view_path="views/metrics.json",
     prediction_records_path="views/predictions.jsonl",
     turn_record_paths=("turns/agent_turns.jsonl", "turns/debate_messages.jsonl"),
-    diagnostic_paths=("diagnostics/cost_breakdown.json", "diagnostics/debate_diagnostics.json"),
+    diagnostic_paths=(
+        "diagnostics/cost_breakdown.json",
+        "diagnostics/debate_diagnostics.json",
+        "diagnostics/answer_extraction_diagnostics.json",
+    ),
     export_paths=("exports/baseline_comparison.json", "exports/paper_summary.csv"),
 )

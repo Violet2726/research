@@ -26,6 +26,7 @@ def _load_toml(relative_path: str) -> dict:
 
 def test_multi_agent_and_imad_budget_matched_controls_stay_aligned() -> None:
     multi_agent = _load_toml("configs/families/multi_agent/experiments/same_context_controlled_debate.toml")
+    assert multi_agent["answer_contract"] == "json_answer_core"
     setup = multi_agent["setups"][0]
     assert setup["name"] == "mad_3a_r1"
     assert setup["matched_controls"] == [MV_6]
@@ -53,6 +54,7 @@ def test_consensagent_and_madjudge_controls_stay_aligned() -> None:
 
 def test_baseline_compare_inventory_stays_aligned() -> None:
     payload = _load_toml("configs/families/baseline_compare/experiments/core_six_method_baseline.toml")
+    assert payload["answer_contract"] == "json_answer_core"
     control_catalog = _load_toml(payload["control_catalog"])
     control_methods = payload["control_methods"]
     method_order = payload["method_order"]
@@ -74,6 +76,7 @@ def test_baseline_compare_paper_inventory_stays_aligned() -> None:
     assert control_methods == [COT_1, "sc_3", "sc_5"]
     assert setup_names == ["mad_paper_3a_r1", "mad_paper_3a_r2", "mad_paper_5a_r1"]
     assert payload["prompt_version"] == "multi_agent_paper_text"
+    assert payload["answer_contract"] == "paper_transcript_hardened"
     assert set(method_order) == set(control_methods) | set(setup_names)
     assert set(control_methods).issubset(set(control_catalog["methods"]))
 

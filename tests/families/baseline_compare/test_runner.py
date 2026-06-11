@@ -13,6 +13,7 @@ def test_load_experiment_config_reads_control_methods_and_setups() -> None:
     experiment = load_experiment_config("configs/families/baseline_compare/experiments/core_six_method_baseline.toml")
 
     assert experiment.name == "core_six_method_baseline"
+    assert experiment.answer_contract == "json_answer_core"
     assert experiment.control_methods == ["cot_1", "sc_3", "sc_5"]
     assert experiment.method_order == [
         "cot_1",
@@ -33,6 +34,7 @@ def test_load_paper_mad_experiment_config_uses_faithful_prompt_inventory() -> No
 
     assert experiment.name == "core_six_method_baseline_paper_mad"
     assert experiment.prompt_version == "multi_agent_paper_text"
+    assert experiment.answer_contract == "paper_transcript_hardened"
     assert experiment.control_methods == ["cot_1", "sc_3", "sc_5"]
     assert experiment.method_order == [
         "cot_1",

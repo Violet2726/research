@@ -176,58 +176,19 @@ def run_shared_vanilla_mad_rounds(
         previous_round = current_round
         final_round_turns = current_round
 
-    initial_answers = [row["normalized_answer"] for row in initial_turns]
-    final_answers = [row["normalized_answer"] for row in final_round_turns]
-    initial_vote, initial_vote_counts = aggregate_majority(initial_answers)
-    final_vote, final_vote_counts = aggregate_majority(final_answers)
-    initial_vote_score = score_prediction(dataset, initial_vote, sample.reference_answer)
-    final_vote_score = score_prediction(dataset, final_vote, sample.reference_answer)
-    initial_consensus = len(set(initial_answers)) == 1
-    final_consensus = len(set(final_answers)) == 1
-    initial_disagreement = len(set(initial_answers)) > 1
-    debate_turns = [row for row in turn_rows if row["role"] == "debate"]
-    initial_prompt_tokens = sum(float(row["prompt_tokens"]) for row in initial_turns)
-    initial_completion_tokens = sum(float(row["completion_tokens"]) for row in initial_turns)
-    initial_total_tokens = sum(float(row["total_tokens"]) for row in initial_turns)
-    initial_latency = sum(float(row["latency_ms"]) for row in initial_turns)
-    debate_prompt_tokens = sum(float(row["prompt_tokens"]) for row in debate_turns)
-    debate_completion_tokens = sum(float(row["completion_tokens"]) for row in debate_turns)
-    debate_total_tokens = sum(float(row["total_tokens"]) for row in debate_turns)
-    debate_latency = sum(float(row["latency_ms"]) for row in debate_turns)
+    summary = summarize_shared_vanilla_mad_turn_rows(
+        turn_rows=turn_rows,
+        dataset=dataset,
+        gold=sample.reference_answer,
+        debate_rounds=debate_rounds,
+        agent_count=agent_count,
+    )
     return {
         "turn_rows": turn_rows,
         "debate_rows": debate_rows,
         "initial_turns": list(initial_turns),
         "final_round_turns": final_round_turns,
-        "initial_vote_prediction": initial_vote,
-        "initial_vote_score": initial_vote_score,
-        "initial_vote_counts": initial_vote_counts,
-        "initial_consensus": initial_consensus,
-        "final_vote_prediction": final_vote,
-        "final_vote_score": final_vote_score,
-        "final_vote_counts": final_vote_counts,
-        "final_consensus": final_consensus,
-        "initial_disagreement": initial_disagreement,
-        "prompt_tokens_per_question": initial_prompt_tokens + debate_prompt_tokens,
-        "completion_tokens_per_question": initial_completion_tokens + debate_completion_tokens,
-        "total_tokens_per_question": initial_total_tokens + debate_total_tokens,
-        "latency_ms_per_question": initial_latency + debate_latency,
-        "initial_prompt_tokens_per_question": initial_prompt_tokens,
-        "initial_completion_tokens_per_question": initial_completion_tokens,
-        "initial_total_tokens_per_question": initial_total_tokens,
-        "initial_latency_ms_per_question": initial_latency,
-        "debate_prompt_tokens_per_question": debate_prompt_tokens,
-        "debate_completion_tokens_per_question": debate_completion_tokens,
-        "debate_total_tokens_per_question": debate_total_tokens,
-        "debate_latency_ms_per_question": debate_latency,
-        "calls_per_question": agent_count * (1 + debate_rounds),
-        "debate_rounds": debate_rounds,
-        "agent_count": agent_count,
-        "vote_flipped": initial_vote != final_vote,
-        "corrected_by_debate": initial_vote_score < 1.0 and final_vote_score == 1.0,
-        "harmed_by_debate": initial_vote_score == 1.0 and final_vote_score < 1.0,
-        "unchanged_correct": initial_vote_score == 1.0 and final_vote_score == 1.0,
-        "unchanged_wrong": initial_vote_score < 1.0 and final_vote_score < 1.0,
+        **summary,
     }
 
 
@@ -286,13 +247,176 @@ def build_shared_vanilla_mad_prediction(
         "unchanged_correct": result["unchanged_correct"],
         "unchanged_wrong": result["unchanged_wrong"],
         "vote_counts": result["final_vote_counts"],
+        "answer_extraction_failures_per_question": result.get("answer_extraction_failures_per_question", 0),
+        "repair_calls_per_question": result.get("repair_calls_per_question", 0),
+        "repair_failures_per_question": result.get("repair_failures_per_question", 0),
+        "raw_output_incomplete_turns_per_question": result.get("raw_output_incomplete_turns_per_question", 0),
+        "repair_total_tokens_per_question": result.get("repair_total_tokens_per_question", 0.0),
     }
     if extra_fields:
         row.update(extra_fields)
     return row
 
 
+def summarize_shared_vanilla_mad_turn_rows(
+    *,
+    turn_rows: list[dict[str, Any]],
+    dataset: str,
+    gold: str,
+    debate_rounds: int,
+    agent_count: int,
+) -> dict[str, Any]:
+    initial_turns = [row for row in turn_rows if row.get("role") == "initial"]
+    debate_turns = [row for row in turn_rows if row.get("role") == "debate"]
+    final_round_turns = (
+        [row for row in debate_turns if int(row.get("round_index") or 0) == debate_rounds]
+        if debate_rounds > 0
+        else list(initial_turns)
+    )
+
+    initial_answers = [row["normalized_answer"] for row in initial_turns]
+    final_answers = [row["normalized_answer"] for row in final_round_turns]
+    initial_vote, initial_vote_counts = aggregate_majority(initial_answers)
+    final_vote, final_vote_counts = aggregate_majority(final_answers)
+    initial_vote_score = score_prediction(dataset, initial_vote, gold)
+    final_vote_score = score_prediction(dataset, final_vote, gold)
+    initial_consensus = len(set(initial_answers)) == 1
+    final_consensus = len(set(final_answers)) == 1
+    initial_disagreement = len(set(initial_answers)) > 1
+
+    initial_prompt_tokens = sum(float(row["prompt_tokens"]) for row in initial_turns)
+    initial_completion_tokens = sum(float(row["completion_tokens"]) for row in initial_turns)
+    initial_total_tokens = sum(float(row.get("raw_total_tokens") or row["total_tokens"]) for row in initial_turns)
+    initial_latency = sum(float(row.get("raw_latency_ms") or row["latency_ms"]) for row in initial_turns)
+    debate_prompt_tokens = sum(float(row["prompt_tokens"]) for row in debate_turns)
+    debate_completion_tokens = sum(float(row["completion_tokens"]) for row in debate_turns)
+    debate_total_tokens = sum(float(row.get("raw_total_tokens") or row["total_tokens"]) for row in debate_turns)
+    debate_latency = sum(float(row.get("raw_latency_ms") or row["latency_ms"]) for row in debate_turns)
+    total_prompt_tokens = sum(float(row["prompt_tokens"]) for row in turn_rows)
+    total_completion_tokens = sum(float(row["completion_tokens"]) for row in turn_rows)
+    total_tokens = sum(float(row["total_tokens"]) for row in turn_rows)
+    total_latency = sum(float(row["latency_ms"]) for row in turn_rows)
+    repair_total_tokens = sum(float(row.get("repair_total_tokens") or 0.0) for row in turn_rows)
+
+    return {
+        "initial_vote_prediction": initial_vote,
+        "initial_vote_score": initial_vote_score,
+        "initial_vote_counts": initial_vote_counts,
+        "initial_consensus": initial_consensus,
+        "final_vote_prediction": final_vote,
+        "final_vote_score": final_vote_score,
+        "final_vote_counts": final_vote_counts,
+        "final_consensus": final_consensus,
+        "initial_disagreement": initial_disagreement,
+        "prompt_tokens_per_question": total_prompt_tokens,
+        "completion_tokens_per_question": total_completion_tokens,
+        "total_tokens_per_question": total_tokens,
+        "latency_ms_per_question": total_latency,
+        "initial_prompt_tokens_per_question": initial_prompt_tokens,
+        "initial_completion_tokens_per_question": initial_completion_tokens,
+        "initial_total_tokens_per_question": initial_total_tokens,
+        "initial_latency_ms_per_question": initial_latency,
+        "debate_prompt_tokens_per_question": debate_prompt_tokens,
+        "debate_completion_tokens_per_question": debate_completion_tokens,
+        "debate_total_tokens_per_question": debate_total_tokens,
+        "debate_latency_ms_per_question": debate_latency,
+        "calls_per_question": sum(float(row.get("request_count") or 1.0) for row in turn_rows),
+        "debate_rounds": debate_rounds,
+        "agent_count": agent_count,
+        "vote_flipped": initial_vote != final_vote,
+        "corrected_by_debate": initial_vote_score < 1.0 and final_vote_score == 1.0,
+        "harmed_by_debate": initial_vote_score == 1.0 and final_vote_score < 1.0,
+        "unchanged_correct": initial_vote_score == 1.0 and final_vote_score == 1.0,
+        "unchanged_wrong": initial_vote_score < 1.0 and final_vote_score < 1.0,
+        "answer_extraction_failures_per_question": sum(
+            1 for row in turn_rows if row.get("answer_extraction_status") == "failed"
+        ),
+        "repair_calls_per_question": sum(1 for row in turn_rows if row.get("repair_call_used")),
+        "repair_failures_per_question": sum(
+            1
+            for row in turn_rows
+            if row.get("repair_call_used") and str(row.get("repair_output_status") or "") != "ok"
+        ),
+        "raw_output_incomplete_turns_per_question": sum(
+            1 for row in turn_rows if row.get("raw_output_incomplete_suspected")
+        ),
+        "repair_total_tokens_per_question": repair_total_tokens,
+    }
+
+
+def build_shared_answer_extraction_diagnostics(
+    turn_rows: list[dict[str, Any]],
+    *,
+    dataset_order: list[str],
+    method_order: list[str],
+) -> dict[str, Any]:
+    dataset_rank = {name: index for index, name in enumerate(dataset_order)}
+    method_rank = {name: index for index, name in enumerate(method_order)}
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in turn_rows:
+        grouped.setdefault((str(row.get("dataset") or ""), str(row.get("method_name") or "")), []).append(row)
+
+    rows: list[dict[str, Any]] = []
+    for (dataset, method_name), items in grouped.items():
+        rows.append(_answer_extraction_diagnostic_row(dataset, method_name, items))
+
+    overall_grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in turn_rows:
+        overall_grouped.setdefault(str(row.get("method_name") or ""), []).append(row)
+    for method_name, items in overall_grouped.items():
+        rows.append(_answer_extraction_diagnostic_row("overall", method_name, items))
+
+    def _sort_key(row: dict[str, Any]) -> tuple[int, int]:
+        dataset_idx = dataset_rank.get(str(row["dataset"]), len(dataset_order))
+        if row["dataset"] == "overall":
+            dataset_idx = len(dataset_order) + 1
+        return dataset_idx, method_rank.get(str(row["method_name"]), 999)
+
+    rows.sort(key=_sort_key)
+    return {"rows": rows}
+
+
+def _answer_extraction_diagnostic_row(
+    dataset: str,
+    method_name: str,
+    turn_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    turn_count = len(turn_rows)
+    extraction_failures = sum(1 for row in turn_rows if row.get("answer_extraction_status") == "failed")
+    repair_calls = sum(1 for row in turn_rows if row.get("repair_call_used"))
+    repair_failures = sum(
+        1 for row in turn_rows if row.get("repair_call_used") and str(row.get("repair_output_status") or "") != "ok"
+    )
+    incomplete = sum(1 for row in turn_rows if row.get("raw_output_incomplete_suspected"))
+    return {
+        "dataset": dataset,
+        "method_name": method_name,
+        "turn_count": turn_count,
+        "request_failure_count": sum(1 for row in turn_rows if row.get("request_status") == "request_fail"),
+        "answer_extraction_failure_count": extraction_failures,
+        "answer_extraction_failure_rate": _ratio_count(extraction_failures, turn_count),
+        "repair_call_count": repair_calls,
+        "repair_call_rate": _ratio_count(repair_calls, turn_count),
+        "repair_failure_count": repair_failures,
+        "repair_failure_rate": _ratio_count(repair_failures, turn_count),
+        "raw_output_incomplete_count": incomplete,
+        "raw_output_incomplete_rate": _ratio_count(incomplete, turn_count),
+        "repair_total_tokens_mean": round(
+            sum(float(row.get("repair_total_tokens") or 0.0) for row in turn_rows) / turn_count,
+            6,
+        )
+        if turn_count
+        else 0.0,
+    }
+
+
 def _turn_reasoning_for_prompt(turn_row: dict[str, Any], *, prompt_version: str) -> str:
     if prompt_version == PAPER_PROMPT_VERSION:
         return str(turn_row.get("assistant_text", "")).strip()
     return str(turn_row["validated_output"].get("reasoning", "")).strip()
+
+
+def _ratio_count(numerator: int, denominator: int) -> float:
+    if denominator == 0:
+        return 0.0
+    return round(numerator / denominator, 6)

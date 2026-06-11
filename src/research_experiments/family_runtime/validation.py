@@ -65,12 +65,12 @@ def validate_rate_limit_check(
     )
     events: list[tuple[datetime, dict[str, Any]]] = []
     for row in turn_rows:
-        if row.get("cache_hit"):
-            continue
         timestamp = row.get("request_started_at")
-        if not timestamp:
-            continue
-        events.append((_parse_timestamp(str(timestamp)), row))
+        if timestamp and not bool(row.get("cache_hit")):
+            events.append((_parse_timestamp(str(timestamp)), row))
+        repair_timestamp = row.get("repair_request_started_at")
+        if repair_timestamp and not bool(row.get("repair_cache_hit")):
+            events.append((_parse_timestamp(str(repair_timestamp)), row))
     events.sort(key=lambda item: item[0])
 
     active_window: deque[tuple[datetime, dict[str, Any]]] = deque()

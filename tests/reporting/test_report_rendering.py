@@ -206,6 +206,7 @@ def test_baseline_compare_render_report_exports_comparison_bundle(tmp_path: Path
             "phase": "count20",
             "resolved_model": {"name": "xiaomimimo/mimo-v2.5"},
             "prompt_version": "multi_agent_controlled_json",
+            "answer_contract": "json_answer_core",
             "method_order": ["cot_1", "mad_3a_r1"],
             "control_method_names": ["cot_1"],
             "dataset_order": ["gsm8k"],
@@ -311,6 +312,22 @@ def test_baseline_compare_render_report_exports_comparison_bundle(tmp_path: Path
                     "calls_per_question_mean": 6.0,
                     "accuracy_per_1k_tokens": 2.333333,
                 },
+            ]
+        },
+    )
+    write_json(
+        tmp_path / "diagnostics" / "answer_extraction_diagnostics.json",
+        {
+            "rows": [
+                {
+                    "dataset": "overall",
+                    "method_name": "mad_3a_r1",
+                    "answer_extraction_failure_rate": 0.0,
+                    "repair_call_rate": 0.2,
+                    "repair_failure_rate": 0.0,
+                    "raw_output_incomplete_rate": 0.2,
+                    "repair_total_tokens_mean": 30.0,
+                }
             ]
         },
     )
