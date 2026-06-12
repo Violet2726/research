@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.prompts.dataset_contracts import build_json_system_prompt, dataset_instruction_for_sample
-from research_experiments.family_runtime.free_text_protocol import build_free_text_system_prompt
+from research_experiments.family_runtime.free_text_protocol import (
+    build_free_text_answer_instruction,
+    build_free_text_system_prompt,
+)
 
 CONSISTENT_FREE_TEXT_PROMPT_VERSION = "multi_agent_free_text_v1"
 CONTROLLED_PROMPT_VERSION = CONSISTENT_FREE_TEXT_PROMPT_VERSION
@@ -25,7 +28,7 @@ def build_initial_messages(
     )
     if sample.prompt_context:
         user_prompt += f"Context:\n{sample.prompt_context}\n\n"
-    user_prompt += _json_output_contract_instruction()
+    user_prompt += _json_output_contract_instruction(sample.dataset)
     return [
         {"role": "system", "content": _system_prompt()},
         {"role": "user", "content": user_prompt},
@@ -85,6 +88,14 @@ def _ensure_prompt_version(prompt_version: str) -> None:
 def _system_prompt() -> str:
     return build_free_text_system_prompt(
         "You are one reasoning agent in a controlled multi-agent debate experiment.",
+        extra_rules=[
+            "Solve the task carefully using only the provided question and context.",
+            "Output the labels in exactly this order: REASONING, FINAL_ANSWER.",
+            "REASONING is required.",
+            "Keep REASONING concise, but include enough detail to justify or revise the answer.",
+            "If your reasoning changes the answer, rewrite FINAL_ANSWER to the corrected answer.",
+            "Do not add natural-language text before or after the tagged lines.",
+        ],
     )
 
 
@@ -107,29 +118,9 @@ def _revision_instruction(sample: DatasetSample) -> str:
     )
 
 
-def _json_output_contract_instruction() -> str:
-    return (
-        "Return only the following two lines, in this exact order, with no markdown fences:\n"
-        "FINAL_ANSWER: <answer only>\n"
-        "REASON: <one short plain-text sentence>\n"
-        "Rules:\n"
-        "- FINAL_ANSWER must contain only the final answer.\n"
-        "- REASON must be one short plain-text sentence.\n"
-        "- Do not use LaTeX commands or backslashes in REASON."
-    )
+def _json_output_contract_instruction(dataset: str) -> str:
+    return build_free_text_answer_instruction(dataset)
 
 
 def _debate_output_contract_instruction(*, dataset: str) -> str:
-    del dataset
-    return (
-        "Return only the following three lines, in this exact order, with no markdown fences:\n"
-        "DECISION: <keep or revise>\n"
-        "FINAL_ANSWER: <answer only>\n"
-        "REASON: <one short plain-text sentence>\n"
-        "Rules:\n"
-        "- Use DECISION: keep when peer feedback does not change your answer.\n"
-        "- Use DECISION: revise only when peer feedback changes your final answer.\n"
-        "- FINAL_ANSWER must contain only the final answer.\n"
-        "- REASON must be one short plain-text sentence.\n"
-        "- Do not use LaTeX commands or backslashes in REASON."
-    )
+    return build_free_text_answer_instruction(dataset)

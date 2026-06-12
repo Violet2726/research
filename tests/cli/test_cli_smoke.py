@@ -320,7 +320,7 @@ def test_multi_agent_inspect_cli() -> None:
     assert payload["name"] == "same_context_controlled_debate"
     assert payload["control_output_protocol"] == "free_text_answer_v1"
     assert payload["mad_initial_output_protocol"] == "free_text_answer_v1"
-    assert payload["mad_debate_output_protocol"] == "free_text_debate_update_v1"
+    assert payload["mad_debate_output_protocol"] == "free_text_answer_v1"
 
 
 def test_baseline_compare_inspect_cli() -> None:
@@ -355,7 +355,7 @@ def test_baseline_compare_inspect_cli() -> None:
     assert payload["control_methods"]["sc_5"]["budget_calls"] == 5
     assert payload["control_output_protocol"] == "free_text_answer_v1"
     assert payload["mad_initial_output_protocol"] == "free_text_answer_v1"
-    assert payload["mad_debate_output_protocol"] == "free_text_debate_update_v1"
+    assert payload["mad_debate_output_protocol"] == "free_text_answer_v1"
 
 
 def test_selective_comm_inspect_cli() -> None:

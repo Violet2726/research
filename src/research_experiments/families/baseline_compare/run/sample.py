@@ -31,7 +31,6 @@ from research_experiments.family_runtime.comparator_impls import (
 from research_experiments.family_runtime.config_helpers import phase_metadata
 from research_experiments.family_runtime.output_protocols import (
     FREE_TEXT_ANSWER_PROTOCOL_V1,
-    FREE_TEXT_DEBATE_UPDATE_PROTOCOL_V1,
     execute_output_protocol_turn,
 )
 from research_experiments.family_runtime.vanilla_mad_prompting import (
@@ -67,8 +66,6 @@ class AgentTurnRecord:
     protocol_parse_status: str
     protocol_parse_error: str | None
     reason_present: bool
-    decision: str | None
-    changed_answer: bool
     request_count: int
     cache_request_count: int
     network_request_count: int
@@ -374,7 +371,7 @@ def _execute_turn(
     seed: int,
     prompt_version: str = CONSISTENT_FREE_TEXT_PROMPT_VERSION,
     initial_output_protocol: str = FREE_TEXT_ANSWER_PROTOCOL_V1,
-    debate_output_protocol: str = FREE_TEXT_DEBATE_UPDATE_PROTOCOL_V1,
+    debate_output_protocol: str = FREE_TEXT_ANSWER_PROTOCOL_V1,
 ) -> dict[str, Any]:
     output_protocol = debate_output_protocol if role == "debate" else initial_output_protocol
     result = execute_output_protocol_turn(
@@ -420,8 +417,6 @@ def _execute_turn(
             protocol_parse_status=result.protocol_parse_status,
             protocol_parse_error=result.protocol_parse_error,
             reason_present=result.reason_present,
-            decision=result.decision,
-            changed_answer=result.changed_answer,
             request_count=result.request_count,
             cache_request_count=result.cache_request_count,
             network_request_count=result.network_request_count,

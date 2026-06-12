@@ -17,7 +17,7 @@ def test_load_experiment_config_reads_control_methods_and_setups() -> None:
     assert experiment.mad_prompt_version == "multi_agent_free_text_v1"
     assert experiment.control_output_protocol == "free_text_answer_v1"
     assert experiment.mad_initial_output_protocol == "free_text_answer_v1"
-    assert experiment.mad_debate_output_protocol == "free_text_debate_update_v1"
+    assert experiment.mad_debate_output_protocol == "free_text_answer_v1"
     assert experiment.control_methods == ["cot_1", "sc_3", "sc_5"]
     assert experiment.method_order == [
         "cot_1",

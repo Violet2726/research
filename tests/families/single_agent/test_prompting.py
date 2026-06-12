@@ -34,7 +34,7 @@ def test_single_prompt_requires_reasoning_key_in_user_instruction() -> None:
     sample = _sample("hotpotqa")
     messages = build_messages(sample, method_family="cot", prompt_version=DEFAULT_PROMPT_VERSION)
     assert "FINAL_ANSWER:" in messages[1]["content"]
-    assert "REASON:" in messages[1]["content"]
+    assert "REASONING:" in messages[1]["content"]
     assert "Return only the following two lines" in messages[1]["content"]
 
 

@@ -98,7 +98,7 @@ def test_execute_call_caches_only_after_successful_parse(tmp_path) -> None:
         spec,
         _ProviderStub(
             _response(
-                assistant_text="FINAL_ANSWER: 4\nREASON: Add the two numbers."
+                assistant_text="REASONING: Add the two numbers.\nFINAL_ANSWER: 4"
             )
         ),
         cache,
@@ -159,7 +159,7 @@ def test_execute_call_does_not_cache_schema_failures(tmp_path, monkeypatch: pyte
 
     row = _execute_call(
         spec,
-        _ProviderStub(_response(assistant_text="FINAL_ANSWER: 4\nREASON: Add the two numbers.")),
+        _ProviderStub(_response(assistant_text="REASONING: Add the two numbers.\nFINAL_ANSWER: 4")),
         cache,
         _throttle(),
     )

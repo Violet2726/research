@@ -16,11 +16,10 @@ from research_experiments.core.execution.runner_common import (
 )
 from research_experiments.family_runtime.free_text_protocol import (
     FREE_TEXT_ANSWER_PROTOCOL_V1,
-    FREE_TEXT_DEBATE_UPDATE_PROTOCOL_V1,
     parse_free_text_answer_output,
 )
 
-OutputProtocol = Literal["free_text_answer_v1", "free_text_debate_update_v1"]
+OutputProtocol = Literal["free_text_answer_v1"]
 ProtocolParseStatus = Literal["ok", "failed", "not_attempted"]
 
 
@@ -31,8 +30,6 @@ class ParsedOutputProtocol:
     output_protocol: OutputProtocol
     error: str | None
     reason_present: bool
-    decision: str | None
-    changed_answer: bool
 
 
 @dataclass(frozen=True)
@@ -51,8 +48,6 @@ class OutputProtocolTurnResult:
     protocol_parse_status: ProtocolParseStatus
     protocol_parse_error: str | None
     reason_present: bool
-    decision: str | None
-    changed_answer: bool
     request_count: int
     cache_request_count: int
     network_request_count: int
@@ -137,8 +132,6 @@ def refresh_output_protocol_turn(
         protocol_parse_status=refreshed.protocol_parse_status,
         protocol_parse_error=refreshed.protocol_parse_error,
         reason_present=refreshed.reason_present,
-        decision=refreshed.decision,
-        changed_answer=refreshed.changed_answer,
         request_count=max(1, int(row.get("request_count") or 1)),
         cache_request_count=max(0, int(row.get("cache_request_count") or (1 if row.get("cache_hit") else 0))),
         network_request_count=max(
@@ -155,10 +148,10 @@ def refresh_output_protocol_turn(
 
 def validate_output_protocol(value: str) -> OutputProtocol:
     normalized = str(value or "").strip()
-    if normalized not in {FREE_TEXT_ANSWER_PROTOCOL_V1, FREE_TEXT_DEBATE_UPDATE_PROTOCOL_V1}:
+    if normalized != FREE_TEXT_ANSWER_PROTOCOL_V1:
         raise ValueError(
             f"Unsupported output_protocol {value!r}. "
-            f"Expected one of {FREE_TEXT_ANSWER_PROTOCOL_V1!r}, {FREE_TEXT_DEBATE_UPDATE_PROTOCOL_V1!r}."
+            f"Expected {FREE_TEXT_ANSWER_PROTOCOL_V1!r}."
         )
     return normalized
 
@@ -238,8 +231,6 @@ def _finalize_turn_result(
             protocol_parse_status="not_attempted",
             protocol_parse_error=None,
             reason_present=False,
-            decision=None,
-            changed_answer=False,
             request_count=1,
             cache_request_count=1 if request.cache_hit else 0,
             network_request_count=0 if request.cache_hit else 1,
@@ -267,8 +258,6 @@ def _finalize_turn_result(
         protocol_parse_status=parsed.status,
         protocol_parse_error=parsed.error if parsed.status != "ok" else None,
         reason_present=parsed.reason_present,
-        decision=parsed.decision,
-        changed_answer=parsed.changed_answer,
         request_count=1,
         cache_request_count=1 if request.cache_hit else 0,
         network_request_count=0 if request.cache_hit else 1,
@@ -290,15 +279,12 @@ def _parse_output_protocol_response(
             output_protocol=output_protocol,
             error="Assistant output is empty.",
             reason_present=False,
-            decision=None,
-            changed_answer=False,
         )
 
     try:
         validated = parse_free_text_answer_output(
             cleaned,
             dataset=dataset,
-            require_decision=output_protocol == FREE_TEXT_DEBATE_UPDATE_PROTOCOL_V1,
         )
         return ParsedOutputProtocol(
             status="ok",
@@ -306,8 +292,6 @@ def _parse_output_protocol_response(
             output_protocol=output_protocol,
             error=None,
             reason_present=bool(str(validated.get("reasoning") or "").strip()),
-            decision=str(validated.get("decision") or "") or None,
-            changed_answer=bool(validated.get("changed_answer")),
         )
     except Exception as exc:
         return ParsedOutputProtocol(
@@ -316,8 +300,6 @@ def _parse_output_protocol_response(
             output_protocol=output_protocol,
             error=str(exc),
             reason_present=False,
-            decision=None,
-            changed_answer=False,
         )
 
 

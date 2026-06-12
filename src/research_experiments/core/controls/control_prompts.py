@@ -9,7 +9,10 @@ from research_experiments.core.prompts.dataset_contracts import (
     build_json_system_prompt,
     dataset_instruction_for_sample,
 )
-from research_experiments.family_runtime.free_text_protocol import build_free_text_system_prompt
+from research_experiments.family_runtime.free_text_protocol import (
+    build_free_text_answer_instruction,
+    build_free_text_system_prompt,
+)
 
 CONTROL_PROMPT_VERSION = "unified_control_v1"
 CONSISTENT_JSON_V2_PROMPT_VERSION = "single_agent_consistent_json_v2"
@@ -60,7 +63,16 @@ def build_mv_messages(
 
 def _system_prompt(prompt_version: str | None) -> str:
     if prompt_version == FREE_TEXT_V1_PROMPT_VERSION:
-        return build_free_text_system_prompt("You are an expert reasoning assistant for controlled research experiments.")
+        return build_free_text_system_prompt(
+            "You are an expert reasoning assistant for controlled research experiments.",
+            extra_rules=[
+                "Follow the task instruction carefully.",
+                "Output the labels in exactly this order: REASONING, FINAL_ANSWER.",
+                "REASONING is required.",
+                "Keep REASONING concise, but include enough detail to justify or revise the answer.",
+                "If your reasoning changes the answer, rewrite FINAL_ANSWER to the corrected answer.",
+            ],
+        )
     if prompt_version == CONSISTENT_JSON_V2_PROMPT_VERSION:
         return build_json_system_prompt(
             "You are an expert reasoning assistant for controlled research experiments.",
@@ -97,15 +109,7 @@ def _user_prompt(sample: DatasetSample, prompt_version: str | None) -> str:
         user_prompt += f"Context:\n{sample.prompt_context}\n\n"
 
     if prompt_version == FREE_TEXT_V1_PROMPT_VERSION:
-        user_prompt += (
-            "Return only the following two lines, in this exact order, with no markdown fences:\n"
-            "FINAL_ANSWER: <answer only>\n"
-            "REASON: <one short plain-text sentence>\n"
-            "Rules:\n"
-            "- FINAL_ANSWER must contain only the final answer.\n"
-            "- REASON must be one short plain-text sentence.\n"
-            "- Do not use LaTeX commands or backslashes in REASON."
-        )
+        user_prompt += build_free_text_answer_instruction(sample.dataset)
         return user_prompt
     if prompt_version == CONSISTENT_JSON_V2_PROMPT_VERSION:
         user_prompt += (

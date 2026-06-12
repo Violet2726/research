@@ -153,7 +153,7 @@ def test_run_shared_vanilla_mad_rounds_rejects_unsupported_prompt_version() -> N
         raise AssertionError("Expected shared vanilla MAD core to reject non-controlled prompt version.")
 
 
-def test_consistent_json_prompt_builder_requires_anchor_fields() -> None:
+def test_consistent_free_text_prompt_builder_uses_tagged_lines() -> None:
     sample = DatasetSample(
         dataset="gpqa_diamond",
         sample_id="gpqa-1",
@@ -179,11 +179,12 @@ def test_consistent_json_prompt_builder_requires_anchor_fields() -> None:
         prompt_version=CONTROLLED_PROMPT_VERSION,
     )
 
-    assert "keys reasoning and final_answer" in initial_messages[0]["content"]
+    assert "REASONING" in initial_messages[0]["content"]
+    assert "FINAL_ANSWER" in initial_messages[0]["content"]
     assert "single best option" in initial_messages[1]["content"]
     assert "Peer feedback:" in debate_messages[1]["content"]
     assert "agent_2 previous final_answer: B" in debate_messages[1]["content"]
 
 
-def test_prompt_version_response_format_is_always_enabled_for_consistent_json() -> None:
-    assert prompt_version_uses_json_response_format(CONTROLLED_PROMPT_VERSION) is True
+def test_prompt_version_response_format_is_disabled_for_free_text() -> None:
+    assert prompt_version_uses_json_response_format(CONTROLLED_PROMPT_VERSION) is False

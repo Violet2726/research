@@ -9,7 +9,6 @@ from research_experiments.core.data.evaluation import normalize_prediction
 from research_experiments.core.prompts.dataset_contracts import build_tagged_lines_system_prompt
 
 FREE_TEXT_ANSWER_PROTOCOL_V1 = "free_text_answer_v1"
-FREE_TEXT_DEBATE_UPDATE_PROTOCOL_V1 = "free_text_debate_update_v1"
 
 _MULTIPLE_CHOICE_DATASETS = {
     "gpqa_diamond",
@@ -21,7 +20,11 @@ _MATH_DATASETS = {"gsm8k", "math500", "competition_math"}
 _SHORT_SPAN_DATASETS = {"hotpotqa", "webquestions"}
 
 
-def build_free_text_system_prompt(role_description: str) -> str:
+def build_free_text_system_prompt(
+    role_description: str,
+    *,
+    extra_rules: list[str] | None = None,
+) -> str:
     """Build a system prompt for a short tagged-line answer protocol."""
 
     return build_tagged_lines_system_prompt(
@@ -29,7 +32,7 @@ def build_free_text_system_prompt(role_description: str) -> str:
         extra_rules=[
             "Return only the requested tagged lines.",
             "Do not add markdown fences or prose before or after the tagged lines.",
-            "Keep the reason short and plain-text.",
+            *(extra_rules or []),
         ],
     )
 
@@ -51,9 +54,9 @@ def adapt_messages_for_free_text_protocol(
     user_message = dict(adapted[-1])
     base_user = _strip_json_contract(user_message.get("content", ""))
     protocol_block = (
-        _debate_protocol_instruction(dataset)
+        _answer_protocol_instruction(dataset)
         if role == "debate"
-        else _answer_protocol_instruction(dataset, debate=False)
+        else _answer_protocol_instruction(dataset)
     )
     user_message["content"] = f"{base_user.rstrip()}\n\n{protocol_block}"
     adapted[-1] = user_message
@@ -64,7 +67,6 @@ def parse_free_text_answer_output(
     raw_text: str,
     *,
     dataset: str,
-    require_decision: bool,
 ) -> dict[str, Any]:
     """Parse a tagged-line free-text answer into a compact structured payload."""
 
@@ -72,32 +74,27 @@ def parse_free_text_answer_output(
     if not cleaned:
         raise ValueError("Assistant output is empty.")
 
-    final_answer = _extract_labeled_value(cleaned, ["FINAL_ANSWER", "ANSWER", "FINAL"])
-    if not final_answer:
+    reasoning_match = _extract_labeled_match(cleaned, ["REASONING", "REASON", "RATIONALE", "WHY"])
+    if reasoning_match is None:
+        raise ValueError("Missing REASONING line.")
+    final_match = _extract_labeled_match(cleaned, ["FINAL_ANSWER", "ANSWER", "FINAL"])
+    if final_match is None:
         raise ValueError("Missing FINAL_ANSWER line.")
-    final_answer = final_answer.strip()
+    if reasoning_match["line_index"] >= final_match["line_index"]:
+        raise ValueError("REASONING must appear before FINAL_ANSWER.")
+
+    reasoning = _collapse_whitespace(reasoning_match["value"])
+    if not reasoning:
+        raise ValueError("REASONING must be non-empty.")
+
+    final_answer = str(final_match["value"]).strip()
     if not final_answer:
         raise ValueError("FINAL_ANSWER must be non-empty.")
-
-    reasoning = _extract_labeled_value(cleaned, ["REASON", "REASONING_BRIEF", "WHY", "RATIONALE"])
-    if not reasoning:
-        raise ValueError("Missing REASON line.")
-    reasoning = _collapse_whitespace(reasoning)
-    if not reasoning:
-        raise ValueError("REASON must be non-empty.")
-
-    decision = _extract_labeled_value(cleaned, ["DECISION", "CHANGED_ANSWER", "CHANGE"])
-    normalized_decision = _normalize_decision(decision)
-    if require_decision and normalized_decision is None:
-        raise ValueError("Missing DECISION line.")
 
     payload: dict[str, Any] = {
         "final_answer": final_answer,
         "reasoning": reasoning,
     }
-    if normalized_decision is not None:
-        payload["decision"] = normalized_decision
-        payload["changed_answer"] = normalized_decision == "revise"
 
     format_warning = _task_format_warning(dataset, final_answer)
     if format_warning is not None:
@@ -148,34 +145,21 @@ def _strip_json_contract(user_content: str) -> str:
     return user_content[:cut_index].rstrip()
 
 
-def _answer_protocol_instruction(dataset: str, *, debate: bool) -> str:
-    del debate
+def build_free_text_answer_instruction(dataset: str) -> str:
+    return _answer_protocol_instruction(dataset)
+
+
+def _answer_protocol_instruction(dataset: str) -> str:
     lines = [
         "Return only the following two lines, in this exact order, with no markdown fences:",
-        "FINAL_ANSWER: <answer only>",
-        "REASON: <one short plain-text sentence>",
+        "REASONING: <required concise reasoning>",
+        "FINAL_ANSWER: <canonical answer>",
         "Rules:",
+        "- REASONING is required.",
+        "- Keep REASONING concise, but include enough detail to justify or revise the answer.",
+        "- If your reasoning changes the answer, rewrite FINAL_ANSWER to the corrected answer.",
+        "- Use plain text only in REASONING. Do not use LaTeX commands, backslashes, or markdown.",
         "- FINAL_ANSWER must contain only the final answer and nothing else.",
-        "- REASON must be one short sentence under 160 characters.",
-        "- Use plain text only in REASON. Do not use LaTeX commands, backslashes, or markdown.",
-    ]
-    lines.extend(_dataset_specific_rules(dataset))
-    return "\n".join(lines)
-
-
-def _debate_protocol_instruction(dataset: str) -> str:
-    lines = [
-        "Return only the following three lines, in this exact order, with no markdown fences:",
-        "DECISION: <keep or revise>",
-        "FINAL_ANSWER: <answer only>",
-        "REASON: <one short plain-text sentence>",
-        "Rules:",
-        "- Use DECISION: keep when peer feedback does not change your answer.",
-        "- Use DECISION: revise only when peer feedback changes your final answer.",
-        "- FINAL_ANSWER must contain only the final answer and nothing else.",
-        "- REASON must be one short sentence under 160 characters.",
-        "- Use plain text only in REASON. Do not use LaTeX commands, backslashes, or markdown.",
-        "- Do not restate the full question or copy long peer passages.",
     ]
     lines.extend(_dataset_specific_rules(dataset))
     return "\n".join(lines)
@@ -198,14 +182,23 @@ def _dataset_specific_rules(dataset: str) -> list[str]:
 
 
 def _extract_labeled_value(text: str, labels: list[str]) -> str | None:
-    for label in labels:
-        escaped = re.escape(label).replace("\\ ", r"[\s_]+")
-        pattern = rf"(?im)^\s*{escaped}\s*:\s*(.+?)\s*$"
-        matches = list(re.finditer(pattern, text))
-        for match in reversed(matches):
+    match = _extract_labeled_match(text, labels)
+    if match is None:
+        return None
+    return str(match["value"])
+
+
+def _extract_labeled_match(text: str, labels: list[str]) -> dict[str, Any] | None:
+    lines = str(text or "").splitlines()
+    for line_index, line in enumerate(lines):
+        for label in labels:
+            pattern = rf"(?i)^\s*{re.escape(label)}\s*:\s*(.+?)\s*$"
+            match = re.match(pattern, line)
+            if match is None:
+                continue
             value = _clean_extracted_value(match.group(1))
             if value:
-                return value
+                return {"label": label, "value": value, "line_index": line_index}
     return None
 
 
@@ -225,19 +218,6 @@ def _strip_code_fences(text: str) -> str:
     trimmed = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", trimmed)
     trimmed = re.sub(r"\s*```$", "", trimmed)
     return trimmed.strip()
-
-
-def _normalize_decision(value: str | None) -> str | None:
-    if value is None:
-        return None
-    normalized = _collapse_whitespace(value).lower()
-    if normalized in {"keep", "no", "unchanged", "same"}:
-        return "keep"
-    if normalized in {"revise", "yes", "changed", "change"}:
-        return "revise"
-    if normalized in {"initial", "n/a", "na"}:
-        return "initial"
-    return normalized or None
 
 
 def _task_format_warning(dataset: str, final_answer: str) -> str | None:

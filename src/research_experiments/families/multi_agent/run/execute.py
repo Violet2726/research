@@ -419,8 +419,6 @@ def _merge_refreshed_turn_row(row: dict[str, Any], refreshed) -> dict[str, Any]:
             "protocol_parse_status": refreshed.protocol_parse_status,
             "protocol_parse_error": refreshed.protocol_parse_error,
             "reason_present": refreshed.reason_present,
-            "decision": refreshed.decision,
-            "changed_answer": refreshed.changed_answer,
             "request_count": refreshed.request_count,
             "cache_request_count": refreshed.cache_request_count,
             "network_request_count": refreshed.network_request_count,

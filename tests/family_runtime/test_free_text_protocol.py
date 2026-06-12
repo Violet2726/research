@@ -10,31 +10,27 @@ from research_experiments.family_runtime.free_text_protocol import (
 
 def test_parse_free_text_answer_output_parses_two_line_answer() -> None:
     payload = parse_free_text_answer_output(
-        "FINAL_ANSWER: 42\nREASON: Add the two numbers.",
+        "REASONING: Add the two numbers.\nFINAL_ANSWER: 42",
         dataset="gsm8k",
-        require_decision=False,
     )
     assert payload["final_answer"] == "42"
     assert payload["reasoning"] == "Add the two numbers."
 
 
-def test_parse_free_text_answer_output_parses_debate_update() -> None:
+def test_parse_free_text_answer_output_accepts_reason_alias() -> None:
     payload = parse_free_text_answer_output(
-        "DECISION: revise\nFINAL_ANSWER: B\nREASON: Peer evidence ruled out A.",
+        "REASON: Peer evidence ruled out A.\nFINAL_ANSWER: B",
         dataset="gpqa_diamond",
-        require_decision=True,
     )
-    assert payload["decision"] == "revise"
-    assert payload["changed_answer"] is True
     assert payload["final_answer"] == "B"
+    assert payload["reasoning"] == "Peer evidence ruled out A."
 
 
-def test_parse_free_text_answer_output_requires_decision_for_debate() -> None:
-    with pytest.raises(ValueError, match="Missing DECISION line"):
+def test_parse_free_text_answer_output_requires_reasoning_before_final_answer() -> None:
+    with pytest.raises(ValueError, match="REASONING must appear before FINAL_ANSWER"):
         parse_free_text_answer_output(
-            "FINAL_ANSWER: B\nREASON: Peer evidence ruled out A.",
+            "FINAL_ANSWER: B\nREASONING: Peer evidence ruled out A.",
             dataset="gpqa_diamond",
-            require_decision=True,
         )
 
 

@@ -11,10 +11,7 @@ from research_experiments.family_runtime.config_helpers import (
     load_toml,
 )
 from research_experiments.core.controls.control_prompts import FREE_TEXT_V1_PROMPT_VERSION as CONTROL_PROMPT_V2
-from research_experiments.family_runtime.free_text_protocol import (
-    FREE_TEXT_ANSWER_PROTOCOL_V1,
-    FREE_TEXT_DEBATE_UPDATE_PROTOCOL_V1,
-)
+from research_experiments.family_runtime.free_text_protocol import FREE_TEXT_ANSWER_PROTOCOL_V1
 from research_experiments.family_runtime.output_protocols import validate_output_protocol
 from research_experiments.family_runtime.vanilla_mad_prompting import CONSISTENT_FREE_TEXT_PROMPT_VERSION
 from research_experiments.family_runtime.method_catalog import MethodConfig, load_method_catalog
@@ -109,8 +106,8 @@ def load_experiment_config(path: str | Path) -> BaselineCompareExperimentConfig:
         raise ValueError("baseline_compare control_output_protocol must be free_text_answer_v1.")
     if mad_initial_output_protocol != FREE_TEXT_ANSWER_PROTOCOL_V1:
         raise ValueError("baseline_compare mad_initial_output_protocol must be free_text_answer_v1.")
-    if mad_debate_output_protocol != FREE_TEXT_DEBATE_UPDATE_PROTOCOL_V1:
-        raise ValueError("baseline_compare mad_debate_output_protocol must be free_text_debate_update_v1.")
+    if mad_debate_output_protocol != FREE_TEXT_ANSWER_PROTOCOL_V1:
+        raise ValueError("baseline_compare mad_debate_output_protocol must be free_text_answer_v1.")
     return BaselineCompareExperimentConfig(
         name=str(payload["name"]),
         description=str(payload["description"]),
