@@ -8,8 +8,7 @@ from typing import Any
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.data.evaluation import aggregate_majority, score_prediction
 from research_experiments.family_runtime.vanilla_mad_prompting import (
-    CONTROLLED_PROMPT_VERSION,
-    PAPER_PROMPT_VERSION,
+    CONSISTENT_JSON_PROMPT_VERSION,
     SUPPORTED_SHARED_PROMPT_VERSIONS,
 )
 from research_experiments.family_runtime.vanilla_mad_prompting import (
@@ -101,7 +100,7 @@ def run_shared_vanilla_mad_rounds(
     global_seed: int,
     execute_turn: ExecuteVanillaMadTurnFn,
     build_debate_row: BuildDebateRowFn,
-    prompt_version: str = CONTROLLED_PROMPT_VERSION,
+    prompt_version: str = CONSISTENT_JSON_PROMPT_VERSION,
     initial_turns: list[dict[str, Any]] | None = None,
     include_initial_turns_in_output: bool = True,
 ) -> dict[str, Any]:
@@ -144,8 +143,8 @@ def run_shared_vanilla_mad_rounds(
                     {
                         "agent": f"agent_{sender['agent_id']}",
                         "answer": str(sender["validated_output"].get("final_answer", "")).strip(),
-                        "reasoning": _turn_reasoning_for_prompt(sender, prompt_version=prompt_version),
-                        "response_text": str(sender.get("assistant_text", "")).strip(),
+                        "reasoning": _turn_reasoning_for_prompt(sender),
+                        "response_text": "",
                     }
                 )
                 debate_rows.append(build_debate_row(sender, recipient_id, round_index))
@@ -153,10 +152,9 @@ def run_shared_vanilla_mad_rounds(
                 sample=sample,
                 agent_id=recipient_id,
                 round_index=round_index,
-                previous_reasoning=_turn_reasoning_for_prompt(recipient_previous, prompt_version=prompt_version),
+                previous_reasoning=_turn_reasoning_for_prompt(recipient_previous),
                 previous_answer=str(recipient_previous["validated_output"].get("final_answer", "")).strip(),
                 peer_messages=peer_messages,
-                previous_response_text=str(recipient_previous.get("assistant_text", "")).strip(),
                 prompt_version=prompt_version,
             )
             current_round.append(
@@ -247,11 +245,8 @@ def build_shared_vanilla_mad_prediction(
         "unchanged_correct": result["unchanged_correct"],
         "unchanged_wrong": result["unchanged_wrong"],
         "vote_counts": result["final_vote_counts"],
-        "answer_extraction_failures_per_question": result.get("answer_extraction_failures_per_question", 0),
-        "repair_calls_per_question": result.get("repair_calls_per_question", 0),
-        "repair_failures_per_question": result.get("repair_failures_per_question", 0),
-        "raw_output_incomplete_turns_per_question": result.get("raw_output_incomplete_turns_per_question", 0),
-        "repair_total_tokens_per_question": result.get("repair_total_tokens_per_question", 0.0),
+        "answer_contract_failures_per_question": result.get("answer_contract_failures_per_question", 0),
+        "reasoning_missing_turns_per_question": result.get("reasoning_missing_turns_per_question", 0),
     }
     if extra_fields:
         row.update(extra_fields)
@@ -296,8 +291,6 @@ def summarize_shared_vanilla_mad_turn_rows(
     total_completion_tokens = sum(float(row["completion_tokens"]) for row in turn_rows)
     total_tokens = sum(float(row["total_tokens"]) for row in turn_rows)
     total_latency = sum(float(row["latency_ms"]) for row in turn_rows)
-    repair_total_tokens = sum(float(row.get("repair_total_tokens") or 0.0) for row in turn_rows)
-
     return {
         "initial_vote_prediction": initial_vote,
         "initial_vote_score": initial_vote_score,
@@ -328,23 +321,14 @@ def summarize_shared_vanilla_mad_turn_rows(
         "harmed_by_debate": initial_vote_score == 1.0 and final_vote_score < 1.0,
         "unchanged_correct": initial_vote_score == 1.0 and final_vote_score == 1.0,
         "unchanged_wrong": initial_vote_score < 1.0 and final_vote_score < 1.0,
-        "answer_extraction_failures_per_question": sum(
-            1 for row in turn_rows if row.get("answer_extraction_status") == "failed"
+        "answer_contract_failures_per_question": sum(
+            1 for row in turn_rows if row.get("answer_contract_status") == "failed"
         ),
-        "repair_calls_per_question": sum(1 for row in turn_rows if row.get("repair_call_used")),
-        "repair_failures_per_question": sum(
-            1
-            for row in turn_rows
-            if row.get("repair_call_used") and str(row.get("repair_output_status") or "") != "ok"
-        ),
-        "raw_output_incomplete_turns_per_question": sum(
-            1 for row in turn_rows if row.get("raw_output_incomplete_suspected")
-        ),
-        "repair_total_tokens_per_question": repair_total_tokens,
+        "reasoning_missing_turns_per_question": sum(1 for row in turn_rows if not row.get("reasoning_present")),
     }
 
 
-def build_shared_answer_extraction_diagnostics(
+def build_shared_answer_contract_diagnostics(
     turn_rows: list[dict[str, Any]],
     *,
     dataset_order: list[str],
@@ -358,13 +342,13 @@ def build_shared_answer_extraction_diagnostics(
 
     rows: list[dict[str, Any]] = []
     for (dataset, method_name), items in grouped.items():
-        rows.append(_answer_extraction_diagnostic_row(dataset, method_name, items))
+        rows.append(_answer_contract_diagnostic_row(dataset, method_name, items))
 
     overall_grouped: dict[str, list[dict[str, Any]]] = {}
     for row in turn_rows:
         overall_grouped.setdefault(str(row.get("method_name") or ""), []).append(row)
     for method_name, items in overall_grouped.items():
-        rows.append(_answer_extraction_diagnostic_row("overall", method_name, items))
+        rows.append(_answer_contract_diagnostic_row("overall", method_name, items))
 
     def _sort_key(row: dict[str, Any]) -> tuple[int, int]:
         dataset_idx = dataset_rank.get(str(row["dataset"]), len(dataset_order))
@@ -376,43 +360,27 @@ def build_shared_answer_extraction_diagnostics(
     return {"rows": rows}
 
 
-def _answer_extraction_diagnostic_row(
+def _answer_contract_diagnostic_row(
     dataset: str,
     method_name: str,
     turn_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
     turn_count = len(turn_rows)
-    extraction_failures = sum(1 for row in turn_rows if row.get("answer_extraction_status") == "failed")
-    repair_calls = sum(1 for row in turn_rows if row.get("repair_call_used"))
-    repair_failures = sum(
-        1 for row in turn_rows if row.get("repair_call_used") and str(row.get("repair_output_status") or "") != "ok"
-    )
-    incomplete = sum(1 for row in turn_rows if row.get("raw_output_incomplete_suspected"))
+    answer_contract_failures = sum(1 for row in turn_rows if row.get("answer_contract_status") == "failed")
+    reasoning_missing = sum(1 for row in turn_rows if not row.get("reasoning_present"))
     return {
         "dataset": dataset,
         "method_name": method_name,
         "turn_count": turn_count,
         "request_failure_count": sum(1 for row in turn_rows if row.get("request_status") == "request_fail"),
-        "answer_extraction_failure_count": extraction_failures,
-        "answer_extraction_failure_rate": _ratio_count(extraction_failures, turn_count),
-        "repair_call_count": repair_calls,
-        "repair_call_rate": _ratio_count(repair_calls, turn_count),
-        "repair_failure_count": repair_failures,
-        "repair_failure_rate": _ratio_count(repair_failures, turn_count),
-        "raw_output_incomplete_count": incomplete,
-        "raw_output_incomplete_rate": _ratio_count(incomplete, turn_count),
-        "repair_total_tokens_mean": round(
-            sum(float(row.get("repair_total_tokens") or 0.0) for row in turn_rows) / turn_count,
-            6,
-        )
-        if turn_count
-        else 0.0,
+        "answer_contract_failure_count": answer_contract_failures,
+        "answer_contract_failure_rate": _ratio_count(answer_contract_failures, turn_count),
+        "reasoning_missing_count": reasoning_missing,
+        "reasoning_missing_rate": _ratio_count(reasoning_missing, turn_count),
     }
 
 
-def _turn_reasoning_for_prompt(turn_row: dict[str, Any], *, prompt_version: str) -> str:
-    if prompt_version == PAPER_PROMPT_VERSION:
-        return str(turn_row.get("assistant_text", "")).strip()
+def _turn_reasoning_for_prompt(turn_row: dict[str, Any]) -> str:
     return str(turn_row["validated_output"].get("reasoning", "")).strip()
 
 

@@ -49,7 +49,7 @@ def render_report(
     manifest = load_json_payload(index.manifest_path)
     metrics = load_metrics(root)
     prediction_rows = load_jsonl_rows(index.prediction_records_path)
-    answer_extraction_diagnostics = load_json_payload(root / "diagnostics" / "answer_extraction_diagnostics.json")
+    answer_contract_diagnostics = load_json_payload(root / "diagnostics" / "answer_contract_diagnostics.json")
     comparison_payload = _build_baseline_comparison_payload(manifest, metrics)
     comparison_path = root / "exports" / "baseline_comparison.json"
     write_json(comparison_path, comparison_payload)
@@ -59,7 +59,7 @@ def render_report(
     base_markdown = _render_markdown(
         manifest,
         metrics,
-        answer_extraction_diagnostics,
+        answer_contract_diagnostics,
         comparison_payload,
         prediction_rows,
         root,
@@ -188,7 +188,8 @@ def _build_baseline_comparison_payload(
         "run_dir": str(manifest.get("run_dir") or ""),
         "experiment": manifest.get("experiment"),
         "phase": manifest.get("phase"),
-        "prompt_version": manifest.get("prompt_version"),
+        "control_prompt_version": manifest.get("control_prompt_version"),
+        "mad_prompt_version": manifest.get("mad_prompt_version"),
         "backbone": manifest.get("backbone"),
         "method_order": method_order,
         "control_method_names": list(manifest.get("control_method_names") or []),
@@ -203,7 +204,7 @@ def _build_baseline_comparison_payload(
 def _render_markdown(
     manifest: dict[str, Any],
     metrics: dict[str, Any],
-    answer_extraction_diagnostics: dict[str, Any],
+    answer_contract_diagnostics: dict[str, Any],
     comparison_payload: dict[str, Any],
     prediction_rows: list[dict[str, Any]],
     run_dir: Path,
@@ -361,13 +362,10 @@ def _render_markdown(
                 "rows": [
                     [
                         f"`{row['method_name']}`",
-                        format_float(row.get("answer_extraction_failure_rate")),
-                        format_float(row.get("repair_call_rate")),
-                        format_float(row.get("repair_failure_rate")),
-                        format_float(row.get("raw_output_incomplete_rate")),
-                        format_float(row.get("repair_total_tokens_mean"), 2),
+                        format_float(row.get("answer_contract_failure_rate")),
+                        format_float(row.get("reasoning_missing_rate")),
                     ]
-                    for row in answer_extraction_diagnostics.get("rows", [])
+                    for row in answer_contract_diagnostics.get("rows", [])
                     if row.get("dataset") == "overall"
                 ],
             },
@@ -386,8 +384,10 @@ def _render_markdown(
         overview_items=[
             ("实验名", str(manifest.get("experiment"))),
             ("Phase", str(manifest.get("phase"))),
-            ("Prompt Version", str(manifest.get("prompt_version"))),
-            ("Answer Contract", str(manifest.get("answer_contract"))),
+            ("Control Prompt Version", str(manifest.get("control_prompt_version"))),
+            ("MAD Prompt Version", str(manifest.get("mad_prompt_version"))),
+            ("Control Answer Contract", str(manifest.get("control_answer_contract"))),
+            ("MAD Answer Contract", str(manifest.get("mad_answer_contract"))),
             ("Backbone", backbone_name),
             ("运行目录", run_dir.as_posix()),
         ],

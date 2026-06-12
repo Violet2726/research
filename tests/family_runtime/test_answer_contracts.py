@@ -3,14 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from research_experiments.core.config import resolve_model_ref
-from research_experiments.core.execution.cache import RequestCache
-from research_experiments.core.structured_outputs import SCHEMA_ANSWER_CORE
 from research_experiments.core.data.datasets import DatasetSample
+from research_experiments.core.execution.cache import RequestCache
 from research_experiments.family_runtime.answer_contracts import (
-    JSON_ANSWER_CORE_CONTRACT,
-    PAPER_TRANSCRIPT_HARDENED_CONTRACT,
+    JSON_ANSWER_ANCHOR_V2_CONTRACT,
+    MULTI_AGENT_CONSISTENT_JSON_V2_PROMPT,
     execute_answer_contract_turn,
-    extract_paper_transcript_answer,
     refresh_answer_contract_turn,
     validate_prompt_answer_contract,
 )
@@ -29,79 +27,28 @@ def _sample(*, dataset: str, question: str, answer: str) -> DatasetSample:
 
 def test_validate_prompt_answer_contract_requires_explicit_match() -> None:
     assert (
-        validate_prompt_answer_contract("multi_agent_paper_text", PAPER_TRANSCRIPT_HARDENED_CONTRACT)
-        == PAPER_TRANSCRIPT_HARDENED_CONTRACT
-    )
-    assert (
-        validate_prompt_answer_contract("multi_agent_controlled_json", JSON_ANSWER_CORE_CONTRACT)
-        == JSON_ANSWER_CORE_CONTRACT
+        validate_prompt_answer_contract(MULTI_AGENT_CONSISTENT_JSON_V2_PROMPT, JSON_ANSWER_ANCHOR_V2_CONTRACT)
+        == JSON_ANSWER_ANCHOR_V2_CONTRACT
     )
 
 
-def test_extract_paper_transcript_answer_recovers_nested_boxed_fraction() -> None:
-    payload = extract_paper_transcript_answer(
-        "After simplification, the final answer is \\boxed{\\frac{1}{16}}.",
-        dataset="competition_math",
-    )
-    assert payload.status == "ok"
-    assert payload.source == "explicit_boxed_answer"
-    assert payload.validated_output["final_answer"] == "1/16"
-
-
-def test_extract_paper_transcript_answer_does_not_guess_last_number_for_math() -> None:
-    payload = extract_paper_transcript_answer(
-        "The denominator is 1152 and 39916800 / 1152 = 34650, so we continue from there",
-        dataset="competition_math",
-    )
-    assert payload.status == "failed"
-
-
-def test_extract_paper_transcript_answer_does_not_take_middle_entity_for_hotpot() -> None:
-    payload = extract_paper_transcript_answer(
-        "Tommy's Honour stars Jack Lowden, who later found success in a BBC miniseries.",
-        dataset="hotpotqa",
-    )
-    assert payload.status == "failed"
-
-
-def test_execute_answer_contract_turn_repairs_incomplete_paper_transcript(tmp_path: Path) -> None:
+def test_execute_answer_contract_turn_accepts_strict_json(tmp_path: Path) -> None:
     model = resolve_model_ref("xiaomimimo/mimo-v2.5")
-    cache = RequestCache(tmp_path / "requests.sqlite")
-    sample = _sample(
-        dataset="gsm8k",
-        question="Ben flips a fair nickel four times. What is the probability of HTHT in order?",
-        answer="1/16",
-    )
+    cache = RequestCache(tmp_path / "strict.sqlite")
 
     def request_executor(payload, provider, throttle):
         del payload, provider, throttle
         return {
-            "assistant_text": "The probability is (1/2)^4. Final answer is still being computed...",
-            "provider_reasoning_text": "",
-            "finish_reason": None,
-            "usage_reported": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
-            "usage_estimated": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
-            "usage_source": "reported",
-            "latency_ms": 11.0,
-            "provider_request_id": "raw_req",
-            "response_id": "raw_resp",
-            "request_started_at": "2026-06-11T00:00:00+00:00",
-            "request_error": None,
-        }
-
-    def repair_request_executor(payload, provider, throttle):
-        del payload, provider, throttle
-        return {
-            "assistant_text": '{"final_answer":"1/16","reasoning":"repair"}',
+            "assistant_text": '{"reasoning":"The spectrum best matches option B.","final_answer":"B"}',
             "provider_reasoning_text": "",
             "finish_reason": "stop",
-            "usage_reported": {"prompt_tokens": 5, "completion_tokens": 6, "total_tokens": 11},
-            "usage_estimated": {"prompt_tokens": 5, "completion_tokens": 6, "total_tokens": 11},
+            "usage_reported": {"prompt_tokens": 10, "completion_tokens": 12, "total_tokens": 22},
+            "usage_estimated": {"prompt_tokens": 10, "completion_tokens": 12, "total_tokens": 22},
             "usage_source": "reported",
-            "latency_ms": 7.0,
-            "provider_request_id": "repair_req",
-            "response_id": "repair_resp",
-            "request_started_at": "2026-06-11T00:00:01+00:00",
+            "latency_ms": 11.0,
+            "provider_request_id": "req",
+            "response_id": "resp",
+            "request_started_at": "2026-06-12T00:00:00+00:00",
             "request_error": None,
         }
 
@@ -110,49 +57,127 @@ def test_execute_answer_contract_turn_repairs_incomplete_paper_transcript(tmp_pa
         provider=object(),
         cache=cache,
         throttle=None,
-        sample=sample,
+        sample=_sample(dataset="gpqa_diamond", question="Choose.", answer="B"),
+        messages=[{"role": "user", "content": "demo"}],
+        temperature=0.7,
+        top_p=1.0,
+        seed=42,
+        dataset="gpqa_diamond",
+        answer_contract=JSON_ANSWER_ANCHOR_V2_CONTRACT,
+        use_response_format=True,
+        request_executor=request_executor,
+    )
+    cache.close()
+
+    assert result.output_status == "ok"
+    assert result.answer_contract_source == "full_json"
+    assert result.json_parse_mode == "strict_json"
+    assert result.validated_output["final_answer"] == "B"
+
+
+def test_execute_answer_contract_turn_fails_for_truncated_json_without_recovery(tmp_path: Path) -> None:
+    model = resolve_model_ref("xiaomimimo/mimo-v2.5")
+    cache = RequestCache(tmp_path / "fallback.sqlite")
+
+    def request_executor(payload, provider, throttle):
+        del payload, provider, throttle
+        return {
+            "assistant_text": (
+                '{"reasoning":"Total needed is 400. '
+                'The fifth worker makes 18 toys per hour'
+            ),
+            "provider_reasoning_text": "",
+            "finish_reason": "length",
+            "usage_reported": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+            "usage_estimated": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+            "usage_source": "reported",
+            "latency_ms": 11.0,
+            "provider_request_id": "raw_req",
+            "response_id": "raw_resp",
+            "request_started_at": "2026-06-12T00:00:00+00:00",
+            "request_error": None,
+        }
+
+    result = execute_answer_contract_turn(
+        backbone=model,
+        provider=object(),
+        cache=cache,
+        throttle=None,
+        sample=_sample(dataset="gsm8k", question="How many?", answer="18"),
         messages=[{"role": "user", "content": "demo"}],
         temperature=0.7,
         top_p=1.0,
         seed=42,
         dataset="gsm8k",
-        answer_contract=PAPER_TRANSCRIPT_HARDENED_CONTRACT,
-        use_response_format=False,
-        allow_network_repair=True,
+        answer_contract=JSON_ANSWER_ANCHOR_V2_CONTRACT,
+        use_response_format=True,
         request_executor=request_executor,
-        repair_request_executor=repair_request_executor,
     )
     cache.close()
 
-    assert result.output_status == "ok"
-    assert result.answer_extraction_source == "repair_json_answer_core"
-    assert result.repair_call_used is True
-    assert result.request_count == 2
-    assert result.validated_output["final_answer"] == "1/16"
+    assert result.output_status == "answer_contract_fail"
+    assert result.answer_contract_source is None
+    assert result.validated_output == {}
 
 
-def test_refresh_answer_contract_turn_reextracts_from_saved_transcript() -> None:
+def test_execute_answer_contract_turn_fails_when_answer_fields_disagree(tmp_path: Path) -> None:
     model = resolve_model_ref("xiaomimimo/mimo-v2.5")
-    sample = _sample(
+    cache = RequestCache(tmp_path / "mismatch.sqlite")
+
+    def request_executor(payload, provider, throttle):
+        del payload, provider, throttle
+        return {
+            "assistant_text": '{"reasoning":"Correct area is 49π.","final_answer":"98\\\\pi","unexpected":"49\\\\pi"}',
+            "provider_reasoning_text": "",
+            "finish_reason": "stop",
+            "usage_reported": {"prompt_tokens": 10, "completion_tokens": 12, "total_tokens": 22},
+            "usage_estimated": {"prompt_tokens": 10, "completion_tokens": 12, "total_tokens": 22},
+            "usage_source": "reported",
+            "latency_ms": 11.0,
+            "provider_request_id": "req",
+            "response_id": "resp",
+            "request_started_at": "2026-06-12T00:00:00+00:00",
+            "request_error": None,
+        }
+
+    result = execute_answer_contract_turn(
+        backbone=model,
+        provider=object(),
+        cache=cache,
+        throttle=None,
+        sample=_sample(dataset="competition_math", question="Area?", answer="49\\pi"),
+        messages=[{"role": "user", "content": "demo"}],
+        temperature=0.7,
+        top_p=1.0,
+        seed=42,
         dataset="competition_math",
-        question="Determine the probability.",
-        answer="1/16",
+        answer_contract=JSON_ANSWER_ANCHOR_V2_CONTRACT,
+        use_response_format=True,
+        request_executor=request_executor,
     )
+    cache.close()
+
+    assert result.output_status == "answer_contract_fail"
+
+
+def test_refresh_answer_contract_turn_reparses_saved_row() -> None:
+    model = resolve_model_ref("xiaomimimo/mimo-v2.5")
+    sample = _sample(dataset="mmlu_pro", question="Pick.", answer="A")
     row = {
-        "dataset": "competition_math",
+        "dataset": "mmlu_pro",
         "sample_id": sample.sample_id,
-        "assistant_text": "Therefore the final answer is \\boxed{\\frac{1}{16}}.",
+        "assistant_text": '{"reasoning":"Option A best matches the evidence.","final_answer":"A"}',
         "provider_reasoning_text": "",
         "payload": {"seed": 42},
         "prompt_hash": "hash",
         "request_error": None,
         "cache_hit": False,
-        "request_started_at": "2026-06-11T00:00:00+00:00",
+        "request_started_at": "2026-06-12T00:00:00+00:00",
         "prompt_tokens": 10.0,
         "completion_tokens": 20.0,
         "total_tokens": 30.0,
         "latency_ms": 9.0,
-        "output_status": "schema_fail",
+        "output_status": "answer_contract_fail",
     }
 
     refreshed = refresh_answer_contract_turn(
@@ -162,9 +187,8 @@ def test_refresh_answer_contract_turn_reextracts_from_saved_transcript() -> None
         provider=None,
         cache=None,
         throttle=None,
-        answer_contract=PAPER_TRANSCRIPT_HARDENED_CONTRACT,
-        allow_network_repair=False,
+        answer_contract=JSON_ANSWER_ANCHOR_V2_CONTRACT,
     )
 
     assert refreshed.output_status == "ok"
-    assert refreshed.validated_output["final_answer"] == "1/16"
+    assert refreshed.validated_output["final_answer"] == "A"

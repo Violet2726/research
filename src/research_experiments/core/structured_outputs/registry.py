@@ -14,6 +14,7 @@ from research_experiments.core.structured_outputs.recovery import (
     structured_output_candidates,
 )
 from research_experiments.core.structured_outputs.validators import (
+    validate_answer_anchor_v2_payload,
     validate_answer_core_payload,
     validate_audit_verdict_payload,
     validate_belief_update_delta_payload,
@@ -25,6 +26,7 @@ from research_experiments.core.structured_outputs.validators import (
 
 ARTIFACT_VERSION = "v5"
 SCHEMA_ANSWER_CORE = "answer_core"
+SCHEMA_ANSWER_ANCHOR_V2 = "answer_anchor_v2"
 SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE = "answer_with_proxy_signals.selective"
 SCHEMA_ANSWER_WITH_PROXY_SIGNALS_DELIBERATION = "answer_with_proxy_signals.deliberation"
 SCHEMA_ANSWER_WITH_PROXY_SIGNALS_BUDGET = "answer_with_proxy_signals.budget"
@@ -36,6 +38,7 @@ SCHEMA_SPLIT_CONTEXT_BELIEF = "split_context_belief"
 
 SchemaId = Literal[
     "answer_core",
+    "answer_anchor_v2",
     "answer_with_proxy_signals.selective",
     "answer_with_proxy_signals.deliberation",
     "answer_with_proxy_signals.budget",
@@ -114,6 +117,8 @@ def parse_proxy_signal_answer(raw_text: str, dataset: str) -> dict[str, Any]:
 def _validate_payload(payload: dict[str, Any], schema_id: SchemaId, *, dataset: str | None) -> dict[str, Any]:
     if schema_id == SCHEMA_ANSWER_CORE:
         return validate_answer_core_payload(payload, dataset=dataset)
+    if schema_id == SCHEMA_ANSWER_ANCHOR_V2:
+        return validate_answer_anchor_v2_payload(payload, dataset=dataset)
     if schema_id == SCHEMA_ANSWER_WITH_PROXY_SIGNALS_SELECTIVE:
         return validate_proxy_signal_answer_payload(payload, dataset=dataset, profile="selective")
     if schema_id == SCHEMA_ANSWER_WITH_PROXY_SIGNALS_DELIBERATION:

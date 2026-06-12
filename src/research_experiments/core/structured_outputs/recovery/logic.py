@@ -124,6 +124,8 @@ def recover_partial_payload(
 ) -> dict[str, Any] | None:
     if schema_id == "answer_core":
         return _recover_answer_core_payload(raw_text, dataset=dataset)
+    if schema_id == "answer_anchor_v2":
+        return None
     if schema_id == "answer_with_proxy_signals.budget":
         return _recover_budget_proxy_signal_payload(raw_text)
     if schema_id == "answer_with_proxy_signals.deliberation":
@@ -142,6 +144,8 @@ def recover_partial_payload(
 def recover_soft_rejection_payload(schema_id: str, *, dataset: str | None) -> dict[str, Any] | None:
     if schema_id == "answer_core":
         return {"final_answer": "unknown", "reasoning": "provider_soft_rejection"}
+    if schema_id == "answer_anchor_v2":
+        return None
     if schema_id == "answer_with_proxy_signals.selective":
         return {
             "final_answer": "unknown",

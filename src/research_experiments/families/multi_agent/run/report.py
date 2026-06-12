@@ -58,7 +58,7 @@ def render_report(
     manifest = load_json_payload(index.manifest_path)
     metrics = load_metrics(root)
     prediction_rows = load_jsonl_rows(index.prediction_records_path)
-    answer_extraction_diagnostics = load_json_payload(root / "diagnostics" / "answer_extraction_diagnostics.json")
+    answer_contract_diagnostics = load_json_payload(root / "diagnostics" / "answer_contract_diagnostics.json")
     mad_rows = [row for row in prediction_rows if row.get("method_type") == "mad"]
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in mad_rows:
@@ -73,7 +73,8 @@ def render_report(
         "run_dir": str(root),
         "experiment": manifest.get("experiment"),
         "phase": manifest.get("phase"),
-        "prompt_version": manifest.get("prompt_version"),
+        "control_prompt_version": manifest.get("control_prompt_version"),
+        "mad_prompt_version": manifest.get("mad_prompt_version"),
         "backbone": manifest.get("backbone"),
         "rows": dataset_rows,
     }
@@ -84,7 +85,7 @@ def render_report(
     base_markdown = _render_debate_vs_vote_report(
         manifest,
         dataset_rows,
-        answer_extraction_diagnostics,
+        answer_contract_diagnostics,
         root,
     )
     payload = render_family_report_bundle(
@@ -282,7 +283,7 @@ def _mcnemar_exact_p(harmed_count: int, corrected_count: int) -> float:
 def _render_debate_vs_vote_report(
     manifest: dict[str, Any],
     dataset_rows: list[dict[str, Any]],
-    answer_extraction_diagnostics: dict[str, Any],
+    answer_contract_diagnostics: dict[str, Any],
     run_dir: Path,
 ) -> str:
     backbone_name = resolve_manifest_model_name(manifest)
@@ -364,13 +365,10 @@ def _render_debate_vs_vote_report(
                 "rows": [
                     [
                         f"`{row['method_name']}`",
-                        format_float(row.get("answer_extraction_failure_rate")),
-                        format_float(row.get("repair_call_rate")),
-                        format_float(row.get("repair_failure_rate")),
-                        format_float(row.get("raw_output_incomplete_rate")),
-                        format_float(row.get("repair_total_tokens_mean"), 2),
+                        format_float(row.get("answer_contract_failure_rate")),
+                        format_float(row.get("reasoning_missing_rate")),
                     ]
-                    for row in answer_extraction_diagnostics.get("rows", [])
+                    for row in answer_contract_diagnostics.get("rows", [])
                     if row.get("dataset") == "overall"
                 ],
             },
@@ -396,8 +394,10 @@ def _render_debate_vs_vote_report(
         overview_items=[
             ("实验名", str(manifest.get("experiment"))),
             ("Phase", str(manifest.get("phase"))),
-            ("Prompt Version", str(manifest.get("prompt_version"))),
-            ("Answer Contract", str(manifest.get("answer_contract"))),
+            ("Control Prompt Version", str(manifest.get("control_prompt_version"))),
+            ("MAD Prompt Version", str(manifest.get("mad_prompt_version"))),
+            ("Control Answer Contract", str(manifest.get("control_answer_contract"))),
+            ("MAD Answer Contract", str(manifest.get("mad_answer_contract"))),
             ("Backbone", backbone_name),
             ("运行目录", run_dir.as_posix()),
         ],

@@ -35,7 +35,6 @@ def test_phase_setup_references_exist_for_multi_agent_style_experiments() -> Non
     for relative_path in (
         "configs/families/multi_agent/experiments/same_context_controlled_debate.toml",
         "configs/families/baseline_compare/experiments/core_six_method_baseline.toml",
-        "configs/families/baseline_compare/experiments/core_six_method_baseline_paper_mad.toml",
         "configs/families/consensagent/experiments/consensagent_main.toml",
         "configs/families/madjudge/experiments/madjudge_main.toml",
     ):

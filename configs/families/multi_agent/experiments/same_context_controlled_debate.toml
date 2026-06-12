@@ -13,8 +13,10 @@ benchmark_configs = [
 ]
 control_catalog = "configs/core/shared/controls/no_comm_equal_budget.toml"
 global_seed = 42
-prompt_version = "multi_agent_controlled_json"
-answer_contract = "json_answer_core"
+control_prompt_version = "single_agent_consistent_json_v2"
+control_answer_contract = "json_answer_anchor_v2"
+mad_prompt_version = "multi_agent_consistent_json_v2"
+mad_answer_contract = "json_answer_anchor_v2"
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 
 [[setups]]

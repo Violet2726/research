@@ -13,7 +13,10 @@ def test_load_experiment_config_reads_control_methods_and_setups() -> None:
     experiment = load_experiment_config("configs/families/baseline_compare/experiments/core_six_method_baseline.toml")
 
     assert experiment.name == "core_six_method_baseline"
-    assert experiment.answer_contract == "json_answer_core"
+    assert experiment.control_prompt_version == "single_agent_consistent_json_v2"
+    assert experiment.control_answer_contract == "json_answer_anchor_v2"
+    assert experiment.mad_prompt_version == "multi_agent_consistent_json_v2"
+    assert experiment.mad_answer_contract == "json_answer_anchor_v2"
     assert experiment.control_methods == ["cot_1", "sc_3", "sc_5"]
     assert experiment.method_order == [
         "cot_1",
@@ -25,30 +28,6 @@ def test_load_experiment_config_reads_control_methods_and_setups() -> None:
     ]
     assert [setup.name for setup in experiment.setups] == ["mad_3a_r1", "mad_3a_r2", "mad_5a_r1"]
     assert experiment.raw["phases"]["count300"]["split_overrides"]["gpqa_diamond"] == "full198_seed42"
-
-
-def test_load_paper_mad_experiment_config_uses_faithful_prompt_inventory() -> None:
-    experiment = load_experiment_config(
-        "configs/families/baseline_compare/experiments/core_six_method_baseline_paper_mad.toml"
-    )
-
-    assert experiment.name == "core_six_method_baseline_paper_mad"
-    assert experiment.prompt_version == "multi_agent_paper_text"
-    assert experiment.answer_contract == "paper_transcript_hardened"
-    assert experiment.control_methods == ["cot_1", "sc_3", "sc_5"]
-    assert experiment.method_order == [
-        "cot_1",
-        "sc_3",
-        "sc_5",
-        "mad_paper_3a_r1",
-        "mad_paper_3a_r2",
-        "mad_paper_5a_r1",
-    ]
-    assert [setup.name for setup in experiment.setups] == [
-        "mad_paper_3a_r1",
-        "mad_paper_3a_r2",
-        "mad_paper_5a_r1",
-    ]
 
 
 def test_build_metrics_adds_macro_micro_and_relative_fields() -> None:

@@ -59,6 +59,7 @@ def run_unified_control_batch(
     max_concurrent_requests: int,
     execute_turn: ExecuteTurnFn,
     build_prediction_row: BuildPredictionRowFn,
+    prompt_version: str | None = None,
 ) -> Iterator[ControlSampleResult]:
     """流式执行无通信对照，确保跨实验家族公平复用同一 prompt 与 seed 规则。"""
 
@@ -77,6 +78,7 @@ def run_unified_control_batch(
             throttle=throttle,
             global_seed=global_seed,
             build_messages=build_messages,
+            prompt_version=prompt_version,
             execute_turn=execute_turn,
             build_prediction_row=build_prediction_row,
         )
@@ -105,6 +107,7 @@ def run_unified_control_sample(
     execute_turn: ExecuteTurnFn,
     build_prediction_row: BuildPredictionRowFn,
     build_messages: Callable[[DatasetSample, int, str | None], list[dict[str, str]]] | None = None,
+    prompt_version: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """执行单题无通信对照，返回调用轨迹与最终预测。"""
 
@@ -114,6 +117,8 @@ def run_unified_control_sample(
     )
     for replicate_id in range(method.budget_calls):
         messages = resolved_build_messages(sample, replicate_id + 1, None)
+        if prompt_version is not None:
+            messages = resolved_build_messages(sample, replicate_id + 1, prompt_version)
         seed = resolve_unified_control_seed(
             global_seed=global_seed,
             method_family=str(getattr(method, "family", "") or ""),

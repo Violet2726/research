@@ -27,6 +27,7 @@ def test_collect_run_statuses_flags_failed_multi_agent_run(tmp_path: Path) -> No
     write_json(valid_run / "views" / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
     write_json(valid_run / "diagnostics" / "cost_breakdown.json", {"rows": []})
     write_json(valid_run / "diagnostics" / "debate_diagnostics.json", {"rows": []})
+    write_json(valid_run / "diagnostics" / "answer_contract_diagnostics.json", {"rows": []})
     touch_figure_contract(valid_run)
 
     invalid_run = runs_root / "multi_agent" / "invalid_run"
@@ -38,6 +39,7 @@ def test_collect_run_statuses_flags_failed_multi_agent_run(tmp_path: Path) -> No
     write_json(invalid_run / "views" / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
     write_json(invalid_run / "diagnostics" / "cost_breakdown.json", {"rows": []})
     write_json(invalid_run / "diagnostics" / "debate_diagnostics.json", {"rows": []})
+    write_json(invalid_run / "diagnostics" / "answer_contract_diagnostics.json", {"rows": []})
 
     statuses = collect_run_statuses(workspace_root=workspace_root, runs_root=runs_root)
     status_by_id = {status.run_id: status for status in statuses}
@@ -83,6 +85,7 @@ def test_cleanup_invalid_artifacts_deletes_invalid_runs_and_reports(tmp_path: Pa
     write_json(valid_run / "views" / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
     write_json(valid_run / "diagnostics" / "cost_breakdown.json", {"rows": []})
     write_json(valid_run / "diagnostics" / "debate_diagnostics.json", {"rows": []})
+    write_json(valid_run / "diagnostics" / "answer_contract_diagnostics.json", {"rows": []})
     touch_figure_contract(valid_run)
 
     invalid_run = runs_root / "multi_agent" / "invalid_run"
@@ -94,6 +97,7 @@ def test_cleanup_invalid_artifacts_deletes_invalid_runs_and_reports(tmp_path: Pa
     write_json(invalid_run / "views" / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
     write_json(invalid_run / "diagnostics" / "cost_breakdown.json", {"rows": []})
     write_json(invalid_run / "diagnostics" / "debate_diagnostics.json", {"rows": []})
+    write_json(invalid_run / "diagnostics" / "answer_contract_diagnostics.json", {"rows": []})
 
     reports_root.mkdir()
     (reports_root / "keep.md").write_text("20260429T000001Z-valid", encoding="utf-8")

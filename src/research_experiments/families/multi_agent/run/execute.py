@@ -35,7 +35,7 @@ from research_experiments.families.multi_agent.config import (
 from research_experiments.families.multi_agent.run.report import render_report, summarize_run
 from research_experiments.families.multi_agent.run.sample import (
     _active_setups,
-    _build_answer_extraction_diagnostics,
+    _build_answer_contract_diagnostics,
     _build_control_prediction_row,
     _build_cost_breakdown,
     _build_debate_diagnostics,
@@ -49,11 +49,7 @@ from research_experiments.families.multi_agent.run.sample import (
 )
 from research_experiments.families.multi_agent.run.validate import validate_run
 from research_experiments.families.registry import get_family_registration
-from research_experiments.family_runtime.answer_contracts import (
-    PAPER_TRANSCRIPT_HARDENED_CONTRACT,
-    answer_contract_for_prompt_version,
-    refresh_answer_contract_turn,
-)
+from research_experiments.family_runtime.answer_contracts import refresh_answer_contract_turn
 from research_experiments.family_runtime.artifact_index import named_turn_record_paths, resolve_run_artifact_index
 from research_experiments.family_runtime.comparator_impls import (
     build_shared_vanilla_mad_prediction,
@@ -111,8 +107,10 @@ def run_experiment(
         "description": experiment.description,
         "phase": phase_name,
         "phase_metadata": phase,
-        "prompt_version": experiment.prompt_version,
-        "answer_contract": experiment.answer_contract,
+        "control_prompt_version": experiment.control_prompt_version,
+        "control_answer_contract": experiment.control_answer_contract,
+        "mad_prompt_version": experiment.mad_prompt_version,
+        "mad_answer_contract": experiment.mad_answer_contract,
         "artifact_version": ARTIFACT_VERSION,
         "backbone": asdict(backbone),
         "benchmarks": [asdict(item) for item in benchmarks],
@@ -170,8 +168,8 @@ def run_experiment(
                         cache=cache,
                         throttle=throttle,
                         global_seed=experiment.global_seed,
-                        prompt_version=experiment.prompt_version,
-                        answer_contract=experiment.answer_contract,
+                        prompt_version=experiment.mad_prompt_version,
+                        answer_contract=experiment.mad_answer_contract,
                         max_concurrent_requests=experiment.max_concurrent_requests,
                     )
                     _write_sample_outputs(
@@ -203,6 +201,7 @@ def run_experiment(
                         max_concurrent_requests=experiment.max_concurrent_requests,
                         execute_turn=_execute_turn,
                         build_prediction_row=_build_control_prediction_row,
+                        prompt_version=experiment.control_prompt_version,
                     )
                     _write_sample_outputs(
                         sample_results=control_results,
@@ -219,7 +218,7 @@ def run_experiment(
         metrics = _build_metrics(final_predictions, experiment, setups)
         diagnostics = _build_debate_diagnostics(final_predictions)
         cost_breakdown = _build_cost_breakdown(all_turns)
-        answer_extraction_diagnostics = _build_answer_extraction_diagnostics(
+        answer_contract_diagnostics = _build_answer_contract_diagnostics(
             all_turns,
             dataset_order=[benchmark.slug for benchmark in benchmarks],
             method_order=[setup.name for setup in setups] + matched_control_names,
@@ -228,8 +227,8 @@ def run_experiment(
         run_paths.metrics.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
         run_paths.debate_diagnostics.write_text(json.dumps(diagnostics, ensure_ascii=False, indent=2), encoding="utf-8")
         run_paths.cost_breakdown.write_text(json.dumps(cost_breakdown, ensure_ascii=False, indent=2), encoding="utf-8")
-        run_paths.diagnostic_path("answer_extraction_diagnostics.json").write_text(
-            json.dumps(answer_extraction_diagnostics, ensure_ascii=False, indent=2),
+        run_paths.diagnostic_path("answer_contract_diagnostics.json").write_text(
+            json.dumps(answer_contract_diagnostics, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
         run_paths.run_summary.write_text(json.dumps(summarize_run(run_paths.root), ensure_ascii=False, indent=2), encoding="utf-8")
@@ -250,9 +249,9 @@ def run_experiment(
 def refresh_run_artifacts(
     run_dir: str | Path,
     *,
-    allow_network_repair: bool = False,
     cache_root: str | Path | None = None,
 ) -> Path:
+    del cache_root
     root = Path(run_dir)
     index = resolve_run_artifact_index(root, family_name="multi_agent")
     manifest = read_json(index.manifest_path)
@@ -260,8 +259,7 @@ def refresh_run_artifacts(
     turn_rows = read_jsonl(turn_paths["agent_turns.jsonl"])
     prediction_rows = read_jsonl(index.prediction_records_path)
 
-    answer_contract = str(manifest.get("answer_contract") or answer_contract_for_prompt_version(str(manifest.get("prompt_version") or "")))
-    manifest["answer_contract"] = answer_contract
+    answer_contract = str(manifest.get("mad_answer_contract") or manifest.get("control_answer_contract") or "")
     manifest["artifact_schema"] = get_family_registration("multi_agent").artifact_schema.to_manifest_payload()
     setup_map = {
         str(item["name"]): {
@@ -270,53 +268,23 @@ def refresh_run_artifacts(
         }
         for item in manifest.get("setups", [])
     }
-    mad_method_names = set(setup_map)
     sample_lookup = _sample_lookup_from_manifest(manifest)
     matched_control_names = sorted({name for item in manifest.get("setups", []) for name in item.get("matched_controls", [])})
 
-    provider: OpenAICompatibleProvider | None = None
-    cache_router: RequestCacheRouter | None = None
-    throttle: RequestThrottle | None = None
     backbone = resolve_model_ref(str(manifest.get("primary_model_ref") or ""))
     try:
-        if allow_network_repair and answer_contract == PAPER_TRANSCRIPT_HARDENED_CONTRACT:
-            load_dotenv(".env.local", override=False)
-            provider = OpenAICompatibleProvider(backbone)
-            cache_router = RequestCacheRouter(cache_root or default_cache_root())
-            throttle = RequestThrottle.for_model(
-                backbone,
-                max_concurrent_requests=int(manifest.get("max_concurrent_requests") or 1),
-                requests_per_minute=int(manifest.get("requests_per_minute_limit") or 18),
-            )
-
         refreshed_turn_rows: list[dict[str, Any]] = []
         for row in turn_rows:
-            method_name = str(row.get("method_name") or "")
-            role = str(row.get("role") or "")
-            if answer_contract == PAPER_TRANSCRIPT_HARDENED_CONTRACT and method_name in mad_method_names and role in {"initial", "debate"}:
-                sample = sample_lookup.get((str(row.get("dataset") or ""), str(row.get("sample_id") or "")))
-                cache = (
-                    cache_router.for_request_target(
-                        provider=backbone.provider,
-                        request_model=backbone.model_id,
-                        dataset=str(row.get("dataset") or ""),
-                    )
-                    if cache_router is not None
-                    else None
-                )
-                refreshed = refresh_answer_contract_turn(
-                    row=row,
-                    sample=sample,
-                    backbone=backbone,
-                    provider=provider,
-                    cache=cache,
-                    throttle=throttle,
-                    answer_contract=PAPER_TRANSCRIPT_HARDENED_CONTRACT,
-                    allow_network_repair=allow_network_repair,
-                )
-                refreshed_turn_rows.append(_merge_refreshed_turn_row(row, refreshed))
-                continue
-            refreshed_turn_rows.append(dict(row))
+            refreshed = refresh_answer_contract_turn(
+                row=row,
+                sample=sample_lookup.get((str(row.get("dataset") or ""), str(row.get("sample_id") or ""))),
+                backbone=backbone,
+                provider=None,
+                cache=None,
+                throttle=None,
+                answer_contract=answer_contract,
+            )
+            refreshed_turn_rows.append(_merge_refreshed_turn_row(row, refreshed))
 
         refreshed_predictions = _refresh_prediction_rows(
             prediction_rows,
@@ -333,7 +301,7 @@ def refresh_run_artifacts(
         )
         diagnostics = _build_debate_diagnostics(refreshed_predictions)
         cost_breakdown = _build_cost_breakdown(refreshed_turn_rows)
-        answer_extraction_diagnostics = _build_answer_extraction_diagnostics(
+        answer_contract_diagnostics = _build_answer_contract_diagnostics(
             refreshed_turn_rows,
             dataset_order=[benchmark["slug"] for benchmark in manifest.get("benchmarks", [])],
             method_order=[*setup_map.keys(), *matched_control_names],
@@ -345,7 +313,7 @@ def refresh_run_artifacts(
         write_json(index.metrics_view_path, metrics)
         write_json(root / "diagnostics" / "cost_breakdown.json", cost_breakdown)
         write_json(root / "diagnostics" / "debate_diagnostics.json", diagnostics)
-        write_json(root / "diagnostics" / "answer_extraction_diagnostics.json", answer_extraction_diagnostics)
+        write_json(root / "diagnostics" / "answer_contract_diagnostics.json", answer_contract_diagnostics)
         write_json(index.run_summary_path, summarize_run(root))
         render_report(root)
         finalize_run_outputs(
@@ -355,10 +323,7 @@ def refresh_run_artifacts(
         )
         return root
     finally:
-        if provider is not None:
-            provider.close()
-        if cache_router is not None:
-            cache_router.close()
+        pass
 
 
 def _sample_lookup_from_manifest(manifest: dict[str, Any]) -> dict[tuple[str, str], object]:
@@ -435,31 +400,24 @@ def _merge_refreshed_turn_row(row: dict[str, Any], refreshed) -> dict[str, Any]:
             "prompt_tokens": float(refreshed.usage.get("prompt_tokens") or 0.0),
             "completion_tokens": float(refreshed.usage.get("completion_tokens") or 0.0),
             "total_tokens": float(refreshed.usage.get("total_tokens") or 0.0),
-            "latency_ms": float(float(refreshed.response_payload.get("latency_ms") or 0.0) + refreshed.repair_latency_ms),
+            "latency_ms": float(refreshed.response_payload.get("latency_ms") or 0.0),
             "cache_hit": refreshed.cache_hit,
             "request_error": refreshed.request_error,
             "request_status": refreshed.request_status,
             "raw_finish_reason": refreshed.raw_finish_reason,
-            "answer_extraction_status": refreshed.answer_extraction_status,
-            "answer_extraction_source": refreshed.answer_extraction_source,
-            "answer_extraction_error": refreshed.answer_extraction_error,
-            "raw_output_incomplete_suspected": refreshed.raw_output_incomplete_suspected,
-            "repair_call_used": refreshed.repair_call_used,
+            "answer_contract_status": refreshed.answer_contract_status,
+            "answer_contract_source": refreshed.answer_contract_source,
+            "answer_contract_error": refreshed.answer_contract_error,
+            "answer_field_consistent": refreshed.answer_field_consistent,
+            "reasoning_present": refreshed.reasoning_present,
+            "json_parse_mode": refreshed.json_parse_mode,
             "request_count": refreshed.request_count,
             "cache_request_count": refreshed.cache_request_count,
             "network_request_count": refreshed.network_request_count,
-            "raw_prompt_tokens": float(refreshed.raw_usage.get("prompt_tokens") or 0.0),
-            "raw_completion_tokens": float(refreshed.raw_usage.get("completion_tokens") or 0.0),
-            "raw_total_tokens": float(refreshed.raw_usage.get("total_tokens") or 0.0),
+            "raw_prompt_tokens": float(refreshed.usage.get("prompt_tokens") or 0.0),
+            "raw_completion_tokens": float(refreshed.usage.get("completion_tokens") or 0.0),
+            "raw_total_tokens": float(refreshed.usage.get("total_tokens") or 0.0),
             "raw_latency_ms": float(refreshed.response_payload.get("latency_ms") or 0.0),
-            "repair_prompt_tokens": float(refreshed.repair_usage.get("prompt_tokens") or 0.0),
-            "repair_completion_tokens": float(refreshed.repair_usage.get("completion_tokens") or 0.0),
-            "repair_total_tokens": float(refreshed.repair_usage.get("total_tokens") or 0.0),
-            "repair_latency_ms": float(refreshed.repair_latency_ms),
-            "repair_output_status": refreshed.repair_output_status,
-            "repair_request_error": refreshed.repair_request_error,
-            "repair_cache_hit": refreshed.repair_cache_hit,
-            "repair_request_started_at": refreshed.repair_request_started_at,
             "payload": refreshed.payload,
             "assistant_text": refreshed.response_payload.get("assistant_text", ""),
             "provider_reasoning_text": refreshed.response_payload.get("provider_reasoning_text", ""),

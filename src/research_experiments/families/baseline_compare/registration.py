@@ -37,8 +37,10 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "control_method_names": experiment.control_methods,
         "control_methods": {name: asdict(controls[name]) for name in experiment.control_methods},
         "method_order": experiment.method_order,
-        "prompt_version": experiment.prompt_version,
-        "answer_contract": experiment.answer_contract,
+        "control_prompt_version": experiment.control_prompt_version,
+        "control_answer_contract": experiment.control_answer_contract,
+        "mad_prompt_version": experiment.mad_prompt_version,
+        "mad_answer_contract": experiment.mad_answer_contract,
         "workspace_defaults": workspace_defaults("baseline_compare"),
         "primary_model_ref": experiment.primary_model_ref,
         "resolved_model": asdict(resolved_model),
@@ -73,7 +75,6 @@ def configure_parser(parser) -> None:
             help="Refresh metrics/diagnostics/report for one completed baseline_compare run.",
         )
         refresh.add_argument("--run-dir", required=True)
-        refresh.add_argument("--allow-network-repair", action="store_true")
         return
     raise RuntimeError("Parser is missing subcommands.")
 
@@ -81,10 +82,7 @@ def configure_parser(parser) -> None:
 def dispatch_extra_command(args) -> bool:
     if args.command != "refresh-run-artifacts":
         return False
-    run_dir = refresh_run_artifacts(
-        args.run_dir,
-        allow_network_repair=bool(getattr(args, "allow_network_repair", False)),
-    )
+    run_dir = refresh_run_artifacts(args.run_dir)
     emit_json({"run_dir": run_dir.as_posix(), "status": "refreshed"})
     return True
 
@@ -95,7 +93,7 @@ ARTIFACT_ALIASES = {
     "final_predictions": "views/predictions.jsonl",
     "cost_breakdown": "diagnostics/cost_breakdown.json",
     "debate_diagnostics": "diagnostics/debate_diagnostics.json",
-    "answer_extraction_diagnostics": "diagnostics/answer_extraction_diagnostics.json",
+    "answer_contract_diagnostics": "diagnostics/answer_contract_diagnostics.json",
     "baseline_comparison": "exports/baseline_comparison.json",
     "paper_summary": "exports/paper_summary.csv",
     "run_validation": "run_validation.json",
@@ -133,7 +131,7 @@ REGISTRATION = make_family_registration(
     diagnostic_paths=(
         "diagnostics/cost_breakdown.json",
         "diagnostics/debate_diagnostics.json",
-        "diagnostics/answer_extraction_diagnostics.json",
+        "diagnostics/answer_contract_diagnostics.json",
     ),
     export_paths=("exports/baseline_comparison.json", "exports/paper_summary.csv"),
 )

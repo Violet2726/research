@@ -16,12 +16,15 @@ def summarize_turn_statuses(turn_rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Summarize output_status counts across turn-level records."""
 
     request_failures = sum(1 for row in turn_rows if row.get("output_status") == "request_fail")
-    schema_failures = sum(1 for row in turn_rows if row.get("output_status") == "schema_fail")
+    answer_contract_failures = sum(
+        1 for row in turn_rows if row.get("output_status") in {"answer_contract_fail", "schema_fail"}
+    )
     ok_count = sum(1 for row in turn_rows if row.get("output_status") == "ok")
     total = len(turn_rows)
     return {
         "request_failures": request_failures,
-        "schema_failures": schema_failures,
+        "answer_contract_failures": answer_contract_failures,
+        "schema_failures": answer_contract_failures,
         "ok_count": ok_count,
         "total_turns": total,
         "output_success_rate": round(ok_count / total, 4) if total else 0.0,
@@ -68,9 +71,6 @@ def validate_rate_limit_check(
         timestamp = row.get("request_started_at")
         if timestamp and not bool(row.get("cache_hit")):
             events.append((_parse_timestamp(str(timestamp)), row))
-        repair_timestamp = row.get("repair_request_started_at")
-        if repair_timestamp and not bool(row.get("repair_cache_hit")):
-            events.append((_parse_timestamp(str(repair_timestamp)), row))
     events.sort(key=lambda item: item[0])
 
     active_window: deque[tuple[datetime, dict[str, Any]]] = deque()

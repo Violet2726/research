@@ -39,7 +39,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         index.metrics_view_path,
         diagnostic_paths["cost_breakdown.json"],
         diagnostic_paths["debate_diagnostics.json"],
-        diagnostic_paths["answer_extraction_diagnostics.json"],
+        diagnostic_paths["answer_contract_diagnostics.json"],
         index.report_path,
         index.figure_manifest_path,
         index.archive_manifest_path,
@@ -48,7 +48,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     manifest = load_json(index.manifest_path)
     agent_rows = load_jsonl(turn_paths["agent_turns.jsonl"]) if turn_paths["agent_turns.jsonl"].exists() else []
     prediction_rows = load_jsonl(index.prediction_records_path) if index.prediction_records_path.exists() else []
-    answer_extraction_diagnostics = load_json(diagnostic_paths["answer_extraction_diagnostics.json"])
+    answer_contract_diagnostics = load_json(diagnostic_paths["answer_contract_diagnostics.json"])
 
     status_summary = summarize_turn_statuses(agent_rows)
     methods = Counter(row.get("method_name") for row in prediction_rows)
@@ -61,7 +61,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "passed": (
             not missing
             and status_summary["request_failures"] == 0
-            and status_summary["schema_failures"] == 0
+            and status_summary["answer_contract_failures"] == 0
             and bool(prediction_rows)
             and rate_limit_check["passed"]
             and figure_contract["passed"]
@@ -69,7 +69,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         ),
         "missing_files": missing,
         "request_failures": status_summary["request_failures"],
-        "schema_failures": status_summary["schema_failures"],
+        "answer_contract_failures": status_summary["answer_contract_failures"],
         "prediction_rows": len(prediction_rows),
         "methods": dict(methods),
         "paired_analysis_present": (root / "paired_debate_vs_vote.json").exists() or (root / "exports" / "paired_debate_vs_vote.json").exists(),
@@ -77,6 +77,6 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "rate_limit_check": rate_limit_check,
         "figure_contract": figure_contract,
         "archive_contract": archive_contract,
-        "answer_extraction_diagnostics": answer_extraction_diagnostics,
+        "answer_contract_diagnostics": answer_contract_diagnostics,
     }
 

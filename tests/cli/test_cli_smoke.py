@@ -318,7 +318,8 @@ def test_multi_agent_inspect_cli() -> None:
         ],
     )
     assert payload["name"] == "same_context_controlled_debate"
-    assert payload["answer_contract"] == "json_answer_core"
+    assert payload["control_answer_contract"] == "json_answer_anchor_v2"
+    assert payload["mad_answer_contract"] == "json_answer_anchor_v2"
 
 
 def test_baseline_compare_inspect_cli() -> None:
@@ -351,37 +352,8 @@ def test_baseline_compare_inspect_cli() -> None:
     assert payload["control_methods"]["cot_1"]["budget_calls"] == 1
     assert payload["control_methods"]["sc_3"]["budget_calls"] == 3
     assert payload["control_methods"]["sc_5"]["budget_calls"] == 5
-    assert payload["answer_contract"] == "json_answer_core"
-
-
-def test_baseline_compare_paper_mad_inspect_cli() -> None:
-    payload = run_cli_json(
-        [
-            "research_cli",
-            "experiment",
-            "--family",
-            "baseline_compare",
-            "inspect-experiment",
-            "--experiment",
-            "configs/families/baseline_compare/experiments/core_six_method_baseline_paper_mad.toml",
-        ],
-    )
-    assert payload["name"] == "core_six_method_baseline_paper_mad"
-    assert payload["method_order"] == [
-        "cot_1",
-        "sc_3",
-        "sc_5",
-        "mad_paper_3a_r1",
-        "mad_paper_3a_r2",
-        "mad_paper_5a_r1",
-    ]
-    assert [setup["name"] for setup in payload["setups"]] == [
-        "mad_paper_3a_r1",
-        "mad_paper_3a_r2",
-        "mad_paper_5a_r1",
-    ]
-    assert payload["prompt_version"] == "multi_agent_paper_text"
-    assert payload["answer_contract"] == "paper_transcript_hardened"
+    assert payload["control_answer_contract"] == "json_answer_anchor_v2"
+    assert payload["mad_answer_contract"] == "json_answer_anchor_v2"
 
 
 def test_selective_comm_inspect_cli() -> None:

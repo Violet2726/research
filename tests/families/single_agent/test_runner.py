@@ -85,7 +85,11 @@ def test_execute_call_caches_only_after_successful_parse(tmp_path) -> None:
 
     first_row = _execute_call(
         spec,
-        _ProviderStub(_response(assistant_text='{"final_answer":"4","reasoning":"basic arithmetic"}')),
+        _ProviderStub(
+            _response(
+                assistant_text='{"reasoning":"basic arithmetic","final_answer":"4"}'
+            )
+        ),
         cache,
         _throttle(),
     )

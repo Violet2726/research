@@ -10,7 +10,13 @@ from research_experiments.family_runtime.config_helpers import (
     apply_runtime_defaults,
     load_toml,
 )
-from research_experiments.family_runtime.answer_contracts import validate_prompt_answer_contract
+from research_experiments.core.controls.control_prompts import CONSISTENT_JSON_V2_PROMPT_VERSION as CONTROL_PROMPT_V2
+from research_experiments.family_runtime.answer_contracts import (
+    JSON_ANSWER_ANCHOR_V2_CONTRACT,
+    MULTI_AGENT_CONSISTENT_JSON_V2_PROMPT,
+    validate_answer_contract,
+    validate_prompt_answer_contract,
+)
 from research_experiments.family_runtime.method_catalog import MethodConfig, load_method_catalog
 
 
@@ -44,8 +50,10 @@ class BaselineCompareExperimentConfig:
     method_order: list[str]
     setups: list[ExperimentSetup]
     global_seed: int
-    prompt_version: str
-    answer_contract: str
+    control_prompt_version: str
+    control_answer_contract: str
+    mad_prompt_version: str
+    mad_answer_contract: str
     max_concurrent_requests: int
     requests_per_minute_limit: int | None
     primary_model_ref: str
@@ -85,11 +93,21 @@ def load_experiment_config(path: str | Path) -> BaselineCompareExperimentConfig:
     control_methods = [str(name) for name in payload.get("control_methods", [])]
     method_order = [str(name) for name in payload.get("method_order", [])]
     _validate_method_inventory(control_methods, method_order, setups)
-    prompt_version = str(payload["prompt_version"])
-    answer_contract = validate_prompt_answer_contract(
-        prompt_version,
-        str(payload["answer_contract"]),
+    control_prompt_version = str(payload["control_prompt_version"])
+    if control_prompt_version != CONTROL_PROMPT_V2:
+        raise ValueError(
+            f"Unsupported baseline_compare control_prompt_version={control_prompt_version!r}."
+        )
+    control_answer_contract = validate_answer_contract(str(payload["control_answer_contract"]))
+    mad_prompt_version = str(payload["mad_prompt_version"])
+    mad_answer_contract = validate_prompt_answer_contract(
+        mad_prompt_version,
+        str(payload["mad_answer_contract"]),
     )
+    if control_answer_contract != JSON_ANSWER_ANCHOR_V2_CONTRACT:
+        raise ValueError("baseline_compare control_answer_contract must be json_answer_anchor_v2.")
+    if mad_prompt_version != MULTI_AGENT_CONSISTENT_JSON_V2_PROMPT:
+        raise ValueError("baseline_compare mad_prompt_version must be multi_agent_consistent_json_v2.")
     return BaselineCompareExperimentConfig(
         name=str(payload["name"]),
         description=str(payload["description"]),
@@ -99,8 +117,10 @@ def load_experiment_config(path: str | Path) -> BaselineCompareExperimentConfig:
         method_order=method_order,
         setups=setups,
         global_seed=int(payload["global_seed"]),
-        prompt_version=prompt_version,
-        answer_contract=answer_contract,
+        control_prompt_version=control_prompt_version,
+        control_answer_contract=control_answer_contract,
+        mad_prompt_version=mad_prompt_version,
+        mad_answer_contract=mad_answer_contract,
         max_concurrent_requests=runtime["max_concurrent_requests"],
         requests_per_minute_limit=runtime["requests_per_minute_limit"],
         primary_model_ref=str(payload["primary_model_ref"]),

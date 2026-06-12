@@ -205,8 +205,10 @@ def test_baseline_compare_render_report_exports_comparison_bundle(tmp_path: Path
             "experiment": "core_six_method_baseline",
             "phase": "count20",
             "resolved_model": {"name": "xiaomimimo/mimo-v2.5"},
-            "prompt_version": "multi_agent_controlled_json",
-            "answer_contract": "json_answer_core",
+            "control_prompt_version": "single_agent_consistent_json_v2",
+            "control_answer_contract": "json_answer_anchor_v2",
+            "mad_prompt_version": "multi_agent_consistent_json_v2",
+            "mad_answer_contract": "json_answer_anchor_v2",
             "method_order": ["cot_1", "mad_3a_r1"],
             "control_method_names": ["cot_1"],
             "dataset_order": ["gsm8k"],
@@ -316,17 +318,14 @@ def test_baseline_compare_render_report_exports_comparison_bundle(tmp_path: Path
         },
     )
     write_json(
-        tmp_path / "diagnostics" / "answer_extraction_diagnostics.json",
+        tmp_path / "diagnostics" / "answer_contract_diagnostics.json",
         {
             "rows": [
                 {
                     "dataset": "overall",
                     "method_name": "mad_3a_r1",
-                    "answer_extraction_failure_rate": 0.0,
-                    "repair_call_rate": 0.2,
-                    "repair_failure_rate": 0.0,
-                    "raw_output_incomplete_rate": 0.2,
-                    "repair_total_tokens_mean": 30.0,
+                    "answer_contract_failure_rate": 0.0,
+                    "reasoning_missing_rate": 0.1,
                 }
             ]
         },

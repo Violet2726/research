@@ -23,6 +23,7 @@ _MULTIPLE_CHOICE_DATASETS = {
     "mmlu_abstract_algebra",
     "mmlu_pro",
 }
+_MATH_DATASETS = {"gsm8k", "math500", "competition_math"}
 
 
 def validate_answer_core_payload(payload: dict[str, Any], *, dataset: str | None = None) -> dict[str, Any]:
@@ -41,6 +42,28 @@ def validate_answer_core_payload(payload: dict[str, Any], *, dataset: str | None
     if "reasoning" in payload:
         validated["reasoning"] = _require_non_empty_string(payload.get("reasoning"), "reasoning")
     return validated
+
+
+def validate_answer_anchor_v2_payload(payload: dict[str, Any], *, dataset: str | None = None) -> dict[str, Any]:
+    required_keys = {"reasoning", "final_answer"}
+    actual_keys = set(payload)
+    missing = sorted(required_keys - actual_keys)
+    if missing:
+        raise ValueError(f"Assistant output is missing required keys: {missing}.")
+    if actual_keys != required_keys:
+        raise ValueError(
+            f"Assistant output must include exactly keys {sorted(required_keys)}; got {sorted(actual_keys)}."
+        )
+
+    reasoning = _require_non_empty_string(payload.get("reasoning"), "reasoning")
+    final_answer = _normalize_answer_anchor_value(
+        _require_answer_value(payload.get("final_answer"), "final_answer"),
+        dataset=dataset,
+    )
+    return {
+        "reasoning": reasoning,
+        "final_answer": final_answer,
+    }
 
 
 def validate_proxy_signal_answer_payload(
@@ -352,6 +375,42 @@ def _normalize_answer_core_value(value: str, *, dataset: str | None) -> str:
             raise ValueError('final_answer must be "yes" or "no" for strategyqa.')
         return candidate
     return normalized
+
+
+def _normalize_answer_anchor_value(value: str, *, dataset: str | None) -> str:
+    normalized = str(value).strip()
+    if not normalized:
+        raise ValueError("final_answer must be non-empty.")
+    if "\n" in normalized:
+        raise ValueError("final_answer must stay on one line.")
+    if dataset in _MATH_DATASETS:
+        lowered = normalized.lower()
+        if "\\boxed" in lowered:
+            raise ValueError("math final_answer must not include \\boxed{}.")
+        if any(marker in lowered for marker in ("answer:", "final answer", "therefore", "thus")):
+            raise ValueError("math final_answer must be only the bare expression.")
+        if dataset == "gsm8k":
+            if not normalize_prediction(dataset, normalized):
+                raise ValueError("gsm8k final_answer must be a bare numeric value.")
+        return normalize_prediction(dataset, normalized)
+    if dataset in _MULTIPLE_CHOICE_DATASETS:
+        candidate = normalize_prediction(dataset, normalized)
+        if candidate not in set("ABCDEFGHIJ"):
+            raise ValueError("final_answer must be a multiple-choice option letter for this dataset.")
+        return candidate
+    if dataset == "strategyqa":
+        candidate = normalize_prediction(dataset, normalized)
+        if candidate not in {"yes", "no"}:
+            raise ValueError('final_answer must be "yes" or "no" for strategyqa.')
+        return candidate
+    if dataset in {"hotpotqa", "webquestions"}:
+        candidate = normalize_prediction(dataset, normalized)
+        if not candidate:
+            raise ValueError("final_answer must be a non-empty judgeable text span.")
+        return candidate
+    return normalized
+
+
 
 
 def _require_nullable_hint(value: object, field_name: str) -> str | None:

@@ -48,6 +48,7 @@ from research_experiments.core.execution.runner_common import (
 )
 from research_experiments.core.execution.runtime import RunProgressTracker
 from research_experiments.core.structured_outputs import (
+    SCHEMA_ANSWER_ANCHOR_V2,
     SCHEMA_ANSWER_CORE,
     validate_or_recover_structured_output,
 )
@@ -387,7 +388,7 @@ def _execute_shared_no_comm_turn(
         temperature=temperature,
         top_p=top_p,
         seed=seed,
-        schema_id=SCHEMA_ANSWER_CORE,
+        schema_id=SCHEMA_ANSWER_ANCHOR_V2,
         dataset=dataset,
     )
     final_answer = str(result.validated_output.get("final_answer") or "")
@@ -488,7 +489,7 @@ def _execute_call(
             temperature=spec.temperature,
             top_p=spec.top_p,
             seed=spec.seed,
-            schema_id=SCHEMA_ANSWER_CORE,
+            schema_id=SCHEMA_ANSWER_ANCHOR_V2,
             dataset=spec.dataset,
         )
     else:
@@ -512,7 +513,7 @@ def _execute_call(
             try:
                 validated_output = validate_or_recover_structured_output(
                     str(response_payload.get("assistant_text") or ""),
-                    SCHEMA_ANSWER_CORE,
+                    SCHEMA_ANSWER_ANCHOR_V2,
                     dataset=spec.dataset,
                     provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
                 )

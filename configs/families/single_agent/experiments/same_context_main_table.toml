@@ -16,7 +16,7 @@ benchmark_configs = [
 global_seed = 42
 reruns_per_method = 3
 cot_uses_reruns = true
-prompt_version = "single_agent_reasoning_json_v1"
+prompt_version = "single_agent_consistent_json_v2"
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 
 [phases.count20]

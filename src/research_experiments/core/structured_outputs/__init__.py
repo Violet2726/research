@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from research_experiments.core.structured_outputs.registry import (
     ARTIFACT_VERSION,
+    SCHEMA_ANSWER_ANCHOR_V2,
     SCHEMA_ANSWER_CORE,
     SCHEMA_ANSWER_WITH_PROXY_SIGNALS_BUDGET,
     SCHEMA_ANSWER_WITH_PROXY_SIGNALS_DELIBERATION,
@@ -26,6 +27,7 @@ from research_experiments.core.structured_outputs.registry import (
 __all__ = [
     "ARTIFACT_VERSION",
     "SchemaId",
+    "SCHEMA_ANSWER_ANCHOR_V2",
     "SCHEMA_ANSWER_CORE",
     "SCHEMA_ANSWER_WITH_PROXY_SIGNALS_BUDGET",
     "SCHEMA_ANSWER_WITH_PROXY_SIGNALS_DELIBERATION",

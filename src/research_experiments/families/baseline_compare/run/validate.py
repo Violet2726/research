@@ -36,7 +36,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         index.metrics_view_path,
         diagnostic_paths["cost_breakdown.json"],
         diagnostic_paths["debate_diagnostics.json"],
-        diagnostic_paths["answer_extraction_diagnostics.json"],
+        diagnostic_paths["answer_contract_diagnostics.json"],
         export_paths["baseline_comparison.json"],
         export_paths["paper_summary.csv"],
         index.report_path,
@@ -47,7 +47,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     manifest = load_json(index.manifest_path)
     turn_rows = load_jsonl_if_present(turn_paths["agent_turns.jsonl"])
     prediction_rows = load_jsonl_if_present(index.prediction_records_path)
-    answer_extraction_diagnostics = load_json(diagnostic_paths["answer_extraction_diagnostics.json"])
+    answer_contract_diagnostics = load_json(diagnostic_paths["answer_contract_diagnostics.json"])
 
     status_summary = summarize_turn_statuses(turn_rows)
     method_coverage = _method_coverage_check(manifest, prediction_rows)
@@ -58,7 +58,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     passed = (
         not missing
         and status_summary["request_failures"] == 0
-        and status_summary["schema_failures"] == 0
+        and status_summary["answer_contract_failures"] == 0
         and bool(prediction_rows)
         and method_coverage["passed"]
         and rate_limit_check["passed"]
@@ -70,7 +70,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "passed": passed,
         "missing_files": missing,
         "request_failures": status_summary["request_failures"],
-        "schema_failures": status_summary["schema_failures"],
+        "answer_contract_failures": status_summary["answer_contract_failures"],
         "prediction_rows": len(prediction_rows),
         "methods": dict(Counter(str(row.get("method_name")) for row in prediction_rows)),
         "checks": {
@@ -78,12 +78,12 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             "rate_limit_check": rate_limit_check,
             "figure_contract": figure_contract,
             "archive_contract": archive_contract,
-            "answer_extraction_diagnostics_present": bool(answer_extraction_diagnostics.get("rows")),
+            "answer_contract_diagnostics_present": bool(answer_contract_diagnostics.get("rows")),
         },
         "rate_limit_check": rate_limit_check,
         "figure_contract": figure_contract,
         "archive_contract": archive_contract,
-        "answer_extraction_diagnostics": answer_extraction_diagnostics,
+        "answer_contract_diagnostics": answer_contract_diagnostics,
     }
 
 
