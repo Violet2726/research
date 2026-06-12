@@ -26,8 +26,9 @@ def _load_toml(relative_path: str) -> dict:
 
 def test_multi_agent_and_imad_budget_matched_controls_stay_aligned() -> None:
     multi_agent = _load_toml("configs/families/multi_agent/experiments/same_context_controlled_debate.toml")
-    assert multi_agent["control_answer_contract"] == "json_answer_anchor_v2"
-    assert multi_agent["mad_answer_contract"] == "json_answer_anchor_v2"
+    assert multi_agent["control_output_protocol"] == "free_text_answer_v1"
+    assert multi_agent["mad_initial_output_protocol"] == "free_text_answer_v1"
+    assert multi_agent["mad_debate_output_protocol"] == "free_text_debate_update_v1"
     setup = multi_agent["setups"][0]
     assert setup["name"] == "mad_3a_r1"
     assert setup["matched_controls"] == [MV_6]
@@ -55,8 +56,9 @@ def test_consensagent_and_madjudge_controls_stay_aligned() -> None:
 
 def test_baseline_compare_inventory_stays_aligned() -> None:
     payload = _load_toml("configs/families/baseline_compare/experiments/core_six_method_baseline.toml")
-    assert payload["control_answer_contract"] == "json_answer_anchor_v2"
-    assert payload["mad_answer_contract"] == "json_answer_anchor_v2"
+    assert payload["control_output_protocol"] == "free_text_answer_v1"
+    assert payload["mad_initial_output_protocol"] == "free_text_answer_v1"
+    assert payload["mad_debate_output_protocol"] == "free_text_debate_update_v1"
     control_catalog = _load_toml(payload["control_catalog"])
     control_methods = payload["control_methods"]
     method_order = payload["method_order"]

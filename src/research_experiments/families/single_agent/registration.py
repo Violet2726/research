@@ -16,6 +16,7 @@ from research_experiments.families.single_agent.run.report import render_report,
 from research_experiments.families.single_agent.run.validate import validate_run
 from research_experiments.family_runtime.config_helpers import load_benchmarks, resolve_model
 from research_experiments.family_runtime.method_catalog import load_method_catalog
+from research_experiments.family_runtime.output_protocols import FREE_TEXT_ANSWER_PROTOCOL_V1
 from research_experiments.family_runtime.registration import (
     build_single_agent_run_from_cli,
     make_family_registration,
@@ -40,6 +41,7 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "reruns_per_method": experiment.reruns_per_method,
         "cot_uses_reruns": experiment.cot_uses_reruns,
         "prompt_version": experiment.prompt_version,
+        "output_protocol": FREE_TEXT_ANSWER_PROTOCOL_V1,
         "max_concurrent_requests": experiment.max_concurrent_requests,
         "requests_per_minute_limit": experiment.requests_per_minute_limit,
         "primary_model_ref": experiment.primary_model_ref,

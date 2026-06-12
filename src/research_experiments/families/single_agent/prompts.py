@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.prompts.dataset_contracts import build_json_system_prompt, dataset_instruction_for_sample
+from research_experiments.family_runtime.free_text_protocol import build_free_text_system_prompt
 from research_experiments.family_runtime.reasoning_methods import resolve_reasoning_method
 
-CONSISTENT_JSON_V2_PROMPT_VERSION = "single_agent_consistent_json_v2"
-DEFAULT_PROMPT_VERSION = CONSISTENT_JSON_V2_PROMPT_VERSION
-SUPPORTED_PROMPT_VERSIONS = (CONSISTENT_JSON_V2_PROMPT_VERSION,)
+FREE_TEXT_V1_PROMPT_VERSION = "single_agent_free_text_v1"
+DEFAULT_PROMPT_VERSION = FREE_TEXT_V1_PROMPT_VERSION
+SUPPORTED_PROMPT_VERSIONS = (FREE_TEXT_V1_PROMPT_VERSION,)
 
 
 def build_messages(
@@ -30,28 +31,8 @@ def _ensure_prompt_version(prompt_version: str) -> None:
 
 def _system_prompt(prompt_version: str) -> str:
     _ensure_prompt_version(prompt_version)
-    if prompt_version == CONSISTENT_JSON_V2_PROMPT_VERSION:
-        return build_json_system_prompt(
-            "You are an expert reasoning assistant for controlled research experiments.",
-            extra_rules=[
-                "Follow the task instruction carefully.",
-                "Return exactly one JSON object with keys reasoning and final_answer.",
-                "Output the keys in exactly this order: reasoning, final_answer.",
-                "reasoning is required.",
-                "Keep reasoning concise, but include enough detail to justify or revise the answer.",
-                "If your reasoning changes the answer, rewrite final_answer to the corrected answer.",
-            ],
-        )
-    return build_json_system_prompt(
+    return build_free_text_system_prompt(
         "You are an expert reasoning assistant for controlled research experiments.",
-        extra_rules=[
-            "Follow the task instruction carefully.",
-            "Return exactly one JSON object with keys final_answer, final_answer_check, and reasoning.",
-            "Output the keys in exactly this order: final_answer, final_answer_check, reasoning.",
-            "final_answer and final_answer_check must match exactly after normalization.",
-            "reasoning is required and must stay under 120 tokens.",
-            "If your reasoning changes the answer, rewrite both answer fields to the corrected answer.",
-        ],
     )
 
 
@@ -68,13 +49,18 @@ def _user_prompt(sample: DatasetSample, method_family: str, prompt_version: str)
     if sample.prompt_context:
         user_prompt += f"Context:\n{sample.prompt_context}\n\n"
 
-    if prompt_version == CONSISTENT_JSON_V2_PROMPT_VERSION:
-        user_prompt += (
-            'Return exactly one JSON object like '
-            '{"reasoning":"brief reasoning","final_answer":"canonical answer"}'
-        )
-        return user_prompt
-    raise ValueError(f"Unsupported single-agent prompt_version: {prompt_version}")
+    if prompt_version != FREE_TEXT_V1_PROMPT_VERSION:
+        raise ValueError(f"Unsupported single-agent prompt_version: {prompt_version}")
+    user_prompt += (
+        "Return only the following two lines, in this exact order, with no markdown fences:\n"
+        "FINAL_ANSWER: <answer only>\n"
+        "REASON: <one short plain-text sentence>\n"
+        "Rules:\n"
+        "- FINAL_ANSWER must contain only the final answer.\n"
+        "- REASON must be one short plain-text sentence.\n"
+        "- Do not use LaTeX commands or backslashes in REASON."
+    )
+    return user_prompt
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:

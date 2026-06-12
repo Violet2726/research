@@ -49,7 +49,7 @@ def render_report(
     manifest = load_json_payload(index.manifest_path)
     metrics = load_metrics(root)
     prediction_rows = load_jsonl_rows(index.prediction_records_path)
-    answer_contract_diagnostics = load_json_payload(root / "diagnostics" / "answer_contract_diagnostics.json")
+    output_protocol_diagnostics = load_json_payload(root / "diagnostics" / "output_protocol_diagnostics.json")
     comparison_payload = _build_baseline_comparison_payload(manifest, metrics)
     comparison_path = root / "exports" / "baseline_comparison.json"
     write_json(comparison_path, comparison_payload)
@@ -59,7 +59,7 @@ def render_report(
     base_markdown = _render_markdown(
         manifest,
         metrics,
-        answer_contract_diagnostics,
+        output_protocol_diagnostics,
         comparison_payload,
         prediction_rows,
         root,
@@ -204,7 +204,7 @@ def _build_baseline_comparison_payload(
 def _render_markdown(
     manifest: dict[str, Any],
     metrics: dict[str, Any],
-    answer_contract_diagnostics: dict[str, Any],
+    output_protocol_diagnostics: dict[str, Any],
     comparison_payload: dict[str, Any],
     prediction_rows: list[dict[str, Any]],
     run_dir: Path,
@@ -356,16 +356,16 @@ def _render_markdown(
             },
         },
         {
-            "title": "答案抽取与 Repair 诊断",
+            "title": "输出协议诊断",
             "table": {
-                "headers": ["方法", "抽取失败率", "Repair 率", "Repair 失败率", "疑似未完成率", "Repair token"],
+                "headers": ["方法", "协议失败率", "原因缺失率"],
                 "rows": [
                     [
                         f"`{row['method_name']}`",
-                        format_float(row.get("answer_contract_failure_rate")),
-                        format_float(row.get("reasoning_missing_rate")),
+                        format_float(row.get("protocol_failure_rate")),
+                        format_float(row.get("reason_missing_rate")),
                     ]
-                    for row in answer_contract_diagnostics.get("rows", [])
+                    for row in output_protocol_diagnostics.get("rows", [])
                     if row.get("dataset") == "overall"
                 ],
             },
@@ -386,8 +386,9 @@ def _render_markdown(
             ("Phase", str(manifest.get("phase"))),
             ("Control Prompt Version", str(manifest.get("control_prompt_version"))),
             ("MAD Prompt Version", str(manifest.get("mad_prompt_version"))),
-            ("Control Answer Contract", str(manifest.get("control_answer_contract"))),
-            ("MAD Answer Contract", str(manifest.get("mad_answer_contract"))),
+            ("Control Output Protocol", str(manifest.get("control_output_protocol"))),
+            ("MAD Initial Output Protocol", str(manifest.get("mad_initial_output_protocol"))),
+            ("MAD Debate Output Protocol", str(manifest.get("mad_debate_output_protocol"))),
             ("Backbone", backbone_name),
             ("运行目录", run_dir.as_posix()),
         ],

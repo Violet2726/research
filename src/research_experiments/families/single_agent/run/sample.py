@@ -36,22 +36,15 @@ from research_experiments.core.execution.cache import (
 from research_experiments.core.execution.providers import (
     OpenAICompatibleProvider,
     build_payload,
-    execute_completion_request,
 )
 from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.execution.runner_common import (
-    execute_cached_turn,
     iter_indexed_batch,
 )
 from research_experiments.core.execution.runner_common import (
     prompt_hash as build_prompt_hash,
 )
 from research_experiments.core.execution.runtime import RunProgressTracker
-from research_experiments.core.structured_outputs import (
-    SCHEMA_ANSWER_ANCHOR_V2,
-    SCHEMA_ANSWER_CORE,
-    validate_or_recover_structured_output,
-)
 from research_experiments.families.single_agent.config import (
     ExperimentConfig,
     required_benchmark_tags,
@@ -61,6 +54,10 @@ from research_experiments.families.single_agent.prompts import build_messages
 from research_experiments.family_runtime.common import resolve_phase_split_name
 from research_experiments.family_runtime.config_helpers import phase_metadata
 from research_experiments.family_runtime.method_catalog import MethodConfig
+from research_experiments.family_runtime.output_protocols import (
+    FREE_TEXT_ANSWER_PROTOCOL_V1,
+    execute_output_protocol_turn,
+)
 
 
 @dataclass(frozen=True)
@@ -379,17 +376,19 @@ def _execute_shared_no_comm_turn(
 ) -> dict[str, Any]:
     """执行单次共享 no-comm turn，并写成 single_agent 原始日志格式。"""
     del method_type, round_index, role, visible_peer_count
-    result = execute_cached_turn(
+    result = execute_output_protocol_turn(
         backbone=backbone,
         provider=provider,
         cache=cache,
         throttle=throttle,
+        sample=sample,
         messages=messages,
         temperature=temperature,
         top_p=top_p,
         seed=seed,
-        schema_id=SCHEMA_ANSWER_ANCHOR_V2,
         dataset=dataset,
+        role="control",
+        output_protocol=FREE_TEXT_ANSWER_PROTOCOL_V1,
     )
     final_answer = str(result.validated_output.get("final_answer") or "")
     normalized_answer = normalize_prediction(dataset, final_answer) if final_answer else ""
@@ -414,6 +413,12 @@ def _execute_shared_no_comm_turn(
         "validated_output": result.validated_output,
         "normalized_answer": normalized_answer,
         "output_status": result.output_status,
+        "output_protocol": result.output_protocol,
+        "protocol_parse_status": result.protocol_parse_status,
+        "protocol_parse_error": result.protocol_parse_error,
+        "reason_present": result.reason_present,
+        "decision": result.decision,
+        "changed_answer": result.changed_answer,
         "usage_reported": result.response_payload.get("usage_reported"),
         "usage_estimated": result.response_payload.get("usage_estimated"),
         "usage_source": result.response_payload.get("usage_source"),
@@ -474,76 +479,27 @@ def _execute_call(
     rate_throttle: RequestThrottle,
 ) -> dict[str, Any]:
     """执行一次实际调用，必要时命中缓存，并整理成统一日志结构。"""
-    if (
+    if not (
         spec.backbone is not None
         and spec.messages is not None
         and spec.temperature is not None
         and spec.top_p is not None
     ):
-        result = execute_cached_turn(
-            backbone=spec.backbone,
-            provider=provider,
-            cache=cache,
-            throttle=rate_throttle,
-            messages=spec.messages,
-            temperature=spec.temperature,
-            top_p=spec.top_p,
-            seed=spec.seed,
-            schema_id=SCHEMA_ANSWER_ANCHOR_V2,
-            dataset=spec.dataset,
-        )
-    else:
-        cached = cache.get(spec.cache_key)
-        if cached is None:
-            response_payload = execute_completion_request(
-                provider,
-                spec.payload,
-                throttle=rate_throttle,
-            )
-            cache_hit = False
-        else:
-            response_payload = json.loads(cached.response_json)
-            cache_hit = True
-
-        request_error = response_payload.get("request_error")
-        if request_error:
-            validated_output = {}
-            output_status = "request_fail"
-        else:
-            try:
-                validated_output = validate_or_recover_structured_output(
-                    str(response_payload.get("assistant_text") or ""),
-                    SCHEMA_ANSWER_ANCHOR_V2,
-                    dataset=spec.dataset,
-                    provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
-                )
-                output_status = "ok"
-                if not cache_hit:
-                    cache_successful_response(
-                        cache,
-                        cache_key=spec.cache_key,
-                        payload=spec.payload,
-                        response_payload=response_payload,
-                    )
-            except Exception:
-                validated_output = {}
-                output_status = "schema_fail"
-
-        usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
-        result = type(
-            "CompatTurnResult",
-            (),
-            {
-                "prompt_hash": spec.prompt_hash,
-                "response_payload": response_payload,
-                "validated_output": validated_output,
-                "output_status": output_status,
-                "usage": usage,
-                "request_error": str(request_error) if request_error else None,
-                "cache_hit": cache_hit,
-                "payload": spec.payload,
-            },
-        )()
+        raise RuntimeError("single_agent mainline requires complete call specs for free-text execution.")
+    result = execute_output_protocol_turn(
+        backbone=spec.backbone,
+        provider=provider,
+        cache=cache,
+        throttle=rate_throttle,
+        sample=None,
+        messages=spec.messages,
+        temperature=spec.temperature,
+        top_p=spec.top_p,
+        seed=spec.seed,
+        dataset=spec.dataset,
+        role="control",
+        output_protocol=FREE_TEXT_ANSWER_PROTOCOL_V1,
+    )
 
     final_answer = str(result.validated_output.get("final_answer") or "")
     normalized_answer = normalize_prediction(spec.dataset, final_answer) if final_answer else ""
@@ -568,6 +524,12 @@ def _execute_call(
         "validated_output": result.validated_output,
         "normalized_answer": normalized_answer,
         "output_status": result.output_status,
+        "output_protocol": result.output_protocol,
+        "protocol_parse_status": result.protocol_parse_status,
+        "protocol_parse_error": result.protocol_parse_error,
+        "reason_present": result.reason_present,
+        "decision": result.decision,
+        "changed_answer": result.changed_answer,
         "usage_reported": result.response_payload.get("usage_reported"),
         "usage_estimated": result.response_payload.get("usage_estimated"),
         "usage_source": result.response_payload.get("usage_source"),

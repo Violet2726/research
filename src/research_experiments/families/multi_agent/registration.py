@@ -36,9 +36,10 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "control_catalog": str(experiment.control_catalog),
         "control_methods": {name: asdict(method) for name, method in sorted(controls.items())},
         "control_prompt_version": experiment.control_prompt_version,
-        "control_answer_contract": experiment.control_answer_contract,
         "mad_prompt_version": experiment.mad_prompt_version,
-        "mad_answer_contract": experiment.mad_answer_contract,
+        "control_output_protocol": experiment.control_output_protocol,
+        "mad_initial_output_protocol": experiment.mad_initial_output_protocol,
+        "mad_debate_output_protocol": experiment.mad_debate_output_protocol,
         "workspace_defaults": workspace_defaults("multi_agent"),
         "primary_model_ref": experiment.primary_model_ref,
         "phases": experiment.raw["phases"],
@@ -93,7 +94,7 @@ ARTIFACT_ALIASES = {
     "final_predictions": "views/predictions.jsonl",
     "cost_breakdown": "diagnostics/cost_breakdown.json",
     "debate_diagnostics": "diagnostics/debate_diagnostics.json",
-    "answer_contract_diagnostics": "diagnostics/answer_contract_diagnostics.json",
+    "output_protocol_diagnostics": "diagnostics/output_protocol_diagnostics.json",
     "run_validation": "run_validation.json",
 }
 
@@ -129,7 +130,7 @@ REGISTRATION = make_family_registration(
     diagnostic_paths=(
         "diagnostics/cost_breakdown.json",
         "diagnostics/debate_diagnostics.json",
-        "diagnostics/answer_contract_diagnostics.json",
+        "diagnostics/output_protocol_diagnostics.json",
     ),
     export_paths=(),
 )

@@ -13,10 +13,11 @@ def test_load_experiment_config_reads_control_methods_and_setups() -> None:
     experiment = load_experiment_config("configs/families/baseline_compare/experiments/core_six_method_baseline.toml")
 
     assert experiment.name == "core_six_method_baseline"
-    assert experiment.control_prompt_version == "single_agent_consistent_json_v2"
-    assert experiment.control_answer_contract == "json_answer_anchor_v2"
-    assert experiment.mad_prompt_version == "multi_agent_consistent_json_v2"
-    assert experiment.mad_answer_contract == "json_answer_anchor_v2"
+    assert experiment.control_prompt_version == "single_agent_free_text_v1"
+    assert experiment.mad_prompt_version == "multi_agent_free_text_v1"
+    assert experiment.control_output_protocol == "free_text_answer_v1"
+    assert experiment.mad_initial_output_protocol == "free_text_answer_v1"
+    assert experiment.mad_debate_output_protocol == "free_text_debate_update_v1"
     assert experiment.control_methods == ["cot_1", "sc_3", "sc_5"]
     assert experiment.method_order == [
         "cot_1",

@@ -10,13 +10,13 @@ from research_experiments.family_runtime.config_helpers import (
     apply_runtime_defaults,
     load_toml,
 )
-from research_experiments.core.controls.control_prompts import CONSISTENT_JSON_V2_PROMPT_VERSION as CONTROL_PROMPT_V2
-from research_experiments.family_runtime.answer_contracts import (
-    JSON_ANSWER_ANCHOR_V2_CONTRACT,
-    MULTI_AGENT_CONSISTENT_JSON_V2_PROMPT,
-    validate_answer_contract,
-    validate_prompt_answer_contract,
+from research_experiments.core.controls.control_prompts import FREE_TEXT_V1_PROMPT_VERSION as CONTROL_PROMPT_V2
+from research_experiments.family_runtime.free_text_protocol import (
+    FREE_TEXT_ANSWER_PROTOCOL_V1,
+    FREE_TEXT_DEBATE_UPDATE_PROTOCOL_V1,
 )
+from research_experiments.family_runtime.output_protocols import validate_output_protocol
+from research_experiments.family_runtime.vanilla_mad_prompting import CONSISTENT_FREE_TEXT_PROMPT_VERSION
 from research_experiments.family_runtime.method_catalog import MethodConfig, load_method_catalog
 
 
@@ -51,9 +51,10 @@ class BaselineCompareExperimentConfig:
     setups: list[ExperimentSetup]
     global_seed: int
     control_prompt_version: str
-    control_answer_contract: str
     mad_prompt_version: str
-    mad_answer_contract: str
+    control_output_protocol: str
+    mad_initial_output_protocol: str
+    mad_debate_output_protocol: str
     max_concurrent_requests: int
     requests_per_minute_limit: int | None
     primary_model_ref: str
@@ -98,16 +99,18 @@ def load_experiment_config(path: str | Path) -> BaselineCompareExperimentConfig:
         raise ValueError(
             f"Unsupported baseline_compare control_prompt_version={control_prompt_version!r}."
         )
-    control_answer_contract = validate_answer_contract(str(payload["control_answer_contract"]))
     mad_prompt_version = str(payload["mad_prompt_version"])
-    mad_answer_contract = validate_prompt_answer_contract(
-        mad_prompt_version,
-        str(payload["mad_answer_contract"]),
-    )
-    if control_answer_contract != JSON_ANSWER_ANCHOR_V2_CONTRACT:
-        raise ValueError("baseline_compare control_answer_contract must be json_answer_anchor_v2.")
-    if mad_prompt_version != MULTI_AGENT_CONSISTENT_JSON_V2_PROMPT:
-        raise ValueError("baseline_compare mad_prompt_version must be multi_agent_consistent_json_v2.")
+    control_output_protocol = validate_output_protocol(str(payload["control_output_protocol"]))
+    mad_initial_output_protocol = validate_output_protocol(str(payload["mad_initial_output_protocol"]))
+    mad_debate_output_protocol = validate_output_protocol(str(payload["mad_debate_output_protocol"]))
+    if mad_prompt_version != CONSISTENT_FREE_TEXT_PROMPT_VERSION:
+        raise ValueError("baseline_compare mad_prompt_version must be multi_agent_free_text_v1.")
+    if control_output_protocol != FREE_TEXT_ANSWER_PROTOCOL_V1:
+        raise ValueError("baseline_compare control_output_protocol must be free_text_answer_v1.")
+    if mad_initial_output_protocol != FREE_TEXT_ANSWER_PROTOCOL_V1:
+        raise ValueError("baseline_compare mad_initial_output_protocol must be free_text_answer_v1.")
+    if mad_debate_output_protocol != FREE_TEXT_DEBATE_UPDATE_PROTOCOL_V1:
+        raise ValueError("baseline_compare mad_debate_output_protocol must be free_text_debate_update_v1.")
     return BaselineCompareExperimentConfig(
         name=str(payload["name"]),
         description=str(payload["description"]),
@@ -118,9 +121,10 @@ def load_experiment_config(path: str | Path) -> BaselineCompareExperimentConfig:
         setups=setups,
         global_seed=int(payload["global_seed"]),
         control_prompt_version=control_prompt_version,
-        control_answer_contract=control_answer_contract,
         mad_prompt_version=mad_prompt_version,
-        mad_answer_contract=mad_answer_contract,
+        control_output_protocol=control_output_protocol,
+        mad_initial_output_protocol=mad_initial_output_protocol,
+        mad_debate_output_protocol=mad_debate_output_protocol,
         max_concurrent_requests=runtime["max_concurrent_requests"],
         requests_per_minute_limit=runtime["requests_per_minute_limit"],
         primary_model_ref=str(payload["primary_model_ref"]),

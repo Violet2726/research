@@ -54,7 +54,7 @@ def validate_run(
         total = sum(counts.values())
         output_by_group[f"{dataset}:{method_name}"] = {
             "total_calls": total,
-            "schema_failures": counts.get("schema_fail", 0),
+            "protocol_failures": counts.get("protocol_fail", 0),
             "request_failures": counts.get("request_fail", 0),
             "output_success_rate": counts.get("ok", 0) / total if total else 0.0,
         }
@@ -86,7 +86,7 @@ def validate_run(
         "passed": passed,
         "missing_files": missing_files,
         "request_failures": status_summary["request_failures"],
-        "schema_failures": status_summary["schema_failures"],
+        "protocol_failures": status_summary["protocol_failures"],
         "output_success_rate": status_summary["output_success_rate"],
         "checks": {
             "output_success_threshold": output_success_threshold,

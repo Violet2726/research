@@ -6,8 +6,9 @@ from typing import Any
 
 import pytest
 
+from research_experiments.core.config import resolve_model_ref
 from research_experiments.core.execution.cache import RequestCache, build_request_cache_key
-from research_experiments.core.execution.providers import ProviderRequestError, ProviderResponse
+from research_experiments.core.execution.providers import ProviderRequestError, ProviderResponse, build_payload
 from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.families.single_agent.run.sample import CallSpec, _execute_call
 
@@ -23,14 +24,19 @@ class _ProviderStub:
 
 
 def _build_spec() -> CallSpec:
-    payload = {
-        "model": "demo-model",
-        "messages": [{"role": "user", "content": "What is 2 + 2?"}],
-        "temperature": 0.0,
-        "top_p": 1.0,
-
-        "seed": 42,
-    }
+    model = resolve_model_ref("xiaomimimo/mimo-v2.5")
+    messages = [
+        {"role": "system", "content": "You are a helper."},
+        {"role": "user", "content": "What is 2 + 2?"},
+    ]
+    payload = build_payload(
+        config=model,
+        messages=messages,
+        temperature=0.0,
+        top_p=1.0,
+        seed=42,
+        use_response_format=False,
+    )
     return CallSpec(
         run_id="run-1",
         dataset="gsm8k",
@@ -42,17 +48,22 @@ def _build_spec() -> CallSpec:
         rerun_index=0,
         replicate_id=0,
         agent_id=None,
-        model_name="Demo Model",
-        model_id="demo-model",
-        provider_name="demo-provider",
-        base_url="https://example.invalid/v1",
+        model_name=model.name,
+        model_id=model.model_id,
+        provider_name=model.provider,
+        base_url=model.base_url,
         prompt_hash="prompt-hash",
         payload=payload,
         cache_key=build_request_cache_key(
-            provider="demo-provider",
-            request_model="demo-model",
+            provider=model.provider,
+            request_model=model.model_id,
             payload=payload,
         ),
+        backbone=model,
+        messages=messages,
+        temperature=0.0,
+        top_p=1.0,
+        seed=42,
     )
 
 
@@ -87,7 +98,7 @@ def test_execute_call_caches_only_after_successful_parse(tmp_path) -> None:
         spec,
         _ProviderStub(
             _response(
-                assistant_text='{"reasoning":"basic arithmetic","final_answer":"4"}'
+                assistant_text="FINAL_ANSWER: 4\nREASON: Add the two numbers."
             )
         ),
         cache,
@@ -142,19 +153,19 @@ def test_execute_call_does_not_cache_schema_failures(tmp_path, monkeypatch: pyte
         raise ValueError("schema exploded")
 
     monkeypatch.setattr(
-        "research_experiments.families.single_agent.run.sample.validate_or_recover_structured_output",
+        "research_experiments.family_runtime.output_protocols.parse_free_text_answer_output",
         _always_fail,
     )
 
     row = _execute_call(
         spec,
-        _ProviderStub(_response(assistant_text='{"final_answer":"4","reasoning":"basic arithmetic"}')),
+        _ProviderStub(_response(assistant_text="FINAL_ANSWER: 4\nREASON: Add the two numbers.")),
         cache,
         _throttle(),
     )
 
-    assert row["output_status"] == "schema_fail"
+    assert row["output_status"] == "protocol_fail"
     assert row["cache_hit"] is False
-    assert cache.get(spec.cache_key) is None
+    assert cache.get(spec.cache_key) is not None
     cache.close()
 

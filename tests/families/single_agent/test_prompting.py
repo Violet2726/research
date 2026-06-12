@@ -33,9 +33,9 @@ def test_build_messages_supports_all_single_agent_prompt_versions() -> None:
 def test_single_prompt_requires_reasoning_key_in_user_instruction() -> None:
     sample = _sample("hotpotqa")
     messages = build_messages(sample, method_family="cot", prompt_version=DEFAULT_PROMPT_VERSION)
-    assert '"reasoning"' in messages[1]["content"]
-    assert '"final_answer"' in messages[1]["content"]
-    assert "Return exactly one JSON object like" in messages[1]["content"]
+    assert "FINAL_ANSWER:" in messages[1]["content"]
+    assert "REASON:" in messages[1]["content"]
+    assert "Return only the following two lines" in messages[1]["content"]
 
 
 def test_retired_prompt_versions_are_not_supported() -> None:

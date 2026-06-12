@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.prompts.dataset_contracts import build_json_system_prompt, dataset_instruction_for_sample
+from research_experiments.family_runtime.free_text_protocol import build_free_text_system_prompt
 
-CONSISTENT_JSON_PROMPT_VERSION = "multi_agent_consistent_json_v2"
-CONTROLLED_PROMPT_VERSION = CONSISTENT_JSON_PROMPT_VERSION
-DEFAULT_PROMPT_VERSION = CONSISTENT_JSON_PROMPT_VERSION
-SUPPORTED_SHARED_PROMPT_VERSIONS = (CONSISTENT_JSON_PROMPT_VERSION,)
+CONSISTENT_FREE_TEXT_PROMPT_VERSION = "multi_agent_free_text_v1"
+CONTROLLED_PROMPT_VERSION = CONSISTENT_FREE_TEXT_PROMPT_VERSION
+DEFAULT_PROMPT_VERSION = CONSISTENT_FREE_TEXT_PROMPT_VERSION
+SUPPORTED_SHARED_PROMPT_VERSIONS = (CONSISTENT_FREE_TEXT_PROMPT_VERSION,)
 
 
 def build_initial_messages(
@@ -63,7 +64,7 @@ def build_debate_messages(
         f"Your previous final_answer: {previous_answer or '[missing answer]'}\n\n"
         f"Peer feedback:\n{peer_block}\n\n"
         f"{_revision_instruction(sample)}\n\n"
-        f"{_json_output_contract_instruction()}"
+        f"{_debate_output_contract_instruction(dataset=sample.dataset)}"
     )
     return [
         {"role": "system", "content": _system_prompt()},
@@ -73,7 +74,7 @@ def build_debate_messages(
 
 def prompt_version_uses_json_response_format(prompt_version: str) -> bool:
     _ensure_prompt_version(prompt_version)
-    return True
+    return False
 
 
 def _ensure_prompt_version(prompt_version: str) -> None:
@@ -82,17 +83,8 @@ def _ensure_prompt_version(prompt_version: str) -> None:
 
 
 def _system_prompt() -> str:
-    return build_json_system_prompt(
+    return build_free_text_system_prompt(
         "You are one reasoning agent in a controlled multi-agent debate experiment.",
-        extra_rules=[
-            "Solve the task carefully using only the provided question and context.",
-            "Return exactly one JSON object with keys reasoning and final_answer.",
-            "Output the keys in exactly this order: reasoning, final_answer.",
-            "reasoning is required.",
-            "Keep reasoning concise, but include enough detail to justify or revise the answer.",
-            "If your reasoning changes the answer, rewrite final_answer to the corrected answer.",
-            "Do not add natural-language text before or after the JSON object.",
-        ],
     )
 
 
@@ -117,10 +109,27 @@ def _revision_instruction(sample: DatasetSample) -> str:
 
 def _json_output_contract_instruction() -> str:
     return (
-        "Return exactly one JSON object using this exact shape and key order:\n"
-        '{\n'
-        '  "reasoning": "<required concise reasoning>",\n'
-        '  "final_answer": "<canonical answer>"\n'
-        "}\n"
-        "Do not emit markdown fences or any extra text."
+        "Return only the following two lines, in this exact order, with no markdown fences:\n"
+        "FINAL_ANSWER: <answer only>\n"
+        "REASON: <one short plain-text sentence>\n"
+        "Rules:\n"
+        "- FINAL_ANSWER must contain only the final answer.\n"
+        "- REASON must be one short plain-text sentence.\n"
+        "- Do not use LaTeX commands or backslashes in REASON."
+    )
+
+
+def _debate_output_contract_instruction(*, dataset: str) -> str:
+    del dataset
+    return (
+        "Return only the following three lines, in this exact order, with no markdown fences:\n"
+        "DECISION: <keep or revise>\n"
+        "FINAL_ANSWER: <answer only>\n"
+        "REASON: <one short plain-text sentence>\n"
+        "Rules:\n"
+        "- Use DECISION: keep when peer feedback does not change your answer.\n"
+        "- Use DECISION: revise only when peer feedback changes your final answer.\n"
+        "- FINAL_ANSWER must contain only the final answer.\n"
+        "- REASON must be one short plain-text sentence.\n"
+        "- Do not use LaTeX commands or backslashes in REASON."
     )

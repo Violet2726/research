@@ -19,12 +19,14 @@ def summarize_turn_statuses(turn_rows: list[dict[str, Any]]) -> dict[str, Any]:
     answer_contract_failures = sum(
         1 for row in turn_rows if row.get("output_status") in {"answer_contract_fail", "schema_fail"}
     )
+    protocol_failures = sum(1 for row in turn_rows if row.get("output_status") == "protocol_fail")
     ok_count = sum(1 for row in turn_rows if row.get("output_status") == "ok")
     total = len(turn_rows)
     return {
         "request_failures": request_failures,
         "answer_contract_failures": answer_contract_failures,
         "schema_failures": answer_contract_failures,
+        "protocol_failures": protocol_failures,
         "ok_count": ok_count,
         "total_turns": total,
         "output_success_rate": round(ok_count / total, 4) if total else 0.0,

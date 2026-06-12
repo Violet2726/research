@@ -30,7 +30,7 @@ from research_experiments.families.baseline_compare.config import (
 from research_experiments.families.baseline_compare.run.report import render_report, summarize_run
 from research_experiments.families.baseline_compare.run.sample import (
     _active_setups,
-    _build_answer_contract_diagnostics,
+    _build_output_protocol_diagnostics,
     _build_control_prediction_row,
     _build_cost_breakdown,
     _build_debate_diagnostics,
@@ -44,7 +44,6 @@ from research_experiments.families.baseline_compare.run.sample import (
 )
 from research_experiments.families.baseline_compare.run.validate import validate_run
 from research_experiments.families.registry import get_family_registration
-from research_experiments.family_runtime.answer_contracts import refresh_answer_contract_turn
 from research_experiments.family_runtime.artifact_index import named_turn_record_paths, resolve_run_artifact_index
 from research_experiments.family_runtime.comparator_impls import (
     build_shared_vanilla_mad_prediction,
@@ -53,6 +52,7 @@ from research_experiments.family_runtime.comparator_impls import (
 from research_experiments.family_runtime.config_helpers import load_benchmarks, phase_metadata
 from research_experiments.family_runtime.layout import prepare_registered_run_layout
 from research_experiments.family_runtime.manifest import finalize_family_manifest
+from research_experiments.family_runtime.output_protocols import refresh_output_protocol_turn
 from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 
@@ -114,9 +114,10 @@ def run_experiment(
         "phase": phase_name,
         "phase_metadata": phase,
         "control_prompt_version": experiment.control_prompt_version,
-        "control_answer_contract": experiment.control_answer_contract,
         "mad_prompt_version": experiment.mad_prompt_version,
-        "mad_answer_contract": experiment.mad_answer_contract,
+        "control_output_protocol": experiment.control_output_protocol,
+        "mad_initial_output_protocol": experiment.mad_initial_output_protocol,
+        "mad_debate_output_protocol": experiment.mad_debate_output_protocol,
         "max_concurrent_requests": experiment.max_concurrent_requests,
         "requests_per_minute_limit": experiment.requests_per_minute_limit,
         "artifact_version": ARTIFACT_VERSION,
@@ -179,7 +180,8 @@ def run_experiment(
                         throttle=throttle,
                         global_seed=experiment.global_seed,
                         prompt_version=experiment.mad_prompt_version,
-                        answer_contract=experiment.mad_answer_contract,
+                        initial_output_protocol=experiment.mad_initial_output_protocol,
+                        debate_output_protocol=experiment.mad_debate_output_protocol,
                         max_concurrent_requests=experiment.max_concurrent_requests,
                     )
                     _write_sample_outputs(
@@ -240,7 +242,7 @@ def run_experiment(
             dataset_order=[benchmark.slug for benchmark in benchmarks],
             method_order=experiment.method_order,
         )
-        answer_contract_diagnostics = _build_answer_contract_diagnostics(
+        output_protocol_diagnostics = _build_output_protocol_diagnostics(
             all_turns,
             dataset_order=[benchmark.slug for benchmark in benchmarks],
             method_order=experiment.method_order,
@@ -251,8 +253,8 @@ def run_experiment(
         run_paths.debate_diagnostics.write_text(
             json.dumps(debate_diagnostics, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        run_paths.diagnostic_path("answer_contract_diagnostics.json").write_text(
-            json.dumps(answer_contract_diagnostics, ensure_ascii=False, indent=2),
+        run_paths.diagnostic_path("output_protocol_diagnostics.json").write_text(
+            json.dumps(output_protocol_diagnostics, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
         run_paths.run_summary.write_text(
@@ -296,7 +298,9 @@ def refresh_run_artifacts(
     turn_rows = read_jsonl(turn_paths["agent_turns.jsonl"])
     prediction_rows = read_jsonl(index.prediction_records_path)
 
-    answer_contract = str(manifest.get("mad_answer_contract") or manifest.get("control_answer_contract") or "")
+    control_output_protocol = str(manifest.get("control_output_protocol") or "")
+    mad_initial_output_protocol = str(manifest.get("mad_initial_output_protocol") or "")
+    mad_debate_output_protocol = str(manifest.get("mad_debate_output_protocol") or "")
     manifest["artifact_schema"] = get_family_registration("baseline_compare").artifact_schema.to_manifest_payload()
     setup_map = {
         str(item["name"]): {
@@ -310,14 +314,20 @@ def refresh_run_artifacts(
     try:
         refreshed_turn_rows: list[dict[str, Any]] = []
         for row in turn_rows:
-            refreshed = refresh_answer_contract_turn(
+            row_role = str(row.get("role") or "")
+            output_protocol = (
+                mad_debate_output_protocol
+                if row_role == "debate"
+                else mad_initial_output_protocol if row_role == "initial" else control_output_protocol
+            )
+            refreshed = refresh_output_protocol_turn(
                 row=row,
                 sample=sample_lookup.get((str(row.get("dataset") or ""), str(row.get("sample_id") or ""))),
                 backbone=backbone,
                 provider=None,
                 cache=None,
                 throttle=None,
-                answer_contract=answer_contract,
+                output_protocol=output_protocol,
             )
             refreshed_turn_rows.append(_merge_refreshed_turn_row(row, refreshed))
 
@@ -348,7 +358,7 @@ def refresh_run_artifacts(
             dataset_order=dataset_order,
             method_order=method_order,
         )
-        answer_contract_diagnostics = _build_answer_contract_diagnostics(
+        output_protocol_diagnostics = _build_output_protocol_diagnostics(
             refreshed_turn_rows,
             dataset_order=dataset_order,
             method_order=method_order,
@@ -360,7 +370,7 @@ def refresh_run_artifacts(
         write_json(index.metrics_view_path, metrics)
         write_json(root / "diagnostics" / "cost_breakdown.json", cost_breakdown)
         write_json(root / "diagnostics" / "debate_diagnostics.json", debate_diagnostics)
-        write_json(root / "diagnostics" / "answer_contract_diagnostics.json", answer_contract_diagnostics)
+        write_json(root / "diagnostics" / "output_protocol_diagnostics.json", output_protocol_diagnostics)
         write_json(index.run_summary_path, summarize_run(root))
         render_report(root)
         finalize_run_outputs(
@@ -452,12 +462,12 @@ def _merge_refreshed_turn_row(row: dict[str, Any], refreshed) -> dict[str, Any]:
             "request_error": refreshed.request_error,
             "request_status": refreshed.request_status,
             "raw_finish_reason": refreshed.raw_finish_reason,
-            "answer_contract_status": refreshed.answer_contract_status,
-            "answer_contract_source": refreshed.answer_contract_source,
-            "answer_contract_error": refreshed.answer_contract_error,
-            "answer_field_consistent": refreshed.answer_field_consistent,
-            "reasoning_present": refreshed.reasoning_present,
-            "json_parse_mode": refreshed.json_parse_mode,
+            "output_protocol": refreshed.output_protocol,
+            "protocol_parse_status": refreshed.protocol_parse_status,
+            "protocol_parse_error": refreshed.protocol_parse_error,
+            "reason_present": refreshed.reason_present,
+            "decision": refreshed.decision,
+            "changed_answer": refreshed.changed_answer,
             "request_count": refreshed.request_count,
             "cache_request_count": refreshed.cache_request_count,
             "network_request_count": refreshed.network_request_count,

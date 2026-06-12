@@ -22,19 +22,20 @@ from research_experiments.families.baseline_compare.config import (
     load_protocol_config,
     load_roster_config,
 )
-from research_experiments.family_runtime.answer_contracts import (
-    JSON_ANSWER_ANCHOR_V2_CONTRACT,
-    execute_answer_contract_turn,
-)
 from research_experiments.family_runtime.common import resolve_phase_split_name, safe_mean, safe_ratio
 from research_experiments.family_runtime.comparator_impls import (
-    build_shared_answer_contract_diagnostics,
+    build_shared_output_protocol_diagnostics,
     build_shared_vanilla_mad_prediction,
     run_shared_vanilla_mad_rounds,
 )
 from research_experiments.family_runtime.config_helpers import phase_metadata
+from research_experiments.family_runtime.output_protocols import (
+    FREE_TEXT_ANSWER_PROTOCOL_V1,
+    FREE_TEXT_DEBATE_UPDATE_PROTOCOL_V1,
+    execute_output_protocol_turn,
+)
 from research_experiments.family_runtime.vanilla_mad_prompting import (
-    CONSISTENT_JSON_PROMPT_VERSION,
+    CONSISTENT_FREE_TEXT_PROMPT_VERSION,
     prompt_version_uses_json_response_format,
 )
 
@@ -62,12 +63,12 @@ class AgentTurnRecord:
     request_error: str | None
     request_status: str
     raw_finish_reason: str | None
-    answer_contract_status: str
-    answer_contract_source: str | None
-    answer_contract_error: str | None
-    answer_field_consistent: bool
-    reasoning_present: bool
-    json_parse_mode: str | None
+    output_protocol: str
+    protocol_parse_status: str
+    protocol_parse_error: str | None
+    reason_present: bool
+    decision: str | None
+    changed_answer: bool
     request_count: int
     cache_request_count: int
     network_request_count: int
@@ -137,8 +138,8 @@ class FinalPredictionRecord:
     harmed_by_debate: bool
     unchanged_correct: bool
     unchanged_wrong: bool
-    answer_contract_failures_per_question: int
-    reasoning_missing_turns_per_question: int
+    protocol_failures_per_question: int
+    reason_missing_turns_per_question: int
 
 
 def _run_mad_setup_batch(
@@ -155,7 +156,8 @@ def _run_mad_setup_batch(
     throttle: RequestThrottle,
     global_seed: int,
     prompt_version: str,
-    answer_contract: str,
+    initial_output_protocol: str,
+    debate_output_protocol: str,
     max_concurrent_requests: int,
 ) -> Iterator[tuple[int, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]]:
     worker = partial(
@@ -172,7 +174,8 @@ def _run_mad_setup_batch(
         throttle=throttle,
         global_seed=global_seed,
         prompt_version=prompt_version,
-        answer_contract=answer_contract,
+        initial_output_protocol=initial_output_protocol,
+        debate_output_protocol=debate_output_protocol,
     )
     for sample_index, result in iter_indexed_batch(
         samples,
@@ -221,7 +224,8 @@ def _run_mad_sample(
     throttle: RequestThrottle,
     global_seed: int,
     prompt_version: str,
-    answer_contract: str,
+    initial_output_protocol: str,
+    debate_output_protocol: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     shared_result = run_shared_vanilla_mad_rounds(
         sample=sample,
@@ -247,7 +251,8 @@ def _run_mad_sample(
             provider=provider,
             cache=cache,
             throttle=throttle,
-            answer_contract=answer_contract,
+            initial_output_protocol=initial_output_protocol,
+            debate_output_protocol=debate_output_protocol,
             **kwargs,
         ),
         build_debate_row=lambda sender, recipient_id, round_index: asdict(
@@ -338,10 +343,10 @@ def _build_control_prediction_row(
             harmed_by_debate=False,
             unchanged_correct=final_score == 1.0,
             unchanged_wrong=final_score < 1.0,
-            answer_contract_failures_per_question=sum(
-                1 for row in turn_rows if row.get("answer_contract_status") == "failed"
+            protocol_failures_per_question=sum(
+                1 for row in turn_rows if row.get("protocol_parse_status") == "failed"
             ),
-            reasoning_missing_turns_per_question=sum(1 for row in turn_rows if not row.get("reasoning_present")),
+            reason_missing_turns_per_question=sum(1 for row in turn_rows if not row.get("reason_present")),
         )
     )
     prediction_row["vote_counts"] = vote_counts
@@ -367,10 +372,12 @@ def _execute_turn(
     temperature: float,
     top_p: float,
     seed: int,
-    prompt_version: str = CONSISTENT_JSON_PROMPT_VERSION,
-    answer_contract: str = JSON_ANSWER_ANCHOR_V2_CONTRACT,
+    prompt_version: str = CONSISTENT_FREE_TEXT_PROMPT_VERSION,
+    initial_output_protocol: str = FREE_TEXT_ANSWER_PROTOCOL_V1,
+    debate_output_protocol: str = FREE_TEXT_DEBATE_UPDATE_PROTOCOL_V1,
 ) -> dict[str, Any]:
-    result = execute_answer_contract_turn(
+    output_protocol = debate_output_protocol if role == "debate" else initial_output_protocol
+    result = execute_output_protocol_turn(
         backbone=backbone,
         provider=provider,
         cache=cache,
@@ -381,8 +388,8 @@ def _execute_turn(
         top_p=top_p,
         seed=seed,
         dataset=dataset,
-        answer_contract=answer_contract,
-        use_response_format=prompt_version_uses_json_response_format(prompt_version),
+        role=role,
+        output_protocol=output_protocol,
     )
     final_answer = str(result.validated_output.get("final_answer") or "")
     normalized = normalize_prediction(dataset, final_answer) if final_answer else ""
@@ -409,12 +416,12 @@ def _execute_turn(
             request_error=result.request_error,
             request_status=result.request_status,
             raw_finish_reason=result.raw_finish_reason,
-            answer_contract_status=result.answer_contract_status,
-            answer_contract_source=result.answer_contract_source,
-            answer_contract_error=result.answer_contract_error,
-            answer_field_consistent=result.answer_field_consistent,
-            reasoning_present=result.reasoning_present,
-            json_parse_mode=result.json_parse_mode,
+            output_protocol=result.output_protocol,
+            protocol_parse_status=result.protocol_parse_status,
+            protocol_parse_error=result.protocol_parse_error,
+            reason_present=result.reason_present,
+            decision=result.decision,
+            changed_answer=result.changed_answer,
             request_count=result.request_count,
             cache_request_count=result.cache_request_count,
             network_request_count=result.network_request_count,
@@ -596,13 +603,13 @@ def _build_debate_diagnostics(
     return {"rows": rows}
 
 
-def _build_answer_contract_diagnostics(
+def _build_output_protocol_diagnostics(
     turn_rows: list[dict[str, Any]],
     *,
     dataset_order: list[str],
     method_order: list[str],
 ) -> dict[str, Any]:
-    return build_shared_answer_contract_diagnostics(
+    return build_shared_output_protocol_diagnostics(
         turn_rows,
         dataset_order=dataset_order,
         method_order=method_order,
@@ -692,11 +699,11 @@ def _summarize_prediction_rows(
         "communication_tokens_mean": safe_mean(float(row["debate_total_tokens_per_question"]) for row in rows),
         "latency_ms_mean": safe_mean(float(row["latency_ms_per_question"]) for row in rows),
         "calls_per_question_mean": safe_mean(float(row["calls_per_question"]) for row in rows),
-        "answer_contract_failures_per_question_mean": safe_mean(
-            float(row.get("answer_contract_failures_per_question") or 0.0) for row in rows
+        "protocol_failures_per_question_mean": safe_mean(
+            float(row.get("protocol_failures_per_question") or 0.0) for row in rows
         ),
-        "reasoning_missing_turns_per_question_mean": safe_mean(
-            float(row.get("reasoning_missing_turns_per_question") or 0.0) for row in rows
+        "reason_missing_turns_per_question_mean": safe_mean(
+            float(row.get("reason_missing_turns_per_question") or 0.0) for row in rows
         ),
         "accuracy_per_1k_tokens": round((accuracy / total_tokens * 1000) if total_tokens else 0.0, 6),
         "debate_rounds": safe_mean(float(row["debate_rounds"]) for row in rows),
@@ -739,11 +746,11 @@ def _build_macro_rows(dataset_rows: list[dict[str, Any]]) -> list[dict[str, Any]
                 "communication_tokens_mean": safe_mean(float(row["communication_tokens_mean"]) for row in rows),
                 "latency_ms_mean": safe_mean(float(row["latency_ms_mean"]) for row in rows),
                 "calls_per_question_mean": safe_mean(float(row["calls_per_question_mean"]) for row in rows),
-                "answer_contract_failures_per_question_mean": safe_mean(
-                    float(row.get("answer_contract_failures_per_question_mean") or 0.0) for row in rows
+                "protocol_failures_per_question_mean": safe_mean(
+                    float(row.get("protocol_failures_per_question_mean") or 0.0) for row in rows
                 ),
-                "reasoning_missing_turns_per_question_mean": safe_mean(
-                    float(row.get("reasoning_missing_turns_per_question_mean") or 0.0) for row in rows
+                "reason_missing_turns_per_question_mean": safe_mean(
+                    float(row.get("reason_missing_turns_per_question_mean") or 0.0) for row in rows
                 ),
                 "accuracy_per_1k_tokens": round((accuracy / total_tokens * 1000) if total_tokens else 0.0, 6),
                 "debate_rounds": safe_mean(float(row["debate_rounds"]) for row in rows),

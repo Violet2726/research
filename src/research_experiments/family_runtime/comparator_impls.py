@@ -8,7 +8,7 @@ from typing import Any
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.data.evaluation import aggregate_majority, score_prediction
 from research_experiments.family_runtime.vanilla_mad_prompting import (
-    CONSISTENT_JSON_PROMPT_VERSION,
+    CONSISTENT_FREE_TEXT_PROMPT_VERSION,
     SUPPORTED_SHARED_PROMPT_VERSIONS,
 )
 from research_experiments.family_runtime.vanilla_mad_prompting import (
@@ -100,7 +100,7 @@ def run_shared_vanilla_mad_rounds(
     global_seed: int,
     execute_turn: ExecuteVanillaMadTurnFn,
     build_debate_row: BuildDebateRowFn,
-    prompt_version: str = CONSISTENT_JSON_PROMPT_VERSION,
+    prompt_version: str = CONSISTENT_FREE_TEXT_PROMPT_VERSION,
     initial_turns: list[dict[str, Any]] | None = None,
     include_initial_turns_in_output: bool = True,
 ) -> dict[str, Any]:
@@ -245,8 +245,8 @@ def build_shared_vanilla_mad_prediction(
         "unchanged_correct": result["unchanged_correct"],
         "unchanged_wrong": result["unchanged_wrong"],
         "vote_counts": result["final_vote_counts"],
-        "answer_contract_failures_per_question": result.get("answer_contract_failures_per_question", 0),
-        "reasoning_missing_turns_per_question": result.get("reasoning_missing_turns_per_question", 0),
+        "protocol_failures_per_question": result.get("protocol_failures_per_question", 0),
+        "reason_missing_turns_per_question": result.get("reason_missing_turns_per_question", 0),
     }
     if extra_fields:
         row.update(extra_fields)
@@ -321,14 +321,12 @@ def summarize_shared_vanilla_mad_turn_rows(
         "harmed_by_debate": initial_vote_score == 1.0 and final_vote_score < 1.0,
         "unchanged_correct": initial_vote_score == 1.0 and final_vote_score == 1.0,
         "unchanged_wrong": initial_vote_score < 1.0 and final_vote_score < 1.0,
-        "answer_contract_failures_per_question": sum(
-            1 for row in turn_rows if row.get("answer_contract_status") == "failed"
-        ),
-        "reasoning_missing_turns_per_question": sum(1 for row in turn_rows if not row.get("reasoning_present")),
+        "protocol_failures_per_question": sum(1 for row in turn_rows if row.get("protocol_parse_status") == "failed"),
+        "reason_missing_turns_per_question": sum(1 for row in turn_rows if not row.get("reason_present")),
     }
 
 
-def build_shared_answer_contract_diagnostics(
+def build_shared_output_protocol_diagnostics(
     turn_rows: list[dict[str, Any]],
     *,
     dataset_order: list[str],
@@ -342,13 +340,13 @@ def build_shared_answer_contract_diagnostics(
 
     rows: list[dict[str, Any]] = []
     for (dataset, method_name), items in grouped.items():
-        rows.append(_answer_contract_diagnostic_row(dataset, method_name, items))
+        rows.append(_output_protocol_diagnostic_row(dataset, method_name, items))
 
     overall_grouped: dict[str, list[dict[str, Any]]] = {}
     for row in turn_rows:
         overall_grouped.setdefault(str(row.get("method_name") or ""), []).append(row)
     for method_name, items in overall_grouped.items():
-        rows.append(_answer_contract_diagnostic_row("overall", method_name, items))
+        rows.append(_output_protocol_diagnostic_row("overall", method_name, items))
 
     def _sort_key(row: dict[str, Any]) -> tuple[int, int]:
         dataset_idx = dataset_rank.get(str(row["dataset"]), len(dataset_order))
@@ -360,23 +358,23 @@ def build_shared_answer_contract_diagnostics(
     return {"rows": rows}
 
 
-def _answer_contract_diagnostic_row(
+def _output_protocol_diagnostic_row(
     dataset: str,
     method_name: str,
     turn_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
     turn_count = len(turn_rows)
-    answer_contract_failures = sum(1 for row in turn_rows if row.get("answer_contract_status") == "failed")
-    reasoning_missing = sum(1 for row in turn_rows if not row.get("reasoning_present"))
+    protocol_failures = sum(1 for row in turn_rows if row.get("protocol_parse_status") == "failed")
+    reason_missing = sum(1 for row in turn_rows if not row.get("reason_present"))
     return {
         "dataset": dataset,
         "method_name": method_name,
         "turn_count": turn_count,
         "request_failure_count": sum(1 for row in turn_rows if row.get("request_status") == "request_fail"),
-        "answer_contract_failure_count": answer_contract_failures,
-        "answer_contract_failure_rate": _ratio_count(answer_contract_failures, turn_count),
-        "reasoning_missing_count": reasoning_missing,
-        "reasoning_missing_rate": _ratio_count(reasoning_missing, turn_count),
+        "protocol_failure_count": protocol_failures,
+        "protocol_failure_rate": _ratio_count(protocol_failures, turn_count),
+        "reason_missing_count": reason_missing,
+        "reason_missing_rate": _ratio_count(reason_missing, turn_count),
     }
 
 

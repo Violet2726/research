@@ -110,7 +110,7 @@ def test_multi_agent_validation_contract(tmp_path: Path) -> None:
     write_json(tmp_path / "views" / "metrics.json", {"summary": [{"dataset": "gsm8k"}]})
     write_json(tmp_path / "diagnostics" / "cost_breakdown.json", {"rows": []})
     write_json(tmp_path / "diagnostics" / "debate_diagnostics.json", {"rows": []})
-    write_json(tmp_path / "diagnostics" / "answer_contract_diagnostics.json", {"rows": []})
+    write_json(tmp_path / "diagnostics" / "output_protocol_diagnostics.json", {"rows": []})
     write_json(tmp_path / "progress.json", {"rate_limit_429_count": 0})
     touch_figure_contract(tmp_path)
     assert summarize_multi_agent(tmp_path)["row_count"] == 1
@@ -135,7 +135,7 @@ def test_baseline_compare_validation_contract(tmp_path: Path) -> None:
     write_json(tmp_path / "views" / "metrics.json", {"summary": [{"dataset": "overall", "method_name": "cot_1"}]})
     write_json(tmp_path / "diagnostics" / "cost_breakdown.json", {"rows": []})
     write_json(tmp_path / "diagnostics" / "debate_diagnostics.json", {"rows": []})
-    write_json(tmp_path / "diagnostics" / "answer_contract_diagnostics.json", {"rows": []})
+    write_json(tmp_path / "diagnostics" / "output_protocol_diagnostics.json", {"rows": []})
     write_json(tmp_path / "exports" / "baseline_comparison.json", {"overall_macro_rows": []})
     (tmp_path / "exports").mkdir(parents=True, exist_ok=True)
     (tmp_path / "exports" / "paper_summary.csv").write_text("dataset,method_name,accuracy_mean\n", encoding="utf-8")

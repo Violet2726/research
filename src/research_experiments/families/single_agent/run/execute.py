@@ -53,6 +53,7 @@ from research_experiments.family_runtime.config_helpers import phase_metadata
 from research_experiments.family_runtime.layout import prepare_registered_run_layout
 from research_experiments.family_runtime.manifest import finalize_family_manifest
 from research_experiments.family_runtime.method_catalog import load_method_catalog
+from research_experiments.family_runtime.output_protocols import FREE_TEXT_ANSWER_PROTOCOL_V1
 from research_experiments.workspace.layout import (
     default_cache_root,
     default_reports_root,
@@ -124,6 +125,7 @@ def run_experiment(
         "phase": phase_name,
         "description": experiment.description,
         "prompt_version": experiment.prompt_version,
+        "output_protocol": FREE_TEXT_ANSWER_PROTOCOL_V1,
         "cot_uses_reruns": experiment.cot_uses_reruns,
         "artifact_version": ARTIFACT_VERSION,
         "reruns_per_method": experiment.reruns_per_method,
