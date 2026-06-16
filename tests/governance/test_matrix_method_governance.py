@@ -47,7 +47,7 @@ def test_faithful_matrix_standard_method_references_stay_aligned() -> None:
     assert free_mad.full_comm_reference == VANILLA_MAD_R1_FINAL_VOTE
 
     adaptive_sparse_mad = specs["configs/families/adaptive_sparse_mad/experiments/same_context_main_v5.toml"]
-    assert adaptive_sparse_mad.primary_method_name == "adaptive_counterfactual_v1"
+    assert adaptive_sparse_mad.primary_method_name == "adaptive_sparse_debate_v1"
     assert adaptive_sparse_mad.best_no_comm_candidates == (COT_1, SC_5)
 
     for config_path in (

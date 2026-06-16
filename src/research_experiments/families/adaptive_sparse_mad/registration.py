@@ -95,6 +95,7 @@ def dispatch_extra_command(args) -> bool:
 ARTIFACT_ALIASES = {
     "stage_a_turns": "turns/stage_a_turns.jsonl",
     "control_turns": "turns/control_turns.jsonl",
+    "debate_messages": "turns/debate_messages.jsonl",
     "router_decisions": "turns/router_decisions.jsonl",
     "router_eval": "diagnostics/router_eval.json",
     "policy_diagnostics": "diagnostics/policy_diagnostics.json",
@@ -131,6 +132,7 @@ REGISTRATION = make_family_registration(
     turn_record_paths=(
         "turns/stage_a_turns.jsonl",
         "turns/control_turns.jsonl",
+        "turns/debate_messages.jsonl",
         "turns/router_decisions.jsonl",
     ),
     diagnostic_paths=(

@@ -107,6 +107,11 @@ def run_experiment(
                 "consensus_confidence_threshold": protocol.consensus_confidence_threshold,
                 "majority_confidence_threshold": protocol.majority_confidence_threshold,
                 "majority_margin_threshold": protocol.majority_margin_threshold,
+                "debate_rounds": protocol.debate_rounds,
+                "debate_temperature": protocol.debate_temperature
+                if protocol.debate_temperature is not None
+                else protocol.stage_a_temperature,
+                "debate_trigger_mode": protocol.debate_trigger_mode,
             },
             "controls": {name: method.__dict__ for name, method in controls.items()},
             "aggregate_methods": list(experiment.aggregate_methods),
@@ -134,6 +139,7 @@ def run_experiment(
     # 运行期间保留内存副本，便于结束后一次性生成指标和诊断视图。
     all_stage_a_turns: list[dict[str, object]] = []
     all_control_turns: list[dict[str, object]] = []
+    all_debate_rows: list[dict[str, object]] = []
     all_router_rows: list[dict[str, object]] = []
     all_prediction_rows: list[dict[str, object]] = []
 
@@ -141,11 +147,13 @@ def run_experiment(
         with (
             run_paths.stage_a_turns.open("w", encoding="utf-8") as stage_a_handle,
             run_paths.control_turns.open("w", encoding="utf-8") as control_handle,
+            run_paths.debate_messages.open("w", encoding="utf-8") as debate_handle,
             run_paths.router_decisions.open("w", encoding="utf-8") as router_handle,
             run_paths.predictions.open("w", encoding="utf-8") as prediction_handle,
         ):
             stage_a_writer = BufferedJsonlWriter(stage_a_handle)
             control_writer = BufferedJsonlWriter(control_handle)
+            debate_writer = BufferedJsonlWriter(debate_handle)
             router_writer = BufferedJsonlWriter(router_handle)
             prediction_writer = BufferedJsonlWriter(prediction_handle)
 
@@ -173,11 +181,13 @@ def run_experiment(
                         append_sample_result,
                         stage_a_handle=stage_a_writer,
                         control_handle=control_writer,
+                        debate_handle=debate_writer,
                         router_handle=router_writer,
                         prediction_handle=prediction_writer,
                         progress=progress,
                         all_stage_a_turns=all_stage_a_turns,
                         all_control_turns=all_control_turns,
+                        all_debate_rows=all_debate_rows,
                         all_router_rows=all_router_rows,
                         all_prediction_rows=all_prediction_rows,
                     ),
@@ -237,6 +247,13 @@ def refresh_stage_a_only_run_artifacts(run_dir: str | Path) -> Path:
         consensus_confidence_threshold=float(protocol_payload.get("consensus_confidence_threshold") or 0.65),
         majority_confidence_threshold=float(protocol_payload.get("majority_confidence_threshold") or 0.6),
         majority_margin_threshold=float(protocol_payload.get("majority_margin_threshold") or 0.25),
+        debate_rounds=int(protocol_payload.get("debate_rounds") or 1),
+        debate_temperature=float(
+            protocol_payload.get("debate_temperature")
+            or protocol_payload.get("stage_a_temperature")
+            or 0.7
+        ),
+        debate_trigger_mode=str(protocol_payload.get("debate_trigger_mode") or "adaptive_gate"),
     )
     model_name = str((manifest.get("resolved_model") or {}).get("name") or manifest.get("primary_model_ref") or "unknown_model")
     stage_a_rows = read_jsonl(root / "turns" / "stage_a_turns.jsonl")

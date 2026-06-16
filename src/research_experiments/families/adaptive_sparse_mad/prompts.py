@@ -6,17 +6,23 @@
 
 from __future__ import annotations
 
+import re
+from typing import Any
+
 from research_experiments.core.controls.control_prompts import build_cot_messages
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.prompts.dataset_contracts import build_json_system_prompt, dataset_instruction_for_sample
+from research_experiments.family_runtime.free_text_protocol import build_free_text_system_prompt, task_format_ok
 from research_experiments.family_runtime.reasoning_methods import resolve_reasoning_method
 
 STAGE_A_V2_PROMPT_VERSION = "adaptive_sparse_mad_v2_task_schema"
 STAGE_A_V4_PROMPT_VERSION = "adaptive_sparse_mad_v4_evidence_gate"
+FREE_TEXT_DEBATE_PROMPT_VERSION = "adaptive_sparse_mad_free_text_debate_v1"
 DEFAULT_PROMPT_VERSION = STAGE_A_V2_PROMPT_VERSION
 _SUPPORTED_PROMPT_VERSIONS = {
     STAGE_A_V2_PROMPT_VERSION,
     STAGE_A_V4_PROMPT_VERSION,
+    FREE_TEXT_DEBATE_PROMPT_VERSION,
 }
 SOLVER_MODES = ("solver_cot", "solver_l2m", "solver_skeptic")
 ADAPTIVE_ADDON_SOLVER_MODES = (
@@ -26,6 +32,7 @@ ADAPTIVE_ADDON_SOLVER_MODES = (
     "solver_slot_contrast",
     "solver_counterfactual",
 )
+_MULTIPLE_CHOICE_DATASETS = {"mmlu_pro", "gpqa_diamond", "mmlu", "mmlu_abstract_algebra"}
 
 
 def build_stage_a_messages(
@@ -37,6 +44,8 @@ def build_stage_a_messages(
 ) -> list[dict[str, str]]:
     """构造核心 Stage A solver 消息，并按版本选择 v2 或 v4 schema。"""
     _ensure_prompt_version(prompt_version)
+    if prompt_version == FREE_TEXT_DEBATE_PROMPT_VERSION:
+        return build_stage_a_free_text_messages(sample, solver_mode=solver_mode, agent_id=agent_id)
     if solver_mode == "solver_cot" and prompt_version == STAGE_A_V2_PROMPT_VERSION:
         return build_cot_messages(sample, agent_id, None)
     if prompt_version == STAGE_A_V4_PROMPT_VERSION:
@@ -54,6 +63,15 @@ def build_adaptive_addon_messages(
 ) -> list[dict[str, str]]:
     """构造自适应追加 solver 消息，只允许使用 v4 evidence gate schema。"""
     _ensure_prompt_version(prompt_version)
+    if prompt_version == FREE_TEXT_DEBATE_PROMPT_VERSION:
+        if solver_mode not in ADAPTIVE_ADDON_SOLVER_MODES:
+            raise ValueError(f"Unsupported adaptive add-on solver_mode: {solver_mode}")
+        return build_adaptive_addon_free_text_messages(
+            sample,
+            solver_mode=solver_mode,
+            agent_id=agent_id,
+            stage_a_rows=stage_a_rows,
+        )
     if prompt_version != STAGE_A_V4_PROMPT_VERSION:
         raise ValueError("Adaptive V4 add-on solvers require the v4 prompt version.")
     if solver_mode not in ADAPTIVE_ADDON_SOLVER_MODES:
@@ -64,6 +82,164 @@ def build_adaptive_addon_messages(
         agent_id=agent_id,
         stage_a_rows=stage_a_rows,
     )
+
+
+def build_stage_a_free_text_messages(
+    sample: DatasetSample,
+    *,
+    solver_mode: str,
+    agent_id: int,
+) -> list[dict[str, str]]:
+    """Build Stage A messages for the enhanced free-text A-SMAD protocol."""
+    instruction = _stage_a_v2_instruction(sample.dataset, solver_mode)
+    user_prompt = (
+        f"You are agent_{agent_id} in Stage A of an adaptive heterogeneous reasoning experiment.\n"
+        f"Solver role: {instruction['label']}\n"
+        f"Role summary: {instruction['summary']}\n"
+        f"Role guidance: {instruction['guidance']}\n"
+        f"Role checklist: {instruction['checklist']}\n"
+        f"{_dataset_instruction(sample)}\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+    )
+    if sample.prompt_context:
+        user_prompt += f"Context:\n{sample.prompt_context}\n\n"
+    user_prompt += _enhanced_free_text_protocol_instruction(
+        sample.dataset,
+        selected_candidate=False,
+        revision_note=False,
+    )
+    return [
+        {"role": "system", "content": _free_text_solver_system_prompt()},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_adaptive_addon_free_text_messages(
+    sample: DatasetSample,
+    *,
+    solver_mode: str,
+    agent_id: int,
+    stage_a_rows: list[dict[str, object]],
+) -> list[dict[str, str]]:
+    """Build adaptive add-on verifier messages for the enhanced free-text protocol."""
+    instruction = _adaptive_addon_instruction(sample.dataset, solver_mode)
+    user_prompt = (
+        f"You are agent_{agent_id} in the adaptive verification step of a same-context reasoning experiment.\n"
+        f"Verifier role: {instruction['label']}\n"
+        f"Role summary: {instruction['summary']}\n"
+        f"Role guidance: {instruction['guidance']}\n"
+        f"Role checklist: {instruction['checklist']}\n"
+        f"{_dataset_instruction(sample)}\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+    )
+    if sample.prompt_context:
+        user_prompt += f"Context:\n{sample.prompt_context}\n\n"
+    user_prompt += "Stage A candidate summary:\n"
+    user_prompt += _format_stage_a_candidate_summary(stage_a_rows)
+    if solver_mode == "solver_counterfactual":
+        dominant_answer = _dominant_candidate_answer(stage_a_rows)
+        if dominant_answer:
+            user_prompt += (
+                f"\nCurrent leading candidate family: `{dominant_answer}`.\n"
+                "Your final answer must not be a trivial restatement, formatting variant, or same answer family as that leading candidate.\n"
+            )
+    user_prompt += (
+        "\nRe-check the answer slot carefully. Confirm one candidate or produce a corrected answer only when it is better grounded.\n"
+        + _enhanced_free_text_protocol_instruction(
+            sample.dataset,
+            selected_candidate=True,
+            revision_note=False,
+        )
+    )
+    return [
+        {"role": "system", "content": _free_text_solver_system_prompt()},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_sparse_debate_messages(
+    sample: DatasetSample,
+    *,
+    agent_id: int,
+    round_index: int,
+    own_row: dict[str, object],
+    peer_rows: list[dict[str, object]],
+    gate_decision: dict[str, object],
+    leading_answer: str,
+    prompt_version: str = FREE_TEXT_DEBATE_PROMPT_VERSION,
+) -> list[dict[str, str]]:
+    """Build one cross-examination revision prompt for trigger-only A-SMAD debate."""
+    _ensure_prompt_version(prompt_version)
+    if prompt_version != FREE_TEXT_DEBATE_PROMPT_VERSION:
+        raise ValueError("Sparse debate messages require the free-text debate prompt version.")
+    user_prompt = (
+        f"You are agent_{agent_id} in debate revision round {round_index} of A-SMAD.\n"
+        f"{_dataset_instruction(sample)}\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+    )
+    if sample.prompt_context:
+        user_prompt += f"Context:\n{sample.prompt_context}\n\n"
+    user_prompt += (
+        "Your prior answer packet:\n"
+        f"- answer=`{_row_answer(own_row) or 'unknown'}`\n"
+        f"- reasoning=`{_row_reasoning(own_row) or 'n/a'}`\n"
+        f"- evidence=`{_row_evidence(own_row) or 'n/a'}`\n"
+        f"- confidence=`{own_row.get('confidence_value') if own_row.get('confidence_value') is not None else 'unknown'}`\n\n"
+        "Peer answers and evidence:\n"
+        f"{_format_debate_peer_summary(peer_rows)}\n"
+        f"Gate reasons: {', '.join(str(item) for item in (gate_decision.get('trigger_reasons') or [])) or 'none'}.\n"
+        f"Current leading answer family: `{leading_answer or 'unknown'}`.\n\n"
+        "Cross-examine the peers and your own prior answer. Defend your answer if it still best fits the evidence, or revise to the best supported legal answer.\n"
+        + _enhanced_free_text_protocol_instruction(
+            sample.dataset,
+            selected_candidate=True,
+            revision_note=True,
+        )
+    )
+    return [
+        {"role": "system", "content": _free_text_debate_system_prompt()},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def parse_adaptive_sparse_mad_free_text_output(raw_text: str, *, dataset: str) -> dict[str, Any]:
+    """Parse enhanced tagged-line A-SMAD free text into the Stage A structured payload."""
+    cleaned = _strip_code_fences(str(raw_text or "").strip())
+    if not cleaned:
+        raise ValueError("Assistant output is empty.")
+    values = _extract_tagged_values(cleaned)
+    required_labels = (
+        "REASONING",
+        "FINAL_ANSWER",
+        "CONFIDENCE",
+        "ANSWER_TYPE",
+        "KEY_CONSTRAINTS",
+        "KEY_EVIDENCE",
+        "FAILURE_RISK",
+    )
+    missing = [label for label in required_labels if not values.get(label)]
+    if missing:
+        raise ValueError(f"Missing required tagged line(s): {', '.join(missing)}.")
+    confidence = _parse_confidence(values["CONFIDENCE"])
+    final_answer = _normalize_free_text_final_answer(values["FINAL_ANSWER"], dataset=dataset)
+    if not final_answer:
+        raise ValueError("FINAL_ANSWER must be non-empty.")
+    payload: dict[str, Any] = {
+        "final_answer": final_answer,
+        "reasoning": values["REASONING"],
+        "confidence_raw": confidence,
+        "answer_type": values["ANSWER_TYPE"],
+        "key_constraints": values["KEY_CONSTRAINTS"],
+        "key_evidence": values["KEY_EVIDENCE"],
+        "claim_span": values["KEY_EVIDENCE"] or final_answer,
+        "failure_risk": values["FAILURE_RISK"],
+        "selected_candidate": values.get("SELECTED_CANDIDATE"),
+        "revision_note": values.get("REVISION_NOTE"),
+        "output_protocol": FREE_TEXT_DEBATE_PROMPT_VERSION,
+    }
+    if not task_format_ok(dataset, final_answer):
+        payload["format_warning"] = "free_text_answer_outside_task_format"
+    return payload
 
 
 def _build_stage_a_v2_messages(
@@ -182,6 +358,24 @@ def build_stage_a_safe_retry_messages(
 ) -> list[dict[str, str]]:
     """构造 Stage A 兜底重试消息，优先恢复最短合法答案槽。"""
     _ensure_prompt_version(prompt_version)
+    if prompt_version == FREE_TEXT_DEBATE_PROMPT_VERSION:
+        user_prompt = (
+            f"You are agent_{agent_id} in a fallback Stage A reasoning pass.\n"
+            f"{_dataset_instruction(sample)}\n"
+            "Focus only on the requested answer slot. Prefer the shortest legal answer supported by the prompt.\n"
+            f"Question:\n{sample.question.strip()}\n\n"
+        )
+        if sample.prompt_context:
+            user_prompt += f"Context:\n{sample.prompt_context}\n\n"
+        user_prompt += _enhanced_free_text_protocol_instruction(
+            sample.dataset,
+            selected_candidate=False,
+            revision_note=False,
+        )
+        return [
+            {"role": "system", "content": _free_text_solver_system_prompt()},
+            {"role": "user", "content": user_prompt},
+        ]
     user_prompt = (
         f"You are agent_{agent_id} in a fallback Stage A reasoning pass.\n"
         f"{_dataset_instruction(sample)}\n"
@@ -270,6 +464,168 @@ def _schema_solver_v4_system_prompt() -> str:
     )
 
 
+def _free_text_solver_system_prompt() -> str:
+    return build_free_text_system_prompt(
+        "You are an expert reasoning assistant for controlled research experiments.",
+        extra_rules=[
+            "Follow the task instruction carefully.",
+            "Use the exact tag names requested by the user.",
+            "Keep REASONING concise and evidence-aware.",
+        ],
+    )
+
+
+def _free_text_debate_system_prompt() -> str:
+    return build_free_text_system_prompt(
+        "You are one reasoning agent revising an answer after peer cross-examination.",
+        extra_rules=[
+            "Use the exact tag names requested by the user.",
+            "Ground revisions in task constraints and peer evidence.",
+            "Do not change the answer unless the evidence or constraints justify it.",
+        ],
+    )
+
+
+def _enhanced_free_text_protocol_instruction(
+    dataset: str,
+    *,
+    selected_candidate: bool,
+    revision_note: bool,
+) -> str:
+    lines = [
+        "Return only tagged lines in this exact order:",
+        "REASONING: <required concise reasoning>",
+        "FINAL_ANSWER: <canonical final answer only>",
+        "CONFIDENCE: <number from 0.0 to 1.0>",
+        "ANSWER_TYPE: <short answer slot type>",
+        "KEY_CONSTRAINTS: <short task-format and semantic constraints>",
+        "KEY_EVIDENCE: <short decisive evidence, calculation, or constraint check>",
+        "FAILURE_RISK: <main remaining risk or 'none'>",
+    ]
+    if selected_candidate:
+        lines.append("SELECTED_CANDIDATE: <source candidate label or novel_answer>")
+    if revision_note:
+        lines.append("REVISION_NOTE: <defend_or_revise plus why>")
+    lines.extend(
+        [
+            "Rules:",
+            "- Every required tag must appear exactly once.",
+            "- FINAL_ANSWER must contain only the answer, with no explanation.",
+            "- CONFIDENCE must be calibrated on a 0 to 1 scale.",
+            "- Keep KEY_EVIDENCE short but specific enough for a deterministic resolver.",
+        ]
+    )
+    if dataset in _MULTIPLE_CHOICE_DATASETS:
+        lines.append('- FINAL_ANSWER must be exactly one visible option letter such as "A" or "B".')
+    elif dataset in {"gsm8k", "math500", "competition_math"}:
+        lines.append("- FINAL_ANSWER must use plain ASCII math only; do not use LaTeX commands or backslashes.")
+    elif dataset in {"hotpotqa", "webquestions"}:
+        lines.append("- FINAL_ANSWER must be the shortest judgeable text span.")
+    return "\n".join(lines)
+
+
+def _format_debate_peer_summary(peer_rows: list[dict[str, object]]) -> str:
+    if not peer_rows:
+        return "- no peer packets available\n"
+    lines = []
+    for row in peer_rows:
+        agent_id = row.get("agent_id")
+        solver = str(row.get("solver_mode") or row.get("method_name") or "solver")
+        confidence = row.get("confidence_value")
+        lines.append(
+            f"- agent_{agent_id} {solver}: answer=`{_row_answer(row) or 'unknown'}`, "
+            f"confidence={confidence if confidence is not None else 'unknown'}, "
+            f"reasoning=`{_row_reasoning(row) or 'n/a'}`, evidence=`{_row_evidence(row) or 'n/a'}`"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _row_answer(row: dict[str, object]) -> str:
+    return str(row.get("normalized_answer") or row.get("prediction") or "").strip()
+
+
+def _row_reasoning(row: dict[str, object]) -> str:
+    return str(row.get("reasoning") or "").strip()
+
+
+def _row_evidence(row: dict[str, object]) -> str:
+    return str(row.get("key_evidence") or row.get("claim_span") or "").strip()
+
+
+def _extract_tagged_values(text: str) -> dict[str, str]:
+    labels = {
+        "REASONING",
+        "FINAL_ANSWER",
+        "CONFIDENCE",
+        "ANSWER_TYPE",
+        "KEY_CONSTRAINTS",
+        "KEY_EVIDENCE",
+        "FAILURE_RISK",
+        "SELECTED_CANDIDATE",
+        "REVISION_NOTE",
+    }
+    values: dict[str, str] = {}
+    for raw_line in str(text or "").splitlines():
+        match = re.match(r"^\s*([A-Z_]+)\s*:\s*(.*?)\s*$", raw_line, flags=re.IGNORECASE)
+        if match is None:
+            continue
+        label = match.group(1).upper()
+        if label not in labels or label in values:
+            continue
+        value = _collapse_whitespace(match.group(2).strip().strip("\"'`"))
+        if value:
+            values[label] = value
+    return values
+
+
+def _parse_confidence(value: str) -> float:
+    raw = str(value or "").strip()
+    if raw.endswith("%"):
+        try:
+            numeric = float(raw[:-1].strip()) / 100.0
+        except ValueError as exc:
+            raise ValueError("CONFIDENCE must be numeric.") from exc
+    else:
+        try:
+            numeric = float(raw)
+        except ValueError as exc:
+            raise ValueError("CONFIDENCE must be numeric.") from exc
+        if numeric > 1.0 and numeric <= 100.0:
+            numeric = numeric / 100.0
+    if numeric < 0.0 or numeric > 1.0:
+        raise ValueError("CONFIDENCE must be between 0 and 1.")
+    return round(numeric, 6)
+
+
+def _normalize_free_text_final_answer(value: str, *, dataset: str) -> str:
+    answer = str(value or "").strip().strip("\"'`")
+    if dataset not in _MULTIPLE_CHOICE_DATASETS:
+        return _collapse_whitespace(answer)
+    exact = answer.upper().strip()
+    if re.fullmatch(r"[A-J]", exact):
+        return exact
+    match = re.match(r"^\(?([A-J])\)?(?:[.)]|:|,|-)?(?:\s|$)", exact)
+    if match:
+        return match.group(1)
+    option_match = re.search(r"\b(?:OPTION|CHOICE|ANSWER)\s*(?:IS|:)?\s*([A-J])\b", exact)
+    if option_match:
+        return option_match.group(1)
+    return _collapse_whitespace(answer)
+
+
+def _strip_code_fences(text: str) -> str:
+    trimmed = str(text or "").strip()
+    if not trimmed.startswith("```"):
+        return trimmed
+    trimmed = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", trimmed)
+    trimmed = re.sub(r"\s*```$", "", trimmed)
+    return trimmed.strip()
+
+
+def _collapse_whitespace(value: str) -> str:
+    return " ".join(str(value or "").split())
+
+
 def _dataset_instruction(sample: DatasetSample) -> str:
     """生成数据集任务说明，并为 HotpotQA 补充答案槽约束。"""
     base = dataset_instruction_for_sample(sample, hotpot_style="short_span")
@@ -356,7 +712,7 @@ def _format_stage_a_candidate_summary(stage_a_rows: list[dict[str, object]]) -> 
 def _sample_is_multiple_choice(sample: DatasetSample) -> bool:
     """根据元数据和数据集名判断样本是否为多选题。"""
     raw_options = sample.metadata.get("options") or sample.metadata.get("choices") or []
-    return bool(raw_options) or sample.dataset in {"mmlu_pro", "gpqa_diamond", "mmlu", "mmlu_abstract_algebra"}
+    return bool(raw_options) or sample.dataset in _MULTIPLE_CHOICE_DATASETS
 
 
 def _dominant_candidate_answer(stage_a_rows: list[dict[str, object]]) -> str:

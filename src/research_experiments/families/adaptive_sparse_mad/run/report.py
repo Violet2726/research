@@ -35,6 +35,7 @@ METHOD_ORDER = [
     "adaptive_gate_v4",
     "adaptive_dual_open_v5",
     "adaptive_counterfactual_v1",
+    "adaptive_sparse_debate_v1",
 ]
 
 
@@ -300,7 +301,7 @@ def _render_markdown(
     interesting_pairwise_rows = [
         row
         for row in pairwise_rows
-        if str(row.get("method_name") or "") in {"ega_only_v4", "adaptive_gate_v4", "adaptive_dual_open_v5", "adaptive_counterfactual_v1"}
+        if str(row.get("method_name") or "") in {"ega_only_v4", "adaptive_gate_v4", "adaptive_dual_open_v5", "adaptive_counterfactual_v1", "adaptive_sparse_debate_v1"}
         and str(row.get("baseline_method_name") or "") in {"hetero_vote_3", "sc_5"}
     ]
     if interesting_pairwise_rows:

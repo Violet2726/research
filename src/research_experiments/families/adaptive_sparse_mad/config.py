@@ -10,13 +10,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.adaptive_sparse_mad.prompts import STAGE_A_V4_PROMPT_VERSION
+from research_experiments.families.adaptive_sparse_mad.prompts import (
+    FREE_TEXT_DEBATE_PROMPT_VERSION,
+    STAGE_A_V4_PROMPT_VERSION,
+)
 from research_experiments.family_runtime.config_helpers import (
     apply_runtime_defaults,
     load_benchmarks,
     load_toml,
 )
 from research_experiments.family_runtime.method_catalog import MethodConfig, load_method_catalog
+
+ADAPTIVE_SPARSE_DEBATE_METHOD = "adaptive_sparse_debate_v1"
+STRUCTURED_STAGE_A_PROMPT_VERSIONS = frozenset({STAGE_A_V4_PROMPT_VERSION, FREE_TEXT_DEBATE_PROMPT_VERSION})
 
 ACTIVE_AGGREGATE_METHODS = frozenset(
     {
@@ -25,6 +31,7 @@ ACTIVE_AGGREGATE_METHODS = frozenset(
         "adaptive_gate_v4",
         "adaptive_dual_open_v5",
         "adaptive_counterfactual_v1",
+        ADAPTIVE_SPARSE_DEBATE_METHOD,
     }
 )
 STRUCTURED_STAGE_A_METHODS = frozenset(
@@ -33,6 +40,7 @@ STRUCTURED_STAGE_A_METHODS = frozenset(
         "adaptive_gate_v4",
         "adaptive_dual_open_v5",
         "adaptive_counterfactual_v1",
+        ADAPTIVE_SPARSE_DEBATE_METHOD,
     }
 )
 ADAPTIVE_POLICY_METHODS = frozenset(
@@ -40,6 +48,7 @@ ADAPTIVE_POLICY_METHODS = frozenset(
         "adaptive_gate_v4",
         "adaptive_dual_open_v5",
         "adaptive_counterfactual_v1",
+        ADAPTIVE_SPARSE_DEBATE_METHOD,
     }
 )
 
@@ -54,6 +63,9 @@ class AdaptiveSparseMadProtocolConfig:
     consensus_confidence_threshold: float
     majority_confidence_threshold: float
     majority_margin_threshold: float
+    debate_rounds: int = 1
+    debate_temperature: float | None = None
+    debate_trigger_mode: str = "adaptive_gate"
 
 
 @dataclass(frozen=True)
@@ -87,6 +99,9 @@ def load_protocol_config(path: str | Path) -> AdaptiveSparseMadProtocolConfig:
         consensus_confidence_threshold=float(payload["consensus_confidence_threshold"]),
         majority_confidence_threshold=float(payload["majority_confidence_threshold"]),
         majority_margin_threshold=float(payload["majority_margin_threshold"]),
+        debate_rounds=int(payload.get("debate_rounds", 1)),
+        debate_temperature=float(payload.get("debate_temperature", payload["stage_a_temperature"])),
+        debate_trigger_mode=str(payload.get("debate_trigger_mode", "adaptive_gate")),
     )
 
 
@@ -115,24 +130,44 @@ def load_experiment_config(path: str | Path) -> AdaptiveSparseMadExperimentConfi
     prompt_version = str(payload["prompt_version"])
     stage_a_prompt_version = str(payload.get("stage_a_prompt_version", prompt_version))
     adaptive_prompt_version = str(payload.get("adaptive_prompt_version", prompt_version))
-    if any(method_name in STRUCTURED_STAGE_A_METHODS for method_name in aggregate_methods):
-        if stage_a_prompt_version != STAGE_A_V4_PROMPT_VERSION:
+    if ADAPTIVE_SPARSE_DEBATE_METHOD in aggregate_methods:
+        required_versions = {
+            "prompt_version": prompt_version,
+            "stage_a_prompt_version": stage_a_prompt_version,
+            "adaptive_prompt_version": adaptive_prompt_version,
+        }
+        wrong_versions = [
+            f"{name}={value}"
+            for name, value in required_versions.items()
+            if value != FREE_TEXT_DEBATE_PROMPT_VERSION
+        ]
+        if wrong_versions:
             raise ValueError(
-                "adaptive_sparse_mad structured aggregate methods require "
-                f"stage_a_prompt_version={STAGE_A_V4_PROMPT_VERSION}"
+                "adaptive_sparse_debate_v1 requires "
+                f"{FREE_TEXT_DEBATE_PROMPT_VERSION}: "
+                + ", ".join(wrong_versions)
             )
-        if prompt_version != STAGE_A_V4_PROMPT_VERSION:
+    if any(method_name in STRUCTURED_STAGE_A_METHODS for method_name in aggregate_methods):
+        if stage_a_prompt_version not in STRUCTURED_STAGE_A_PROMPT_VERSIONS:
             raise ValueError(
                 "adaptive_sparse_mad structured aggregate methods require "
-                f"prompt_version={STAGE_A_V4_PROMPT_VERSION}"
+                "stage_a_prompt_version in "
+                + ", ".join(sorted(STRUCTURED_STAGE_A_PROMPT_VERSIONS))
+            )
+        if prompt_version not in STRUCTURED_STAGE_A_PROMPT_VERSIONS:
+            raise ValueError(
+                "adaptive_sparse_mad structured aggregate methods require "
+                "prompt_version in "
+                + ", ".join(sorted(STRUCTURED_STAGE_A_PROMPT_VERSIONS))
             )
     if (
         any(method_name in ADAPTIVE_POLICY_METHODS for method_name in aggregate_methods)
-        and adaptive_prompt_version != STAGE_A_V4_PROMPT_VERSION
+        and adaptive_prompt_version not in STRUCTURED_STAGE_A_PROMPT_VERSIONS
     ):
         raise ValueError(
             "adaptive_sparse_mad adaptive policy methods require "
-            f"adaptive_prompt_version={STAGE_A_V4_PROMPT_VERSION}"
+            "adaptive_prompt_version in "
+            + ", ".join(sorted(STRUCTURED_STAGE_A_PROMPT_VERSIONS))
         )
     return AdaptiveSparseMadExperimentConfig(
         name=str(payload["name"]),

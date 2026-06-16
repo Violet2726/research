@@ -492,8 +492,9 @@ def test_adaptive_sparse_mad_main_v5_inspect_cli() -> None:
         "mv_3",
         "sc_5",
         "hetero_vote_3",
-        "adaptive_counterfactual_v1",
+        "adaptive_sparse_debate_v1",
     ]
+    assert payload["prompt_version"] == "adaptive_sparse_mad_free_text_debate_v1"
 
 
 def test_adaptive_sparse_mad_full_counterfactual_v1_screen_inspect_cli() -> None:

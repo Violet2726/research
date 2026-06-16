@@ -9,7 +9,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from research_experiments.families.adaptive_sparse_mad.config import ADAPTIVE_POLICY_METHODS
+from research_experiments.families.adaptive_sparse_mad.config import (
+    ADAPTIVE_POLICY_METHODS,
+    ADAPTIVE_SPARSE_DEBATE_METHOD,
+)
 from research_experiments.family_runtime.artifact_index import (
     named_diagnostic_paths,
     named_turn_record_paths,
@@ -33,6 +36,9 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     diagnostic_paths = named_diagnostic_paths(root, family_name="adaptive_sparse_mad")
     legacy_stage_b_path = root / "turns" / "stage_b_turns.jsonl"
     legacy_judge_path = root / "turns" / "judge_turns.jsonl"
+    manifest = load_json(index.manifest_path)
+    debate_messages_path = turn_paths.get("debate_messages.jsonl", root / "turns" / "debate_messages.jsonl")
+    debate_method_enabled = _manifest_includes_method(manifest, ADAPTIVE_SPARSE_DEBATE_METHOD)
     required_paths = [
         index.manifest_path,
         turn_paths["stage_a_turns.jsonl"],
@@ -49,19 +55,26 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         index.figure_manifest_path,
         index.archive_manifest_path,
     ]
+    if debate_method_enabled:
+        required_paths.append(debate_messages_path)
     missing = missing_relative_paths(root, required_paths)
 
     stage_a_rows = load_jsonl(turn_paths["stage_a_turns.jsonl"])
     stage_b_rows = load_jsonl(legacy_stage_b_path) if legacy_stage_b_path.exists() else []
     judge_rows = load_jsonl(legacy_judge_path) if legacy_judge_path.exists() else []
     control_rows = load_jsonl(turn_paths["control_turns.jsonl"])
+    debate_message_rows = load_jsonl(debate_messages_path) if debate_messages_path.exists() else []
     router_rows = load_jsonl(turn_paths["router_decisions.jsonl"])
     prediction_rows = load_jsonl(index.prediction_records_path)
-    manifest = load_json(index.manifest_path)
 
     all_turn_rows = stage_a_rows + stage_b_rows + judge_rows + control_rows
     status_summary = summarize_turn_statuses(all_turn_rows)
     router_empty_check = _validate_router_rows(router_rows, manifest=manifest, prediction_rows=prediction_rows)
+    debate_messages_check = _validate_debate_messages(
+        debate_message_rows,
+        required=debate_method_enabled,
+        path_exists=debate_messages_path.exists(),
+    )
     stage_b_judge_empty_check = _validate_empty_legacy_rows(
         "stage_b_and_judge",
         stage_b_rows + judge_rows,
@@ -82,6 +95,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             status_summary["schema_failures"] == 0,
             status_summary["output_success_rate"] >= 0.95,
             router_empty_check["passed"],
+            debate_messages_check["passed"],
             stage_b_judge_empty_check["passed"],
             rate_limit_check["passed"],
             figure_contract["passed"],
@@ -98,6 +112,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "output_success_rate": status_summary["output_success_rate"],
         "checks": {
             "router_empty_check": router_empty_check,
+            "debate_messages_check": debate_messages_check,
             "stage_b_judge_empty_check": stage_b_judge_empty_check,
             "rate_limit_check": rate_limit_check,
             "figure_contract": figure_contract,
@@ -161,6 +176,42 @@ def _validate_router_rows(
         "row_count": len(rows),
         "examples": rows[:20],
     }
+
+
+def _validate_debate_messages(
+    rows: list[dict[str, Any]],
+    *,
+    required: bool,
+    path_exists: bool,
+) -> dict[str, Any]:
+    if not required:
+        return {
+            "passed": True,
+            "name": "debate_messages",
+            "required": False,
+            "path_exists": path_exists,
+            "row_count": len(rows),
+            "examples": rows[:20],
+        }
+    required_fields = {"sender_agent_id", "recipient_agent_id", "sender_answer", "gate_reasons"}
+    malformed = [
+        row
+        for row in rows
+        if not required_fields.issubset(row)
+    ]
+    return {
+        "passed": path_exists and not malformed,
+        "name": "debate_messages",
+        "required": True,
+        "path_exists": path_exists,
+        "row_count": len(rows),
+        "malformed_count": len(malformed),
+        "examples": rows[:20],
+    }
+
+
+def _manifest_includes_method(manifest: dict[str, Any], method_name: str) -> bool:
+    return method_name in {str(item) for item in manifest.get("aggregate_methods", [])}
 
 
 def _count_by_method(rows: list[dict[str, Any]]) -> dict[str, int]:

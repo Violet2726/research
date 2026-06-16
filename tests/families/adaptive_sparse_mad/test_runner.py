@@ -15,10 +15,13 @@ from research_experiments.families.adaptive_sparse_mad.algorithms import (
 )
 from research_experiments.families.adaptive_sparse_mad.config import AdaptiveSparseMadProtocolConfig
 from research_experiments.families.adaptive_sparse_mad.prompts import (
+    FREE_TEXT_DEBATE_PROMPT_VERSION,
     STAGE_A_V2_PROMPT_VERSION,
     STAGE_A_V4_PROMPT_VERSION,
     build_adaptive_addon_messages,
+    build_sparse_debate_messages,
     build_stage_a_messages,
+    parse_adaptive_sparse_mad_free_text_output,
 )
 from research_experiments.families.adaptive_sparse_mad.run.sample import (
     _answers_share_family,
@@ -104,6 +107,153 @@ def test_stage_a_v4_direct_solver_returns_evidence_schema_prompt() -> None:
     assert messages[0]["role"] == "system"
     assert "claim_span" in messages[0]["content"]
     assert '"confidence_raw":0.0' in messages[1]["content"]
+
+
+def test_stage_a_free_text_prompt_uses_required_tags_without_json_contract() -> None:
+    sample = DatasetSample(
+        dataset="mmlu_pro",
+        sample_id="demo",
+        question="Which option is best?",
+        reference_answer="A|||alpha",
+        prompt_context="A. alpha\nB. beta",
+        metadata={"options": ["alpha", "beta"]},
+    )
+
+    messages = build_stage_a_messages(
+        sample,
+        solver_mode="solver_skeptic",
+        agent_id=3,
+        prompt_version=FREE_TEXT_DEBATE_PROMPT_VERSION,
+    )
+
+    user_content = messages[1]["content"]
+    assert "REASONING:" in user_content
+    assert "FINAL_ANSWER:" in user_content
+    assert "CONFIDENCE:" in user_content
+    assert "Return exactly one JSON object" not in user_content
+    assert "strict JSON" not in messages[0]["content"]
+
+
+def test_parse_adaptive_sparse_mad_free_text_output_validates_required_tags() -> None:
+    payload = parse_adaptive_sparse_mad_free_text_output(
+        "\n".join(
+            [
+                "REASONING: Option C matches the evidence.",
+                "FINAL_ANSWER: Option C",
+                "CONFIDENCE: 0.82",
+                "ANSWER_TYPE: multiple_choice",
+                "KEY_CONSTRAINTS: single option letter",
+                "KEY_EVIDENCE: C is directly supported",
+                "FAILURE_RISK: none",
+            ]
+        ),
+        dataset="gpqa_diamond",
+    )
+
+    assert payload["final_answer"] == "C"
+    assert payload["confidence_raw"] == 0.82
+    assert payload["answer_type"] == "multiple_choice"
+
+
+def test_parse_adaptive_sparse_mad_free_text_output_rejects_missing_required_fields() -> None:
+    with pytest.raises(ValueError, match="KEY_EVIDENCE"):
+        parse_adaptive_sparse_mad_free_text_output(
+            "\n".join(
+                [
+                    "REASONING: Compute directly.",
+                    "FINAL_ANSWER: 42",
+                    "CONFIDENCE: 0.8",
+                    "ANSWER_TYPE: number",
+                    "KEY_CONSTRAINTS: numeric answer",
+                    "FAILURE_RISK: none",
+                ]
+            ),
+            dataset="gsm8k",
+        )
+
+
+def test_parse_adaptive_sparse_mad_free_text_output_rejects_malformed_confidence() -> None:
+    with pytest.raises(ValueError, match="CONFIDENCE"):
+        parse_adaptive_sparse_mad_free_text_output(
+            "\n".join(
+                [
+                    "REASONING: Compute directly.",
+                    "FINAL_ANSWER: 42",
+                    "CONFIDENCE: very high",
+                    "ANSWER_TYPE: number",
+                    "KEY_CONSTRAINTS: numeric answer",
+                    "KEY_EVIDENCE: 40 + 2",
+                    "FAILURE_RISK: arithmetic slip",
+                ]
+            ),
+            dataset="gsm8k",
+        )
+
+
+def test_parse_adaptive_sparse_mad_free_text_output_preserves_plain_math_answer() -> None:
+    payload = parse_adaptive_sparse_mad_free_text_output(
+        "\n".join(
+            [
+                "REASONING: Simplifying leaves x + 1.",
+                "FINAL_ANSWER: x + 1",
+                "CONFIDENCE: 75%",
+                "ANSWER_TYPE: expression",
+                "KEY_CONSTRAINTS: plain ASCII expression",
+                "KEY_EVIDENCE: terms combine to x + 1",
+                "FAILURE_RISK: algebra slip",
+            ]
+        ),
+        dataset="math500",
+    )
+
+    assert payload["final_answer"] == "x + 1"
+    assert payload["confidence_raw"] == 0.75
+
+
+def test_build_sparse_debate_messages_includes_peer_evidence_prior_answer_and_gate_reasons() -> None:
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which language is spoken there?",
+        reference_answer="French",
+        prompt_context="The town is in Quebec, where French is spoken.",
+        metadata={},
+    )
+    own_row = {
+        "agent_id": 1,
+        "solver_mode": "solver_cot",
+        "normalized_answer": "english",
+        "reasoning": "I focused on the wrong country.",
+        "key_evidence": "English appears nearby.",
+        "confidence_value": 0.4,
+    }
+    peer_rows = [
+        {
+            "agent_id": 2,
+            "solver_mode": "solver_evidence",
+            "normalized_answer": "french",
+            "reasoning": "Quebec evidence supports French.",
+            "key_evidence": "French is spoken",
+            "confidence_value": 0.8,
+        }
+    ]
+
+    messages = build_sparse_debate_messages(
+        sample,
+        agent_id=1,
+        round_index=1,
+        own_row=own_row,
+        peer_rows=peer_rows,
+        gate_decision={"trigger_reasons": ["answer_disagreement", "evidence_conflict"]},
+        leading_answer="french",
+    )
+
+    content = messages[1]["content"]
+    assert "Your prior answer packet" in content
+    assert "Peer answers and evidence" in content
+    assert "French is spoken" in content
+    assert "answer_disagreement" in content
+    assert "REVISION_NOTE:" in content
 
 
 def test_build_adaptive_addon_messages_includes_stage_a_candidate_summary() -> None:
@@ -1577,7 +1727,7 @@ def test_load_experiment_config_requires_v4_stage_a_for_structured_methods(tmp_p
 
     from research_experiments.families.adaptive_sparse_mad.config import load_experiment_config
 
-    with pytest.raises(ValueError, match="stage_a_prompt_version=adaptive_sparse_mad_v4_evidence_gate"):
+    with pytest.raises(ValueError, match="stage_a_prompt_version in"):
         load_experiment_config(experiment_path)
 
 

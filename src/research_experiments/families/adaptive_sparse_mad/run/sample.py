@@ -43,18 +43,24 @@ from research_experiments.families.adaptive_sparse_mad.algorithms import (
     aggregate_evidence_grounded_stage_a,
 )
 from research_experiments.families.adaptive_sparse_mad.config import (
+    ADAPTIVE_SPARSE_DEBATE_METHOD,
     ADAPTIVE_POLICY_METHODS,
     AdaptiveSparseMadExperimentConfig,
     AdaptiveSparseMadProtocolConfig,
+    load_protocol_config,
 )
 from research_experiments.families.adaptive_sparse_mad.prompts import (
+    FREE_TEXT_DEBATE_PROMPT_VERSION,
     SOLVER_MODES,
     STAGE_A_V2_PROMPT_VERSION,
     STAGE_A_V4_PROMPT_VERSION,
     build_adaptive_addon_messages,
+    build_sparse_debate_messages,
     build_stage_a_messages,
     build_stage_a_safe_retry_messages,
+    parse_adaptive_sparse_mad_free_text_output,
 )
+from research_experiments.family_runtime.free_text_protocol import task_format_ok
 from research_experiments.family_runtime.common import (
     build_question_preview,
     resolve_phase_split_name,
@@ -74,6 +80,7 @@ DISPLAY_NAME_MAP = {
     "adaptive_gate_v4": "adaptive_gate_v4",
     "adaptive_dual_open_v5": "adaptive_dual_open_v5",
     "adaptive_counterfactual_v1": "adaptive_counterfactual_v1",
+    ADAPTIVE_SPARSE_DEBATE_METHOD: ADAPTIVE_SPARSE_DEBATE_METHOD,
 }
 _MULTIPLE_CHOICE_DATASETS = {"mmlu_pro", "gpqa_diamond", "mmlu", "mmlu_abstract_algebra"}
 
@@ -84,6 +91,7 @@ class SampleResult:
 
     stage_a_turns: list[dict[str, Any]]
     control_turns: list[dict[str, Any]]
+    debate_rows: list[dict[str, Any]]
     router_rows: list[dict[str, Any]]
     prediction_rows: list[dict[str, Any]]
 
@@ -279,7 +287,12 @@ def refresh_prediction_rows_for_run(
             continue
         if method_name in ADAPTIVE_POLICY_METHODS:
             policy_adaptive_rows = adaptive_rows_by_policy_sample.get((sample_key, method_name), [])
-            refreshed_router_row, refreshed_prediction_row = _replay_adaptive_variant(
+            replay_fn = (
+                _replay_sparse_debate_variant
+                if method_name == ADAPTIVE_SPARSE_DEBATE_METHOD
+                else _replay_adaptive_variant
+            )
+            refreshed_router_row, refreshed_prediction_row = replay_fn(
                 method_name=method_name,
                 run_id=str(row.get("run_id") or ""),
                 benchmark_slug=dataset,
@@ -309,11 +322,13 @@ def append_sample_result(
     *,
     stage_a_handle,
     control_handle,
+    debate_handle,
     router_handle,
     prediction_handle,
     progress,
     all_stage_a_turns: list[dict[str, Any]],
     all_control_turns: list[dict[str, Any]],
+    all_debate_rows: list[dict[str, Any]],
     all_router_rows: list[dict[str, Any]],
     all_prediction_rows: list[dict[str, Any]],
 ) -> None:
@@ -324,6 +339,8 @@ def append_sample_result(
     for row in result.control_turns:
         control_handle.write_row(row)
         progress.record_call(row, method_key="method_name")
+    for row in result.debate_rows:
+        debate_handle.write_row(row)
     for row in result.router_rows:
         router_handle.write_row(row)
     for row in result.prediction_rows:
@@ -331,6 +348,7 @@ def append_sample_result(
         progress.record_predictions(1, row["dataset"], row["method_name"])
     all_stage_a_turns.extend(result.stage_a_turns)
     all_control_turns.extend(result.control_turns)
+    all_debate_rows.extend(result.debate_rows)
     all_router_rows.extend(result.router_rows)
     all_prediction_rows.extend(result.prediction_rows)
 
@@ -406,6 +424,14 @@ def build_router_eval_payload(router_rows: list[dict[str, Any]]) -> dict[str, An
                     ),
                     "changed_answer_rate": round(
                         sum(1.0 if row.get("changed_answer") else 0.0 for row in rows) / question_count, 6
+                    ),
+                    "debate_trigger_rate": round(
+                        sum(1.0 if row.get("debate_triggered") else 0.0 for row in rows) / question_count,
+                        6,
+                    ),
+                    "debate_rounds_mean": round(
+                        sum(float(row.get("debate_rounds") or 0.0) for row in rows) / question_count,
+                        6,
                     ),
                     "corrected_count": sum(1 for row in rows if row.get("corrected_by_method")),
                     "harmed_count": sum(1 for row in rows if row.get("harmed_by_method")),
@@ -1241,6 +1267,7 @@ def estimate_work(
     """估算本 phase 的模型调用数和预测行数，用于进度条上限。"""
     total_calls = 0
     total_predictions = 0
+    protocol = load_protocol_config(experiment.protocol)
     for benchmark in benchmarks:
         split_name = resolve_phase_split_name(experiment, phase_name, benchmark.slug)
         manifest_path = resolve_split_manifest_path(
@@ -1254,6 +1281,8 @@ def estimate_work(
         total_calls += sample_count * len(SOLVER_MODES)
         if any(method_name in ADAPTIVE_POLICY_METHODS for method_name in experiment.aggregate_methods):
             total_calls += sample_count * experiment.max_adaptive_addon_calls
+        if ADAPTIVE_SPARSE_DEBATE_METHOD in experiment.aggregate_methods:
+            total_calls += sample_count * max(0, protocol.agent_count) * max(0, protocol.debate_rounds)
         total_calls += sample_count * sum(method.budget_calls for method in controls.values())
         total_predictions += sample_count * (len(controls) + len(experiment.aggregate_methods))
     return total_calls, total_predictions
@@ -1329,6 +1358,7 @@ def _run_sample(
 
     stage_a_rows = list(core_stage_a_rows)
     control_turn_rows: list[dict[str, Any]] = []
+    debate_message_rows: list[dict[str, Any]] = []
     router_rows: list[dict[str, Any]] = []
     prediction_rows: list[dict[str, Any]] = []
     for aggregate_method in experiment.aggregate_methods:
@@ -1362,6 +1392,32 @@ def _run_sample(
                 stage_a_trace_hash=stage_a_trace_hash,
             )
             prediction_rows.append(ega_prediction_row)
+            continue
+        if aggregate_method == ADAPTIVE_SPARSE_DEBATE_METHOD:
+            adaptive_rows, debate_rows, adaptive_router_row, adaptive_prediction_row = _run_sparse_debate_variant(
+                method_name=aggregate_method,
+                run_id=run_id,
+                benchmark_slug=benchmark_slug,
+                split_name=split_name,
+                sample=sample,
+                protocol=protocol,
+                experiment=experiment,
+                backbone=backbone,
+                provider=provider,
+                cache=cache,
+                throttle=throttle,
+                core_stage_a_rows=core_stage_a_rows,
+                stage_a_answer=stage_a_prediction,
+                stage_a_score=stage_a_score,
+                stage_a_weighted_support=stage_a_weighted_support,
+                stage_a_resolver=stage_a_resolver,
+                stage_a_trace_hash=stage_a_trace_hash,
+            )
+            stage_a_rows.extend(adaptive_rows)
+            debate_message_rows.extend(debate_rows)
+            if adaptive_router_row is not None:
+                router_rows.append(adaptive_router_row)
+            prediction_rows.append(adaptive_prediction_row)
             continue
         if aggregate_method in ADAPTIVE_POLICY_METHODS:
             adaptive_rows, adaptive_router_row, adaptive_prediction_row = _run_adaptive_variant(
@@ -1411,6 +1467,7 @@ def _run_sample(
     return SampleResult(
         stage_a_turns=stage_a_rows,
         control_turns=control_turn_rows,
+        debate_rows=debate_message_rows,
         router_rows=router_rows,
         prediction_rows=prediction_rows,
     )
@@ -1597,6 +1654,277 @@ def _run_adaptive_variant(
     return adaptive_rows, router_row, prediction_row
 
 
+def _run_sparse_debate_variant(
+    *,
+    method_name: str,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    sample: DatasetSample,
+    protocol: AdaptiveSparseMadProtocolConfig,
+    experiment: AdaptiveSparseMadExperimentConfig,
+    backbone,
+    provider: OpenAICompatibleProvider,
+    cache: RequestCache,
+    throttle: RequestThrottle,
+    core_stage_a_rows: list[dict[str, Any]],
+    stage_a_answer: str,
+    stage_a_score: float,
+    stage_a_weighted_support: dict[str, float],
+    stage_a_resolver: str,
+    stage_a_trace_hash: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any] | None, dict[str, Any]]:
+    """Run the trigger-only free-text debate variant."""
+    if method_name != ADAPTIVE_SPARSE_DEBATE_METHOD:
+        raise ValueError(f"Unsupported sparse debate method_name: {method_name}")
+    if experiment.stage_a_prompt_version != FREE_TEXT_DEBATE_PROMPT_VERSION:
+        raise ValueError(f"{method_name} requires the free-text debate Stage A prompt version.")
+    if experiment.adaptive_prompt_version != FREE_TEXT_DEBATE_PROMPT_VERSION:
+        raise ValueError(f"{method_name} requires the free-text debate adaptive prompt version.")
+    if protocol.debate_trigger_mode != "adaptive_gate":
+        raise ValueError(f"Unsupported debate_trigger_mode: {protocol.debate_trigger_mode}")
+
+    pre_answer, pre_support, pre_resolver = aggregate_evidence_grounded_stage_a(
+        core_stage_a_rows,
+        anchor_answer=stage_a_answer,
+        question=sample.question,
+    )
+    gate_decision = _build_adaptive_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=core_stage_a_rows,
+        support=stage_a_weighted_support,
+    )
+    gate_decision["policy_name"] = method_name
+
+    adaptive_rows: list[dict[str, Any]] = []
+    debate_revision_rows: list[dict[str, Any]] = []
+    debate_message_rows: list[dict[str, Any]] = []
+    final_rows = list(core_stage_a_rows)
+    addon_solvers = _select_adaptive_addon_solver_sequence(
+        method_name=method_name,
+        sample=sample,
+        gate_decision=gate_decision,
+    )
+    addon_solvers = addon_solvers[: max(0, experiment.max_adaptive_addon_calls)]
+    gate_decision["selected_addon_solver"] = addon_solvers[0] if addon_solvers else ""
+    gate_decision["executed_addon_solvers"] = list(addon_solvers)
+
+    if gate_decision["triggered"]:
+        for addon_index, addon_solver in enumerate(addon_solvers, start=1):
+            adaptive_row = _execute_turn(
+                run_id=run_id,
+                dataset=benchmark_slug,
+                split_name=split_name,
+                sample=sample,
+                stage_name="adaptive_stage_a",
+                method_name=addon_solver,
+                role="adaptive_stage_a",
+                round_index=addon_index,
+                agent_id=protocol.agent_count + addon_index,
+                messages=build_adaptive_addon_messages(
+                    sample,
+                    solver_mode=addon_solver,
+                    agent_id=protocol.agent_count + addon_index,
+                    stage_a_rows=final_rows,
+                    prompt_version=experiment.adaptive_prompt_version,
+                ),
+                backbone=backbone,
+                provider=provider,
+                cache=cache,
+                throttle=throttle,
+                temperature=protocol.stage_a_temperature,
+                top_p=protocol.top_p,
+                seed=experiment.global_seed + protocol.agent_count + addon_index,
+                output_mode="stage_a",
+                stage_a_retry_seed=experiment.global_seed,
+                prompt_version=experiment.adaptive_prompt_version,
+                extra_fields={
+                    "solver_mode": addon_solver,
+                    "adaptive_policy_name": method_name,
+                    "adaptive_parent_trace_hash": stage_a_trace_hash,
+                },
+            )
+            adaptive_rows.append(adaptive_row)
+            final_rows.append(adaptive_row)
+
+    pre_debate_answer, pre_debate_support, pre_debate_resolver = aggregate_evidence_grounded_stage_a(
+        final_rows,
+        anchor_answer=pre_answer or stage_a_answer,
+        question=sample.question,
+    )
+    leading_answer = pre_debate_answer or pre_answer or stage_a_answer
+    debate_round_limit = min(max(0, int(protocol.debate_rounds)), 1)
+    debate_triggered = bool(gate_decision["triggered"] and debate_round_limit > 0)
+    if debate_triggered:
+        for debate_round in range(1, debate_round_limit + 1):
+            for participant_index, own_row in enumerate(core_stage_a_rows, start=1):
+                agent_id = int(own_row.get("agent_id") or participant_index)
+                source_solver_mode = str(own_row.get("solver_mode") or f"solver_{agent_id}")
+                peer_rows = [row for row in core_stage_a_rows if row is not own_row]
+                debate_message_rows.extend(
+                    _build_debate_message_artifact_rows(
+                        run_id=run_id,
+                        benchmark_slug=benchmark_slug,
+                        split_name=split_name,
+                        sample=sample,
+                        method_name=method_name,
+                        round_index=debate_round,
+                        own_row=own_row,
+                        peer_rows=peer_rows,
+                        gate_decision=gate_decision,
+                        leading_answer=leading_answer,
+                    )
+                )
+                revision_row = _execute_turn(
+                    run_id=run_id,
+                    dataset=benchmark_slug,
+                    split_name=split_name,
+                    sample=sample,
+                    stage_name="debate_revision",
+                    method_name="debate_revision",
+                    role="debate_revision",
+                    round_index=debate_round,
+                    agent_id=agent_id,
+                    messages=build_sparse_debate_messages(
+                        sample,
+                        agent_id=agent_id,
+                        round_index=debate_round,
+                        own_row=own_row,
+                        peer_rows=peer_rows,
+                        gate_decision=gate_decision,
+                        leading_answer=leading_answer,
+                        prompt_version=experiment.adaptive_prompt_version,
+                    ),
+                    backbone=backbone,
+                    provider=provider,
+                    cache=cache,
+                    throttle=throttle,
+                    temperature=_debate_temperature(protocol),
+                    top_p=protocol.top_p,
+                    seed=experiment.global_seed + 1000 + debate_round * 10 + agent_id,
+                    output_mode="stage_a",
+                    stage_a_retry_seed=experiment.global_seed,
+                    prompt_version=experiment.adaptive_prompt_version,
+                    extra_fields={
+                        "solver_mode": f"debate_{source_solver_mode}",
+                        "source_solver_mode": source_solver_mode,
+                        "adaptive_policy_name": method_name,
+                        "adaptive_parent_trace_hash": stage_a_trace_hash,
+                        "debate_round_index": debate_round,
+                        "debate_leading_answer": leading_answer,
+                    },
+                )
+                debate_revision_rows.append(revision_row)
+                final_rows.append(revision_row)
+
+    candidate_answer, candidate_support, candidate_resolver = aggregate_evidence_grounded_stage_a(
+        final_rows,
+        anchor_answer=pre_debate_answer or pre_answer or stage_a_answer,
+        question=sample.question,
+    )
+    accepted_answer = pre_debate_answer or pre_answer or stage_a_answer
+    accepted_support = dict(pre_debate_support or pre_support or stage_a_weighted_support)
+    accepted_resolver = pre_debate_resolver or pre_resolver or stage_a_resolver
+    if not debate_revision_rows:
+        accepted_answer = candidate_answer
+        accepted_support = dict(candidate_support)
+        accepted_resolver = candidate_resolver
+    elif _should_accept_debate_candidate(
+        candidate_answer=candidate_answer,
+        candidate_support=candidate_support,
+        previous_answer=pre_debate_answer,
+        previous_support=pre_debate_support,
+        dataset=benchmark_slug,
+    ):
+        accepted_answer = candidate_answer
+        accepted_support = dict(candidate_support)
+        accepted_resolver = candidate_resolver
+    else:
+        accepted_resolver = f"{accepted_resolver}_debate_rejected"
+    if not _task_format_ok_for_adaptive_sample(benchmark_slug, accepted_answer):
+        accepted_answer = stage_a_answer
+        accepted_support = dict(stage_a_weighted_support)
+        accepted_resolver = "adaptive_sparse_debate_invalid_candidate_fallback"
+
+    normalized_final_answer = normalize_prediction(benchmark_slug, accepted_answer) if accepted_answer else ""
+    final_score = (
+        score_prediction(benchmark_slug, normalized_final_answer, sample.reference_answer)
+        if normalized_final_answer
+        else 0.0
+    )
+    adaptive_trace_hash = _trace_hash(
+        final_rows,
+        ["agent_id", "solver_mode", "normalized_answer", "confidence_value", "output_status"],
+    )
+    debate_trace_hash = (
+        _trace_hash(
+            debate_revision_rows,
+            ["agent_id", "source_solver_mode", "normalized_answer", "confidence_value", "output_status"],
+        )
+        if debate_revision_rows
+        else ""
+    )
+    router_row = _build_adaptive_router_row(
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        gate_decision=gate_decision,
+        stage_a_answer=stage_a_answer,
+        stage_a_score=stage_a_score,
+        pre_answer=pre_debate_answer,
+        pre_resolver=pre_debate_resolver,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_resolver=accepted_resolver,
+    )
+    router_row.update(
+        {
+            "debate_triggered": bool(debate_revision_rows),
+            "debate_rounds": debate_round_limit if debate_revision_rows else 0,
+            "debate_trace_hash": debate_trace_hash,
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": adaptive_trace_hash,
+            "leading_answer": leading_answer,
+        }
+    )
+    prediction_row = _build_adaptive_prediction_row(
+        method_name=method_name,
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        backbone=backbone,
+        final_rows=final_rows,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_support=accepted_support,
+        final_resolver=accepted_resolver,
+        adaptive_trace_hash=adaptive_trace_hash,
+        triggered=bool(gate_decision["triggered"]),
+        baseline_answer=stage_a_answer,
+        baseline_score=stage_a_score,
+    )
+    debate_tokens = _sum_total_tokens(debate_revision_rows)
+    prediction_row.update(
+        {
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": adaptive_trace_hash,
+            "debate_trace_hash": debate_trace_hash,
+            "debate_triggered": bool(debate_revision_rows),
+            "debate_rounds": debate_round_limit if debate_revision_rows else 0,
+            "debate_tokens_per_question": debate_tokens,
+            "communication_tokens_per_question": debate_tokens,
+            "protocol_failures_per_question": _count_protocol_failures(final_rows),
+            "reason_missing_turns_per_question": _count_reason_missing_turns(final_rows),
+            "pre_debate_answer": pre_debate_answer,
+            "pre_debate_resolver": pre_debate_resolver,
+        }
+    )
+    return adaptive_rows + debate_revision_rows, debate_message_rows, router_row, prediction_row
+
+
 def _replay_adaptive_variant(
     *,
     method_name: str,
@@ -1726,6 +2054,161 @@ def _replay_adaptive_variant(
         triggered=bool(gate_decision["triggered"]),
         baseline_answer=stage_a_answer,
         baseline_score=stage_a_score,
+    )
+    return router_row, prediction_row
+
+
+def _replay_sparse_debate_variant(
+    *,
+    method_name: str,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    sample: DatasetSample,
+    backbone,
+    protocol: AdaptiveSparseMadProtocolConfig,
+    core_stage_a_rows: list[dict[str, Any]],
+    adaptive_rows: list[dict[str, Any]],
+    stage_a_answer: str,
+    stage_a_score: float,
+    stage_a_weighted_support: dict[str, float],
+    stage_a_resolver: str,
+    stage_a_trace_hash: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Replay the free-text debate variant from persisted turn rows."""
+    if method_name != ADAPTIVE_SPARSE_DEBATE_METHOD:
+        raise ValueError(f"Unsupported sparse debate replay method_name: {method_name}")
+
+    pre_answer, pre_support, pre_resolver = aggregate_evidence_grounded_stage_a(
+        core_stage_a_rows,
+        anchor_answer=stage_a_answer,
+        question=sample.question,
+    )
+    gate_decision = _build_adaptive_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=core_stage_a_rows,
+        support=stage_a_weighted_support,
+    )
+    gate_decision["policy_name"] = method_name
+    addon_rows = [row for row in adaptive_rows if str(row.get("role") or "") != "debate_revision"]
+    debate_rows = [row for row in adaptive_rows if str(row.get("role") or "") == "debate_revision"]
+    gate_decision["selected_addon_solver"] = str(addon_rows[0].get("solver_mode") or "") if addon_rows else ""
+    gate_decision["executed_addon_solvers"] = [str(row.get("solver_mode") or "") for row in addon_rows]
+
+    pre_debate_rows = list(core_stage_a_rows)
+    if gate_decision["triggered"]:
+        pre_debate_rows.extend(addon_rows)
+    pre_debate_answer, pre_debate_support, pre_debate_resolver = aggregate_evidence_grounded_stage_a(
+        pre_debate_rows,
+        anchor_answer=pre_answer or stage_a_answer,
+        question=sample.question,
+    )
+    final_rows = list(pre_debate_rows)
+    if gate_decision["triggered"]:
+        final_rows.extend(debate_rows)
+    candidate_answer, candidate_support, candidate_resolver = aggregate_evidence_grounded_stage_a(
+        final_rows,
+        anchor_answer=pre_debate_answer or pre_answer or stage_a_answer,
+        question=sample.question,
+    )
+    accepted_answer = pre_debate_answer or pre_answer or stage_a_answer
+    accepted_support = dict(pre_debate_support or pre_support or stage_a_weighted_support)
+    accepted_resolver = pre_debate_resolver or pre_resolver or stage_a_resolver
+    if not debate_rows:
+        accepted_answer = candidate_answer
+        accepted_support = dict(candidate_support)
+        accepted_resolver = candidate_resolver
+    elif _should_accept_debate_candidate(
+        candidate_answer=candidate_answer,
+        candidate_support=candidate_support,
+        previous_answer=pre_debate_answer,
+        previous_support=pre_debate_support,
+        dataset=benchmark_slug,
+    ):
+        accepted_answer = candidate_answer
+        accepted_support = dict(candidate_support)
+        accepted_resolver = candidate_resolver
+    else:
+        accepted_resolver = f"{accepted_resolver}_debate_rejected"
+    if not _task_format_ok_for_adaptive_sample(benchmark_slug, accepted_answer):
+        accepted_answer = stage_a_answer
+        accepted_support = dict(stage_a_weighted_support)
+        accepted_resolver = "adaptive_sparse_debate_invalid_candidate_fallback"
+
+    normalized_final_answer = normalize_prediction(benchmark_slug, accepted_answer) if accepted_answer else ""
+    final_score = (
+        score_prediction(benchmark_slug, normalized_final_answer, sample.reference_answer)
+        if normalized_final_answer
+        else 0.0
+    )
+    adaptive_trace_hash = _trace_hash(
+        final_rows,
+        ["agent_id", "solver_mode", "normalized_answer", "confidence_value", "output_status"],
+    )
+    debate_trace_hash = (
+        _trace_hash(
+            debate_rows,
+            ["agent_id", "source_solver_mode", "normalized_answer", "confidence_value", "output_status"],
+        )
+        if debate_rows
+        else ""
+    )
+    router_row = _build_adaptive_router_row(
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        gate_decision=gate_decision,
+        stage_a_answer=stage_a_answer,
+        stage_a_score=stage_a_score,
+        pre_answer=pre_debate_answer,
+        pre_resolver=pre_debate_resolver,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_resolver=accepted_resolver,
+    )
+    router_row.update(
+        {
+            "debate_triggered": bool(debate_rows),
+            "debate_rounds": 1 if debate_rows else 0,
+            "debate_trace_hash": debate_trace_hash,
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": adaptive_trace_hash,
+        }
+    )
+    prediction_row = _build_adaptive_prediction_row(
+        method_name=method_name,
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        backbone=backbone,
+        final_rows=final_rows,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_support=accepted_support,
+        final_resolver=accepted_resolver,
+        adaptive_trace_hash=adaptive_trace_hash,
+        triggered=bool(gate_decision["triggered"]),
+        baseline_answer=stage_a_answer,
+        baseline_score=stage_a_score,
+    )
+    debate_tokens = _sum_total_tokens(debate_rows)
+    prediction_row.update(
+        {
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": adaptive_trace_hash,
+            "debate_trace_hash": debate_trace_hash,
+            "debate_triggered": bool(debate_rows),
+            "debate_rounds": 1 if debate_rows else 0,
+            "debate_tokens_per_question": debate_tokens,
+            "communication_tokens_per_question": debate_tokens,
+            "protocol_failures_per_question": _count_protocol_failures(final_rows),
+            "reason_missing_turns_per_question": _count_reason_missing_turns(final_rows),
+            "pre_debate_answer": pre_debate_answer,
+            "pre_debate_resolver": pre_debate_resolver,
+        }
     )
     return router_row, prediction_row
 
@@ -1892,7 +2375,7 @@ def _select_adaptive_addon_solver_sequence(
 ) -> list[str]:
     """为具体自适应策略选择追加 solver 序列。"""
     base_solver = str(gate_decision.get("selected_addon_solver") or _select_adaptive_addon_solver(sample))
-    if method_name == "adaptive_counterfactual_v1":
+    if method_name in {"adaptive_counterfactual_v1", ADAPTIVE_SPARSE_DEBATE_METHOD}:
         severe_counterfactual_need = _adaptive_counterfactual_needed(
             sample=sample,
             gate_decision=gate_decision,
@@ -2054,6 +2537,113 @@ def _should_accept_counterfactual_override(
     if is_open_qa_like and "answer_disagreement" in trigger_reasons and support_gap <= 0.5:
         disagreement_backed_override = True
     return disagreement_backed_override or collapse_rescue_override
+
+
+def _build_debate_message_artifact_rows(
+    *,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    sample: DatasetSample,
+    method_name: str,
+    round_index: int,
+    own_row: dict[str, Any],
+    peer_rows: list[dict[str, Any]],
+    gate_decision: dict[str, Any],
+    leading_answer: str,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    recipient_agent_id = int(own_row.get("agent_id") or 0)
+    for peer_row in peer_rows:
+        rows.append(
+            {
+                "run_id": run_id,
+                "dataset": benchmark_slug,
+                "split": split_name,
+                "sample_id": sample.sample_id,
+                "method_name": method_name,
+                "round_index": round_index,
+                "sender_agent_id": int(peer_row.get("agent_id") or 0),
+                "recipient_agent_id": recipient_agent_id,
+                "sender_solver_mode": str(peer_row.get("solver_mode") or ""),
+                "recipient_solver_mode": str(own_row.get("solver_mode") or ""),
+                "sender_answer": str(peer_row.get("normalized_answer") or peer_row.get("prediction") or ""),
+                "sender_reasoning": str(peer_row.get("reasoning") or ""),
+                "sender_confidence": peer_row.get("confidence_value"),
+                "sender_evidence": str(peer_row.get("key_evidence") or peer_row.get("claim_span") or ""),
+                "gate_reasons": list(gate_decision.get("trigger_reasons") or []),
+                "leading_answer": leading_answer,
+            }
+        )
+    return rows
+
+
+def _should_accept_debate_candidate(
+    *,
+    candidate_answer: str,
+    candidate_support: dict[str, float],
+    previous_answer: str,
+    previous_support: dict[str, float],
+    dataset: str,
+) -> bool:
+    candidate = str(candidate_answer or "").strip()
+    if candidate.lower() in {"", "unknown"}:
+        return False
+    if not _task_format_ok_for_adaptive_sample(dataset, candidate):
+        return False
+    previous = str(previous_answer or "").strip()
+    if candidate != previous:
+        return True
+    candidate_strength = float(candidate_support.get(candidate, 0.0) or 0.0)
+    previous_strength = float(previous_support.get(previous, 0.0) or 0.0)
+    return candidate_strength > previous_strength + 1e-6
+
+
+def _task_format_ok_for_adaptive_sample(dataset: str, answer: str) -> bool:
+    if not task_format_ok(dataset, answer):
+        return False
+    if dataset == "strategyqa":
+        return str(answer or "").strip().lower() in {"yes", "no"}
+    return True
+
+
+def _debate_temperature(protocol: AdaptiveSparseMadProtocolConfig) -> float:
+    if protocol.debate_temperature is None:
+        return protocol.stage_a_temperature
+    return float(protocol.debate_temperature)
+
+
+def _sum_total_tokens(rows: list[dict[str, Any]]) -> float:
+    return round(sum(float(row.get("total_tokens") or 0.0) for row in rows), 6)
+
+
+def _count_protocol_failures(rows: list[dict[str, Any]]) -> int:
+    failure_statuses = {"schema_fail", "answer_contract_fail", "protocol_fail", "request_fail"}
+    count = 0
+    for row in rows:
+        validated_output = row.get("validated_output")
+        if str(row.get("output_status") or "") in failure_statuses:
+            count += 1
+            continue
+        if isinstance(validated_output, dict) and (
+            validated_output.get("stage_a_recovery_fallback")
+            or validated_output.get("free_text_parse_error")
+            or validated_output.get("format_warning")
+        ):
+            count += 1
+    return count
+
+
+def _count_reason_missing_turns(rows: list[dict[str, Any]]) -> int:
+    count = 0
+    for row in rows:
+        validated_output = row.get("validated_output")
+        parse_error = ""
+        if isinstance(validated_output, dict):
+            parse_error = str(validated_output.get("free_text_parse_error") or "")
+        if not str(row.get("reasoning") or "").strip() or "REASONING" in parse_error:
+            count += 1
+    return count
 
 
 def _execute_turn(
@@ -2328,6 +2918,12 @@ def _build_control_prediction_row(
         "corrected_by_method": False,
         "harmed_by_method": False,
         "communication_tokens_per_question": 0.0,
+        "debate_triggered": False,
+        "debate_rounds": 0,
+        "debate_tokens_per_question": 0.0,
+        "debate_trace_hash": "",
+        "protocol_failures_per_question": _count_protocol_failures(turn_rows),
+        "reason_missing_turns_per_question": _count_reason_missing_turns(turn_rows),
         "prompt_tokens_per_question": costs["prompt_tokens"],
         "completion_tokens_per_question": costs["completion_tokens"],
         "total_tokens_per_question": costs["total_tokens"],
@@ -2427,6 +3023,12 @@ def _build_hetero_prediction_row(
         "corrected_by_method": False,
         "harmed_by_method": False,
         "communication_tokens_per_question": 0.0,
+        "debate_triggered": False,
+        "debate_rounds": 0,
+        "debate_tokens_per_question": 0.0,
+        "debate_trace_hash": "",
+        "protocol_failures_per_question": _count_protocol_failures(stage_a_rows),
+        "reason_missing_turns_per_question": _count_reason_missing_turns(stage_a_rows),
         "prompt_tokens_per_question": costs["prompt_tokens"],
         "completion_tokens_per_question": costs["completion_tokens"],
         "total_tokens_per_question": costs["total_tokens"],
@@ -2479,6 +3081,12 @@ def _build_adaptive_prediction_row(
         "corrected_by_method": final_score >= 1.0 and baseline_score < 1.0,
         "harmed_by_method": final_score < 1.0 and baseline_score >= 1.0,
         "communication_tokens_per_question": 0.0,
+        "debate_triggered": False,
+        "debate_rounds": 0,
+        "debate_tokens_per_question": 0.0,
+        "debate_trace_hash": "",
+        "protocol_failures_per_question": _count_protocol_failures(final_rows),
+        "reason_missing_turns_per_question": _count_reason_missing_turns(final_rows),
         "prompt_tokens_per_question": costs["prompt_tokens"],
         "completion_tokens_per_question": costs["completion_tokens"],
         "total_tokens_per_question": costs["total_tokens"],
@@ -2576,6 +3184,12 @@ def _build_aggregate_prediction_row(
         "corrected_by_method": False,
         "harmed_by_method": False,
         "communication_tokens_per_question": 0.0,
+        "debate_triggered": False,
+        "debate_rounds": 0,
+        "debate_tokens_per_question": 0.0,
+        "debate_trace_hash": "",
+        "protocol_failures_per_question": _count_protocol_failures(stage_a_rows),
+        "reason_missing_turns_per_question": _count_reason_missing_turns(stage_a_rows),
         "prompt_tokens_per_question": costs["prompt_tokens"],
         "completion_tokens_per_question": costs["completion_tokens"],
         "total_tokens_per_question": costs["total_tokens"],
@@ -2621,6 +3235,23 @@ def _build_summary_row(dataset: str, method_name: str, rows: list[dict[str, Any]
         )
         if question_count
         else 0.0,
+        "debate_trigger_rate": round(
+            sum(1.0 if row.get("debate_triggered") else 0.0 for row in rows) / question_count, 6
+        )
+        if question_count
+        else 0.0,
+        "debate_rounds_mean": round(
+            sum(float(row.get("debate_rounds") or 0.0) for row in rows) / question_count, 6
+        )
+        if question_count
+        else 0.0,
+        "debate_tokens_mean": round(
+            sum(float(row.get("debate_tokens_per_question") or row.get("communication_tokens_per_question") or 0.0) for row in rows)
+            / question_count,
+            6,
+        )
+        if question_count
+        else 0.0,
         "latency_ms_mean": round(
             sum(float(row.get("latency_ms_per_question") or 0.0) for row in rows) / question_count, 6
         )
@@ -2657,6 +3288,8 @@ def _build_summary_row(dataset: str, method_name: str, rows: list[dict[str, Any]
         else 0.0,
         "corrected_count": sum(1 for row in rows if row.get("corrected_by_method")),
         "harmed_count": sum(1 for row in rows if row.get("harmed_by_method")),
+        "protocol_failure_count": int(sum(float(row.get("protocol_failures_per_question") or 0.0) for row in rows)),
+        "reason_missing_count": int(sum(float(row.get("reason_missing_turns_per_question") or 0.0) for row in rows)),
     }
 
 
@@ -2685,6 +3318,16 @@ def _validate_stage_a_output(raw_text: str, *, dataset: str, provider_reasoning_
             allow_numeric_tail_recovery=False,
         )
     except Exception:
+        free_text_parse_error = ""
+        try:
+            validated = parse_adaptive_sparse_mad_free_text_output(raw_text, dataset=dataset)
+            return _apply_stage_a_consistency_safeguard(
+                validated,
+                dataset=dataset,
+                allow_numeric_tail_recovery=False,
+            )
+        except Exception as exc:
+            free_text_parse_error = str(exc)
         raw_reasoning = _optional_text(raw_text)
         try:
             recovered = validate_or_recover_structured_output(
@@ -2712,6 +3355,7 @@ def _validate_stage_a_output(raw_text: str, *, dataset: str, provider_reasoning_
             "key_evidence": reasoning,
             "uncertain_point": fallback if final_answer == "unknown" else None,
             "stage_a_recovery_fallback": fallback,
+            "free_text_parse_error": free_text_parse_error,
         }
         return _apply_stage_a_consistency_safeguard(
             validated,

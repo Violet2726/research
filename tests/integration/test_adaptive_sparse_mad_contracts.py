@@ -357,3 +357,106 @@ def test_validate_run_accepts_adaptive_gate_router_rows(tmp_path: Path) -> None:
 
     assert result["passed"] is True
     assert result["checks"]["router_empty_check"]["row_count"] == 1
+
+
+def test_validate_run_requires_debate_messages_for_sparse_debate_manifest(tmp_path: Path) -> None:
+    write_registered_family_manifest(
+        tmp_path / "manifest.json",
+        family_name="adaptive_sparse_mad",
+        payload={
+            "aggregate_methods": ["hetero_vote_3", "adaptive_sparse_debate_v1"],
+        },
+    )
+    write_json(tmp_path / "progress.json", {"rate_limit_429_count": 0})
+    write_json(
+        tmp_path / "views" / "metrics.json",
+        {
+            "summary": [
+                {
+                    "dataset": "overall",
+                    "method_name": "adaptive_sparse_debate_v1",
+                    "accuracy_mean": 0.9,
+                    "trigger_rate": 0.0,
+                    "early_exit_rate": 1.0,
+                    "changed_answer_rate": 0.0,
+                    "corrected_rate": 0.0,
+                    "harmed_rate": 0.0,
+                    "total_tokens_mean": 1200.0,
+                }
+            ]
+        },
+    )
+    write_json(tmp_path / "diagnostics" / "router_eval.json", {"summary_rows": [], "sample_rows": []})
+    write_json(
+        tmp_path / "diagnostics" / "policy_diagnostics.json",
+        {
+            "policy_rows": [{"dataset": "overall", "method_name": "adaptive_sparse_debate_v1"}],
+            "recommended_next_default_policy": {"selected_policy": "adaptive_sparse_debate_v1"},
+        },
+    )
+    write_json(
+        tmp_path / "diagnostics" / "stage_a_resolver_breakdown.json",
+        {"summary_rows": [], "sample_rows": [], "example_rows": []},
+    )
+    write_json(
+        tmp_path / "diagnostics" / "stage_a_error_buckets.json",
+        {"summary": {"error_count": 0}, "dataset_rows": [], "sample_rows": [], "example_rows": []},
+    )
+    write_json(
+        tmp_path / "diagnostics" / "stage_a_solver_contributions.json",
+        {"summary_rows": [], "sample_pattern_rows": []},
+    )
+    touch_figure_contract(tmp_path)
+    write_jsonl(
+        tmp_path / "turns" / "stage_a_turns.jsonl",
+        [
+            {
+                "dataset": "gsm8k",
+                "sample_id": "s1",
+                "method_name": "solver_cot",
+                "output_status": "ok",
+                "cache_hit": True,
+                "request_started_at": "2026-06-05T00:00:00+00:00",
+            }
+        ],
+    )
+    write_jsonl(
+        tmp_path / "turns" / "control_turns.jsonl",
+        [
+            {
+                "dataset": "gsm8k",
+                "sample_id": "s1",
+                "method_name": "cot_1",
+                "output_status": "ok",
+                "cache_hit": True,
+                "request_started_at": "2026-06-05T00:00:01+00:00",
+            }
+        ],
+    )
+    write_jsonl(tmp_path / "turns" / "router_decisions.jsonl", [])
+    write_jsonl(
+        tmp_path / "views" / "predictions.jsonl",
+        [
+            {
+                "dataset": "gsm8k",
+                "sample_id": "s1",
+                "method_name": "adaptive_sparse_debate_v1",
+                "method_kind": "aggregate",
+                "triggered": False,
+                "debate_triggered": False,
+                "early_exit": True,
+                "communication_tokens_per_question": 0.0,
+            },
+        ],
+    )
+
+    missing_result = validate_run(tmp_path)
+
+    assert missing_result["passed"] is False
+    assert "turns/debate_messages.jsonl" in missing_result["missing_files"]
+
+    write_jsonl(tmp_path / "turns" / "debate_messages.jsonl", [])
+    present_result = validate_run(tmp_path)
+
+    assert present_result["passed"] is True
+    assert present_result["checks"]["debate_messages_check"]["required"] is True
