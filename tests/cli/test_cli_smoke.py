@@ -486,15 +486,47 @@ def test_adaptive_sparse_mad_main_v5_inspect_cli() -> None:
         ],
     )
     assert payload["name"] == "same_context_main_v5"
-    assert payload["benchmarks"] == ["hotpotqa", "strategyqa", "gsm8k"]
+    assert payload["benchmarks"] == ["math500", "hotpotqa", "gpqa_diamond", "strategyqa", "mmlu_pro"]
     assert payload["methods"] == [
         "cot_1",
-        "mv_3",
+        "sc_3",
         "sc_5",
         "hetero_vote_3",
         "adaptive_sparse_debate_v1",
     ]
+    assert payload["control_prompt_version"] == "single_agent_free_text_v1"
+    assert payload["control_output_protocol"] == "free_text_answer_v1"
     assert payload["prompt_version"] == "adaptive_sparse_mad_free_text_debate_v1"
+    assert payload["stage_a_response_format_mode"] == "free_text"
+    assert payload["adaptive_response_format_mode"] == "free_text"
+    assert payload["legacy_json_mode"] is False
+
+
+def test_adaptive_sparse_mad_main_v5_json_legacy_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "experiment",
+            "--family",
+            "adaptive_sparse_mad",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/adaptive_sparse_mad/experiments/same_context_main_v5_json_legacy.toml",
+        ],
+    )
+    assert payload["name"] == "same_context_main_v5_json_legacy"
+    assert payload["methods"] == [
+        "cot_1",
+        "sc_3",
+        "sc_5",
+        "hetero_vote_3",
+        "adaptive_sparse_debate_v1",
+    ]
+    assert payload["control_prompt_version"] == "single_agent_free_text_v1"
+    assert payload["control_output_protocol"] == "free_text_answer_v1"
+    assert payload["stage_a_response_format_mode"] == "json_object"
+    assert payload["adaptive_response_format_mode"] == "json_object"
+    assert payload["legacy_json_mode"] is True
 
 
 def test_adaptive_sparse_mad_full_counterfactual_v1_screen_inspect_cli() -> None:

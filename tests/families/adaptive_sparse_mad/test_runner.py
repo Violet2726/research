@@ -6,14 +6,19 @@ from types import SimpleNamespace
 import pytest
 from testsupport.filesystem import write_json, write_registered_family_manifest
 
-from research_experiments.core.controls.control_prompts import build_cot_messages
+from research_experiments.core.controls.control_prompts import FREE_TEXT_V1_PROMPT_VERSION, build_cot_messages
+from research_experiments.core.controls.no_comm_controls import run_unified_control_sample
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.families.adaptive_sparse_mad.algorithms import (
     aggregate_anchor_protected,
     aggregate_constraint_aware_stage_a,
     aggregate_evidence_grounded_stage_a,
 )
-from research_experiments.families.adaptive_sparse_mad.config import AdaptiveSparseMadProtocolConfig
+from research_experiments.families.adaptive_sparse_mad.config import (
+    AdaptiveSparseMadProtocolConfig,
+    load_control_catalog,
+    load_experiment_config,
+)
 from research_experiments.families.adaptive_sparse_mad.prompts import (
     FREE_TEXT_DEBATE_PROMPT_VERSION,
     STAGE_A_V2_PROMPT_VERSION,
@@ -28,6 +33,8 @@ from research_experiments.families.adaptive_sparse_mad.run.sample import (
     _apply_stage_a_answer_slot_safeguard,
     _apply_stage_a_consistency_safeguard,
     _build_adaptive_gate_decision,
+    _execute_control_turn,
+    _execute_turn,
     _select_adaptive_addon_solver_sequence,
     _should_accept_counterfactual_override,
     _should_safe_retry_stage_a_result,
@@ -42,6 +49,8 @@ from research_experiments.families.adaptive_sparse_mad.run.sample import (
     refresh_stage_a_prediction_rows,
     summarize_run,
 )
+from research_experiments.families.adaptive_sparse_mad.run.report import render_report
+from research_experiments.family_runtime.output_protocols import FREE_TEXT_ANSWER_PROTOCOL_V1
 
 
 def test_stage_a_v2_direct_solver_reuses_unified_cot_prompt() -> None:
@@ -903,6 +912,224 @@ def test_validate_control_output_marks_unrecoverable_truncation_unknown() -> Non
 
     assert repaired["final_answer"] == "unknown"
     assert repaired["control_recovery_fallback"] == "unknown_after_unrecoverable_control_output"
+
+
+def test_validate_stage_a_output_free_text_mode_does_not_decode_json_first() -> None:
+    raw_text = (
+        '{"final_answer":"83","reasoning":"Capacity is 5000 - 3755 = 1245. '
+        'Boxes = 1245 / 15 = 83."}'
+    )
+
+    repaired = _validate_stage_a_output(
+        raw_text,
+        dataset="gsm8k",
+        provider_reasoning_text="The final answer is 83.",
+        response_format_mode="free_text",
+    )
+
+    assert repaired["final_answer"] == "83"
+    assert repaired["stage_a_recovery_fallback"] == "answer_recovered_from_unstructured_stage_a_output"
+    assert "free_text_parse_error" in repaired
+
+
+def test_execute_turn_free_text_mode_disables_response_format(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[bool] = []
+
+    def fake_execute_cached_turn(**kwargs):
+        captured.append(bool(kwargs["use_response_format"]))
+        return SimpleNamespace(
+            output_status="ok",
+            validated_output={"final_answer": "42", "reasoning": "short reasoning", "confidence_raw": 0.8},
+            usage={"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
+            response_payload={"latency_ms": 9, "assistant_text": "ok", "provider_reasoning_text": ""},
+            cache_hit=False,
+            request_error=None,
+            prompt_hash="prompt-hash",
+        )
+
+    monkeypatch.setattr(
+        "research_experiments.families.adaptive_sparse_mad.run.sample.execute_cached_turn",
+        fake_execute_cached_turn,
+    )
+
+    sample = DatasetSample(
+        dataset="gsm8k",
+        sample_id="demo",
+        question="What is 40 + 2?",
+        reference_answer="42",
+        prompt_context="",
+        metadata={},
+    )
+    row = _execute_turn(
+        run_id="run1",
+        dataset="gsm8k",
+        split_name="count20_seed42",
+        sample=sample,
+        stage_name="stage_a",
+        method_name="solver_cot",
+        role="initial",
+        round_index=0,
+        agent_id=1,
+        messages=[{"role": "system", "content": "demo"}, {"role": "user", "content": "demo"}],
+        backbone=SimpleNamespace(name="demo"),
+        provider=SimpleNamespace(),
+        cache=SimpleNamespace(),
+        throttle=SimpleNamespace(),
+        temperature=0.7,
+        top_p=1.0,
+        seed=42,
+        output_mode="stage_a",
+        prompt_version=FREE_TEXT_DEBATE_PROMPT_VERSION,
+        response_format_mode="free_text",
+    )
+
+    assert captured == [False]
+    assert row["prediction"] == "42"
+
+
+def test_execute_control_turn_uses_output_protocol_runner(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_execute_output_protocol_turn(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            payload={"messages": kwargs["messages"]},
+            prompt_hash="prompt-hash",
+            cache_key="cache-key",
+            cache_hit=False,
+            response_payload={"latency_ms": 13, "assistant_text": "demo", "provider_reasoning_text": "", "request_started_at": "ts"},
+            request_error=None,
+            request_status="ok",
+            output_status="ok",
+            validated_output={"final_answer": "42", "reasoning": "short reasoning"},
+            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            output_protocol=kwargs["output_protocol"],
+            protocol_parse_status="ok",
+            protocol_parse_error=None,
+            reason_present=True,
+            request_count=1,
+            cache_request_count=0,
+            network_request_count=1,
+            raw_finish_reason="stop",
+        )
+
+    monkeypatch.setattr(
+        "research_experiments.families.adaptive_sparse_mad.run.sample.execute_output_protocol_turn",
+        fake_execute_output_protocol_turn,
+    )
+
+    sample = DatasetSample(
+        dataset="gsm8k",
+        sample_id="demo",
+        question="What is 40 + 2?",
+        reference_answer="42",
+        prompt_context="",
+        metadata={},
+    )
+    row = _execute_control_turn(
+        run_id="run1",
+        dataset="gsm8k",
+        split_name="count20_seed42",
+        sample=sample,
+        method_name="cot_1",
+        method_type="control",
+        round_index=0,
+        agent_id=1,
+        role="control",
+        visible_peer_count=0,
+        messages=[{"role": "system", "content": "demo"}, {"role": "user", "content": "demo"}],
+        backbone=SimpleNamespace(name="demo"),
+        provider=SimpleNamespace(),
+        cache=SimpleNamespace(),
+        throttle=SimpleNamespace(),
+        temperature=0.7,
+        top_p=1.0,
+        seed=42,
+        output_protocol=FREE_TEXT_ANSWER_PROTOCOL_V1,
+    )
+
+    assert captured["output_protocol"] == FREE_TEXT_ANSWER_PROTOCOL_V1
+    assert row["output_protocol"] == FREE_TEXT_ANSWER_PROTOCOL_V1
+    assert row["protocol_parse_status"] == "ok"
+    assert row["reason_present"] is True
+    assert row["raw_finish_reason"] == "stop"
+    assert row["network_request_count"] == 1
+
+
+def test_same_context_main_v5_configs_load_mainline_and_legacy_contracts() -> None:
+    mainline = load_experiment_config(
+        "configs/families/adaptive_sparse_mad/experiments/same_context_main_v5.toml"
+    )
+    legacy = load_experiment_config(
+        "configs/families/adaptive_sparse_mad/experiments/same_context_main_v5_json_legacy.toml"
+    )
+    controls = load_control_catalog(mainline.control_catalog)
+
+    assert list(controls) == ["cot_1", "sc_3", "sc_5"]
+    assert mainline.control_prompt_version == "single_agent_free_text_v1"
+    assert mainline.control_output_protocol == "free_text_answer_v1"
+    assert mainline.stage_a_response_format_mode == "free_text"
+    assert mainline.adaptive_response_format_mode == "free_text"
+    assert mainline.legacy_json_mode is False
+    assert legacy.stage_a_response_format_mode == "json_object"
+    assert legacy.adaptive_response_format_mode == "json_object"
+    assert legacy.legacy_json_mode is True
+
+
+def test_same_context_main_v5_control_messages_match_baseline_free_text_prompt() -> None:
+    controls = load_control_catalog(
+        "configs/families/adaptive_sparse_mad/controls/same_context_main_v5_controls.toml"
+    )
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which language is spoken there?",
+        reference_answer="French",
+        prompt_context="The town is in Quebec, where French is spoken.",
+        metadata={},
+    )
+
+    for control_name in ("cot_1", "sc_3", "sc_5"):
+        method = controls[control_name]
+        captured_messages: list[list[dict[str, str]]] = []
+        captured_seeds: list[int | None] = []
+
+        def fake_execute_turn(**kwargs):
+            captured_messages.append(kwargs["messages"])
+            captured_seeds.append(kwargs["seed"])
+            return {
+                "normalized_answer": "French",
+                "prediction": "French",
+                "score": 1.0,
+                "output_status": "ok",
+            }
+
+        run_unified_control_sample(
+            run_id="run1",
+            benchmark_slug="hotpotqa",
+            split_name="count20_seed42",
+            sample=sample,
+            control_name=control_name,
+            method=method,
+            backbone=SimpleNamespace(name="demo"),
+            provider=SimpleNamespace(),
+            cache=SimpleNamespace(),
+            throttle=SimpleNamespace(),
+            global_seed=42,
+            prompt_version=FREE_TEXT_V1_PROMPT_VERSION,
+            execute_turn=fake_execute_turn,
+            build_prediction_row=lambda **kwargs: {"method_name": kwargs["control_name"]},
+        )
+
+        expected_messages = [
+            build_cot_messages(sample, replicate_id + 1, FREE_TEXT_V1_PROMPT_VERSION)
+            for replicate_id in range(method.budget_calls)
+        ]
+        assert captured_messages == expected_messages
+        if control_name == "cot_1":
+            assert captured_seeds == [42]
+        else:
+            assert captured_seeds == list(range(42, 42 + method.budget_calls))
 
 
 def test_stage_a_answer_slot_safeguard_appends_language_for_hotpot_language_questions() -> None:
@@ -2280,6 +2507,90 @@ def test_refresh_prediction_rows_for_run_replays_adaptive_counterfactual_policy(
     assert adaptive_router_row["selected_addon_solver"] == "solver_counterfactual"
     assert adaptive_router_row["executed_addon_solvers"] == ["solver_counterfactual"]
     assert adaptive_router_row["final_answer"] == "yes"
+
+
+def test_render_report_includes_control_and_runtime_contract_fields(tmp_path: Path) -> None:
+    write_registered_family_manifest(
+        tmp_path / "manifest.json",
+        family_name="adaptive_sparse_mad",
+        payload={
+            "created_at": "2026-06-17T00:00:00+00:00",
+            "experiment_name": "same_context_main_v5",
+            "phase_name": "count20",
+            "resolved_model": {"name": "xiaomimimo/mimo-v2.5"},
+            "prompt_version": "adaptive_sparse_mad_free_text_debate_v1",
+            "stage_a_prompt_version": "adaptive_sparse_mad_free_text_debate_v1",
+            "adaptive_prompt_version": "adaptive_sparse_mad_free_text_debate_v1",
+            "control_prompt_version": "single_agent_free_text_v1",
+            "control_output_protocol": "free_text_answer_v1",
+            "stage_a_response_format_mode": "free_text",
+            "adaptive_response_format_mode": "free_text",
+            "legacy_json_mode": False,
+        },
+    )
+    write_json(
+        tmp_path / "views" / "metrics.json",
+        {
+            "summary": [
+                {
+                    "dataset": "overall",
+                    "method_name": "cot_1",
+                    "display_name": "cot_1",
+                    "accuracy_mean": 0.4,
+                    "communication_tokens_mean": 0.0,
+                    "total_tokens_mean": 100.0,
+                    "calls_per_question_mean": 1.0,
+                    "acc_per_1k_tokens": 4.0,
+                },
+                {
+                    "dataset": "overall",
+                    "method_name": "sc_3",
+                    "display_name": "sc_3",
+                    "accuracy_mean": 0.5,
+                    "communication_tokens_mean": 0.0,
+                    "total_tokens_mean": 180.0,
+                    "calls_per_question_mean": 3.0,
+                    "acc_per_1k_tokens": 2.777778,
+                },
+                {
+                    "dataset": "overall",
+                    "method_name": "hetero_vote_3",
+                    "display_name": "hetero_vote_3",
+                    "accuracy_mean": 0.6,
+                    "communication_tokens_mean": 0.0,
+                    "total_tokens_mean": 220.0,
+                    "calls_per_question_mean": 3.0,
+                    "acc_per_1k_tokens": 2.727273,
+                },
+            ]
+        },
+    )
+    write_json(tmp_path / "diagnostics" / "router_eval.json", {"summary_rows": []})
+    write_json(
+        tmp_path / "diagnostics" / "policy_diagnostics.json",
+        {
+            "policy_rows": [],
+            "pairwise_rows": [],
+            "promotion_gate": {"candidate_rows": []},
+            "mainline_gate": {"candidate_rows": []},
+            "recommended_next_default_policy": {"selected_policy": "hetero_vote_3"},
+        },
+    )
+    write_json(tmp_path / "diagnostics" / "stage_a_resolver_breakdown.json", {"summary_rows": [], "example_rows": []})
+    write_json(
+        tmp_path / "diagnostics" / "stage_a_error_buckets.json",
+        {"summary": {}, "dataset_rows": [], "example_rows": []},
+    )
+    write_json(tmp_path / "diagnostics" / "stage_a_solver_contributions.json", {"summary_rows": []})
+
+    payload = render_report(tmp_path, publish_dir=tmp_path / "published")
+    local_report = Path(payload["local_report"]).read_text(encoding="utf-8")
+
+    assert "Control Prompt" in local_report
+    assert "Control Output Protocol" in local_report
+    assert "Stage A Response Format" in local_report
+    assert "Legacy JSON Mode" in local_report
+    assert "sc_3" in local_report
 
 
 def test_summarize_run_reads_metrics(tmp_path: Path) -> None:

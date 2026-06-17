@@ -1,5 +1,5 @@
-name = "same_context_main_v5"
-description = "A-SMAD same-context V5 mainline with heterogeneous Stage A and trigger-only free-text sparse debate."
+name = "same_context_main_v5_json_legacy"
+description = "Legacy JSON/runtime branch for A-SMAD same-context V5, kept only for backward comparisons against earlier structured-output runs."
 benchmark_configs = [
   "configs/core/shared/benchmarks/math500/test.toml",
   "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
@@ -17,9 +17,9 @@ control_output_protocol = "free_text_answer_v1"
 prompt_version = "adaptive_sparse_mad_free_text_debate_v1"
 stage_a_prompt_version = "adaptive_sparse_mad_free_text_debate_v1"
 adaptive_prompt_version = "adaptive_sparse_mad_free_text_debate_v1"
-stage_a_response_format_mode = "free_text"
-adaptive_response_format_mode = "free_text"
-legacy_json_mode = false
+stage_a_response_format_mode = "json_object"
+adaptive_response_format_mode = "json_object"
+legacy_json_mode = true
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 
 [phases.count20]

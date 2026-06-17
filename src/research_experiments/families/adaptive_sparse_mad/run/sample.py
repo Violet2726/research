@@ -17,7 +17,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from research_experiments.core.controls.control_prompts import build_cot_messages
+from research_experiments.core.controls.control_prompts import FREE_TEXT_V1_PROMPT_VERSION, build_cot_messages
 from research_experiments.core.controls.no_comm_controls import run_unified_control_sample
 from research_experiments.core.controls.selective_signals import normalize_confidence
 from research_experiments.core.data.datasets import (
@@ -60,7 +60,7 @@ from research_experiments.families.adaptive_sparse_mad.prompts import (
     build_stage_a_safe_retry_messages,
     parse_adaptive_sparse_mad_free_text_output,
 )
-from research_experiments.family_runtime.free_text_protocol import task_format_ok
+from research_experiments.family_runtime.free_text_protocol import parse_free_text_answer_output, task_format_ok
 from research_experiments.family_runtime.common import (
     build_question_preview,
     resolve_phase_split_name,
@@ -69,11 +69,16 @@ from research_experiments.family_runtime.common import (
     summarize_row_cost,
 )
 from research_experiments.family_runtime.method_catalog import MethodConfig
+from research_experiments.family_runtime.output_protocols import (
+    FREE_TEXT_ANSWER_PROTOCOL_V1,
+    execute_output_protocol_turn,
+)
 
 DISPLAY_NAME_MAP = {
     "cot_1": "cot_1",
     "mv_3": "mv_3",
     "mv_6": "mv_6",
+    "sc_3": "sc_3",
     "sc_5": "sc_5",
     "hetero_vote_3": "hetero_vote_3",
     "ega_only_v4": "ega_only_v4",
@@ -1335,6 +1340,7 @@ def _run_sample(
                 output_mode="stage_a",
                 stage_a_retry_seed=experiment.global_seed,
                 prompt_version=experiment.stage_a_prompt_version,
+                response_format_mode=experiment.stage_a_response_format_mode,
                 extra_fields={"solver_mode": solver_mode},
             )
         )
@@ -1458,7 +1464,11 @@ def _run_sample(
             cache=cache,
             throttle=throttle,
             global_seed=experiment.global_seed,
-            execute_turn=_execute_control_turn,
+            prompt_version=experiment.control_prompt_version,
+            execute_turn=lambda **kwargs: _execute_control_turn(
+                output_protocol=experiment.control_output_protocol,
+                **kwargs,
+            ),
             build_prediction_row=_build_control_prediction_row,
         )
         control_turn_rows.extend(control_rows)
@@ -1554,6 +1564,7 @@ def _run_adaptive_variant(
                 output_mode="stage_a",
                 stage_a_retry_seed=experiment.global_seed,
                 prompt_version=experiment.adaptive_prompt_version,
+                response_format_mode=experiment.adaptive_response_format_mode,
                 extra_fields={
                     "solver_mode": addon_solver,
                     "adaptive_policy_name": method_name,
@@ -1739,6 +1750,7 @@ def _run_sparse_debate_variant(
                 output_mode="stage_a",
                 stage_a_retry_seed=experiment.global_seed,
                 prompt_version=experiment.adaptive_prompt_version,
+                response_format_mode=experiment.adaptive_response_format_mode,
                 extra_fields={
                     "solver_mode": addon_solver,
                     "adaptive_policy_name": method_name,
@@ -1806,6 +1818,7 @@ def _run_sparse_debate_variant(
                     output_mode="stage_a",
                     stage_a_retry_seed=experiment.global_seed,
                     prompt_version=experiment.adaptive_prompt_version,
+                    response_format_mode=experiment.adaptive_response_format_mode,
                     extra_fields={
                         "solver_mode": f"debate_{source_solver_mode}",
                         "source_solver_mode": source_solver_mode,
@@ -2668,6 +2681,7 @@ def _execute_turn(
     output_mode: str,
     stage_a_retry_seed: int | None = None,
     prompt_version: str = STAGE_A_V2_PROMPT_VERSION,
+    response_format_mode: str = "json_object",
     extra_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """执行一次 Stage A 或追加 Stage A 调用，并进行安全重试与答案槽修正。"""
@@ -2679,8 +2693,10 @@ def _execute_turn(
             raw_text,
             dataset=dataset,
             provider_reasoning_text=provider_reasoning_text,
+            response_format_mode=response_format_mode,
         )
 
+    use_response_format = response_format_mode == "json_object"
     retry_used = False
     result = execute_cached_turn(
         backbone=backbone,
@@ -2692,6 +2708,7 @@ def _execute_turn(
         top_p=top_p,
         seed=seed,
         validator=validator,
+        use_response_format=use_response_format,
     )
     if output_mode == "stage_a" and _should_safe_retry_stage_a_result(result):
         retry_result = execute_cached_turn(
@@ -2708,21 +2725,33 @@ def _execute_turn(
             top_p=top_p,
             seed=seed,
             validator=validator,
+            use_response_format=use_response_format,
         )
         if not _should_safe_retry_stage_a_result(retry_result):
             result = retry_result
             retry_used = True
         else:
+            cot_retry_messages = (
+                build_stage_a_messages(
+                    sample,
+                    solver_mode="solver_cot",
+                    agent_id=agent_id,
+                    prompt_version=prompt_version,
+                )
+                if response_format_mode == "free_text"
+                else build_cot_messages(sample, agent_id, None)
+            )
             cot_retry = execute_cached_turn(
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
                 throttle=throttle,
-                messages=build_cot_messages(sample, agent_id, None),
+                messages=cot_retry_messages,
                 temperature=temperature,
                 top_p=top_p,
                 seed=stage_a_retry_seed if stage_a_retry_seed is not None else seed,
                 validator=validator,
+                use_response_format=use_response_format,
             )
             if not _should_safe_retry_stage_a_result(cot_retry):
                 result = cot_retry
@@ -2874,6 +2903,92 @@ def _execute_control_turn(
         "latency_ms": float(result.response_payload.get("latency_ms") or 0.0),
         "cache_hit": result.cache_hit,
         "request_error": result.request_error,
+        "assistant_text": result.response_payload.get("assistant_text", ""),
+        "provider_reasoning_text": result.response_payload.get("provider_reasoning_text", ""),
+        "validated_output": result.validated_output,
+        "control_recovery_fallback": result.validated_output.get("control_recovery_fallback"),
+        "request_started_at": result.response_payload.get("request_started_at"),
+    }
+
+
+def _execute_control_turn(
+    *,
+    run_id: str,
+    dataset: str,
+    split_name: str,
+    sample: DatasetSample,
+    method_name: str,
+    method_type: str,
+    round_index: int,
+    agent_id: int,
+    role: str,
+    visible_peer_count: int,
+    messages: list[dict[str, str]],
+    backbone,
+    provider: OpenAICompatibleProvider,
+    cache: RequestCache,
+    throttle: RequestThrottle,
+    temperature: float,
+    top_p: float,
+    seed: int | None,
+    output_protocol: str = FREE_TEXT_ANSWER_PROTOCOL_V1,
+) -> dict[str, Any]:
+    """Execute one no-comm control turn using the shared free-text protocol runner."""
+
+    result = execute_output_protocol_turn(
+        backbone=backbone,
+        provider=provider,
+        cache=cache,
+        throttle=throttle,
+        sample=sample,
+        messages=messages,
+        temperature=temperature,
+        top_p=top_p,
+        seed=seed,
+        dataset=dataset,
+        role="control",
+        output_protocol=output_protocol,
+    )
+    final_answer = str(result.validated_output.get("final_answer") or "")
+    normalized_answer = normalize_prediction(dataset, final_answer) if final_answer else ""
+    return {
+        "run_id": run_id,
+        "dataset": dataset,
+        "split": split_name,
+        "sample_id": sample.sample_id,
+        "stage_name": "control",
+        "method_name": method_name,
+        "method_type": method_type,
+        "round_index": round_index,
+        "agent_id": agent_id,
+        "role": role,
+        "visible_peer_count": visible_peer_count,
+        "prompt_hash": result.prompt_hash,
+        "output_status": result.output_status,
+        "prediction": normalized_answer,
+        "normalized_answer": normalized_answer,
+        "score": score_prediction(dataset, normalized_answer, sample.reference_answer) if normalized_answer else 0.0,
+        "reasoning": str(result.validated_output.get("reasoning") or ""),
+        "request_status": result.request_status,
+        "raw_finish_reason": result.raw_finish_reason,
+        "output_protocol": result.output_protocol,
+        "protocol_parse_status": result.protocol_parse_status,
+        "protocol_parse_error": result.protocol_parse_error,
+        "reason_present": result.reason_present,
+        "request_count": result.request_count,
+        "cache_request_count": result.cache_request_count,
+        "network_request_count": result.network_request_count,
+        "prompt_tokens": float(result.usage.get("prompt_tokens") or 0.0),
+        "completion_tokens": float(result.usage.get("completion_tokens") or 0.0),
+        "total_tokens": float(result.usage.get("total_tokens") or 0.0),
+        "latency_ms": float(result.response_payload.get("latency_ms") or 0.0),
+        "raw_prompt_tokens": float(result.usage.get("prompt_tokens") or 0.0),
+        "raw_completion_tokens": float(result.usage.get("completion_tokens") or 0.0),
+        "raw_total_tokens": float(result.usage.get("total_tokens") or 0.0),
+        "raw_latency_ms": float(result.response_payload.get("latency_ms") or 0.0),
+        "cache_hit": result.cache_hit,
+        "request_error": result.request_error,
+        "payload": result.payload,
         "assistant_text": result.response_payload.get("assistant_text", ""),
         "provider_reasoning_text": result.response_payload.get("provider_reasoning_text", ""),
         "validated_output": result.validated_output,
@@ -3295,6 +3410,168 @@ def _build_summary_row(dataset: str, method_name: str, rows: list[dict[str, Any]
 
 def _validate_stage_a_output(raw_text: str, *, dataset: str, provider_reasoning_text: str = "") -> dict[str, Any]:
     """校验 Stage A 结构化输出，失败时尽量恢复最小可用答案。"""
+    try:
+        payload = _decode_json_object(raw_text)
+        final_answer = _require_textish(payload.get("final_answer"), "final_answer")
+        validated = {
+            "final_answer": final_answer,
+            "reasoning": _optional_text(payload.get("reasoning")) or final_answer,
+            "confidence_raw": payload.get("confidence_raw"),
+            "uncertainty_type": _optional_text(payload.get("uncertainty_type")),
+            "claim_span": _optional_text(payload.get("claim_span")) or final_answer,
+            "key_evidence": _optional_text(payload.get("key_evidence"))
+            or (_optional_text(payload.get("reasoning")) or final_answer),
+            "uncertain_point": _optional_text(payload.get("uncertain_point")),
+            "answer_type": _optional_text(payload.get("answer_type")),
+            "key_constraints": _optional_text(payload.get("key_constraints")),
+            "failure_risk": _optional_text(payload.get("failure_risk")),
+            "selected_candidate": _optional_text(payload.get("selected_candidate")),
+        }
+        return _apply_stage_a_consistency_safeguard(
+            validated,
+            dataset=dataset,
+            allow_numeric_tail_recovery=False,
+        )
+    except Exception:
+        free_text_parse_error = ""
+        try:
+            validated = parse_adaptive_sparse_mad_free_text_output(raw_text, dataset=dataset)
+            return _apply_stage_a_consistency_safeguard(
+                validated,
+                dataset=dataset,
+                allow_numeric_tail_recovery=False,
+            )
+        except Exception as exc:
+            free_text_parse_error = str(exc)
+        raw_reasoning = _optional_text(raw_text)
+        try:
+            recovered = validate_or_recover_structured_output(
+                raw_text,
+                "answer_core",
+                dataset=dataset,
+                provider_reasoning_text=provider_reasoning_text,
+            )
+            final_answer = str(recovered.get("final_answer") or "")
+            recovered_reasoning = _optional_text(recovered.get("reasoning"))
+            reasoning = recovered_reasoning or final_answer
+            fallback = "answer_core_recovery_fallback"
+        except Exception:
+            final_answer = "unknown"
+            reasoning = raw_reasoning or "stage_a_unrecoverable_output"
+            fallback = "unknown_after_unrecoverable_stage_a_output"
+        if raw_reasoning and len(raw_reasoning) > max(40, len(reasoning) + 20):
+            reasoning = raw_reasoning
+        validated = {
+            "final_answer": final_answer,
+            "reasoning": reasoning,
+            "confidence_raw": 0.0 if fallback == "unknown_after_unrecoverable_stage_a_output" else None,
+            "uncertainty_type": "other" if final_answer == "unknown" else None,
+            "claim_span": final_answer,
+            "key_evidence": reasoning,
+            "uncertain_point": fallback if final_answer == "unknown" else None,
+            "stage_a_recovery_fallback": fallback,
+            "free_text_parse_error": free_text_parse_error,
+        }
+        return _apply_stage_a_consistency_safeguard(
+            validated,
+            dataset=dataset,
+            allow_numeric_tail_recovery=True,
+        )
+
+
+def _validate_stage_a_output(
+    raw_text: str,
+    *,
+    dataset: str,
+    provider_reasoning_text: str = "",
+    response_format_mode: str = "json_object",
+) -> dict[str, Any]:
+    """Validate Stage A output with an explicit free-text mainline and legacy JSON split."""
+    if response_format_mode == "free_text":
+        return _validate_stage_a_free_text_output(
+            raw_text,
+            dataset=dataset,
+            provider_reasoning_text=provider_reasoning_text,
+        )
+    if response_format_mode == "json_object":
+        return _validate_stage_a_legacy_json_output(
+            raw_text,
+            dataset=dataset,
+            provider_reasoning_text=provider_reasoning_text,
+        )
+    raise ValueError(f"Unsupported response_format_mode: {response_format_mode}")
+
+
+def _validate_stage_a_free_text_output(
+    raw_text: str,
+    *,
+    dataset: str,
+    provider_reasoning_text: str = "",
+) -> dict[str, Any]:
+    """Mainline validator: tagged free text first, then only unstructured recovery."""
+    try:
+        validated = parse_adaptive_sparse_mad_free_text_output(raw_text, dataset=dataset)
+        return _apply_stage_a_consistency_safeguard(
+            validated,
+            dataset=dataset,
+            allow_numeric_tail_recovery=False,
+        )
+    except Exception as exc:
+        free_text_parse_error = str(exc)
+    raw_reasoning = _optional_text(raw_text)
+    for candidate in (raw_text, provider_reasoning_text):
+        if not str(candidate or "").strip():
+            continue
+        try:
+            recovered = recover_answer_from_reasoning_text(str(candidate), dataset)
+            final_answer = str(recovered.get("final_answer") or "")
+            recovered_reasoning = _optional_text(recovered.get("reasoning"))
+            reasoning = recovered_reasoning or final_answer
+            if raw_reasoning and len(raw_reasoning) > max(40, len(reasoning) + 20):
+                reasoning = raw_reasoning
+            validated = {
+                "final_answer": final_answer,
+                "reasoning": reasoning,
+                "confidence_raw": recovered.get("confidence_raw"),
+                "uncertainty_type": _optional_text(recovered.get("uncertainty_type")),
+                "claim_span": _optional_text(recovered.get("claim_span")) or final_answer,
+                "key_evidence": _optional_text(recovered.get("key_evidence")) or reasoning,
+                "uncertain_point": _optional_text(recovered.get("uncertain_point")),
+                "stage_a_recovery_fallback": "answer_recovered_from_unstructured_stage_a_output",
+                "free_text_parse_error": free_text_parse_error,
+            }
+            return _apply_stage_a_consistency_safeguard(
+                validated,
+                dataset=dataset,
+                allow_numeric_tail_recovery=True,
+            )
+        except Exception:
+            continue
+    validated = {
+        "final_answer": "unknown",
+        "reasoning": raw_reasoning or "stage_a_unrecoverable_output",
+        "confidence_raw": 0.0,
+        "uncertainty_type": "other",
+        "claim_span": "unknown",
+        "key_evidence": raw_reasoning or "stage_a_unrecoverable_output",
+        "uncertain_point": "unknown_after_unrecoverable_stage_a_output",
+        "stage_a_recovery_fallback": "unknown_after_unrecoverable_stage_a_output",
+        "free_text_parse_error": free_text_parse_error,
+    }
+    return _apply_stage_a_consistency_safeguard(
+        validated,
+        dataset=dataset,
+        allow_numeric_tail_recovery=True,
+    )
+
+
+def _validate_stage_a_legacy_json_output(
+    raw_text: str,
+    *,
+    dataset: str,
+    provider_reasoning_text: str = "",
+) -> dict[str, Any]:
+    """Legacy validator reserved for the isolated JSON experiment branch."""
     try:
         payload = _decode_json_object(raw_text)
         final_answer = _require_textish(payload.get("final_answer"), "final_answer")

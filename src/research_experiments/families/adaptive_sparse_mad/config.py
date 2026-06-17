@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from research_experiments.core.controls.control_prompts import FREE_TEXT_V1_PROMPT_VERSION
 from research_experiments.families.adaptive_sparse_mad.prompts import (
     FREE_TEXT_DEBATE_PROMPT_VERSION,
     STAGE_A_V4_PROMPT_VERSION,
@@ -19,10 +20,13 @@ from research_experiments.family_runtime.config_helpers import (
     load_benchmarks,
     load_toml,
 )
+from research_experiments.family_runtime.free_text_protocol import FREE_TEXT_ANSWER_PROTOCOL_V1
 from research_experiments.family_runtime.method_catalog import MethodConfig, load_method_catalog
+from research_experiments.family_runtime.output_protocols import validate_output_protocol
 
 ADAPTIVE_SPARSE_DEBATE_METHOD = "adaptive_sparse_debate_v1"
 STRUCTURED_STAGE_A_PROMPT_VERSIONS = frozenset({STAGE_A_V4_PROMPT_VERSION, FREE_TEXT_DEBATE_PROMPT_VERSION})
+RESPONSE_FORMAT_MODES = frozenset({"free_text", "json_object"})
 
 ACTIVE_AGGREGATE_METHODS = frozenset(
     {
@@ -80,9 +84,14 @@ class AdaptiveSparseMadExperimentConfig:
     aggregate_methods: tuple[str, ...]
     max_adaptive_addon_calls: int
     global_seed: int
+    control_prompt_version: str
+    control_output_protocol: str
     prompt_version: str
     stage_a_prompt_version: str
     adaptive_prompt_version: str
+    stage_a_response_format_mode: str
+    adaptive_response_format_mode: str
+    legacy_json_mode: bool
     max_concurrent_requests: int
     requests_per_minute_limit: int | None
     primary_model_ref: str
@@ -130,6 +139,56 @@ def load_experiment_config(path: str | Path) -> AdaptiveSparseMadExperimentConfi
     prompt_version = str(payload["prompt_version"])
     stage_a_prompt_version = str(payload.get("stage_a_prompt_version", prompt_version))
     adaptive_prompt_version = str(payload.get("adaptive_prompt_version", prompt_version))
+    control_prompt_version = str(payload.get("control_prompt_version", FREE_TEXT_V1_PROMPT_VERSION))
+    if control_prompt_version != FREE_TEXT_V1_PROMPT_VERSION:
+        raise ValueError("adaptive_sparse_mad control_prompt_version must be single_agent_free_text_v1.")
+    control_output_protocol = validate_output_protocol(
+        str(payload.get("control_output_protocol", FREE_TEXT_ANSWER_PROTOCOL_V1))
+    )
+    if control_output_protocol != FREE_TEXT_ANSWER_PROTOCOL_V1:
+        raise ValueError("adaptive_sparse_mad control_output_protocol must be free_text_answer_v1.")
+    default_response_format_mode = (
+        "free_text" if stage_a_prompt_version == FREE_TEXT_DEBATE_PROMPT_VERSION else "json_object"
+    )
+    stage_a_response_format_mode = str(payload.get("stage_a_response_format_mode", default_response_format_mode))
+    adaptive_default_response_format_mode = (
+        "free_text" if adaptive_prompt_version == FREE_TEXT_DEBATE_PROMPT_VERSION else "json_object"
+    )
+    adaptive_response_format_mode = str(
+        payload.get("adaptive_response_format_mode", adaptive_default_response_format_mode)
+    )
+    if stage_a_response_format_mode not in RESPONSE_FORMAT_MODES:
+        raise ValueError(
+            "adaptive_sparse_mad stage_a_response_format_mode must be one of: "
+            + ", ".join(sorted(RESPONSE_FORMAT_MODES))
+        )
+    if adaptive_response_format_mode not in RESPONSE_FORMAT_MODES:
+        raise ValueError(
+            "adaptive_sparse_mad adaptive_response_format_mode must be one of: "
+            + ", ".join(sorted(RESPONSE_FORMAT_MODES))
+        )
+    if (
+        stage_a_response_format_mode == "free_text"
+        and stage_a_prompt_version != FREE_TEXT_DEBATE_PROMPT_VERSION
+    ):
+        raise ValueError(
+            "adaptive_sparse_mad free-text Stage A requires "
+            f"stage_a_prompt_version={FREE_TEXT_DEBATE_PROMPT_VERSION}."
+        )
+    if (
+        adaptive_response_format_mode == "free_text"
+        and adaptive_prompt_version != FREE_TEXT_DEBATE_PROMPT_VERSION
+    ):
+        raise ValueError(
+            "adaptive_sparse_mad free-text adaptive turns require "
+            f"adaptive_prompt_version={FREE_TEXT_DEBATE_PROMPT_VERSION}."
+        )
+    legacy_json_mode = bool(
+        payload.get(
+            "legacy_json_mode",
+            stage_a_response_format_mode == "json_object" or adaptive_response_format_mode == "json_object",
+        )
+    )
     if ADAPTIVE_SPARSE_DEBATE_METHOD in aggregate_methods:
         required_versions = {
             "prompt_version": prompt_version,
@@ -147,6 +206,11 @@ def load_experiment_config(path: str | Path) -> AdaptiveSparseMadExperimentConfi
                 f"{FREE_TEXT_DEBATE_PROMPT_VERSION}: "
                 + ", ".join(wrong_versions)
             )
+        if not legacy_json_mode:
+            if stage_a_response_format_mode != "free_text":
+                raise ValueError("adaptive_sparse_debate_v1 requires stage_a_response_format_mode=free_text.")
+            if adaptive_response_format_mode != "free_text":
+                raise ValueError("adaptive_sparse_debate_v1 requires adaptive_response_format_mode=free_text.")
     if any(method_name in STRUCTURED_STAGE_A_METHODS for method_name in aggregate_methods):
         if stage_a_prompt_version not in STRUCTURED_STAGE_A_PROMPT_VERSIONS:
             raise ValueError(
@@ -178,9 +242,14 @@ def load_experiment_config(path: str | Path) -> AdaptiveSparseMadExperimentConfi
         aggregate_methods=aggregate_methods,
         max_adaptive_addon_calls=max_adaptive_addon_calls,
         global_seed=int(payload["global_seed"]),
+        control_prompt_version=control_prompt_version,
+        control_output_protocol=control_output_protocol,
         prompt_version=prompt_version,
         stage_a_prompt_version=stage_a_prompt_version,
         adaptive_prompt_version=adaptive_prompt_version,
+        stage_a_response_format_mode=stage_a_response_format_mode,
+        adaptive_response_format_mode=adaptive_response_format_mode,
+        legacy_json_mode=legacy_json_mode,
         max_concurrent_requests=runtime["max_concurrent_requests"],
         requests_per_minute_limit=runtime["requests_per_minute_limit"],
         primary_model_ref=str(payload["primary_model_ref"]),
