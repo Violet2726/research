@@ -25,6 +25,30 @@ from research_experiments.family_runtime.method_catalog import MethodConfig, loa
 from research_experiments.family_runtime.output_protocols import validate_output_protocol
 
 ADAPTIVE_SPARSE_DEBATE_METHOD = "adaptive_sparse_debate_v1"
+ADAPTIVE_SPARSE_RESCUE_ONLY_METHOD = "adaptive_sparse_rescue_only_v1"
+ADAPTIVE_SPARSE_PROBE_ONLY_METHOD = "adaptive_sparse_probe_only_v1"
+ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD = "adaptive_sparse_rescue_probe_v1"
+ADAPTIVE_SPARSE_V6_METHODS = frozenset(
+    {
+        ADAPTIVE_SPARSE_RESCUE_ONLY_METHOD,
+        ADAPTIVE_SPARSE_PROBE_ONLY_METHOD,
+        ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD,
+    }
+)
+FREE_TEXT_ADAPTIVE_METHODS = frozenset({ADAPTIVE_SPARSE_DEBATE_METHOD, *ADAPTIVE_SPARSE_V6_METHODS})
+FAMILY_SLOT_RESCUE_METHODS = frozenset(
+    {
+        ADAPTIVE_SPARSE_RESCUE_ONLY_METHOD,
+        ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD,
+    }
+)
+FALSE_CONSENSUS_PROBE_METHODS = frozenset(
+    {
+        ADAPTIVE_SPARSE_PROBE_ONLY_METHOD,
+        ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD,
+    }
+)
+DEBATE_ENABLED_METHODS = frozenset({ADAPTIVE_SPARSE_DEBATE_METHOD, ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD})
 STRUCTURED_STAGE_A_PROMPT_VERSIONS = frozenset({STAGE_A_V4_PROMPT_VERSION, FREE_TEXT_DEBATE_PROMPT_VERSION})
 RESPONSE_FORMAT_MODES = frozenset({"free_text", "json_object"})
 
@@ -36,6 +60,7 @@ ACTIVE_AGGREGATE_METHODS = frozenset(
         "adaptive_dual_open_v5",
         "adaptive_counterfactual_v1",
         ADAPTIVE_SPARSE_DEBATE_METHOD,
+        *ADAPTIVE_SPARSE_V6_METHODS,
     }
 )
 STRUCTURED_STAGE_A_METHODS = frozenset(
@@ -45,6 +70,7 @@ STRUCTURED_STAGE_A_METHODS = frozenset(
         "adaptive_dual_open_v5",
         "adaptive_counterfactual_v1",
         ADAPTIVE_SPARSE_DEBATE_METHOD,
+        *ADAPTIVE_SPARSE_V6_METHODS,
     }
 )
 ADAPTIVE_POLICY_METHODS = frozenset(
@@ -53,6 +79,7 @@ ADAPTIVE_POLICY_METHODS = frozenset(
         "adaptive_dual_open_v5",
         "adaptive_counterfactual_v1",
         ADAPTIVE_SPARSE_DEBATE_METHOD,
+        *ADAPTIVE_SPARSE_V6_METHODS,
     }
 )
 
@@ -70,6 +97,9 @@ class AdaptiveSparseMadProtocolConfig:
     debate_rounds: int = 1
     debate_temperature: float | None = None
     debate_trigger_mode: str = "adaptive_gate"
+    false_consensus_confidence_threshold: float = 0.9
+    family_promotion_gap_threshold: float = 0.35
+    post_probe_debate_gap_threshold: float = 0.35
 
 
 @dataclass(frozen=True)
@@ -111,6 +141,9 @@ def load_protocol_config(path: str | Path) -> AdaptiveSparseMadProtocolConfig:
         debate_rounds=int(payload.get("debate_rounds", 1)),
         debate_temperature=float(payload.get("debate_temperature", payload["stage_a_temperature"])),
         debate_trigger_mode=str(payload.get("debate_trigger_mode", "adaptive_gate")),
+        false_consensus_confidence_threshold=float(payload.get("false_consensus_confidence_threshold", 0.9)),
+        family_promotion_gap_threshold=float(payload.get("family_promotion_gap_threshold", 0.35)),
+        post_probe_debate_gap_threshold=float(payload.get("post_probe_debate_gap_threshold", 0.35)),
     )
 
 
@@ -189,7 +222,7 @@ def load_experiment_config(path: str | Path) -> AdaptiveSparseMadExperimentConfi
             stage_a_response_format_mode == "json_object" or adaptive_response_format_mode == "json_object",
         )
     )
-    if ADAPTIVE_SPARSE_DEBATE_METHOD in aggregate_methods:
+    if any(method_name in FREE_TEXT_ADAPTIVE_METHODS for method_name in aggregate_methods):
         required_versions = {
             "prompt_version": prompt_version,
             "stage_a_prompt_version": stage_a_prompt_version,
@@ -202,15 +235,15 @@ def load_experiment_config(path: str | Path) -> AdaptiveSparseMadExperimentConfi
         ]
         if wrong_versions:
             raise ValueError(
-                "adaptive_sparse_debate_v1 requires "
+                "free-text adaptive sparse methods require "
                 f"{FREE_TEXT_DEBATE_PROMPT_VERSION}: "
                 + ", ".join(wrong_versions)
             )
         if not legacy_json_mode:
             if stage_a_response_format_mode != "free_text":
-                raise ValueError("adaptive_sparse_debate_v1 requires stage_a_response_format_mode=free_text.")
+                raise ValueError("free-text adaptive sparse methods require stage_a_response_format_mode=free_text.")
             if adaptive_response_format_mode != "free_text":
-                raise ValueError("adaptive_sparse_debate_v1 requires adaptive_response_format_mode=free_text.")
+                raise ValueError("free-text adaptive sparse methods require adaptive_response_format_mode=free_text.")
     if any(method_name in STRUCTURED_STAGE_A_METHODS for method_name in aggregate_methods):
         if stage_a_prompt_version not in STRUCTURED_STAGE_A_PROMPT_VERSIONS:
             raise ValueError(

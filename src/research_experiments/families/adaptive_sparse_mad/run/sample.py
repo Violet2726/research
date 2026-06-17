@@ -41,10 +41,19 @@ from research_experiments.core.structured_outputs.recovery import (
 from research_experiments.families.adaptive_sparse_mad.algorithms import (
     aggregate_constraint_aware_stage_a,
     aggregate_evidence_grounded_stage_a,
+    aggregate_family_slot_grounded_stage_a,
+    _looks_explanatory_open_qa_answer,
 )
 from research_experiments.families.adaptive_sparse_mad.config import (
     ADAPTIVE_SPARSE_DEBATE_METHOD,
+    ADAPTIVE_SPARSE_PROBE_ONLY_METHOD,
+    ADAPTIVE_SPARSE_RESCUE_ONLY_METHOD,
+    ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD,
+    ADAPTIVE_SPARSE_V6_METHODS,
     ADAPTIVE_POLICY_METHODS,
+    DEBATE_ENABLED_METHODS,
+    FALSE_CONSENSUS_PROBE_METHODS,
+    FAMILY_SLOT_RESCUE_METHODS,
     AdaptiveSparseMadExperimentConfig,
     AdaptiveSparseMadProtocolConfig,
     load_protocol_config,
@@ -86,6 +95,9 @@ DISPLAY_NAME_MAP = {
     "adaptive_dual_open_v5": "adaptive_dual_open_v5",
     "adaptive_counterfactual_v1": "adaptive_counterfactual_v1",
     ADAPTIVE_SPARSE_DEBATE_METHOD: ADAPTIVE_SPARSE_DEBATE_METHOD,
+    ADAPTIVE_SPARSE_RESCUE_ONLY_METHOD: ADAPTIVE_SPARSE_RESCUE_ONLY_METHOD,
+    ADAPTIVE_SPARSE_PROBE_ONLY_METHOD: ADAPTIVE_SPARSE_PROBE_ONLY_METHOD,
+    ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD: ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD,
 }
 _MULTIPLE_CHOICE_DATASETS = {"mmlu_pro", "gpqa_diamond", "mmlu", "mmlu_abstract_algebra"}
 
@@ -295,6 +307,8 @@ def refresh_prediction_rows_for_run(
             replay_fn = (
                 _replay_sparse_debate_variant
                 if method_name == ADAPTIVE_SPARSE_DEBATE_METHOD
+                else _replay_v6_variant
+                if method_name in ADAPTIVE_SPARSE_V6_METHODS
                 else _replay_adaptive_variant
             )
             refreshed_router_row, refreshed_prediction_row = replay_fn(
@@ -427,6 +441,10 @@ def build_router_eval_payload(router_rows: list[dict[str, Any]]) -> dict[str, An
                     "trigger_rate": round(
                         sum(1.0 if row.get("triggered") else 0.0 for row in rows) / question_count, 6
                     ),
+                    "false_consensus_risk_rate": round(
+                        sum(1.0 if row.get("false_consensus_risk") else 0.0 for row in rows) / question_count,
+                        6,
+                    ),
                     "changed_answer_rate": round(
                         sum(1.0 if row.get("changed_answer") else 0.0 for row in rows) / question_count, 6
                     ),
@@ -440,6 +458,10 @@ def build_router_eval_payload(router_rows: list[dict[str, Any]]) -> dict[str, An
                     ),
                     "corrected_count": sum(1 for row in rows if row.get("corrected_by_method")),
                     "harmed_count": sum(1 for row in rows if row.get("harmed_by_method")),
+                    "probe_accepted_count": sum(1 for row in rows if row.get("probe_accepted")),
+                    "debate_after_probe_triggered_count": sum(
+                        1 for row in rows if row.get("debate_after_probe_triggered")
+                    ),
                     "avg_support_gap": round(
                         sum(float(row.get("support_gap") or 0.0) for row in rows) / question_count,
                         6,
@@ -1425,6 +1447,32 @@ def _run_sample(
                 router_rows.append(adaptive_router_row)
             prediction_rows.append(adaptive_prediction_row)
             continue
+        if aggregate_method in ADAPTIVE_SPARSE_V6_METHODS:
+            adaptive_rows, debate_rows, adaptive_router_row, adaptive_prediction_row = _run_v6_variant(
+                method_name=aggregate_method,
+                run_id=run_id,
+                benchmark_slug=benchmark_slug,
+                split_name=split_name,
+                sample=sample,
+                protocol=protocol,
+                experiment=experiment,
+                backbone=backbone,
+                provider=provider,
+                cache=cache,
+                throttle=throttle,
+                core_stage_a_rows=core_stage_a_rows,
+                stage_a_answer=stage_a_prediction,
+                stage_a_score=stage_a_score,
+                stage_a_weighted_support=stage_a_weighted_support,
+                stage_a_resolver=stage_a_resolver,
+                stage_a_trace_hash=stage_a_trace_hash,
+            )
+            stage_a_rows.extend(adaptive_rows)
+            debate_message_rows.extend(debate_rows)
+            if adaptive_router_row is not None:
+                router_rows.append(adaptive_router_row)
+            prediction_rows.append(adaptive_prediction_row)
+            continue
         if aggregate_method in ADAPTIVE_POLICY_METHODS:
             adaptive_rows, adaptive_router_row, adaptive_prediction_row = _run_adaptive_variant(
                 method_name=aggregate_method,
@@ -1509,9 +1557,18 @@ def _run_adaptive_variant(
     if method_name not in ADAPTIVE_POLICY_METHODS:
         raise ValueError(f"Unsupported adaptive variant method_name: {method_name}")
     use_evidence_primary = _sample_prefers_evidence_primary(sample)
+    use_family_rescue = method_name in FAMILY_SLOT_RESCUE_METHODS
+    use_false_consensus_probe = method_name in FALSE_CONSENSUS_PROBE_METHODS
     pre_answer = stage_a_answer
     pre_resolver = stage_a_resolver
-    if use_evidence_primary:
+    if use_family_rescue:
+        pre_answer, _, pre_resolver = aggregate_family_slot_grounded_stage_a(
+            core_stage_a_rows,
+            dataset=benchmark_slug,
+            question=sample.question,
+            promotion_gap_threshold=protocol.family_promotion_gap_threshold,
+        )
+    elif use_evidence_primary:
         pre_answer, _, pre_resolver = aggregate_evidence_grounded_stage_a(
             core_stage_a_rows,
             anchor_answer=stage_a_answer,
@@ -1574,11 +1631,19 @@ def _run_adaptive_variant(
             adaptive_rows.append(adaptive_row)
             final_rows.append(adaptive_row)
 
-    candidate_answer, candidate_support, candidate_resolver = aggregate_evidence_grounded_stage_a(
-        final_rows,
-        anchor_answer=pre_answer or stage_a_answer,
-        question=sample.question,
-    )
+    if use_family_rescue:
+        candidate_answer, candidate_support, candidate_resolver = aggregate_family_slot_grounded_stage_a(
+            final_rows,
+            dataset=benchmark_slug,
+            question=sample.question,
+            promotion_gap_threshold=protocol.family_promotion_gap_threshold,
+        )
+    else:
+        candidate_answer, candidate_support, candidate_resolver = aggregate_evidence_grounded_stage_a(
+            final_rows,
+            anchor_answer=pre_answer or stage_a_answer,
+            question=sample.question,
+        )
     accepted_answer = stage_a_answer
     accepted_support = dict(stage_a_weighted_support)
     accepted_resolver = stage_a_resolver
@@ -1589,6 +1654,23 @@ def _run_adaptive_variant(
         accepted_answer = candidate_answer
         accepted_support = candidate_support
         accepted_resolver = candidate_resolver
+    if use_false_consensus_probe and gate_decision.get("triggered"):
+        probe_answer, probe_support, probe_resolver = _maybe_accept_false_consensus_probe(
+            sample=sample,
+            benchmark_slug=benchmark_slug,
+            gate_decision=gate_decision,
+            baseline_answer=stage_a_answer,
+            baseline_support=stage_a_weighted_support,
+            candidate_answer=candidate_answer,
+            candidate_support=candidate_support,
+            candidate_resolver=candidate_resolver,
+            final_rows=final_rows,
+        )
+        if probe_answer:
+            accepted_answer = probe_answer
+            accepted_support = probe_support
+            accepted_resolver = probe_resolver
+            gate_decision["probe_accepted"] = True
     if method_name == "adaptive_dual_open_v5" and gate_decision["triggered"] and adaptive_rows:
         addon_answer = str(adaptive_rows[-1].get("normalized_answer") or "").strip()
         if (
@@ -1686,7 +1768,7 @@ def _run_sparse_debate_variant(
     stage_a_trace_hash: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any] | None, dict[str, Any]]:
     """Run the trigger-only free-text debate variant."""
-    if method_name != ADAPTIVE_SPARSE_DEBATE_METHOD:
+    if method_name not in DEBATE_ENABLED_METHODS:
         raise ValueError(f"Unsupported sparse debate method_name: {method_name}")
     if experiment.stage_a_prompt_version != FREE_TEXT_DEBATE_PROMPT_VERSION:
         raise ValueError(f"{method_name} requires the free-text debate Stage A prompt version.")
@@ -1705,8 +1787,13 @@ def _run_sparse_debate_variant(
         protocol=protocol,
         stage_a_rows=core_stage_a_rows,
         support=stage_a_weighted_support,
+        enable_false_consensus_probe=use_false_consensus_probe,
     )
     gate_decision["policy_name"] = method_name
+    gate_decision["probe_accepted"] = False
+    gate_decision["debate_after_probe_triggered"] = False
+    gate_decision["probe_accepted"] = False
+    gate_decision["debate_after_probe_triggered"] = False
 
     adaptive_rows: list[dict[str, Any]] = []
     debate_revision_rows: list[dict[str, Any]] = []
@@ -1768,6 +1855,17 @@ def _run_sparse_debate_variant(
     leading_answer = pre_debate_answer or pre_answer or stage_a_answer
     debate_round_limit = min(max(0, int(protocol.debate_rounds)), 1)
     debate_triggered = bool(gate_decision["triggered"] and debate_round_limit > 0)
+    if method_name == ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD:
+        debate_triggered = bool(
+            gate_decision["triggered"]
+            and debate_round_limit > 0
+            and (
+                "answer_disagreement" in (gate_decision.get("trigger_reasons") or [])
+                or "narrow_support_gap" in (gate_decision.get("trigger_reasons") or [])
+                or not bool(gate_decision.get("probe_accepted"))
+            )
+        )
+        gate_decision["debate_after_probe_triggered"] = debate_triggered
     if debate_triggered:
         for debate_round in range(1, debate_round_limit + 1):
             for participant_index, own_row in enumerate(core_stage_a_rows, start=1):
@@ -1938,6 +2036,301 @@ def _run_sparse_debate_variant(
     return adaptive_rows + debate_revision_rows, debate_message_rows, router_row, prediction_row
 
 
+def _run_v6_variant(
+    *,
+    method_name: str,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    sample: DatasetSample,
+    protocol: AdaptiveSparseMadProtocolConfig,
+    experiment: AdaptiveSparseMadExperimentConfig,
+    backbone,
+    provider: OpenAICompatibleProvider,
+    cache: RequestCache,
+    throttle: RequestThrottle,
+    core_stage_a_rows: list[dict[str, Any]],
+    stage_a_answer: str,
+    stage_a_score: float,
+    stage_a_weighted_support: dict[str, float],
+    stage_a_resolver: str,
+    stage_a_trace_hash: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any] | None, dict[str, Any]]:
+    """Run the V6 family-slot rescue / false-consensus probe variants."""
+    if method_name not in ADAPTIVE_SPARSE_V6_METHODS:
+        raise ValueError(f"Unsupported V6 method_name: {method_name}")
+    if experiment.adaptive_prompt_version != FREE_TEXT_DEBATE_PROMPT_VERSION:
+        raise ValueError(f"{method_name} requires the free-text debate adaptive prompt version.")
+
+    gate_decision = _build_adaptive_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=core_stage_a_rows,
+        support=stage_a_weighted_support,
+        enable_false_consensus_probe=False,
+    )
+    gate_decision["policy_name"] = method_name
+    gate_decision["probe_accepted"] = False
+    gate_decision["debate_after_probe_triggered"] = False
+
+    pre_answer, pre_support, pre_resolver = _resolve_stage_a_aggregate_v6(
+        core_stage_a_rows,
+        dataset=benchmark_slug,
+        question=sample.question,
+        protocol=protocol,
+    )
+    adaptive_rows: list[dict[str, Any]] = []
+    debate_revision_rows: list[dict[str, Any]] = []
+    debate_message_rows: list[dict[str, Any]] = []
+    final_rows = list(core_stage_a_rows)
+
+    addon_solvers = _select_adaptive_addon_solver_sequence(
+        method_name=method_name,
+        sample=sample,
+        gate_decision=gate_decision,
+    )
+    addon_solvers = addon_solvers[: max(0, experiment.max_adaptive_addon_calls)]
+    gate_decision["selected_addon_solver"] = addon_solvers[0] if addon_solvers else ""
+    gate_decision["executed_addon_solvers"] = list(addon_solvers)
+
+    if gate_decision["triggered"]:
+        for addon_index, addon_solver in enumerate(addon_solvers, start=1):
+            adaptive_row = _execute_turn(
+                run_id=run_id,
+                dataset=benchmark_slug,
+                split_name=split_name,
+                sample=sample,
+                stage_name="adaptive_stage_a",
+                method_name=addon_solver,
+                role="adaptive_stage_a",
+                round_index=addon_index,
+                agent_id=protocol.agent_count + addon_index,
+                messages=build_adaptive_addon_messages(
+                    sample,
+                    solver_mode=addon_solver,
+                    agent_id=protocol.agent_count + addon_index,
+                    stage_a_rows=final_rows,
+                    prompt_version=experiment.adaptive_prompt_version,
+                ),
+                backbone=backbone,
+                provider=provider,
+                cache=cache,
+                throttle=throttle,
+                temperature=protocol.stage_a_temperature,
+                top_p=protocol.top_p,
+                seed=experiment.global_seed + protocol.agent_count + addon_index,
+                output_mode="stage_a",
+                stage_a_retry_seed=experiment.global_seed,
+                prompt_version=experiment.adaptive_prompt_version,
+                response_format_mode=experiment.adaptive_response_format_mode,
+                extra_fields={
+                    "solver_mode": addon_solver,
+                    "adaptive_policy_name": method_name,
+                    "adaptive_parent_trace_hash": stage_a_trace_hash,
+                },
+            )
+            adaptive_rows.append(adaptive_row)
+            final_rows.append(adaptive_row)
+
+    candidate_answer, candidate_support, candidate_resolver = _resolve_stage_a_aggregate_v6(
+        final_rows,
+        dataset=benchmark_slug,
+        question=sample.question,
+        protocol=protocol,
+    )
+    accepted_answer = pre_answer or stage_a_answer
+    accepted_support = dict(pre_support or stage_a_weighted_support)
+    accepted_resolver = pre_resolver or stage_a_resolver
+
+    if method_name in FALSE_CONSENSUS_PROBE_METHODS and gate_decision.get("triggered"):
+        probe_answer, probe_support, probe_resolver = _maybe_accept_false_consensus_probe(
+            sample=sample,
+            benchmark_slug=benchmark_slug,
+            gate_decision=gate_decision,
+            baseline_answer=stage_a_answer,
+            baseline_support=stage_a_weighted_support,
+            candidate_answer=candidate_answer,
+            candidate_support=candidate_support,
+            candidate_resolver=candidate_resolver,
+            final_rows=final_rows,
+        )
+        if probe_answer:
+            accepted_answer = probe_answer
+            accepted_support = probe_support
+            accepted_resolver = probe_resolver
+            gate_decision["probe_accepted"] = True
+    elif candidate_answer and candidate_answer.lower() not in {"", "unknown"}:
+        accepted_answer = candidate_answer
+        accepted_support = dict(candidate_support)
+        accepted_resolver = candidate_resolver
+
+    debate_round_limit = min(max(0, int(protocol.debate_rounds)), 1)
+    if method_name == ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD:
+        debate_triggered = bool(
+            gate_decision["triggered"]
+            and debate_round_limit > 0
+            and (
+                "answer_disagreement" in (gate_decision.get("trigger_reasons") or [])
+                or "narrow_support_gap" in (gate_decision.get("trigger_reasons") or [])
+                or not bool(gate_decision.get("probe_accepted"))
+            )
+        )
+        gate_decision["debate_after_probe_triggered"] = debate_triggered
+        if debate_triggered:
+            leading_answer = accepted_answer or pre_answer or stage_a_answer
+            for debate_round in range(1, debate_round_limit + 1):
+                for participant_index, own_row in enumerate(core_stage_a_rows, start=1):
+                    agent_id = int(own_row.get("agent_id") or participant_index)
+                    source_solver_mode = str(own_row.get("solver_mode") or f"solver_{agent_id}")
+                    peer_rows = [row for row in core_stage_a_rows if row is not own_row]
+                    debate_message_rows.extend(
+                        _build_debate_message_artifact_rows(
+                            run_id=run_id,
+                            benchmark_slug=benchmark_slug,
+                            split_name=split_name,
+                            sample=sample,
+                            method_name=method_name,
+                            round_index=debate_round,
+                            own_row=own_row,
+                            peer_rows=peer_rows,
+                            gate_decision=gate_decision,
+                            leading_answer=leading_answer,
+                        )
+                    )
+                    revision_row = _execute_turn(
+                        run_id=run_id,
+                        dataset=benchmark_slug,
+                        split_name=split_name,
+                        sample=sample,
+                        stage_name="debate_revision",
+                        method_name="debate_revision",
+                        role="debate_revision",
+                        round_index=debate_round,
+                        agent_id=agent_id,
+                        messages=build_sparse_debate_messages(
+                            sample,
+                            agent_id=agent_id,
+                            round_index=debate_round,
+                            own_row=own_row,
+                            peer_rows=peer_rows,
+                            gate_decision=gate_decision,
+                            leading_answer=leading_answer,
+                            prompt_version=experiment.adaptive_prompt_version,
+                        ),
+                        backbone=backbone,
+                        provider=provider,
+                        cache=cache,
+                        throttle=throttle,
+                        temperature=_debate_temperature(protocol),
+                        top_p=protocol.top_p,
+                        seed=experiment.global_seed + 1000 + debate_round * 10 + agent_id,
+                        output_mode="stage_a",
+                        stage_a_retry_seed=experiment.global_seed,
+                        prompt_version=experiment.adaptive_prompt_version,
+                        response_format_mode=experiment.adaptive_response_format_mode,
+                        extra_fields={
+                            "solver_mode": f"debate_{source_solver_mode}",
+                            "source_solver_mode": source_solver_mode,
+                            "adaptive_policy_name": method_name,
+                            "adaptive_parent_trace_hash": stage_a_trace_hash,
+                            "debate_round_index": debate_round,
+                            "debate_leading_answer": leading_answer,
+                        },
+                    )
+                    debate_revision_rows.append(revision_row)
+                    final_rows.append(revision_row)
+            debate_answer, debate_support, debate_resolver = _resolve_stage_a_aggregate_v6(
+                final_rows,
+                dataset=benchmark_slug,
+                question=sample.question,
+                protocol=protocol,
+            )
+            if _should_accept_debate_candidate(
+                candidate_answer=debate_answer,
+                candidate_support=debate_support,
+                previous_answer=accepted_answer,
+                previous_support=accepted_support,
+                dataset=benchmark_slug,
+            ):
+                accepted_answer = debate_answer
+                accepted_support = dict(debate_support)
+                accepted_resolver = debate_resolver
+
+    normalized_final_answer = normalize_prediction(benchmark_slug, accepted_answer) if accepted_answer else ""
+    final_score = (
+        score_prediction(benchmark_slug, normalized_final_answer, sample.reference_answer)
+        if normalized_final_answer
+        else 0.0
+    )
+    adaptive_trace_hash = _trace_hash(
+        final_rows,
+        ["agent_id", "solver_mode", "normalized_answer", "confidence_value", "output_status"],
+    )
+    debate_trace_hash = (
+        _trace_hash(
+            debate_revision_rows,
+            ["agent_id", "source_solver_mode", "normalized_answer", "confidence_value", "output_status"],
+        )
+        if debate_revision_rows
+        else ""
+    )
+    router_row = _build_adaptive_router_row(
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        gate_decision=gate_decision,
+        stage_a_answer=stage_a_answer,
+        stage_a_score=stage_a_score,
+        pre_answer=pre_answer,
+        pre_resolver=pre_resolver,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_resolver=accepted_resolver,
+    )
+    router_row.update(
+        {
+            "debate_triggered": bool(debate_revision_rows),
+            "debate_rounds": debate_round_limit if debate_revision_rows else 0,
+            "debate_trace_hash": debate_trace_hash,
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": adaptive_trace_hash,
+        }
+    )
+    prediction_row = _build_adaptive_prediction_row(
+        method_name=method_name,
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        backbone=backbone,
+        final_rows=final_rows,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_support=accepted_support,
+        final_resolver=accepted_resolver,
+        adaptive_trace_hash=adaptive_trace_hash,
+        triggered=bool(gate_decision["triggered"]),
+        baseline_answer=stage_a_answer,
+        baseline_score=stage_a_score,
+    )
+    debate_tokens = _sum_total_tokens(debate_revision_rows)
+    prediction_row.update(
+        {
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": adaptive_trace_hash,
+            "debate_trace_hash": debate_trace_hash,
+            "debate_triggered": bool(debate_revision_rows),
+            "debate_rounds": debate_round_limit if debate_revision_rows else 0,
+            "debate_tokens_per_question": debate_tokens,
+            "communication_tokens_per_question": debate_tokens,
+            "protocol_failures_per_question": _count_protocol_failures(final_rows),
+            "reason_missing_turns_per_question": _count_reason_missing_turns(final_rows),
+        }
+    )
+    return adaptive_rows + debate_revision_rows, debate_message_rows, router_row, prediction_row
+
+
 def _replay_adaptive_variant(
     *,
     method_name: str,
@@ -2102,6 +2495,7 @@ def _replay_sparse_debate_variant(
         protocol=protocol,
         stage_a_rows=core_stage_a_rows,
         support=stage_a_weighted_support,
+        enable_false_consensus_probe=method_name in FALSE_CONSENSUS_PROBE_METHODS,
     )
     gate_decision["policy_name"] = method_name
     addon_rows = [row for row in adaptive_rows if str(row.get("role") or "") != "debate_revision"]
@@ -2226,6 +2620,180 @@ def _replay_sparse_debate_variant(
     return router_row, prediction_row
 
 
+def _replay_v6_variant(
+    *,
+    method_name: str,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    sample: DatasetSample,
+    backbone,
+    protocol: AdaptiveSparseMadProtocolConfig,
+    core_stage_a_rows: list[dict[str, Any]],
+    adaptive_rows: list[dict[str, Any]],
+    stage_a_answer: str,
+    stage_a_score: float,
+    stage_a_weighted_support: dict[str, float],
+    stage_a_resolver: str,
+    stage_a_trace_hash: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Replay the V6 family-slot rescue / false-consensus probe variants from persisted rows."""
+    if method_name not in ADAPTIVE_SPARSE_V6_METHODS:
+        raise ValueError(f"Unsupported V6 replay method_name: {method_name}")
+
+    gate_decision = _build_adaptive_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=core_stage_a_rows,
+        support=stage_a_weighted_support,
+        enable_false_consensus_probe=False,
+    )
+    gate_decision["policy_name"] = method_name
+    gate_decision["selected_addon_solver"] = str(adaptive_rows[0].get("solver_mode") or "") if adaptive_rows else ""
+    gate_decision["executed_addon_solvers"] = [str(row.get("solver_mode") or "") for row in adaptive_rows if str(row.get("role") or "") != "debate_revision"]
+    gate_decision["probe_accepted"] = False
+    gate_decision["debate_after_probe_triggered"] = False
+
+    pre_answer, pre_support, pre_resolver = _resolve_stage_a_aggregate_v6(
+        core_stage_a_rows,
+        dataset=benchmark_slug,
+        question=sample.question,
+        protocol=protocol,
+    )
+    addon_rows = [row for row in adaptive_rows if str(row.get("role") or "") != "debate_revision"]
+    debate_rows = [row for row in adaptive_rows if str(row.get("role") or "") == "debate_revision"]
+    final_rows = list(core_stage_a_rows)
+    if gate_decision["triggered"]:
+        final_rows.extend(addon_rows)
+
+    candidate_answer, candidate_support, candidate_resolver = _resolve_stage_a_aggregate_v6(
+        final_rows,
+        dataset=benchmark_slug,
+        question=sample.question,
+        protocol=protocol,
+    )
+    accepted_answer = pre_answer or stage_a_answer
+    accepted_support = dict(pre_support or stage_a_weighted_support)
+    accepted_resolver = pre_resolver or stage_a_resolver
+
+    if method_name in FALSE_CONSENSUS_PROBE_METHODS and gate_decision.get("triggered"):
+        probe_answer, probe_support, probe_resolver = _maybe_accept_false_consensus_probe(
+            sample=sample,
+            benchmark_slug=benchmark_slug,
+            gate_decision=gate_decision,
+            baseline_answer=stage_a_answer,
+            baseline_support=stage_a_weighted_support,
+            candidate_answer=candidate_answer,
+            candidate_support=candidate_support,
+            candidate_resolver=candidate_resolver,
+            final_rows=final_rows,
+        )
+        if probe_answer:
+            accepted_answer = probe_answer
+            accepted_support = probe_support
+            accepted_resolver = probe_resolver
+            gate_decision["probe_accepted"] = True
+    elif candidate_answer and candidate_answer.lower() not in {"", "unknown"}:
+        accepted_answer = candidate_answer
+        accepted_support = dict(candidate_support)
+        accepted_resolver = candidate_resolver
+
+    if method_name == ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD:
+        gate_decision["debate_after_probe_triggered"] = bool(debate_rows)
+        if debate_rows:
+            final_rows.extend(debate_rows)
+            debate_answer, debate_support, debate_resolver = _resolve_stage_a_aggregate_v6(
+                final_rows,
+                dataset=benchmark_slug,
+                question=sample.question,
+                protocol=protocol,
+            )
+            if _should_accept_debate_candidate(
+                candidate_answer=debate_answer,
+                candidate_support=debate_support,
+                previous_answer=accepted_answer,
+                previous_support=accepted_support,
+                dataset=benchmark_slug,
+            ):
+                accepted_answer = debate_answer
+                accepted_support = dict(debate_support)
+                accepted_resolver = debate_resolver
+
+    normalized_final_answer = normalize_prediction(benchmark_slug, accepted_answer) if accepted_answer else ""
+    final_score = (
+        score_prediction(benchmark_slug, normalized_final_answer, sample.reference_answer)
+        if normalized_final_answer
+        else 0.0
+    )
+    adaptive_trace_hash = _trace_hash(
+        final_rows,
+        ["agent_id", "solver_mode", "normalized_answer", "confidence_value", "output_status"],
+    )
+    debate_trace_hash = (
+        _trace_hash(
+            debate_rows,
+            ["agent_id", "source_solver_mode", "normalized_answer", "confidence_value", "output_status"],
+        )
+        if debate_rows
+        else ""
+    )
+    router_row = _build_adaptive_router_row(
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        gate_decision=gate_decision,
+        stage_a_answer=stage_a_answer,
+        stage_a_score=stage_a_score,
+        pre_answer=pre_answer,
+        pre_resolver=pre_resolver,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_resolver=accepted_resolver,
+    )
+    router_row.update(
+        {
+            "debate_triggered": bool(debate_rows),
+            "debate_rounds": 1 if debate_rows else 0,
+            "debate_trace_hash": debate_trace_hash,
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": adaptive_trace_hash,
+        }
+    )
+    prediction_row = _build_adaptive_prediction_row(
+        method_name=method_name,
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        backbone=backbone,
+        final_rows=final_rows,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_support=accepted_support,
+        final_resolver=accepted_resolver,
+        adaptive_trace_hash=adaptive_trace_hash,
+        triggered=bool(gate_decision["triggered"]),
+        baseline_answer=stage_a_answer,
+        baseline_score=stage_a_score,
+    )
+    debate_tokens = _sum_total_tokens(debate_rows)
+    prediction_row.update(
+        {
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": adaptive_trace_hash,
+            "debate_trace_hash": debate_trace_hash,
+            "debate_triggered": bool(debate_rows),
+            "debate_rounds": 1 if debate_rows else 0,
+            "debate_tokens_per_question": debate_tokens,
+            "communication_tokens_per_question": debate_tokens,
+            "protocol_failures_per_question": _count_protocol_failures(final_rows),
+            "reason_missing_turns_per_question": _count_reason_missing_turns(final_rows),
+        }
+    )
+    return router_row, prediction_row
+
+
 def _build_ega_only_prediction_row(
     *,
     run_id: str,
@@ -2275,6 +2843,7 @@ def _build_adaptive_gate_decision(
     protocol: AdaptiveSparseMadProtocolConfig,
     stage_a_rows: list[dict[str, Any]],
     support: dict[str, float],
+    enable_false_consensus_probe: bool = False,
 ) -> dict[str, Any]:
     """根据分歧、置信度、退化输出和结构冲突决定是否触发追加 solver。"""
     grouped = _group_rows_by_answer(stage_a_rows)
@@ -2327,6 +2896,27 @@ def _build_adaptive_gate_decision(
     narrow_support_gap = has_disagreement and support_gap < disagreement_gap_threshold
     structural_disagreement = has_disagreement and (type_conflict or evidence_conflict)
     degraded_or_unknown = unknown_count > 0 or degraded_count > 0
+    lead_answer = next(iter(grouped.keys()), "")
+    false_consensus_risk = bool(
+        enable_false_consensus_probe
+        and unique_answer_count == 1
+        and (
+            risk_count >= 2
+            or degraded_count > 0
+            or unknown_count > 0
+            or (avg_confidence is not None and avg_confidence < protocol.false_consensus_confidence_threshold)
+            or evidence_conflict
+            or (
+                str(sample.dataset) in {"hotpotqa", "webquestions"}
+                and _looks_explanatory_open_qa_answer(str(lead_answer))
+            )
+        )
+    )
+    slot_mismatch_risk = bool(
+        false_consensus_risk
+        and str(sample.dataset) in {"hotpotqa", "webquestions"}
+        and _looks_explanatory_open_qa_answer(str(lead_answer))
+    )
 
     trigger_reasons: list[str] = []
     if has_disagreement and (
@@ -2350,6 +2940,8 @@ def _build_adaptive_gate_decision(
         trigger_reasons.append("narrow_support_gap")
     if degraded_or_unknown and risk_count >= 2 and not strong_clean_consensus:
         trigger_reasons.append("self_reported_risk")
+    if false_consensus_risk:
+        trigger_reasons.append("false_consensus_risk")
 
     triggered = bool(trigger_reasons) and not strong_clean_consensus
     return {
@@ -2368,6 +2960,9 @@ def _build_adaptive_gate_decision(
         "risk_count": risk_count,
         "type_conflict": type_conflict,
         "evidence_conflict": evidence_conflict,
+        "false_consensus_risk": false_consensus_risk,
+        "answer_family_count": unique_answer_count,
+        "slot_mismatch_risk": slot_mismatch_risk,
     }
 
 
@@ -2388,6 +2983,14 @@ def _select_adaptive_addon_solver_sequence(
 ) -> list[str]:
     """为具体自适应策略选择追加 solver 序列。"""
     base_solver = str(gate_decision.get("selected_addon_solver") or _select_adaptive_addon_solver(sample))
+    if method_name in FALSE_CONSENSUS_PROBE_METHODS:
+        if _sample_is_multiple_choice(sample):
+            return ["solver_option_elim", "solver_disconfirm"]
+        if str(sample.dataset) == "strategyqa":
+            return ["solver_verify", "solver_disconfirm"]
+        if _question_looks_mathy(sample.question):
+            return ["solver_disconfirm", "solver_verify"]
+        return ["solver_evidence", "solver_disconfirm"]
     if method_name in {"adaptive_counterfactual_v1", ADAPTIVE_SPARSE_DEBATE_METHOD}:
         severe_counterfactual_need = _adaptive_counterfactual_needed(
             sample=sample,
@@ -2413,6 +3016,45 @@ def _select_adaptive_addon_solver_sequence(
     if severe_open_qa_uncertainty:
         return ["solver_evidence", "solver_slot_contrast"]
     return [base_solver]
+
+
+def _maybe_accept_false_consensus_probe(
+    *,
+    sample: DatasetSample,
+    benchmark_slug: str,
+    gate_decision: dict[str, Any],
+    baseline_answer: str,
+    baseline_support: dict[str, float],
+    candidate_answer: str,
+    candidate_support: dict[str, float],
+    candidate_resolver: str,
+    final_rows: list[dict[str, Any]],
+) -> tuple[str, dict[str, float], str]:
+    """Accept probe output only when it is family-distinct and better supported."""
+    del sample, final_rows
+    if not bool(gate_decision.get("false_consensus_risk")):
+        return "", {}, ""
+    if candidate_answer.lower() in {"", "unknown"}:
+        return "", {}, ""
+    if _answers_share_family(candidate_answer, baseline_answer):
+        return "", {}, ""
+    if not _task_format_ok_for_adaptive_sample(benchmark_slug, candidate_answer):
+        return "", {}, ""
+    support_gap = float(gate_decision.get("support_gap") or 0.0)
+    avg_confidence_raw = gate_decision.get("avg_confidence")
+    avg_confidence = float(avg_confidence_raw) if avg_confidence_raw is not None else None
+    if not (
+        support_gap <= 0.25
+        or avg_confidence is None
+        or avg_confidence < 0.90
+        or bool(gate_decision.get("false_consensus_risk"))
+    ):
+        return "", {}, ""
+    candidate_strength = float(candidate_support.get(candidate_answer, 0.0) or 0.0)
+    baseline_strength = float(baseline_support.get(baseline_answer, 0.0) or 0.0)
+    if candidate_strength <= baseline_strength + 1e-6 and candidate_resolver != "family_slot_grounded_rescue":
+        return "", {}, ""
+    return candidate_answer, dict(candidate_support), f"{candidate_resolver}_probe_accepted"
 
 
 def _sample_prefers_evidence_primary(sample: DatasetSample) -> bool:
@@ -3062,6 +3704,24 @@ def _resolve_stage_a_aggregate(
     return aggregate_constraint_aware_stage_a(stage_a_rows)
 
 
+def _resolve_stage_a_aggregate_v6(
+    stage_a_rows: list[dict[str, Any]],
+    *,
+    dataset: str,
+    question: str | None,
+    protocol: AdaptiveSparseMadProtocolConfig,
+) -> tuple[str, dict[str, float], str]:
+    family_answer, family_support, family_resolver = aggregate_family_slot_grounded_stage_a(
+        stage_a_rows,
+        dataset=dataset,
+        question=question or "",
+        promotion_gap_threshold=protocol.family_promotion_gap_threshold,
+    )
+    if family_answer and family_answer.lower() not in {"", "unknown"}:
+        return family_answer, family_support, family_resolver
+    return aggregate_constraint_aware_stage_a(stage_a_rows)
+
+
 def _score_existing_stage_a_answer(stage_a_rows: list[dict[str, Any]], answer: str) -> float:
     """从已有 Stage A 行中取出某个答案对应的评分。"""
     normalized_answer = str(answer or "").strip()
@@ -3251,6 +3911,11 @@ def _build_adaptive_router_row(
         "risk_count": int(gate_decision.get("risk_count") or 0),
         "type_conflict": bool(gate_decision.get("type_conflict")),
         "evidence_conflict": bool(gate_decision.get("evidence_conflict")),
+        "false_consensus_risk": bool(gate_decision.get("false_consensus_risk")),
+        "answer_family_count": int(gate_decision.get("answer_family_count") or 0),
+        "slot_mismatch_risk": bool(gate_decision.get("slot_mismatch_risk")),
+        "probe_accepted": bool(gate_decision.get("probe_accepted")),
+        "debate_after_probe_triggered": bool(gate_decision.get("debate_after_probe_triggered")),
         "baseline_answer": stage_a_answer,
         "baseline_score": stage_a_score,
         "pre_gate_answer": pre_answer,

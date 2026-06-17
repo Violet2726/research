@@ -93,4 +93,6 @@ def test_adaptive_sparse_mad_experiments_directory_only_keeps_current_mainline_c
         "same_context_full_counterfactual_v1.toml",
         "same_context_full_counterfactual_v1_screen.toml",
         "same_context_main_v5.toml",
+        "same_context_main_v5_json_legacy.toml",
+        "same_context_main_v6.toml",
     ]

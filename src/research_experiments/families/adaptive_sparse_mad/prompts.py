@@ -31,6 +31,7 @@ ADAPTIVE_ADDON_SOLVER_MODES = (
     "solver_evidence",
     "solver_slot_contrast",
     "solver_counterfactual",
+    "solver_disconfirm",
 )
 _MULTIPLE_CHOICE_DATASETS = {"mmlu_pro", "gpqa_diamond", "mmlu", "mmlu_abstract_algebra"}
 
@@ -136,7 +137,7 @@ def build_adaptive_addon_free_text_messages(
         user_prompt += f"Context:\n{sample.prompt_context}\n\n"
     user_prompt += "Stage A candidate summary:\n"
     user_prompt += _format_stage_a_candidate_summary(stage_a_rows)
-    if solver_mode == "solver_counterfactual":
+    if solver_mode in {"solver_counterfactual", "solver_disconfirm"}:
         dominant_answer = _dominant_candidate_answer(stage_a_rows)
         if dominant_answer:
             user_prompt += (
@@ -329,7 +330,7 @@ def _build_adaptive_addon_v4_messages(
         user_prompt += f"Context:\n{sample.prompt_context}\n\n"
     user_prompt += "Stage A candidate summary:\n"
     user_prompt += _format_stage_a_candidate_summary(stage_a_rows)
-    if solver_mode == "solver_counterfactual":
+    if solver_mode in {"solver_counterfactual", "solver_disconfirm"}:
         dominant_answer = _dominant_candidate_answer(stage_a_rows)
         if dominant_answer:
             user_prompt += (
@@ -685,6 +686,16 @@ def _adaptive_addon_instruction(dataset: str, solver_mode: str) -> dict[str, str
                 "only if it is better grounded in the evidence or task structure."
             ),
             "checklist": "leading family to avoid, fresh candidate family, typed answer-slot check, exact supporting evidence",
+        }
+    if solver_mode == "solver_disconfirm":
+        return {
+            "label": "Disconfirmation Verifier",
+            "summary": "Actively try to refute the current leading family and only replace it when a different answer family is better supported.",
+            "guidance": (
+                "Do not restate the current family. Search for the strongest contradiction, then propose a different family only if it has clearer evidence, "
+                "stronger slot fit, or stricter constraint consistency."
+            ),
+            "checklist": "refutation attempt, alternative family, stronger evidence or constraints, final exact answer",
         }
     raise ValueError(f"Unsupported adaptive add-on solver_mode: {solver_mode}")
 

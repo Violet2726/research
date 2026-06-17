@@ -10,6 +10,8 @@ import re
 from collections import defaultdict
 from typing import Any
 
+import sympy
+
 DEFAULT_CONFIDENCE = 0.5
 _NON_ANSWER_VALUES = {"", "unknown"}
 
@@ -245,6 +247,111 @@ def aggregate_evidence_grounded_stage_a(
     return winner, score_by_answer, "evidence_grounded_score_vote"
 
 
+def aggregate_family_slot_grounded_stage_a(
+    rows: list[dict[str, Any]],
+    *,
+    dataset: str,
+    question: str = "",
+    promotion_gap_threshold: float = 0.35,
+) -> tuple[str, dict[str, float], str]:
+    """Group answer families before scoring slot alignment and evidence quality."""
+    if not rows:
+        return "unknown", {"unknown": 0.0}, "family_slot_grounded_empty"
+
+    family_rows = _group_family_rows(rows, dataset=dataset)
+    if not family_rows:
+        return "unknown", {"unknown": 0.0}, "family_slot_grounded_empty"
+
+    family_scores: dict[str, float] = {}
+    family_metadata: dict[str, dict[str, Any]] = {}
+    ordered_keys = list(family_rows)
+    for family_key, answer_rows in family_rows.items():
+        clean_support = sum(_row_confidence(row) for row in answer_rows if not _row_is_degraded(row))
+        evidence_count = sum(1 for row in answer_rows if _row_has_meaningful_evidence(row))
+        solver_diversity = len(
+            {
+                str(row.get("solver_mode") or row.get("method_name") or "").strip()
+                for row in answer_rows
+                if str(row.get("solver_mode") or row.get("method_name") or "").strip()
+            }
+        )
+        degraded_penalty = sum(0.35 for row in answer_rows if _row_is_degraded(row))
+        non_answer_penalty = 0.75 if all(not _is_answer_candidate(_row_answer_text(row)) for row in answer_rows) else 0.0
+        representative = _select_family_representative(
+            family_key=family_key,
+            rows=answer_rows,
+            dataset=dataset,
+            question=question,
+        )
+        slot_match_bonus = _slot_match_bonus(
+            dataset=dataset,
+            question=question,
+            representative_answer=representative,
+            rows=answer_rows,
+        )
+        exact_span_bonus = _exact_span_bonus(
+            dataset=dataset,
+            representative_answer=representative,
+            rows=answer_rows,
+        )
+        explanatory_overrun_penalty = _explanatory_overrun_penalty(
+            dataset=dataset,
+            representative_answer=representative,
+            family_rows=family_rows,
+            family_key=family_key,
+        )
+        score = (
+            clean_support
+            + 0.20 * evidence_count
+            + 0.15 * solver_diversity
+            + slot_match_bonus
+            + exact_span_bonus
+            - degraded_penalty
+            - explanatory_overrun_penalty
+            - non_answer_penalty
+        )
+        family_scores[family_key] = round(score, 6)
+        family_metadata[family_key] = {
+            "representative_answer": representative,
+            "clean_support": clean_support,
+            "solver_diversity": solver_diversity,
+            "evidence_count": evidence_count,
+            "slot_match_bonus": slot_match_bonus,
+            "exact_span_bonus": exact_span_bonus,
+            "explanatory_overrun_penalty": explanatory_overrun_penalty,
+            "non_answer_penalty": non_answer_penalty,
+            "degraded_penalty": degraded_penalty,
+            "rows": answer_rows,
+        }
+
+    ranked = sorted(
+        ordered_keys,
+        key=lambda family_key: (
+            family_scores[family_key],
+            family_metadata[family_key]["clean_support"],
+            family_metadata[family_key]["evidence_count"],
+            family_metadata[family_key]["solver_diversity"],
+            family_metadata[family_key]["representative_answer"],
+        ),
+        reverse=True,
+    )
+    winner_key = ranked[0]
+    winner_meta = family_metadata[winner_key]
+    winner_answer = str(winner_meta["representative_answer"] or "").strip() or "unknown"
+    rescue_winner_key = _family_slot_rescue_winner(
+        ranked_keys=ranked,
+        family_scores=family_scores,
+        family_metadata=family_metadata,
+        dataset=dataset,
+        question=question,
+        promotion_gap_threshold=promotion_gap_threshold,
+    )
+    if rescue_winner_key is not None and rescue_winner_key != winner_key:
+        rescue_answer = str(family_metadata[rescue_winner_key]["representative_answer"] or "").strip() or "unknown"
+        return rescue_answer, family_scores, "family_slot_grounded_rescue"
+    return winner_answer, family_scores, "family_slot_grounded_score_vote"
+
+
 def _group_answer_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     """按规范化答案聚合同一样本的候选行，必要时保留 unknown 兜底。"""
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -260,9 +367,340 @@ def _group_answer_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, A
     return grouped
 
 
+def _group_family_rows(rows: list[dict[str, Any]], *, dataset: str) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        family_key = _family_key_for_row(row, dataset=dataset)
+        grouped[family_key].append(row)
+    return grouped
+
+
 def _is_answer_candidate(answer: str) -> bool:
     """判断答案是否可参与正式候选聚合。"""
     return str(answer or "").strip().lower() not in _NON_ANSWER_VALUES
+
+
+def _row_answer_text(row: dict[str, Any]) -> str:
+    return str(row.get("normalized_answer") or row.get("prediction") or "").strip()
+
+
+def _family_key_for_row(row: dict[str, Any], *, dataset: str) -> str:
+    answer = _row_answer_text(row)
+    if dataset in {"mmlu_pro", "gpqa_diamond", "mmlu", "mmlu_abstract_algebra"}:
+        return _family_key_for_multiple_choice(row, answer)
+    if dataset == "strategyqa":
+        return _family_key_for_strategyqa(answer)
+    if dataset in {"math500", "gsm8k", "competition_math"}:
+        return _family_key_for_math(answer)
+    return _family_key_for_open_qa(answer)
+
+
+def _family_key_for_multiple_choice(row: dict[str, Any], answer: str) -> str:
+    letter = _extract_option_letter(answer)
+    if letter:
+        return f"mcqa:{letter}"
+    evidence_letter = _extract_option_letter(str(row.get("reasoning") or ""))
+    if evidence_letter:
+        return f"mcqa:{evidence_letter}"
+    return f"mcqa_text:{_coarse_normalize_text(answer)}"
+
+
+def _family_key_for_strategyqa(answer: str) -> str:
+    normalized = str(answer or "").strip().lower()
+    if normalized.startswith("yes"):
+        return "boolean:yes"
+    if normalized.startswith("no"):
+        return "boolean:no"
+    return f"boolean:{_coarse_normalize_text(answer)}"
+
+
+def _family_key_for_math(answer: str) -> str:
+    candidate = str(answer or "").strip()
+    if not candidate:
+        return "math:unknown"
+    normalized_text = _coarse_normalize_text(candidate)
+    expr_key = _sympy_expression_key(candidate)
+    if expr_key is not None:
+        return f"math:{expr_key}"
+    return f"math:{normalized_text}"
+
+
+def _family_key_for_open_qa(answer: str) -> str:
+    normalized = _coarse_normalize_text(answer)
+    if not normalized:
+        return "open:unknown"
+    return f"open:{normalized}"
+
+
+def _extract_option_letter(text: str) -> str:
+    match = re.search(r"\b([A-J])\b", str(text or "").strip().upper())
+    return match.group(1) if match else ""
+
+
+def _sympy_expression_key(answer: str) -> str | None:
+    try:
+        prepared = _prepare_sympy_expression(answer)
+        expr = sympy.sympify(prepared, evaluate=True)
+        return str(sympy.simplify(expr))
+    except Exception:
+        return None
+
+
+def _prepare_sympy_expression(answer: str) -> str:
+    prepared = str(answer or "").strip()
+    prepared = prepared.replace("^", "**")
+    prepared = prepared.replace(" ", "")
+    prepared = prepared.replace("\\cdot", "*").replace("\\times", "*")
+    return prepared
+
+
+def _select_family_representative(
+    *,
+    family_key: str,
+    rows: list[dict[str, Any]],
+    dataset: str,
+    question: str,
+) -> str:
+    del family_key
+    candidates = [str(_row_answer_text(row)) for row in rows if _row_answer_text(row)]
+    if not candidates:
+        return "unknown"
+    if dataset in {"mmlu_pro", "gpqa_diamond", "mmlu", "mmlu_abstract_algebra"}:
+        extracted = [_extract_option_letter(candidate) for candidate in candidates]
+        extracted = [candidate for candidate in extracted if candidate]
+        if extracted:
+            return extracted[0]
+    if dataset == "strategyqa":
+        for candidate in candidates:
+            normalized = candidate.strip().lower()
+            if normalized.startswith("yes"):
+                return "yes"
+            if normalized.startswith("no"):
+                return "no"
+    if dataset in {"hotpotqa", "webquestions"}:
+        return _select_shortest_slot_aligned_answer(candidates, question=question)
+    if dataset in {"math500", "gsm8k", "competition_math"}:
+        return _select_shortest_math_answer(candidates)
+    return min(candidates, key=lambda candidate: (len(candidate), candidate))
+
+
+def _select_shortest_slot_aligned_answer(candidates: list[str], *, question: str) -> str:
+    normalized_question = _coarse_normalize_text(question)
+    slot_keywords = set(normalized_question.split())
+    scored = []
+    for candidate in candidates:
+        normalized_candidate = _coarse_normalize_text(candidate)
+        token_count = len([token for token in normalized_candidate.split() if token])
+        overlap = sum(1 for token in normalized_candidate.split() if token in slot_keywords)
+        explanatory_penalty = 1 if _looks_explanatory_open_qa_answer(normalized_candidate) else 0
+        scored.append((explanatory_penalty, -overlap, token_count, len(candidate), candidate))
+    return min(scored)[-1]
+
+
+def _select_shortest_math_answer(candidates: list[str]) -> str:
+    return min(
+        candidates,
+        key=lambda candidate: (
+            0 if _sympy_expression_key(candidate) is not None else 1,
+            len(candidate),
+            candidate,
+        ),
+    )
+
+
+def _slot_match_bonus(
+    *,
+    dataset: str,
+    question: str,
+    representative_answer: str,
+    rows: list[dict[str, Any]],
+) -> float:
+    if dataset in {"mmlu_pro", "gpqa_diamond", "mmlu", "mmlu_abstract_algebra"}:
+        return 0.25 if len(representative_answer) == 1 and representative_answer.isalpha() else 0.0
+    if dataset == "strategyqa":
+        return 0.25 if representative_answer in {"yes", "no"} else 0.0
+    if dataset in {"math500", "gsm8k", "competition_math"}:
+        return 0.25 if _sympy_expression_key(representative_answer) is not None else 0.0
+    answer_tokens = representative_answer.split()
+    if not answer_tokens:
+        return 0.0
+    question_tokens = {
+        token
+        for token in _coarse_normalize_text(question).split()
+        if len(token) >= 4 and token not in {"what", "which", "that", "from", "with", "this", "their", "there"}
+    }
+    evidence_hits = sum(
+        1
+        for row in rows
+        if representative_answer and representative_answer in _coarse_normalize_text(str(row.get("claim_span") or row.get("key_evidence") or ""))
+    )
+    exact_slot = 1 if evidence_hits > 0 and len(answer_tokens) <= 3 else 0
+    question_overlap = 1 if any(token in question_tokens for token in _coarse_normalize_text(representative_answer).split()) else 0
+    return 0.20 * exact_slot + 0.10 * question_overlap
+
+
+def _exact_span_bonus(
+    *,
+    dataset: str,
+    representative_answer: str,
+    rows: list[dict[str, Any]],
+) -> float:
+    if dataset not in {"hotpotqa", "webquestions"}:
+        return 0.0
+    normalized_answer = _coarse_normalize_text(representative_answer)
+    if not normalized_answer:
+        return 0.0
+    exact_matches = 0
+    for row in rows:
+        claim_span = _coarse_normalize_text(str(row.get("claim_span") or ""))
+        if claim_span and claim_span == normalized_answer:
+            exact_matches += 1
+    return 0.15 * exact_matches
+
+
+def _explanatory_overrun_penalty(
+    *,
+    dataset: str,
+    representative_answer: str,
+    family_rows: dict[str, list[dict[str, Any]]],
+    family_key: str,
+) -> float:
+    if dataset not in {"hotpotqa", "webquestions", "strategyqa"}:
+        return 0.0
+    normalized_answer = _coarse_normalize_text(representative_answer)
+    if not normalized_answer:
+        return 0.0
+    penalty = 0.0
+    for other_key, rows in family_rows.items():
+        if other_key == family_key:
+            continue
+        other_answer = _select_family_representative(
+            family_key=other_key,
+            rows=rows,
+            dataset=dataset,
+            question="",
+        )
+        normalized_other = _coarse_normalize_text(other_answer)
+        if not normalized_other:
+            continue
+        if _is_boolean_explanatory_overrun(longer=normalized_answer, shorter=normalized_other):
+            penalty += sum(_row_confidence(row) for row in family_rows[other_key])
+        elif dataset in {"hotpotqa", "webquestions"} and normalized_other in normalized_answer and len(normalized_answer) > len(normalized_other):
+            if _looks_explanatory_open_qa_answer(normalized_answer):
+                penalty += 0.5 * sum(_row_confidence(row) for row in family_rows[other_key])
+    return penalty
+
+
+def _looks_explanatory_open_qa_answer(answer: str) -> bool:
+    tokens = [token for token in str(answer or "").split() if token]
+    if len(tokens) <= 2:
+        return False
+    if tokens[:2] in (["part", "of"], ["one", "of"]):
+        return True
+    return any(token in {"his", "her", "their", "that", "which", "who"} for token in tokens)
+
+
+def _family_slot_rescue_winner(
+    *,
+    ranked_keys: list[str],
+    family_scores: dict[str, float],
+    family_metadata: dict[str, dict[str, Any]],
+    dataset: str,
+    question: str,
+    promotion_gap_threshold: float,
+) -> str | None:
+    if len(ranked_keys) < 2:
+        return None
+    winner_key = ranked_keys[0]
+    winner_meta = family_metadata[winner_key]
+    winner_answer = str(winner_meta["representative_answer"] or "").strip()
+    for family_key in ranked_keys[1:]:
+        metadata = family_metadata[family_key]
+        candidate_answer = str(metadata["representative_answer"] or "").strip()
+        if not candidate_answer or candidate_answer.lower() in _NON_ANSWER_VALUES:
+            continue
+        if any(_row_is_degraded(row) for row in metadata["rows"]):
+            continue
+        if not _family_has_typed_or_evidence_support(metadata["rows"]):
+            continue
+        gap = float(family_scores[winner_key]) - float(family_scores[family_key])
+        if gap > promotion_gap_threshold:
+            continue
+        if _is_unique_exact_slot_family(
+            dataset=dataset,
+            question=question,
+            representative_answer=candidate_answer,
+            family_metadata=family_metadata,
+            current_family_key=family_key,
+        ):
+            return family_key
+        if dataset in {"hotpotqa", "webquestions"} and _should_prefer_shorter_supported_answer(
+            winner_answer=winner_answer,
+            candidate_answer=candidate_answer,
+            candidate_rows=metadata["rows"],
+        ):
+            return family_key
+    return None
+
+
+def _family_has_typed_or_evidence_support(rows: list[dict[str, Any]]) -> bool:
+    for row in rows:
+        if _row_has_structured_constraint_fields(row) or _row_has_meaningful_evidence(row):
+            return True
+    return False
+
+
+def _is_unique_exact_slot_family(
+    *,
+    dataset: str,
+    question: str,
+    representative_answer: str,
+    family_metadata: dict[str, dict[str, Any]],
+    current_family_key: str,
+) -> bool:
+    current_match = _slot_match_bonus(
+        dataset=dataset,
+        question=question,
+        representative_answer=representative_answer,
+        rows=family_metadata[current_family_key]["rows"],
+    )
+    if current_match <= 0.0:
+        return False
+    for family_key, metadata in family_metadata.items():
+        if family_key == current_family_key:
+            continue
+        other_match = _slot_match_bonus(
+            dataset=dataset,
+            question=question,
+            representative_answer=str(metadata["representative_answer"] or ""),
+            rows=metadata["rows"],
+        )
+        if other_match >= current_match:
+            return False
+    return True
+
+
+def _should_prefer_shorter_supported_answer(
+    *,
+    winner_answer: str,
+    candidate_answer: str,
+    candidate_rows: list[dict[str, Any]],
+) -> bool:
+    normalized_winner = _coarse_normalize_text(winner_answer)
+    normalized_candidate = _coarse_normalize_text(candidate_answer)
+    if not normalized_candidate or not normalized_winner:
+        return False
+    if normalized_candidate == normalized_winner:
+        return False
+    if normalized_candidate not in normalized_winner:
+        return False
+    if len(normalized_candidate) >= len(normalized_winner):
+        return False
+    return any(
+        _coarse_normalize_text(str(row.get("claim_span") or "")) == normalized_candidate
+        or _coarse_normalize_text(str(row.get("key_evidence") or "")) == normalized_candidate
+        for row in candidate_rows
+    )
 
 
 def _should_prefer_clean_anchor_over_degraded_majority(

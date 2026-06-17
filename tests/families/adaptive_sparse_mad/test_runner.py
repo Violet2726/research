@@ -13,6 +13,7 @@ from research_experiments.families.adaptive_sparse_mad.algorithms import (
     aggregate_anchor_protected,
     aggregate_constraint_aware_stage_a,
     aggregate_evidence_grounded_stage_a,
+    aggregate_family_slot_grounded_stage_a,
 )
 from research_experiments.families.adaptive_sparse_mad.config import (
     AdaptiveSparseMadProtocolConfig,
@@ -346,6 +347,47 @@ def test_build_counterfactual_addon_messages_mentions_leading_candidate_family()
 
     assert "Current leading candidate family" in messages[1]["content"]
     assert "playstation 3" in messages[1]["content"].lower()
+
+
+def test_build_disconfirm_addon_messages_mentions_leading_candidate_family() -> None:
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which gaming console were both games released on?",
+        reference_answer="PlayStation 4",
+        prompt_context="Both games were released for PlayStation 3 and PlayStation 4.",
+        metadata={},
+    )
+    stage_a_rows = [
+        {
+            "solver_mode": "solver_cot",
+            "normalized_answer": "playstation 3",
+            "confidence_value": 0.61,
+            "claim_span": "PlayStation 3",
+            "key_evidence": "released for PlayStation 3",
+            "answer_type": "gaming console",
+            "key_constraints": "single console name",
+        },
+        {
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "playstation 3",
+            "confidence_value": 0.58,
+            "claim_span": "PlayStation 3",
+            "key_evidence": "released for PlayStation 3",
+            "answer_type": "gaming console",
+            "key_constraints": "single console name",
+        },
+    ]
+
+    messages = build_adaptive_addon_messages(
+        sample,
+        solver_mode="solver_disconfirm",
+        agent_id=4,
+        stage_a_rows=stage_a_rows,
+    )
+
+    assert "Current leading candidate family" in messages[1]["content"]
+    assert "must not be a trivial restatement" in messages[1]["content"]
 
 def test_should_safe_retry_stage_a_result_for_recovered_output() -> None:
     result = SimpleNamespace(
@@ -1322,6 +1364,9 @@ def test_build_router_eval_payload_summarizes_adaptive_router_rows() -> None:
                 "harmed_by_method": False,
                 "support_gap": 0.2,
                 "avg_confidence": 0.4,
+                "false_consensus_risk": True,
+                "probe_accepted": True,
+                "debate_after_probe_triggered": False,
             },
             {
                 "dataset": "hotpotqa",
@@ -1334,6 +1379,9 @@ def test_build_router_eval_payload_summarizes_adaptive_router_rows() -> None:
                 "harmed_by_method": False,
                 "support_gap": 0.6,
                 "avg_confidence": 0.8,
+                "false_consensus_risk": False,
+                "probe_accepted": False,
+                "debate_after_probe_triggered": False,
             },
         ]
     )
@@ -1341,6 +1389,8 @@ def test_build_router_eval_payload_summarizes_adaptive_router_rows() -> None:
     overall = next(row for row in payload["summary_rows"] if row["dataset"] == "overall")
     assert overall["trigger_rate"] == 0.5
     assert overall["corrected_count"] == 1
+    assert overall["false_consensus_risk_rate"] == 0.5
+    assert overall["probe_accepted_count"] == 1
 
 
 def test_build_router_eval_payload_separates_policy_variants() -> None:
@@ -1357,6 +1407,9 @@ def test_build_router_eval_payload_separates_policy_variants() -> None:
                 "harmed_by_method": False,
                 "support_gap": 0.2,
                 "avg_confidence": 0.4,
+                "false_consensus_risk": False,
+                "probe_accepted": False,
+                "debate_after_probe_triggered": False,
             },
             {
                 "dataset": "hotpotqa",
@@ -1369,6 +1422,9 @@ def test_build_router_eval_payload_separates_policy_variants() -> None:
                 "harmed_by_method": False,
                 "support_gap": 0.2,
                 "avg_confidence": 0.4,
+                "false_consensus_risk": True,
+                "probe_accepted": True,
+                "debate_after_probe_triggered": True,
             },
         ]
     )
@@ -1385,6 +1441,47 @@ def test_build_router_eval_payload_separates_policy_variants() -> None:
     )
     assert adaptive_row["corrected_count"] == 1
     assert dual_open_row["corrected_count"] == 0
+    assert dual_open_row["false_consensus_risk_rate"] == 1.0
+    assert dual_open_row["probe_accepted_count"] == 1
+
+
+def test_family_slot_grounded_stage_a_prefers_short_exact_open_qa_span() -> None:
+    rows = [
+        {
+            "solver_mode": "solver_cot",
+            "normalized_answer": "part of flotilla",
+            "confidence_value": 0.5,
+            "claim_span": "part of flotilla",
+            "key_evidence": "part of the flotilla that attacked the radar station",
+            "validated_output": {"answer_type": "phrase", "key_constraints": "short exact answer span"},
+        },
+        {
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "flotilla",
+            "confidence_value": 0.5,
+            "claim_span": "flotilla",
+            "key_evidence": "part of the flotilla that attacked the radar station",
+            "validated_output": {"answer_type": "noun phrase", "key_constraints": "short exact answer span"},
+        },
+        {
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "flotilla",
+            "confidence_value": 0.5,
+            "claim_span": "flotilla",
+            "key_evidence": "part of the flotilla that attacked the radar station",
+            "validated_output": {"answer_type": "noun phrase", "key_constraints": "short exact answer span"},
+        },
+    ]
+
+    answer, support, resolver = aggregate_family_slot_grounded_stage_a(
+        rows,
+        dataset="hotpotqa",
+        question="What was he on during the attack?",
+    )
+
+    assert answer == "flotilla"
+    assert resolver in {"family_slot_grounded_score_vote", "family_slot_grounded_rescue"}
+    assert support
 
 
 def test_build_policy_diagnostics_handles_dual_open_variant() -> None:

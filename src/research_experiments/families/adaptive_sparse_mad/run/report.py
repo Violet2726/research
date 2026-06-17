@@ -36,6 +36,9 @@ METHOD_ORDER = [
     "adaptive_dual_open_v5",
     "adaptive_counterfactual_v1",
     "adaptive_sparse_debate_v1",
+    "adaptive_sparse_rescue_only_v1",
+    "adaptive_sparse_probe_only_v1",
+    "adaptive_sparse_rescue_probe_v1",
 ]
 
 
@@ -304,6 +307,24 @@ def _render_markdown(
             f"- `policy_diagnostics.policy_rows`: `{len(overall_policy_rows)}`",
         ]
     )
+    if router_eval.get("summary_rows"):
+        lines.extend(
+            [
+                "",
+                "| Router Dataset | Policy | Trigger Rate | False-Consensus Rate | Probe Accepted | Debate-After-Probe |",
+                "| --- | --- | --- | --- | --- | --- |",
+            ]
+        )
+        for row in router_eval.get("summary_rows", []):
+            if row.get("dataset") != "overall":
+                continue
+            lines.append(
+                f"| `{row.get('dataset', 'unknown')}` | `{row.get('policy_name', 'unknown')}` | "
+                f"{format_float(float(row.get('trigger_rate', 0.0) or 0.0))} | "
+                f"{format_float(float(row.get('false_consensus_risk_rate', 0.0) or 0.0))} | "
+                f"{int(row.get('probe_accepted_count', 0) or 0)} | "
+                f"{int(row.get('debate_after_probe_triggered_count', 0) or 0)} |"
+            )
     interesting_pairwise_rows = [
         row
         for row in pairwise_rows

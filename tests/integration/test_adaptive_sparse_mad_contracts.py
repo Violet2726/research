@@ -359,6 +359,123 @@ def test_validate_run_accepts_adaptive_gate_router_rows(tmp_path: Path) -> None:
     assert result["checks"]["router_empty_check"]["row_count"] == 1
 
 
+def test_validate_run_accepts_v6_probe_router_rows(tmp_path: Path) -> None:
+    write_registered_family_manifest(
+        tmp_path / "manifest.json",
+        family_name="adaptive_sparse_mad",
+        payload={
+            "aggregate_methods": ["hetero_vote_3", "adaptive_sparse_rescue_probe_v1"],
+        },
+    )
+    write_json(tmp_path / "progress.json", {"rate_limit_429_count": 0})
+    write_json(
+        tmp_path / "views" / "metrics.json",
+        {
+            "summary": [
+                {
+                    "dataset": "overall",
+                    "method_name": "adaptive_sparse_rescue_probe_v1",
+                    "accuracy_mean": 0.9,
+                    "trigger_rate": 0.5,
+                    "early_exit_rate": 0.5,
+                    "changed_answer_rate": 0.1,
+                    "corrected_rate": 0.1,
+                    "harmed_rate": 0.0,
+                    "total_tokens_mean": 1400.0,
+                }
+            ]
+        },
+    )
+    write_json(
+        tmp_path / "diagnostics" / "router_eval.json",
+        {"summary_rows": [{"dataset": "overall", "trigger_rate": 0.5, "false_consensus_risk_rate": 0.25}], "sample_rows": []},
+    )
+    write_json(
+        tmp_path / "diagnostics" / "policy_diagnostics.json",
+        {
+            "policy_rows": [{"dataset": "overall", "method_name": "adaptive_sparse_rescue_probe_v1"}],
+            "recommended_next_default_policy": {"selected_policy": "adaptive_sparse_rescue_probe_v1"},
+        },
+    )
+    write_json(
+        tmp_path / "diagnostics" / "stage_a_resolver_breakdown.json",
+        {"summary_rows": [], "sample_rows": [], "example_rows": []},
+    )
+    write_json(
+        tmp_path / "diagnostics" / "stage_a_error_buckets.json",
+        {"summary": {"error_count": 0}, "dataset_rows": [], "sample_rows": [], "example_rows": []},
+    )
+    write_json(
+        tmp_path / "diagnostics" / "stage_a_solver_contributions.json",
+        {"summary_rows": [], "sample_pattern_rows": []},
+    )
+    touch_figure_contract(tmp_path)
+    write_jsonl(
+        tmp_path / "turns" / "stage_a_turns.jsonl",
+        [
+            {
+                "dataset": "gsm8k",
+                "sample_id": "s1",
+                "method_name": "solver_cot",
+                "output_status": "ok",
+                "cache_hit": True,
+                "request_started_at": "2026-06-05T00:00:00+00:00",
+            }
+        ],
+    )
+    write_jsonl(
+        tmp_path / "turns" / "control_turns.jsonl",
+        [
+            {
+                "dataset": "gsm8k",
+                "sample_id": "s1",
+                "method_name": "cot_1",
+                "output_status": "ok",
+                "cache_hit": True,
+                "request_started_at": "2026-06-05T00:00:01+00:00",
+            }
+        ],
+    )
+    write_jsonl(
+        tmp_path / "turns" / "router_decisions.jsonl",
+        [
+            {
+                "dataset": "gsm8k",
+                "sample_id": "s1",
+                "policy_name": "adaptive_sparse_rescue_probe_v1",
+                "triggered": True,
+                "selected_addon_solver": "solver_verify",
+                "false_consensus_risk": True,
+                "answer_family_count": 1,
+                "slot_mismatch_risk": False,
+                "probe_accepted": True,
+                "debate_after_probe_triggered": False,
+            }
+        ],
+    )
+    write_jsonl(tmp_path / "turns" / "debate_messages.jsonl", [])
+    write_jsonl(
+        tmp_path / "views" / "predictions.jsonl",
+        [
+            {
+                "dataset": "gsm8k",
+                "sample_id": "s1",
+                "method_name": "adaptive_sparse_rescue_probe_v1",
+                "method_kind": "aggregate",
+                "triggered": True,
+                "debate_triggered": False,
+                "early_exit": False,
+                "communication_tokens_per_question": 0.0,
+            },
+        ],
+    )
+
+    result = validate_run(tmp_path)
+
+    assert result["passed"] is True
+    assert result["checks"]["router_empty_check"]["row_count"] == 1
+
+
 def test_validate_run_requires_debate_messages_for_sparse_debate_manifest(tmp_path: Path) -> None:
     write_registered_family_manifest(
         tmp_path / "manifest.json",

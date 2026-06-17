@@ -502,6 +502,37 @@ def test_adaptive_sparse_mad_main_v5_inspect_cli() -> None:
     assert payload["legacy_json_mode"] is False
 
 
+def test_adaptive_sparse_mad_main_v6_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "experiment",
+            "--family",
+            "adaptive_sparse_mad",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/adaptive_sparse_mad/experiments/same_context_main_v6.toml",
+        ],
+    )
+    assert payload["name"] == "same_context_main_v6"
+    assert payload["benchmarks"] == ["math500", "hotpotqa", "gpqa_diamond", "strategyqa", "mmlu_pro"]
+    assert payload["methods"] == [
+        "cot_1",
+        "sc_3",
+        "sc_5",
+        "hetero_vote_3",
+        "adaptive_sparse_debate_v1",
+        "adaptive_sparse_rescue_only_v1",
+        "adaptive_sparse_probe_only_v1",
+        "adaptive_sparse_rescue_probe_v1",
+    ]
+    assert payload["protocol"]["false_consensus_confidence_threshold"] == 0.9
+    assert payload["protocol"]["family_promotion_gap_threshold"] == 0.35
+    assert payload["protocol"]["post_probe_debate_gap_threshold"] == 0.35
+    assert payload["stage_a_response_format_mode"] == "free_text"
+    assert payload["adaptive_response_format_mode"] == "free_text"
+
+
 def test_adaptive_sparse_mad_main_v5_json_legacy_inspect_cli() -> None:
     payload = run_cli_json(
         [

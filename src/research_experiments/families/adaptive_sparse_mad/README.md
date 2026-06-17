@@ -8,6 +8,9 @@
   - 默认 same-context 主线入口。
   - 基准集为 `hotpotqa / strategyqa / gsm8k`。
   - 主方法是 `hetero_vote_3 + adaptive_counterfactual_v1`。
+- `same_context_main_v6.toml`
+  - V6 same-context 涓荤嚎鍏ュ彛銆?
+  - 鐢ㄤ簬璺戞柊鐨?`adaptive_sparse_rescue_only_v1 / adaptive_sparse_probe_only_v1 / adaptive_sparse_rescue_probe_v1` 鍙樹綋銆?
 - `same_context_full_counterfactual_v1_screen.toml`
   - 7 数据集 `count20` 筛选入口。
   - 只保留 `cot_1` 作为 screen 对照，避免在筛选阶段堆无关 baseline。
@@ -35,6 +38,12 @@ uv run research_cli experiment --family adaptive_sparse_mad run --experiment con
 uv run research_cli experiment --family adaptive_sparse_mad validate-run --run-dir local/runs/adaptive_sparse_mad/<experiment>/count100/<run_id>
 uv run research_cli experiment --family adaptive_sparse_mad render-report --run-dir local/runs/adaptive_sparse_mad/<experiment>/count100/<run_id>
 uv run research_cli experiment --family adaptive_sparse_mad refresh-run-artifacts --run-dir local/runs/adaptive_sparse_mad/<experiment>/<phase>/<run_id>
+```
+
+```powershell
+uv run research_cli experiment --family adaptive_sparse_mad inspect-experiment --experiment configs/families/adaptive_sparse_mad/experiments/same_context_main_v6.toml
+uv run research_cli experiment --family adaptive_sparse_mad run --experiment configs/families/adaptive_sparse_mad/experiments/same_context_main_v6.toml --phase count20 --model xiaomimimo/mimo-v2.5
+uv run research_cli experiment --family adaptive_sparse_mad run --experiment configs/families/adaptive_sparse_mad/experiments/same_context_main_v6.toml --phase count100 --model xiaomimimo/mimo-v2.5
 ```
 
 ```powershell
