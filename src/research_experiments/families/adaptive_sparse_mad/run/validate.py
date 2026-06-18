@@ -255,6 +255,12 @@ def _validate_router_diagnostics(
         "high_value_trigger_recall",
         "all_three_wrong_trigger_rate",
         "correct_to_wrong_rate_on_stage_a_correct",
+        "stage_a_oracle_3core",
+        "stage_a_oracle_5expert",
+        "all_three_wrong_before_expansion_rate",
+        "all_three_wrong_after_expansion_rate",
+        "specialist_pair_override_precision",
+        "arbiter_precision",
     }
     overall_rows = [
         row

@@ -7,3 +7,6 @@ majority_margin_threshold = 0.25
 debate_rounds = 1
 debate_temperature = 0.7
 debate_trigger_mode = "adaptive_gate"
+specialist_pair_override_margin = 0.15
+arbiter_trigger_margin = 0.20
+arbiter_confidence_threshold = 0.70

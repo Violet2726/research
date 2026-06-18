@@ -213,6 +213,65 @@ def build_meta_router_head_messages(
     ]
 
 
+def build_capacity5_arbiter_messages(
+    sample: DatasetSample,
+    *,
+    candidate_rows: list[dict[str, object]],
+) -> list[dict[str, str]]:
+    """Build the compact V8 arbiter prompt constrained to the current top-2 families."""
+    if len(candidate_rows) != 2:
+        raise ValueError("Capacity5 arbiter requires exactly two candidate families.")
+    allowed_families: list[str] = []
+    user_prompt = (
+        "You are the compact champion-challenger arbiter for A-SMAD V8.\n"
+        "You must choose between exactly two existing answer families and may not invent a third family.\n"
+        f"{_dataset_instruction(sample)}\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+    )
+    if sample.prompt_context:
+        user_prompt += f"Context:\n{sample.prompt_context}\n\n"
+    user_prompt += "Candidate families:\n"
+    for row in candidate_rows:
+        family_key = str(row.get("family_key") or "").strip() or "unknown_family"
+        allowed_families.append(family_key)
+        user_prompt += (
+            f"- {family_key}: answer=`{str(row.get('representative_answer') or 'unknown')}`, "
+            f"family_score={row.get('family_score')}, clean_support={row.get('clean_support')}, "
+            f"evidence_count={row.get('evidence_count')}, solvers=[{', '.join(str(item) for item in (row.get('solver_modes') or [])) or 'unknown'}]\n"
+        )
+        for member_row in row.get("rows") or []:
+            user_prompt += (
+                f"  - {str(member_row.get('solver_mode') or 'solver')}: "
+                f"answer=`{str(member_row.get('normalized_answer') or member_row.get('prediction') or 'unknown')}`, "
+                f"confidence={member_row.get('confidence_value') if member_row.get('confidence_value') is not None else 'unknown'}, "
+                f"evidence=`{_row_evidence(member_row) or 'n/a'}`, "
+                f"constraints=`{str(member_row.get('key_constraints') or '') or 'n/a'}`\n"
+            )
+    user_prompt += (
+        "\nReturn exactly one JSON object with keys "
+        '{"selected_family":"family_key","selected_answer":"representative answer","confidence_raw":0.0,"reasoning_short":"brief rationale"}.\n'
+        f"- selected_family must be one of: {', '.join(allowed_families)}.\n"
+        "- selected_answer must restate the representative answer of the selected family, not a new answer.\n"
+        "- confidence_raw must be between 0 and 1.\n"
+        "- Keep reasoning_short under 40 words.\n"
+        "- Do not output any family not listed above."
+    )
+    return [
+        {
+            "role": "system",
+            "content": build_json_system_prompt(
+                "You are a precise binary arbiter for controlled reasoning experiments.",
+                extra_rules=[
+                    "Return exactly one JSON object.",
+                    "Do not add markdown, code fences, or extra commentary.",
+                    "Choose only between the two provided candidate families.",
+                ],
+            ),
+        },
+        {"role": "user", "content": user_prompt},
+    ]
+
+
 def build_sparse_debate_messages(
     sample: DatasetSample,
     *,
@@ -356,6 +415,35 @@ def parse_meta_router_head_output(raw_text: str) -> dict[str, Any]:
         "should_trigger": should_trigger,
         "recommended_solver_sequence": recommended_solver_sequence,
         "router_confidence": router_confidence,
+        "reasoning_short": reasoning_short,
+    }
+
+
+def parse_capacity5_arbiter_output(raw_text: str, *, allowed_families: list[str]) -> dict[str, Any]:
+    """Parse and normalize the strict-JSON V8 arbiter output."""
+    cleaned = _strip_code_fences(str(raw_text or "").strip())
+    if not cleaned:
+        raise ValueError("Capacity5 arbiter output is empty.")
+    try:
+        payload = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Capacity5 arbiter output must be valid JSON.") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Capacity5 arbiter output must be a JSON object.")
+    selected_family = _collapse_whitespace(str(payload.get("selected_family") or "").strip())
+    if selected_family not in allowed_families:
+        raise ValueError("Capacity5 arbiter selected_family must be one of the provided family labels.")
+    selected_answer = _collapse_whitespace(str(payload.get("selected_answer") or "").strip())
+    if not selected_answer:
+        raise ValueError("Capacity5 arbiter selected_answer must be non-empty.")
+    confidence_raw = _parse_confidence(str(payload.get("confidence_raw") or ""))
+    reasoning_short = _collapse_whitespace(str(payload.get("reasoning_short") or "").strip())
+    if not reasoning_short:
+        raise ValueError("Capacity5 arbiter reasoning_short must be non-empty.")
+    return {
+        "selected_family": selected_family,
+        "selected_answer": selected_answer,
+        "confidence_raw": confidence_raw,
         "reasoning_short": reasoning_short,
     }
 
@@ -540,6 +628,8 @@ def _stage_a_v2_instruction(dataset: str, solver_mode: str) -> dict[str, str]:
             ),
             "checklist": "legal answer type, visible option or unit constraints, strongest counterexample, final format",
         }
+    if solver_mode in ADAPTIVE_ADDON_SOLVER_MODES:
+        return _adaptive_addon_instruction(dataset, solver_mode)
     raise ValueError(f"Unsupported solver_mode: {solver_mode}")
 
 

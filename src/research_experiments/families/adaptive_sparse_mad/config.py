@@ -30,6 +30,9 @@ ADAPTIVE_SPARSE_PROBE_ONLY_METHOD = "adaptive_sparse_probe_only_v1"
 ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD = "adaptive_sparse_rescue_probe_v1"
 ADAPTIVE_SPARSE_META_HEAD_METHOD = "adaptive_sparse_meta_head_v7"
 ADAPTIVE_SPARSE_META_ROUTE_METHOD = "adaptive_sparse_meta_route_v7"
+ADAPTIVE_SPARSE_CAPACITY5_METHOD = "adaptive_sparse_capacity5_v8"
+ADAPTIVE_SPARSE_CAPACITY5_OVERRIDE_METHOD = "adaptive_sparse_capacity5_override_v8"
+ADAPTIVE_SPARSE_CAPACITY5_ARBITER_METHOD = "adaptive_sparse_capacity5_arbiter_v8"
 ADAPTIVE_SPARSE_V6_METHODS = frozenset(
     {
         ADAPTIVE_SPARSE_RESCUE_ONLY_METHOD,
@@ -41,6 +44,13 @@ ADAPTIVE_SPARSE_V7_METHODS = frozenset(
     {
         ADAPTIVE_SPARSE_META_HEAD_METHOD,
         ADAPTIVE_SPARSE_META_ROUTE_METHOD,
+    }
+)
+ADAPTIVE_SPARSE_V8_METHODS = frozenset(
+    {
+        ADAPTIVE_SPARSE_CAPACITY5_METHOD,
+        ADAPTIVE_SPARSE_CAPACITY5_OVERRIDE_METHOD,
+        ADAPTIVE_SPARSE_CAPACITY5_ARBITER_METHOD,
     }
 )
 FREE_TEXT_ADAPTIVE_METHODS = frozenset(
@@ -75,6 +85,7 @@ ACTIVE_AGGREGATE_METHODS = frozenset(
         ADAPTIVE_SPARSE_DEBATE_METHOD,
         *ADAPTIVE_SPARSE_V6_METHODS,
         *ADAPTIVE_SPARSE_V7_METHODS,
+        *ADAPTIVE_SPARSE_V8_METHODS,
     }
 )
 STRUCTURED_STAGE_A_METHODS = frozenset(
@@ -86,6 +97,7 @@ STRUCTURED_STAGE_A_METHODS = frozenset(
         ADAPTIVE_SPARSE_DEBATE_METHOD,
         *ADAPTIVE_SPARSE_V6_METHODS,
         *ADAPTIVE_SPARSE_V7_METHODS,
+        *ADAPTIVE_SPARSE_V8_METHODS,
     }
 )
 ADAPTIVE_POLICY_METHODS = frozenset(
@@ -96,6 +108,7 @@ ADAPTIVE_POLICY_METHODS = frozenset(
         ADAPTIVE_SPARSE_DEBATE_METHOD,
         *ADAPTIVE_SPARSE_V6_METHODS,
         *ADAPTIVE_SPARSE_V7_METHODS,
+        *ADAPTIVE_SPARSE_V8_METHODS,
     }
 )
 
@@ -119,6 +132,9 @@ class AdaptiveSparseMadProtocolConfig:
     meta_router_confidence_threshold: float = 0.65
     typed_override_margin: float = 0.15
     all_three_wrong_double_support_required: bool = True
+    specialist_pair_override_margin: float = 0.15
+    arbiter_trigger_margin: float = 0.20
+    arbiter_confidence_threshold: float = 0.70
 
 
 @dataclass(frozen=True)
@@ -166,6 +182,9 @@ def load_protocol_config(path: str | Path) -> AdaptiveSparseMadProtocolConfig:
         meta_router_confidence_threshold=float(payload.get("meta_router_confidence_threshold", 0.65)),
         typed_override_margin=float(payload.get("typed_override_margin", 0.15)),
         all_three_wrong_double_support_required=bool(payload.get("all_three_wrong_double_support_required", True)),
+        specialist_pair_override_margin=float(payload.get("specialist_pair_override_margin", 0.15)),
+        arbiter_trigger_margin=float(payload.get("arbiter_trigger_margin", 0.20)),
+        arbiter_confidence_threshold=float(payload.get("arbiter_confidence_threshold", 0.70)),
     )
 
 

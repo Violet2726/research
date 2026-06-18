@@ -39,12 +39,21 @@ from research_experiments.core.structured_outputs.recovery import (
     recover_answer_from_reasoning_text,
 )
 from research_experiments.families.adaptive_sparse_mad.algorithms import (
+    _family_key_for_row,
+    _row_confidence,
+    _row_has_meaningful_evidence,
+    _row_has_structured_constraint_fields,
+    _row_is_degraded,
+    _select_family_representative,
     aggregate_constraint_aware_stage_a,
     aggregate_evidence_grounded_stage_a,
     aggregate_family_slot_grounded_stage_a,
     _looks_explanatory_open_qa_answer,
 )
 from research_experiments.families.adaptive_sparse_mad.config import (
+    ADAPTIVE_SPARSE_CAPACITY5_ARBITER_METHOD,
+    ADAPTIVE_SPARSE_CAPACITY5_METHOD,
+    ADAPTIVE_SPARSE_CAPACITY5_OVERRIDE_METHOD,
     ADAPTIVE_SPARSE_DEBATE_METHOD,
     ADAPTIVE_SPARSE_META_HEAD_METHOD,
     ADAPTIVE_SPARSE_META_ROUTE_METHOD,
@@ -53,6 +62,7 @@ from research_experiments.families.adaptive_sparse_mad.config import (
     ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD,
     ADAPTIVE_SPARSE_V6_METHODS,
     ADAPTIVE_SPARSE_V7_METHODS,
+    ADAPTIVE_SPARSE_V8_METHODS,
     ADAPTIVE_POLICY_METHODS,
     DEBATE_ENABLED_METHODS,
     FALSE_CONSENSUS_PROBE_METHODS,
@@ -69,11 +79,13 @@ from research_experiments.families.adaptive_sparse_mad.prompts import (
     STAGE_A_V2_PROMPT_VERSION,
     STAGE_A_V4_PROMPT_VERSION,
     build_adaptive_addon_messages,
+    build_capacity5_arbiter_messages,
     build_meta_router_head_messages,
     build_sparse_debate_messages,
     build_stage_a_messages,
     build_stage_a_safe_retry_messages,
     parse_adaptive_sparse_mad_free_text_output,
+    parse_capacity5_arbiter_output,
     parse_meta_router_head_output,
 )
 from research_experiments.family_runtime.free_text_protocol import parse_free_text_answer_output, task_format_ok
@@ -107,6 +119,9 @@ DISPLAY_NAME_MAP = {
     ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD: ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD,
     ADAPTIVE_SPARSE_META_HEAD_METHOD: ADAPTIVE_SPARSE_META_HEAD_METHOD,
     ADAPTIVE_SPARSE_META_ROUTE_METHOD: ADAPTIVE_SPARSE_META_ROUTE_METHOD,
+    ADAPTIVE_SPARSE_CAPACITY5_METHOD: ADAPTIVE_SPARSE_CAPACITY5_METHOD,
+    ADAPTIVE_SPARSE_CAPACITY5_OVERRIDE_METHOD: ADAPTIVE_SPARSE_CAPACITY5_OVERRIDE_METHOD,
+    ADAPTIVE_SPARSE_CAPACITY5_ARBITER_METHOD: ADAPTIVE_SPARSE_CAPACITY5_ARBITER_METHOD,
 }
 _MULTIPLE_CHOICE_DATASETS = {"mmlu_pro", "gpqa_diamond", "mmlu", "mmlu_abstract_algebra"}
 
@@ -125,6 +140,10 @@ class SampleResult:
 def _is_core_stage_a_row(row: dict[str, Any]) -> bool:
     """判断一行是否来自三个核心 Stage A solver。"""
     return str(row.get("solver_mode") or "") in SOLVER_MODES
+
+
+def _is_v8_primary_stage_a_row(row: dict[str, Any]) -> bool:
+    return bool(row.get("v8_primary_stage_a")) or _is_core_stage_a_row(row)
 
 
 def run_sample_batch(
@@ -223,13 +242,17 @@ def refresh_prediction_rows_for_run(
     """重放已完成 run 的聚合策略，刷新预测行与 router 行。"""
     del prompt_version
     core_rows_by_sample: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    v8_primary_rows_by_sample: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     adaptive_rows_by_policy_sample: dict[tuple[tuple[str, str], str], list[dict[str, Any]]] = defaultdict(list)
     for row in stage_a_rows:
         sample_key = (str(row.get("dataset") or ""), str(row.get("sample_id") or ""))
         if _is_core_stage_a_row(row):
             core_rows_by_sample[sample_key].append(row)
-            continue
+        if bool(row.get("v8_primary_stage_a")):
+            v8_primary_rows_by_sample[sample_key].append(row)
         adaptive_policy_name = str(row.get("adaptive_policy_name") or "").strip()
+        if _is_core_stage_a_row(row):
+            continue
         if adaptive_policy_name:
             adaptive_rows_by_policy_sample[(sample_key, adaptive_policy_name)].append(row)
 
@@ -313,6 +336,7 @@ def refresh_prediction_rows_for_run(
             continue
         if method_name in ADAPTIVE_POLICY_METHODS:
             policy_adaptive_rows = adaptive_rows_by_policy_sample.get((sample_key, method_name), [])
+            sample_v8_primary_rows = v8_primary_rows_by_sample.get(sample_key, [])
             replay_fn = (
                 _replay_sparse_debate_variant
                 if method_name == ADAPTIVE_SPARSE_DEBATE_METHOD
@@ -320,6 +344,8 @@ def refresh_prediction_rows_for_run(
                 if method_name in ADAPTIVE_SPARSE_V6_METHODS
                 else _replay_v7_variant
                 if method_name in ADAPTIVE_SPARSE_V7_METHODS
+                else _replay_v8_variant
+                if method_name in ADAPTIVE_SPARSE_V8_METHODS
                 else _replay_adaptive_variant
             )
             refreshed_router_row, refreshed_prediction_row = replay_fn(
@@ -332,6 +358,7 @@ def refresh_prediction_rows_for_run(
                 protocol=protocol,
                 core_stage_a_rows=core_stage_a_rows,
                 adaptive_rows=policy_adaptive_rows,
+                v8_primary_rows=sample_v8_primary_rows,
                 stage_a_answer=stage_a_prediction,
                 stage_a_score=stage_a_score,
                 stage_a_weighted_support=stage_a_weighted_support,
@@ -467,6 +494,12 @@ def build_router_eval_payload(router_rows: list[dict[str, Any]]) -> dict[str, An
                 for row in rows
                 if float(row.get("baseline_score") or 0.0) >= 1.0 and row.get("harmed_by_method")
             )
+            stage_a_oracle_3core_count = sum(1 for row in rows if row.get("stage_a_oracle_3core"))
+            stage_a_oracle_5expert_count = sum(1 for row in rows if row.get("stage_a_oracle_5expert"))
+            all_three_wrong_before_count = sum(1 for row in rows if row.get("all_three_wrong_before_expansion"))
+            all_three_wrong_after_count = sum(1 for row in rows if row.get("all_three_wrong_after_expansion"))
+            specialist_override_count = sum(1 for row in rows if row.get("specialist_pair_override_accepted"))
+            arbiter_accepted_count = sum(1 for row in rows if row.get("arbiter_accepted"))
             summary_rows.append(
                 {
                     "dataset": dataset,
@@ -533,6 +566,32 @@ def build_router_eval_payload(router_rows: list[dict[str, Any]]) -> dict[str, An
                         6,
                     )
                     if stage_a_correct_count
+                    else 0.0,
+                    "stage_a_oracle_3core": round(stage_a_oracle_3core_count / question_count, 6),
+                    "stage_a_oracle_5expert": round(stage_a_oracle_5expert_count / question_count, 6),
+                    "oracle_gain_5expert_vs_3core": round(
+                        (stage_a_oracle_5expert_count - stage_a_oracle_3core_count) / question_count,
+                        6,
+                    ),
+                    "all_three_wrong_before_expansion_rate": round(
+                        all_three_wrong_before_count / question_count,
+                        6,
+                    ),
+                    "all_three_wrong_after_expansion_rate": round(
+                        all_three_wrong_after_count / question_count,
+                        6,
+                    ),
+                    "specialist_pair_override_precision": round(
+                        sum(1 for row in rows if row.get("specialist_pair_override_precision_hit")) / specialist_override_count,
+                        6,
+                    )
+                    if specialist_override_count
+                    else 0.0,
+                    "arbiter_precision": round(
+                        sum(1 for row in rows if row.get("arbiter_precision_hit")) / arbiter_accepted_count,
+                        6,
+                    )
+                    if arbiter_accepted_count
                     else 0.0,
                 }
             )
@@ -1083,8 +1142,11 @@ def build_stage_a_error_bucket_payload(
         if str(row.get("method_name") or "") == "hetero_vote_3"
     }
     by_sample: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    v8_rows_by_sample: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in stage_a_rows:
         if not _is_core_stage_a_row(row):
+            if bool(row.get("v8_primary_stage_a")):
+                v8_rows_by_sample[(str(row.get("dataset") or ""), str(row.get("sample_id") or ""))].append(row)
             continue
         by_sample[(str(row.get("dataset") or ""), str(row.get("sample_id") or ""))].append(row)
 
@@ -1159,6 +1221,19 @@ def build_stage_a_error_bucket_payload(
         "summary": {
             "error_count": len(sample_rows),
             **overall_counts,
+            "all_three_wrong_before_expansion": sum(
+                1
+                for sample_key, rows in by_sample.items()
+                if not any(float(row.get("score") or 0.0) >= 1.0 for row in rows)
+            ),
+            "all_three_wrong_after_expansion": sum(
+                1
+                for sample_key, rows in by_sample.items()
+                if not any(
+                    float(row.get("score") or 0.0) >= 1.0
+                    for row in (list(rows) + list(v8_rows_by_sample.get(sample_key, [])))
+                )
+            ),
         },
         "dataset_rows": dataset_rows,
         "sample_rows": sample_rows,
@@ -1259,9 +1334,46 @@ def build_stage_a_solver_contribution_payload(stage_a_rows: list[dict[str, Any]]
             overall_row[f"{group_name}_{solver_name}"] = value
     summary_rows.append(overall_row)
 
+    v8_rows_by_sample: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in stage_a_rows:
+        if bool(row.get("v8_primary_stage_a")):
+            v8_rows_by_sample[(str(row.get("dataset") or ""), str(row.get("sample_id") or ""))].append(row)
+    expansion_rows: list[dict[str, Any]] = []
+    datasets = sorted({dataset for dataset, _sample_id in by_sample})
+    for dataset in [*datasets, "overall"]:
+        sample_keys = [key for key in by_sample if dataset == "overall" or key[0] == dataset]
+        if not sample_keys:
+            continue
+        oracle_3core = 0
+        oracle_5expert = 0
+        before_all_three_wrong = 0
+        after_all_three_wrong = 0
+        for sample_key in sample_keys:
+            core_rows = by_sample[sample_key]
+            expanded_rows = list(core_rows) + list(v8_rows_by_sample.get(sample_key, []))
+            core_correct = any(float(row.get("score") or 0.0) >= 1.0 for row in core_rows)
+            expanded_correct = any(float(row.get("score") or 0.0) >= 1.0 for row in expanded_rows)
+            oracle_3core += 1 if core_correct else 0
+            oracle_5expert += 1 if expanded_correct else 0
+            before_all_three_wrong += 0 if core_correct else 1
+            after_all_three_wrong += 0 if expanded_correct else 1
+        question_count = len(sample_keys)
+        expansion_rows.append(
+            {
+                "dataset": dataset,
+                "question_count": question_count,
+                "stage_a_oracle_3core": round(oracle_3core / question_count, 6),
+                "stage_a_oracle_5expert": round(oracle_5expert / question_count, 6),
+                "oracle_gain": round((oracle_5expert - oracle_3core) / question_count, 6),
+                "all_three_wrong_before_expansion": before_all_three_wrong,
+                "all_three_wrong_after_expansion": after_all_three_wrong,
+            }
+        )
+
     return {
         "summary_rows": summary_rows,
         "sample_pattern_rows": pattern_rows,
+        "expansion_rows": expansion_rows,
     }
 
 
@@ -1409,11 +1521,16 @@ def estimate_work(
             generate_split_manifests([benchmark], manifest_path.parents[2])
         sample_count = len(load_split_ids(benchmark.cache_namespace or benchmark.slug, split_name))
         total_calls += sample_count * len(SOLVER_MODES)
+        if any(method_name in ADAPTIVE_SPARSE_V8_METHODS for method_name in experiment.aggregate_methods):
+            total_calls += sample_count * 2
         adaptive_policy_count = sum(1 for method_name in experiment.aggregate_methods if method_name in ADAPTIVE_POLICY_METHODS)
         if adaptive_policy_count:
             total_calls += sample_count * experiment.max_adaptive_addon_calls
             total_calls += sample_count * sum(
                 1 for method_name in experiment.aggregate_methods if method_name in ADAPTIVE_SPARSE_V7_METHODS
+            )
+            total_calls += sample_count * sum(
+                1 for method_name in experiment.aggregate_methods if method_name == ADAPTIVE_SPARSE_CAPACITY5_ARBITER_METHOD
             )
         if ADAPTIVE_SPARSE_DEBATE_METHOD in experiment.aggregate_methods:
             total_calls += sample_count * max(0, protocol.agent_count) * max(0, protocol.debate_rounds)
@@ -1492,6 +1609,46 @@ def _run_sample(
         row["stage_a_trace_hash"] = stage_a_trace_hash
 
     stage_a_rows = list(core_stage_a_rows)
+    v8_stage_a_rows: list[dict[str, Any]] = []
+    if any(method_name in ADAPTIVE_SPARSE_V8_METHODS for method_name in experiment.aggregate_methods):
+        v8_solver_modes = _select_v8_stage_a_solver_modes(sample)
+        for solver_index, solver_mode in enumerate(v8_solver_modes[3:], start=4):
+            v8_row = _execute_turn(
+                run_id=run_id,
+                dataset=benchmark_slug,
+                split_name=split_name,
+                sample=sample,
+                stage_name="stage_a_capacity5",
+                method_name=solver_mode,
+                role="stage_a",
+                round_index=0,
+                agent_id=solver_index,
+                messages=build_stage_a_messages(
+                    sample,
+                    solver_mode=solver_mode,
+                    agent_id=solver_index,
+                    prompt_version=experiment.stage_a_prompt_version,
+                ),
+                backbone=backbone,
+                provider=provider,
+                cache=cache,
+                throttle=throttle,
+                temperature=protocol.stage_a_temperature,
+                top_p=protocol.top_p,
+                seed=experiment.global_seed + solver_index,
+                output_mode="stage_a",
+                stage_a_retry_seed=experiment.global_seed,
+                prompt_version=experiment.stage_a_prompt_version,
+                response_format_mode=experiment.stage_a_response_format_mode,
+                extra_fields={
+                    "solver_mode": solver_mode,
+                    "v8_primary_stage_a": True,
+                    "adaptive_policy_name": ADAPTIVE_SPARSE_CAPACITY5_METHOD,
+                    "adaptive_parent_trace_hash": stage_a_trace_hash,
+                },
+            )
+            v8_stage_a_rows.append(v8_row)
+        stage_a_rows.extend(v8_stage_a_rows)
     control_turn_rows: list[dict[str, Any]] = []
     debate_message_rows: list[dict[str, Any]] = []
     router_rows: list[dict[str, Any]] = []
@@ -1605,6 +1762,32 @@ def _run_sample(
                 router_rows.append(adaptive_router_row)
             prediction_rows.append(adaptive_prediction_row)
             continue
+        if aggregate_method in ADAPTIVE_SPARSE_V8_METHODS:
+            adaptive_rows, adaptive_router_row, adaptive_prediction_row = _run_v8_variant(
+                method_name=aggregate_method,
+                run_id=run_id,
+                benchmark_slug=benchmark_slug,
+                split_name=split_name,
+                sample=sample,
+                protocol=protocol,
+                experiment=experiment,
+                backbone=backbone,
+                provider=provider,
+                cache=cache,
+                throttle=throttle,
+                core_stage_a_rows=core_stage_a_rows,
+                v8_stage_a_rows=v8_stage_a_rows,
+                stage_a_answer=stage_a_prediction,
+                stage_a_score=stage_a_score,
+                stage_a_weighted_support=stage_a_weighted_support,
+                stage_a_resolver=stage_a_resolver,
+                stage_a_trace_hash=stage_a_trace_hash,
+            )
+            stage_a_rows.extend(adaptive_rows)
+            if adaptive_router_row is not None:
+                router_rows.append(adaptive_router_row)
+            prediction_rows.append(adaptive_prediction_row)
+            continue
         if aggregate_method in ADAPTIVE_POLICY_METHODS:
             adaptive_rows, adaptive_router_row, adaptive_prediction_row = _run_adaptive_variant(
                 method_name=aggregate_method,
@@ -1688,6 +1871,7 @@ def _run_adaptive_variant(
         raise ValueError(f"{method_name} requires the adaptive_sparse_mad_v4_evidence_gate prompt version.")
     if method_name not in ADAPTIVE_POLICY_METHODS:
         raise ValueError(f"Unsupported adaptive variant method_name: {method_name}")
+    del v8_primary_rows
     use_evidence_primary = _sample_prefers_evidence_primary(sample)
     use_family_rescue = method_name in FAMILY_SLOT_RESCUE_METHODS
     use_false_consensus_probe = method_name in FALSE_CONSENSUS_PROBE_METHODS
@@ -2712,6 +2896,273 @@ def _run_v7_variant(
     return adaptive_rows, router_row, prediction_row
 
 
+def _run_v8_variant(
+    *,
+    method_name: str,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    sample: DatasetSample,
+    protocol: AdaptiveSparseMadProtocolConfig,
+    experiment: AdaptiveSparseMadExperimentConfig,
+    backbone,
+    provider: OpenAICompatibleProvider,
+    cache: RequestCache,
+    throttle: RequestThrottle,
+    core_stage_a_rows: list[dict[str, Any]],
+    v8_stage_a_rows: list[dict[str, Any]],
+    stage_a_answer: str,
+    stage_a_score: float,
+    stage_a_weighted_support: dict[str, float],
+    stage_a_resolver: str,
+    stage_a_trace_hash: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    del stage_a_resolver
+    if method_name not in ADAPTIVE_SPARSE_V8_METHODS:
+        raise ValueError(f"Unsupported V8 method_name: {method_name}")
+    expanded_rows = list(core_stage_a_rows) + list(v8_stage_a_rows)
+    family_summary_rows = _build_v8_family_summary_rows(
+        expanded_rows,
+        dataset=benchmark_slug,
+        question=sample.question,
+    )
+    five_answer, five_support, five_resolver = aggregate_family_slot_grounded_stage_a(
+        expanded_rows,
+        dataset=benchmark_slug,
+        question=sample.question,
+        promotion_gap_threshold=protocol.family_promotion_gap_threshold,
+    )
+    top_family_row = family_summary_rows[0] if family_summary_rows else {
+        "family_key": "",
+        "representative_answer": five_answer,
+        "family_score": 0.0,
+        "clean_support": 0.0,
+        "evidence_count": 0,
+        "solver_modes": [],
+        "rows": [],
+    }
+    runner_up_family_row = family_summary_rows[1] if len(family_summary_rows) > 1 else None
+    specialist_rows = list(v8_stage_a_rows)
+    scout_rows = list(core_stage_a_rows)
+    specialist_override = _select_v8_specialist_override(
+        sample=sample,
+        benchmark_slug=benchmark_slug,
+        specialist_rows=specialist_rows,
+        scout_rows=scout_rows,
+        family_rows=family_summary_rows,
+        protocol=protocol,
+    )
+    selected_pre_arbiter_answer = five_answer
+    selected_pre_arbiter_support = five_support
+    selected_pre_arbiter_resolver = five_resolver
+    if (
+        method_name in {
+            ADAPTIVE_SPARSE_CAPACITY5_OVERRIDE_METHOD,
+            ADAPTIVE_SPARSE_CAPACITY5_ARBITER_METHOD,
+        }
+        and specialist_override["accepted"]
+    ):
+        selected_pre_arbiter_answer = str(specialist_override.get("override_answer") or five_answer)
+        selected_pre_arbiter_support = dict(five_support)
+        selected_pre_arbiter_resolver = "specialist_pair_override_v8"
+    arbiter_row: dict[str, Any] | None = None
+    arbiter_payload: dict[str, Any] = {}
+    arbiter_accepted = False
+    final_answer = selected_pre_arbiter_answer
+    final_support = dict(selected_pre_arbiter_support)
+    final_resolver = selected_pre_arbiter_resolver
+    top_gap = (
+        round(
+            float(top_family_row.get("family_score") or 0.0) - float(runner_up_family_row.get("family_score") or 0.0),
+            6,
+        )
+        if runner_up_family_row is not None
+        else 999.0
+    )
+    pre_arbiter_family = (
+        str(specialist_override.get("override_family") or "")
+        if selected_pre_arbiter_resolver == "specialist_pair_override_v8"
+        else str(top_family_row.get("family_key") or "")
+    )
+    needs_arbiter = bool(
+        method_name == ADAPTIVE_SPARSE_CAPACITY5_ARBITER_METHOD
+        and runner_up_family_row is not None
+        and (
+            (
+                specialist_override["accepted"]
+                and pre_arbiter_family
+                and pre_arbiter_family != str(top_family_row.get("family_key") or "")
+            )
+            or top_gap < protocol.arbiter_trigger_margin
+        )
+    )
+    adaptive_rows: list[dict[str, Any]] = []
+    extra_cost_rows: list[dict[str, Any]] = []
+    if needs_arbiter and runner_up_family_row is not None:
+        candidate_rows = [top_family_row, runner_up_family_row]
+        arbiter_row = _execute_capacity5_arbiter_turn(
+            run_id=run_id,
+            dataset=benchmark_slug,
+            split_name=split_name,
+            sample=sample,
+            method_name=method_name,
+            backbone=backbone,
+            provider=provider,
+            cache=cache,
+            throttle=throttle,
+            protocol=protocol,
+            candidate_rows=candidate_rows,
+            adaptive_parent_trace_hash=stage_a_trace_hash,
+            seed=experiment.global_seed + 8000,
+        )
+        arbiter_payload = _capacity5_arbiter_payload_from_row(arbiter_row)
+        extra_cost_rows.append(arbiter_row)
+        adaptive_rows.append(arbiter_row)
+        selected_family = str(arbiter_payload.get("selected_family") or "")
+        selected_candidate = next(
+            (row for row in candidate_rows if str(row.get("family_key") or "") == selected_family),
+            None,
+        )
+        arbiter_candidate_answer = str(
+            arbiter_payload.get("selected_answer")
+            or (selected_candidate or {}).get("representative_answer")
+            or ""
+        )
+        arbiter_candidate_answer = normalize_prediction(benchmark_slug, arbiter_candidate_answer) if arbiter_candidate_answer else ""
+        if (
+            selected_candidate is not None
+            and arbiter_candidate_answer
+            and _task_format_ok_for_adaptive_sample(benchmark_slug, arbiter_candidate_answer)
+            and float(arbiter_payload.get("confidence_raw") or 0.0) >= protocol.arbiter_confidence_threshold
+        ):
+            final_answer = arbiter_candidate_answer
+            final_support = dict(five_support)
+            final_resolver = "capacity5_arbiter_v8"
+            arbiter_accepted = True
+    normalized_final_answer = normalize_prediction(benchmark_slug, final_answer) if final_answer else ""
+    final_score = (
+        score_prediction(benchmark_slug, normalized_final_answer, sample.reference_answer)
+        if normalized_final_answer
+        else 0.0
+    )
+    stage_a_oracle_3core = any(float(row.get("score") or 0.0) >= 1.0 for row in core_stage_a_rows)
+    stage_a_oracle_5expert = any(float(row.get("score") or 0.0) >= 1.0 for row in expanded_rows)
+    core_prediction_row = {"prediction": stage_a_answer}
+    baseline_bucket = (
+        "stage_a_correct"
+        if stage_a_score >= 1.0
+        else _classify_stage_a_error_bucket(core_stage_a_rows, prediction_row=core_prediction_row)
+    )
+    all_three_wrong_before = not stage_a_oracle_3core
+    all_three_wrong_after = not stage_a_oracle_5expert
+    gate_decision = _build_adaptive_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=core_stage_a_rows,
+        support=stage_a_weighted_support,
+    )
+    gate_decision.update(
+        {
+            "policy_name": method_name,
+            "triggered": bool(specialist_override["accepted"] or needs_arbiter),
+            "selected_addon_solver": "",
+            "executed_addon_solvers": [],
+            "probe_accepted": False,
+            "debate_after_probe_triggered": False,
+            "override_accepted": bool(specialist_override["accepted"]),
+            "override_rule": str(specialist_override.get("rule") or ""),
+            "override_margin": float(specialist_override.get("override_margin") or 0.0),
+        }
+    )
+    router_row = _build_adaptive_router_row(
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        gate_decision=gate_decision,
+        stage_a_answer=stage_a_answer,
+        stage_a_score=stage_a_score,
+        pre_answer=five_answer,
+        pre_resolver=five_resolver,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_resolver=final_resolver,
+        extra_fields={
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": _trace_hash(
+                expanded_rows,
+                ["agent_id", "solver_mode", "normalized_answer", "confidence_value", "output_status"],
+            ),
+            "stage_a_oracle_correct": stage_a_oracle_3core,
+            "stage_a_oracle_3core": stage_a_oracle_3core,
+            "stage_a_oracle_5expert": stage_a_oracle_5expert,
+            "stage_a_error_bucket": baseline_bucket,
+            "high_value_bucket": baseline_bucket in {"clean_pseudo_majority", "confidence_miscalibration"},
+            "all_three_wrong_before_expansion": all_three_wrong_before,
+            "all_three_wrong_after_expansion": all_three_wrong_after,
+            "specialist_pair_override_accepted": bool(specialist_override["accepted"]),
+            "specialist_pair_override_correct": bool(specialist_override["accepted"] and final_score >= 1.0),
+            "specialist_pair_override_precision_hit": bool(
+                specialist_override["accepted"]
+                and normalize_prediction(benchmark_slug, str(specialist_override.get("override_answer") or "")) == normalized_final_answer
+                and final_score >= 1.0
+            ),
+            "specialist_pair_override_margin": float(specialist_override.get("override_margin") or 0.0),
+            "specialist_pair_support": float(specialist_override.get("support") or 0.0),
+            "specialist_pair_family": str(specialist_override.get("override_family") or ""),
+            "five_expert_answer": five_answer,
+            "five_expert_resolver": five_resolver,
+            "five_expert_top_family_score": float(top_family_row.get("family_score") or 0.0),
+            "five_expert_second_family_score": float(runner_up_family_row.get("family_score") or 0.0)
+            if runner_up_family_row is not None
+            else 0.0,
+            "five_expert_top2_gap": top_gap,
+            "arbiter_triggered": needs_arbiter,
+            "arbiter_accepted": arbiter_accepted,
+            "arbiter_correct": bool(arbiter_accepted and final_score >= 1.0),
+            "arbiter_precision_hit": bool(arbiter_accepted and final_score >= 1.0),
+            "arbiter_selected_family": str(arbiter_payload.get("selected_family") or ""),
+            "arbiter_selected_answer": str(arbiter_payload.get("selected_answer") or ""),
+            "arbiter_confidence": float(arbiter_payload.get("confidence_raw") or 0.0),
+            "arbiter_used_fallback": bool(arbiter_payload.get("used_fallback")),
+        },
+    )
+    prediction_row = _build_adaptive_prediction_row(
+        method_name=method_name,
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        backbone=backbone,
+        final_rows=expanded_rows,
+        extra_cost_rows=extra_cost_rows,
+        confidence_rows=expanded_rows,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_support=final_support,
+        final_resolver=final_resolver,
+        adaptive_trace_hash=str(router_row.get("adaptive_trace_hash") or ""),
+        triggered=bool(gate_decision["triggered"]),
+        baseline_answer=stage_a_answer,
+        baseline_score=stage_a_score,
+    )
+    prediction_row.update(
+        {
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": str(router_row.get("adaptive_trace_hash") or ""),
+            "arbiter_trace_hash": stable_trace_hash(arbiter_row) if arbiter_row is not None else "",
+            "stage_a_oracle_3core": stage_a_oracle_3core,
+            "stage_a_oracle_5expert": stage_a_oracle_5expert,
+            "all_three_wrong_before_expansion": all_three_wrong_before,
+            "all_three_wrong_after_expansion": all_three_wrong_after,
+            "specialist_pair_override_accepted": bool(specialist_override["accepted"]),
+            "arbiter_triggered": needs_arbiter,
+            "arbiter_accepted": arbiter_accepted,
+        }
+    )
+    return adaptive_rows, router_row, prediction_row
+
+
 def _replay_v7_variant(
     *,
     method_name: str,
@@ -2723,6 +3174,7 @@ def _replay_v7_variant(
     protocol: AdaptiveSparseMadProtocolConfig,
     core_stage_a_rows: list[dict[str, Any]],
     adaptive_rows: list[dict[str, Any]],
+    v8_primary_rows: list[dict[str, Any]],
     stage_a_answer: str,
     stage_a_score: float,
     stage_a_weighted_support: dict[str, float],
@@ -2730,6 +3182,7 @@ def _replay_v7_variant(
     stage_a_trace_hash: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Replay the V7 meta-route variants from persisted rows."""
+    del v8_primary_rows
     if method_name not in ADAPTIVE_SPARSE_V7_METHODS:
         raise ValueError(f"Unsupported V7 replay method_name: {method_name}")
 
@@ -2896,6 +3349,246 @@ def _replay_v7_variant(
             "pre_route_answer": pre_route_answer,
             "pre_route_resolver": pre_route_resolver,
             "pre_route_score": pre_route_score,
+        }
+    )
+    return router_row, prediction_row
+
+
+def _replay_v8_variant(
+    *,
+    method_name: str,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    sample: DatasetSample,
+    backbone,
+    protocol: AdaptiveSparseMadProtocolConfig,
+    core_stage_a_rows: list[dict[str, Any]],
+    adaptive_rows: list[dict[str, Any]],
+    v8_primary_rows: list[dict[str, Any]],
+    stage_a_answer: str,
+    stage_a_score: float,
+    stage_a_weighted_support: dict[str, float],
+    stage_a_resolver: str,
+    stage_a_trace_hash: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    del stage_a_resolver
+    if method_name not in ADAPTIVE_SPARSE_V8_METHODS:
+        raise ValueError(f"Unsupported V8 replay method_name: {method_name}")
+    expanded_rows = list(core_stage_a_rows) + list(v8_primary_rows)
+    family_summary_rows = _build_v8_family_summary_rows(
+        expanded_rows,
+        dataset=benchmark_slug,
+        question=sample.question,
+    )
+    five_answer, five_support, five_resolver = aggregate_family_slot_grounded_stage_a(
+        expanded_rows,
+        dataset=benchmark_slug,
+        question=sample.question,
+        promotion_gap_threshold=protocol.family_promotion_gap_threshold,
+    )
+    top_family_row = family_summary_rows[0] if family_summary_rows else {
+        "family_key": "",
+        "representative_answer": five_answer,
+        "family_score": 0.0,
+        "clean_support": 0.0,
+        "evidence_count": 0,
+        "solver_modes": [],
+        "rows": [],
+    }
+    runner_up_family_row = family_summary_rows[1] if len(family_summary_rows) > 1 else None
+    specialist_override = _select_v8_specialist_override(
+        sample=sample,
+        benchmark_slug=benchmark_slug,
+        specialist_rows=list(v8_primary_rows),
+        scout_rows=list(core_stage_a_rows),
+        family_rows=family_summary_rows,
+        protocol=protocol,
+    )
+    selected_pre_arbiter_answer = five_answer
+    selected_pre_arbiter_support = five_support
+    selected_pre_arbiter_resolver = five_resolver
+    if (
+        method_name in {
+            ADAPTIVE_SPARSE_CAPACITY5_OVERRIDE_METHOD,
+            ADAPTIVE_SPARSE_CAPACITY5_ARBITER_METHOD,
+        }
+        and specialist_override["accepted"]
+    ):
+        selected_pre_arbiter_answer = str(specialist_override.get("override_answer") or five_answer)
+        selected_pre_arbiter_support = dict(five_support)
+        selected_pre_arbiter_resolver = "specialist_pair_override_v8"
+    arbiter_row = next((row for row in adaptive_rows if str(row.get("stage_name") or "") == "capacity5_arbiter"), None)
+    arbiter_payload = _capacity5_arbiter_payload_from_row(arbiter_row) if arbiter_row is not None else {}
+    top_gap = (
+        round(
+            float(top_family_row.get("family_score") or 0.0) - float(runner_up_family_row.get("family_score") or 0.0),
+            6,
+        )
+        if runner_up_family_row is not None
+        else 999.0
+    )
+    pre_arbiter_family = (
+        str(specialist_override.get("override_family") or "")
+        if selected_pre_arbiter_resolver == "specialist_pair_override_v8"
+        else str(top_family_row.get("family_key") or "")
+    )
+    needs_arbiter = bool(
+        method_name == ADAPTIVE_SPARSE_CAPACITY5_ARBITER_METHOD
+        and runner_up_family_row is not None
+        and (
+            (
+                specialist_override["accepted"]
+                and pre_arbiter_family
+                and pre_arbiter_family != str(top_family_row.get("family_key") or "")
+            )
+            or top_gap < protocol.arbiter_trigger_margin
+        )
+    )
+    arbiter_accepted = False
+    final_answer = selected_pre_arbiter_answer
+    final_support = dict(selected_pre_arbiter_support)
+    final_resolver = selected_pre_arbiter_resolver
+    if needs_arbiter and runner_up_family_row is not None and arbiter_row is not None:
+        candidate_rows = [top_family_row, runner_up_family_row]
+        selected_family = str(arbiter_payload.get("selected_family") or "")
+        selected_candidate = next(
+            (row for row in candidate_rows if str(row.get("family_key") or "") == selected_family),
+            None,
+        )
+        arbiter_candidate_answer = str(
+            arbiter_payload.get("selected_answer")
+            or (selected_candidate or {}).get("representative_answer")
+            or ""
+        )
+        arbiter_candidate_answer = normalize_prediction(benchmark_slug, arbiter_candidate_answer) if arbiter_candidate_answer else ""
+        if (
+            selected_candidate is not None
+            and arbiter_candidate_answer
+            and _task_format_ok_for_adaptive_sample(benchmark_slug, arbiter_candidate_answer)
+            and float(arbiter_payload.get("confidence_raw") or 0.0) >= protocol.arbiter_confidence_threshold
+        ):
+            final_answer = arbiter_candidate_answer
+            final_support = dict(five_support)
+            final_resolver = "capacity5_arbiter_v8"
+            arbiter_accepted = True
+    normalized_final_answer = normalize_prediction(benchmark_slug, final_answer) if final_answer else ""
+    final_score = (
+        score_prediction(benchmark_slug, normalized_final_answer, sample.reference_answer)
+        if normalized_final_answer
+        else 0.0
+    )
+    stage_a_oracle_3core = any(float(row.get("score") or 0.0) >= 1.0 for row in core_stage_a_rows)
+    stage_a_oracle_5expert = any(float(row.get("score") or 0.0) >= 1.0 for row in expanded_rows)
+    core_prediction_row = {"prediction": stage_a_answer}
+    baseline_bucket = (
+        "stage_a_correct"
+        if stage_a_score >= 1.0
+        else _classify_stage_a_error_bucket(core_stage_a_rows, prediction_row=core_prediction_row)
+    )
+    gate_decision = _build_adaptive_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=core_stage_a_rows,
+        support=stage_a_weighted_support,
+    )
+    gate_decision.update(
+        {
+            "policy_name": method_name,
+            "triggered": bool(specialist_override["accepted"] or needs_arbiter),
+            "selected_addon_solver": "",
+            "executed_addon_solvers": [],
+            "probe_accepted": False,
+            "debate_after_probe_triggered": False,
+            "override_accepted": bool(specialist_override["accepted"]),
+            "override_rule": str(specialist_override.get("rule") or ""),
+            "override_margin": float(specialist_override.get("override_margin") or 0.0),
+        }
+    )
+    router_row = _build_adaptive_router_row(
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        gate_decision=gate_decision,
+        stage_a_answer=stage_a_answer,
+        stage_a_score=stage_a_score,
+        pre_answer=five_answer,
+        pre_resolver=five_resolver,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_resolver=final_resolver,
+        extra_fields={
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": _trace_hash(
+                expanded_rows,
+                ["agent_id", "solver_mode", "normalized_answer", "confidence_value", "output_status"],
+            ),
+            "stage_a_oracle_correct": stage_a_oracle_3core,
+            "stage_a_oracle_3core": stage_a_oracle_3core,
+            "stage_a_oracle_5expert": stage_a_oracle_5expert,
+            "stage_a_error_bucket": baseline_bucket,
+            "high_value_bucket": baseline_bucket in {"clean_pseudo_majority", "confidence_miscalibration"},
+            "all_three_wrong_before_expansion": not stage_a_oracle_3core,
+            "all_three_wrong_after_expansion": not stage_a_oracle_5expert,
+            "specialist_pair_override_accepted": bool(specialist_override["accepted"]),
+            "specialist_pair_override_correct": bool(specialist_override["accepted"] and final_score >= 1.0),
+            "specialist_pair_override_precision_hit": bool(
+                specialist_override["accepted"]
+                and normalize_prediction(benchmark_slug, str(specialist_override.get("override_answer") or "")) == normalized_final_answer
+                and final_score >= 1.0
+            ),
+            "specialist_pair_override_margin": float(specialist_override.get("override_margin") or 0.0),
+            "specialist_pair_support": float(specialist_override.get("support") or 0.0),
+            "specialist_pair_family": str(specialist_override.get("override_family") or ""),
+            "five_expert_answer": five_answer,
+            "five_expert_resolver": five_resolver,
+            "five_expert_top_family_score": float(top_family_row.get("family_score") or 0.0),
+            "five_expert_second_family_score": float(runner_up_family_row.get("family_score") or 0.0)
+            if runner_up_family_row is not None
+            else 0.0,
+            "five_expert_top2_gap": top_gap,
+            "arbiter_triggered": needs_arbiter,
+            "arbiter_accepted": arbiter_accepted,
+            "arbiter_correct": bool(arbiter_accepted and final_score >= 1.0),
+            "arbiter_precision_hit": bool(arbiter_accepted and final_score >= 1.0),
+            "arbiter_selected_family": str(arbiter_payload.get("selected_family") or ""),
+            "arbiter_selected_answer": str(arbiter_payload.get("selected_answer") or ""),
+            "arbiter_confidence": float(arbiter_payload.get("confidence_raw") or 0.0),
+            "arbiter_used_fallback": bool(arbiter_payload.get("used_fallback")),
+        },
+    )
+    prediction_row = _build_adaptive_prediction_row(
+        method_name=method_name,
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        backbone=backbone,
+        final_rows=expanded_rows,
+        extra_cost_rows=[arbiter_row] if arbiter_row is not None else None,
+        confidence_rows=expanded_rows,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_support=final_support,
+        final_resolver=final_resolver,
+        adaptive_trace_hash=str(router_row.get("adaptive_trace_hash") or ""),
+        triggered=bool(gate_decision["triggered"]),
+        baseline_answer=stage_a_answer,
+        baseline_score=stage_a_score,
+    )
+    prediction_row.update(
+        {
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": str(router_row.get("adaptive_trace_hash") or ""),
+            "arbiter_trace_hash": stable_trace_hash(arbiter_row) if arbiter_row is not None else "",
+            "stage_a_oracle_3core": stage_a_oracle_3core,
+            "stage_a_oracle_5expert": stage_a_oracle_5expert,
+            "all_three_wrong_before_expansion": not stage_a_oracle_3core,
+            "all_three_wrong_after_expansion": not stage_a_oracle_5expert,
+            "specialist_pair_override_accepted": bool(specialist_override["accepted"]),
+            "arbiter_triggered": needs_arbiter,
+            "arbiter_accepted": arbiter_accepted,
         }
     )
     return router_row, prediction_row
@@ -3251,6 +3944,7 @@ def _replay_adaptive_variant(
     protocol: AdaptiveSparseMadProtocolConfig,
     core_stage_a_rows: list[dict[str, Any]],
     adaptive_rows: list[dict[str, Any]],
+    v8_primary_rows: list[dict[str, Any]],
     stage_a_answer: str,
     stage_a_score: float,
     stage_a_weighted_support: dict[str, float],
@@ -3384,6 +4078,7 @@ def _replay_sparse_debate_variant(
     protocol: AdaptiveSparseMadProtocolConfig,
     core_stage_a_rows: list[dict[str, Any]],
     adaptive_rows: list[dict[str, Any]],
+    v8_primary_rows: list[dict[str, Any]],
     stage_a_answer: str,
     stage_a_score: float,
     stage_a_weighted_support: dict[str, float],
@@ -3391,6 +4086,7 @@ def _replay_sparse_debate_variant(
     stage_a_trace_hash: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Replay the free-text debate variant from persisted turn rows."""
+    del v8_primary_rows
     if method_name != ADAPTIVE_SPARSE_DEBATE_METHOD:
         raise ValueError(f"Unsupported sparse debate replay method_name: {method_name}")
 
@@ -3540,6 +4236,7 @@ def _replay_v6_variant(
     protocol: AdaptiveSparseMadProtocolConfig,
     core_stage_a_rows: list[dict[str, Any]],
     adaptive_rows: list[dict[str, Any]],
+    v8_primary_rows: list[dict[str, Any]],
     stage_a_answer: str,
     stage_a_score: float,
     stage_a_weighted_support: dict[str, float],
@@ -3547,6 +4244,7 @@ def _replay_v6_variant(
     stage_a_trace_hash: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Replay the V6 family-slot rescue / false-consensus probe variants from persisted rows."""
+    del v8_primary_rows
     if method_name not in ADAPTIVE_SPARSE_V6_METHODS:
         raise ValueError(f"Unsupported V6 replay method_name: {method_name}")
 
@@ -3874,6 +4572,287 @@ def _build_adaptive_gate_decision(
         "slot_mismatch_risk": slot_mismatch_risk,
     }
 
+
+def _select_v8_stage_a_solver_modes(sample: DatasetSample) -> tuple[str, ...]:
+    dataset = str(sample.dataset or "")
+    if dataset in {"gpqa_diamond", "mmlu_pro"}:
+        return (
+            "solver_cot",
+            "solver_l2m",
+            "solver_skeptic",
+            "solver_option_elim",
+            "solver_counterfactual",
+        )
+    if dataset == "hotpotqa":
+        return (
+            "solver_cot",
+            "solver_l2m",
+            "solver_skeptic",
+            "solver_evidence",
+            "solver_slot_contrast",
+        )
+    if dataset == "math500":
+        return (
+            "solver_cot",
+            "solver_l2m",
+            "solver_skeptic",
+            "solver_verify",
+            "solver_disconfirm",
+        )
+    if dataset == "strategyqa":
+        return (
+            "solver_cot",
+            "solver_l2m",
+            "solver_skeptic",
+            "solver_verify",
+            "solver_counterfactual",
+        )
+    return (
+        "solver_cot",
+        "solver_l2m",
+        "solver_skeptic",
+        "solver_verify",
+        "solver_evidence",
+    )
+
+
+def _v8_specialist_solver_modes(sample: DatasetSample) -> tuple[str, str]:
+    solver_modes = _select_v8_stage_a_solver_modes(sample)
+    return str(solver_modes[3]), str(solver_modes[4])
+
+
+def _build_v8_family_summary_rows(
+    rows: list[dict[str, Any]],
+    *,
+    dataset: str,
+    question: str,
+) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        grouped[_family_key_for_row(row, dataset=dataset)].append(row)
+    summary_rows: list[dict[str, Any]] = []
+    for family_key, family_rows in grouped.items():
+        representative_answer = _select_family_representative(
+            family_key=family_key,
+            rows=family_rows,
+            dataset=dataset,
+            question=question,
+        )
+        clean_support = sum(_row_confidence(row) for row in family_rows if not _row_is_degraded(row))
+        family_score = clean_support
+        family_score += 0.20 * sum(1 for row in family_rows if _row_has_meaningful_evidence(row))
+        family_score += 0.15 * len({str(row.get("solver_mode") or "") for row in family_rows if str(row.get("solver_mode") or "")})
+        family_score -= 0.35 * sum(1 for row in family_rows if _row_is_degraded(row))
+        summary_rows.append(
+            {
+                "family_key": family_key,
+                "representative_answer": representative_answer,
+                "rows": list(family_rows),
+                "family_score": round(family_score, 6),
+                "clean_support": round(clean_support, 6),
+                "evidence_count": sum(1 for row in family_rows if _row_has_meaningful_evidence(row)),
+                "solver_modes": sorted(
+                    {
+                        str(row.get("solver_mode") or "")
+                        for row in family_rows
+                        if str(row.get("solver_mode") or "")
+                    }
+                ),
+            }
+        )
+    return sorted(
+        summary_rows,
+        key=lambda row: (
+            float(row.get("family_score") or 0.0),
+            float(row.get("clean_support") or 0.0),
+            int(row.get("evidence_count") or 0),
+            str(row.get("representative_answer") or ""),
+        ),
+        reverse=True,
+    )
+
+
+def _select_v8_specialist_override(
+    *,
+    sample: DatasetSample,
+    benchmark_slug: str,
+    specialist_rows: list[dict[str, Any]],
+    scout_rows: list[dict[str, Any]],
+    family_rows: list[dict[str, Any]],
+    protocol: AdaptiveSparseMadProtocolConfig,
+) -> dict[str, Any]:
+    if len(specialist_rows) != 2:
+        return {
+            "accepted": False,
+            "override_answer": "",
+            "override_family": "",
+            "override_margin": 0.0,
+            "support": 0.0,
+            "rule": "",
+        }
+    left_row, right_row = specialist_rows
+    left_family = _family_key_for_row(left_row, dataset=benchmark_slug)
+    right_family = _family_key_for_row(right_row, dataset=benchmark_slug)
+    if left_family != right_family:
+        return {
+            "accepted": False,
+            "override_answer": "",
+            "override_family": "",
+            "override_margin": 0.0,
+            "support": 0.0,
+            "rule": "",
+        }
+    if any(_row_is_degraded(row) for row in specialist_rows):
+        return {
+            "accepted": False,
+            "override_answer": "",
+            "override_family": left_family,
+            "override_margin": 0.0,
+            "support": 0.0,
+            "rule": "",
+        }
+    representative_answer = _select_family_representative(
+        family_key=left_family,
+        rows=specialist_rows,
+        dataset=benchmark_slug,
+        question=sample.question,
+    )
+    if not _task_format_ok_for_adaptive_sample(benchmark_slug, representative_answer):
+        return {
+            "accepted": False,
+            "override_answer": representative_answer,
+            "override_family": left_family,
+            "override_margin": 0.0,
+            "support": 0.0,
+            "rule": "",
+        }
+    if not any(_row_has_meaningful_evidence(row) or _row_has_structured_constraint_fields(row) for row in specialist_rows):
+        return {
+            "accepted": False,
+            "override_answer": representative_answer,
+            "override_family": left_family,
+            "override_margin": 0.0,
+            "support": 0.0,
+            "rule": "",
+        }
+    specialist_support = sum(_row_confidence(row) for row in specialist_rows)
+    scout_support = sum(
+        _row_confidence(row)
+        for row in scout_rows
+        if _family_key_for_row(row, dataset=benchmark_slug) == left_family
+    )
+    margin = round(specialist_support - scout_support, 6)
+    accepted = specialist_support + protocol.specialist_pair_override_margin >= scout_support
+    return {
+        "accepted": accepted,
+        "override_answer": representative_answer,
+        "override_family": left_family,
+        "override_margin": margin,
+        "support": round(specialist_support, 6),
+        "rule": "specialist_pair_override_v8" if accepted else "",
+    }
+
+
+def _execute_capacity5_arbiter_turn(
+    *,
+    run_id: str,
+    dataset: str,
+    split_name: str,
+    sample: DatasetSample,
+    method_name: str,
+    backbone,
+    provider: OpenAICompatibleProvider,
+    cache: RequestCache,
+    throttle: RequestThrottle,
+    protocol: AdaptiveSparseMadProtocolConfig,
+    candidate_rows: list[dict[str, Any]],
+    adaptive_parent_trace_hash: str,
+    seed: int,
+) -> dict[str, Any]:
+    allowed_families = [str(row.get("family_key") or "") for row in candidate_rows]
+
+    def validator(raw_text: str, provider_reasoning_text: str) -> dict[str, Any]:
+        del provider_reasoning_text
+        return parse_capacity5_arbiter_output(raw_text, allowed_families=allowed_families)
+
+    result = execute_cached_turn(
+        backbone=backbone,
+        provider=provider,
+        cache=cache,
+        throttle=throttle,
+        messages=build_capacity5_arbiter_messages(sample, candidate_rows=candidate_rows),
+        temperature=min(protocol.stage_a_temperature, 0.2),
+        top_p=protocol.top_p,
+        seed=seed,
+        validator=validator,
+        use_response_format=True,
+    )
+    validated = dict(result.validated_output) if isinstance(result.validated_output, dict) else {}
+    used_fallback = result.output_status != "ok" or not validated
+    if used_fallback:
+        fallback_row = candidate_rows[0]
+        validated = {
+            "selected_family": str(fallback_row.get("family_key") or allowed_families[0] or ""),
+            "selected_answer": str(fallback_row.get("representative_answer") or ""),
+            "confidence_raw": 0.0,
+            "reasoning_short": "capacity5_arbiter_fallback",
+        }
+    validated["used_fallback"] = used_fallback
+    return {
+        "run_id": run_id,
+        "dataset": dataset,
+        "split": split_name,
+        "sample_id": sample.sample_id,
+        "question_preview": build_question_preview(sample.question),
+        "stage_name": "capacity5_arbiter",
+        "method_name": "capacity5_arbiter_v1",
+        "round_index": 0,
+        "agent_id": 0,
+        "role": "capacity5_arbiter",
+        "prompt_hash": result.prompt_hash,
+        "output_status": result.output_status,
+        "prediction": "",
+        "normalized_answer": "",
+        "score": 0.0,
+        "reasoning": str(validated.get("reasoning_short") or ""),
+        "confidence_raw": validated.get("confidence_raw"),
+        "confidence_value": float(validated.get("confidence_raw") or 0.0),
+        "confidence_valid": True,
+        "confidence_source": "capacity5_arbiter",
+        "selected_family": validated.get("selected_family"),
+        "selected_answer": validated.get("selected_answer"),
+        "prompt_tokens": float(result.usage.get("prompt_tokens") or 0.0),
+        "completion_tokens": float(result.usage.get("completion_tokens") or 0.0),
+        "total_tokens": float(result.usage.get("total_tokens") or 0.0),
+        "latency_ms": float(result.response_payload.get("latency_ms") or 0.0),
+        "cache_hit": result.cache_hit,
+        "request_error": result.request_error,
+        "assistant_text": result.response_payload.get("assistant_text", ""),
+        "provider_reasoning_text": result.response_payload.get("provider_reasoning_text", ""),
+        "validated_output": validated,
+        "adaptive_policy_name": method_name,
+        "adaptive_parent_trace_hash": adaptive_parent_trace_hash,
+        "request_started_at": result.response_payload.get("request_started_at"),
+    }
+
+
+def _capacity5_arbiter_payload_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    validated_output = row.get("validated_output")
+    if isinstance(validated_output, dict):
+        return {
+            "selected_family": str(validated_output.get("selected_family") or ""),
+            "selected_answer": str(validated_output.get("selected_answer") or ""),
+            "confidence_raw": float(validated_output.get("confidence_raw") or 0.0),
+            "reasoning_short": str(validated_output.get("reasoning_short") or ""),
+            "used_fallback": bool(validated_output.get("used_fallback")),
+        }
+    return {
+        "selected_family": str(row.get("selected_family") or ""),
+        "selected_answer": str(row.get("selected_answer") or ""),
+        "confidence_raw": float(row.get("confidence_raw") or 0.0),
+        "reasoning_short": str(row.get("reasoning") or ""),
+        "used_fallback": False,
+    }
 
 def _select_adaptive_addon_solver(sample: DatasetSample) -> str:
     """按题型选择默认追加 solver。"""

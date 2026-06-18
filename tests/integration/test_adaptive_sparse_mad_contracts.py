@@ -32,6 +32,12 @@ def _adaptive_router_summary_row(policy_name: str) -> dict[str, object]:
         "high_value_trigger_recall": 0.5,
         "all_three_wrong_trigger_rate": 0.25,
         "correct_to_wrong_rate_on_stage_a_correct": 0.0,
+        "stage_a_oracle_3core": 0.9,
+        "stage_a_oracle_5expert": 0.95,
+        "all_three_wrong_before_expansion_rate": 0.1,
+        "all_three_wrong_after_expansion_rate": 0.05,
+        "specialist_pair_override_precision": 0.8,
+        "arbiter_precision": 0.7,
     }
 
 

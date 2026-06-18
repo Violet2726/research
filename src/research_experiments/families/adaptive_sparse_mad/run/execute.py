@@ -118,6 +118,9 @@ def run_experiment(
                 "meta_router_confidence_threshold": protocol.meta_router_confidence_threshold,
                 "typed_override_margin": protocol.typed_override_margin,
                 "all_three_wrong_double_support_required": protocol.all_three_wrong_double_support_required,
+                "specialist_pair_override_margin": protocol.specialist_pair_override_margin,
+                "arbiter_trigger_margin": protocol.arbiter_trigger_margin,
+                "arbiter_confidence_threshold": protocol.arbiter_confidence_threshold,
             },
             "controls": {name: method.__dict__ for name, method in controls.items()},
             "aggregate_methods": list(experiment.aggregate_methods),
@@ -275,6 +278,9 @@ def refresh_stage_a_only_run_artifacts(run_dir: str | Path) -> Path:
         all_three_wrong_double_support_required=bool(
             protocol_payload.get("all_three_wrong_double_support_required", True)
         ),
+        specialist_pair_override_margin=float(protocol_payload.get("specialist_pair_override_margin") or 0.15),
+        arbiter_trigger_margin=float(protocol_payload.get("arbiter_trigger_margin") or 0.20),
+        arbiter_confidence_threshold=float(protocol_payload.get("arbiter_confidence_threshold") or 0.70),
     )
     model_name = str((manifest.get("resolved_model") or {}).get("name") or manifest.get("primary_model_ref") or "unknown_model")
     stage_a_rows = read_jsonl(root / "turns" / "stage_a_turns.jsonl")
