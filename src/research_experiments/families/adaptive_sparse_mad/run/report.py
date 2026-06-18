@@ -39,6 +39,8 @@ METHOD_ORDER = [
     "adaptive_sparse_rescue_only_v1",
     "adaptive_sparse_probe_only_v1",
     "adaptive_sparse_rescue_probe_v1",
+    "adaptive_sparse_meta_head_v7",
+    "adaptive_sparse_meta_route_v7",
 ]
 
 
@@ -311,8 +313,8 @@ def _render_markdown(
         lines.extend(
             [
                 "",
-                "| Router Dataset | Policy | Trigger Rate | False-Consensus Rate | Probe Accepted | Debate-After-Probe |",
-                "| --- | --- | --- | --- | --- | --- |",
+                "| Router Dataset | Policy | Trigger Rate | Oracle Gap | Preroute Capture | High-Value Precision | All-Three Trigger |",
+                "| --- | --- | --- | --- | --- | --- | --- |",
             ]
         )
         for row in router_eval.get("summary_rows", []):
@@ -321,14 +323,33 @@ def _render_markdown(
             lines.append(
                 f"| `{row.get('dataset', 'unknown')}` | `{row.get('policy_name', 'unknown')}` | "
                 f"{format_float(float(row.get('trigger_rate', 0.0) or 0.0))} | "
-                f"{format_float(float(row.get('false_consensus_risk_rate', 0.0) or 0.0))} | "
-                f"{int(row.get('probe_accepted_count', 0) or 0)} | "
-                f"{int(row.get('debate_after_probe_triggered_count', 0) or 0)} |"
+                f"{format_float(float(row.get('oracle_gap_vs_hetero', 0.0) or 0.0))} | "
+                f"{format_float(float(row.get('oracle_gap_capture_by_preroute', 0.0) or 0.0))} | "
+                f"{format_float(float(row.get('high_value_trigger_precision', 0.0) or 0.0))} | "
+                f"{format_float(float(row.get('all_three_wrong_trigger_rate', 0.0) or 0.0))} |"
+            )
+    if router_eval.get("bucket_rows"):
+        lines.extend(
+            [
+                "",
+                "| Error Bucket | Policy | Trigger Rate | Corrected | Harmed | Override Accepted |",
+                "| --- | --- | --- | --- | --- | --- |",
+            ]
+        )
+        for row in router_eval.get("bucket_rows", []):
+            if row.get("dataset") != "overall":
+                continue
+            lines.append(
+                f"| `{row.get('stage_a_error_bucket', 'unknown')}` | `{row.get('policy_name', 'unknown')}` | "
+                f"{format_float(float(row.get('trigger_rate', 0.0) or 0.0))} | "
+                f"{int(row.get('corrected_count', 0) or 0)} | "
+                f"{int(row.get('harmed_count', 0) or 0)} | "
+                f"{format_float(float(row.get('override_accepted_rate', 0.0) or 0.0))} |"
             )
     interesting_pairwise_rows = [
         row
         for row in pairwise_rows
-        if str(row.get("method_name") or "") in {"ega_only_v4", "adaptive_gate_v4", "adaptive_dual_open_v5", "adaptive_counterfactual_v1", "adaptive_sparse_debate_v1"}
+        if str(row.get("method_name") or "") in {"ega_only_v4", "adaptive_gate_v4", "adaptive_dual_open_v5", "adaptive_counterfactual_v1", "adaptive_sparse_debate_v1", "adaptive_sparse_meta_head_v7", "adaptive_sparse_meta_route_v7"}
         and str(row.get("baseline_method_name") or "") in {"hetero_vote_3", "sc_5"}
     ]
     if interesting_pairwise_rows:

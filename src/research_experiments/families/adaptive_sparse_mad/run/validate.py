@@ -66,10 +66,18 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     debate_message_rows = load_jsonl(debate_messages_path) if debate_messages_path.exists() else []
     router_rows = load_jsonl(turn_paths["router_decisions.jsonl"])
     prediction_rows = load_jsonl(index.prediction_records_path)
+    router_eval_payload = load_json(_diagnostic_path(diagnostic_paths, root, "router_eval.json"))
+    policy_diagnostics_payload = load_json(_diagnostic_path(diagnostic_paths, root, "policy_diagnostics.json"))
 
     all_turn_rows = stage_a_rows + stage_b_rows + judge_rows + control_rows
     status_summary = summarize_turn_statuses(all_turn_rows)
     router_empty_check = _validate_router_rows(router_rows, manifest=manifest, prediction_rows=prediction_rows)
+    router_diagnostics_check = _validate_router_diagnostics(
+        router_eval_payload,
+        policy_diagnostics_payload,
+        manifest=manifest,
+        prediction_rows=prediction_rows,
+    )
     debate_messages_check = _validate_debate_messages(
         debate_message_rows,
         required=debate_method_enabled,
@@ -95,6 +103,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             status_summary["schema_failures"] == 0,
             status_summary["output_success_rate"] >= 0.95,
             router_empty_check["passed"],
+            router_diagnostics_check["passed"],
             debate_messages_check["passed"],
             stage_b_judge_empty_check["passed"],
             rate_limit_check["passed"],
@@ -112,6 +121,7 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "output_success_rate": status_summary["output_success_rate"],
         "checks": {
             "router_empty_check": router_empty_check,
+            "router_diagnostics_check": router_diagnostics_check,
             "debate_messages_check": debate_messages_check,
             "stage_b_judge_empty_check": stage_b_judge_empty_check,
             "rate_limit_check": rate_limit_check,
@@ -207,6 +217,59 @@ def _validate_debate_messages(
         "row_count": len(rows),
         "malformed_count": len(malformed),
         "examples": rows[:20],
+    }
+
+
+def _validate_router_diagnostics(
+    router_eval_payload: dict[str, Any],
+    policy_diagnostics_payload: dict[str, Any],
+    *,
+    manifest: dict[str, Any],
+    prediction_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    aggregate_methods = {
+        str(method_name)
+        for method_name in manifest.get("aggregate_methods", [])
+        if str(method_name).strip()
+    }
+    if not aggregate_methods:
+        aggregate_methods = {
+            str(row.get("method_name") or "")
+            for row in prediction_rows
+            if str(row.get("method_kind") or "") == "aggregate"
+        }
+    adaptive_policies = {
+        method_name
+        for method_name in aggregate_methods
+        if method_name in ADAPTIVE_POLICY_METHODS
+    }
+    if not adaptive_policies:
+        return {"passed": True, "name": "router_diagnostics", "required": False}
+    summary_rows = list(router_eval_payload.get("summary_rows", []))
+    policy_rows = list(policy_diagnostics_payload.get("policy_rows", []))
+    required_router_keys = {
+        "stage_a_oracle_accuracy",
+        "oracle_gap_vs_hetero",
+        "oracle_gap_capture_by_preroute",
+        "high_value_trigger_precision",
+        "high_value_trigger_recall",
+        "all_three_wrong_trigger_rate",
+        "correct_to_wrong_rate_on_stage_a_correct",
+    }
+    overall_rows = [
+        row
+        for row in summary_rows
+        if row.get("dataset") == "overall" and str(row.get("policy_name") or "") in adaptive_policies
+    ]
+    malformed_rows = [row for row in overall_rows if not required_router_keys.issubset(set(row))]
+    policy_router_fields_present = "router_summary_rows" in policy_diagnostics_payload and "router_bucket_rows" in policy_diagnostics_payload
+    return {
+        "passed": bool(overall_rows) and not malformed_rows and policy_router_fields_present,
+        "name": "router_diagnostics",
+        "overall_summary_count": len(overall_rows),
+        "policy_row_count": len(policy_rows),
+        "malformed_count": len(malformed_rows),
+        "examples": malformed_rows[:10],
     }
 
 

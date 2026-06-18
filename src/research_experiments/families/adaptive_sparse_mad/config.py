@@ -28,6 +28,8 @@ ADAPTIVE_SPARSE_DEBATE_METHOD = "adaptive_sparse_debate_v1"
 ADAPTIVE_SPARSE_RESCUE_ONLY_METHOD = "adaptive_sparse_rescue_only_v1"
 ADAPTIVE_SPARSE_PROBE_ONLY_METHOD = "adaptive_sparse_probe_only_v1"
 ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD = "adaptive_sparse_rescue_probe_v1"
+ADAPTIVE_SPARSE_META_HEAD_METHOD = "adaptive_sparse_meta_head_v7"
+ADAPTIVE_SPARSE_META_ROUTE_METHOD = "adaptive_sparse_meta_route_v7"
 ADAPTIVE_SPARSE_V6_METHODS = frozenset(
     {
         ADAPTIVE_SPARSE_RESCUE_ONLY_METHOD,
@@ -35,7 +37,18 @@ ADAPTIVE_SPARSE_V6_METHODS = frozenset(
         ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD,
     }
 )
-FREE_TEXT_ADAPTIVE_METHODS = frozenset({ADAPTIVE_SPARSE_DEBATE_METHOD, *ADAPTIVE_SPARSE_V6_METHODS})
+ADAPTIVE_SPARSE_V7_METHODS = frozenset(
+    {
+        ADAPTIVE_SPARSE_META_HEAD_METHOD,
+        ADAPTIVE_SPARSE_META_ROUTE_METHOD,
+    }
+)
+FREE_TEXT_ADAPTIVE_METHODS = frozenset(
+    {
+        ADAPTIVE_SPARSE_DEBATE_METHOD,
+        *ADAPTIVE_SPARSE_V6_METHODS,
+    }
+)
 FAMILY_SLOT_RESCUE_METHODS = frozenset(
     {
         ADAPTIVE_SPARSE_RESCUE_ONLY_METHOD,
@@ -61,6 +74,7 @@ ACTIVE_AGGREGATE_METHODS = frozenset(
         "adaptive_counterfactual_v1",
         ADAPTIVE_SPARSE_DEBATE_METHOD,
         *ADAPTIVE_SPARSE_V6_METHODS,
+        *ADAPTIVE_SPARSE_V7_METHODS,
     }
 )
 STRUCTURED_STAGE_A_METHODS = frozenset(
@@ -71,6 +85,7 @@ STRUCTURED_STAGE_A_METHODS = frozenset(
         "adaptive_counterfactual_v1",
         ADAPTIVE_SPARSE_DEBATE_METHOD,
         *ADAPTIVE_SPARSE_V6_METHODS,
+        *ADAPTIVE_SPARSE_V7_METHODS,
     }
 )
 ADAPTIVE_POLICY_METHODS = frozenset(
@@ -80,6 +95,7 @@ ADAPTIVE_POLICY_METHODS = frozenset(
         "adaptive_counterfactual_v1",
         ADAPTIVE_SPARSE_DEBATE_METHOD,
         *ADAPTIVE_SPARSE_V6_METHODS,
+        *ADAPTIVE_SPARSE_V7_METHODS,
     }
 )
 
@@ -100,6 +116,9 @@ class AdaptiveSparseMadProtocolConfig:
     false_consensus_confidence_threshold: float = 0.9
     family_promotion_gap_threshold: float = 0.35
     post_probe_debate_gap_threshold: float = 0.35
+    meta_router_confidence_threshold: float = 0.65
+    typed_override_margin: float = 0.15
+    all_three_wrong_double_support_required: bool = True
 
 
 @dataclass(frozen=True)
@@ -144,6 +163,9 @@ def load_protocol_config(path: str | Path) -> AdaptiveSparseMadProtocolConfig:
         false_consensus_confidence_threshold=float(payload.get("false_consensus_confidence_threshold", 0.9)),
         family_promotion_gap_threshold=float(payload.get("family_promotion_gap_threshold", 0.35)),
         post_probe_debate_gap_threshold=float(payload.get("post_probe_debate_gap_threshold", 0.35)),
+        meta_router_confidence_threshold=float(payload.get("meta_router_confidence_threshold", 0.65)),
+        typed_override_margin=float(payload.get("typed_override_margin", 0.15)),
+        all_three_wrong_double_support_required=bool(payload.get("all_three_wrong_double_support_required", True)),
     )
 
 
@@ -222,28 +244,6 @@ def load_experiment_config(path: str | Path) -> AdaptiveSparseMadExperimentConfi
             stage_a_response_format_mode == "json_object" or adaptive_response_format_mode == "json_object",
         )
     )
-    if any(method_name in FREE_TEXT_ADAPTIVE_METHODS for method_name in aggregate_methods):
-        required_versions = {
-            "prompt_version": prompt_version,
-            "stage_a_prompt_version": stage_a_prompt_version,
-            "adaptive_prompt_version": adaptive_prompt_version,
-        }
-        wrong_versions = [
-            f"{name}={value}"
-            for name, value in required_versions.items()
-            if value != FREE_TEXT_DEBATE_PROMPT_VERSION
-        ]
-        if wrong_versions:
-            raise ValueError(
-                "free-text adaptive sparse methods require "
-                f"{FREE_TEXT_DEBATE_PROMPT_VERSION}: "
-                + ", ".join(wrong_versions)
-            )
-        if not legacy_json_mode:
-            if stage_a_response_format_mode != "free_text":
-                raise ValueError("free-text adaptive sparse methods require stage_a_response_format_mode=free_text.")
-            if adaptive_response_format_mode != "free_text":
-                raise ValueError("free-text adaptive sparse methods require adaptive_response_format_mode=free_text.")
     if any(method_name in STRUCTURED_STAGE_A_METHODS for method_name in aggregate_methods):
         if stage_a_prompt_version not in STRUCTURED_STAGE_A_PROMPT_VERSIONS:
             raise ValueError(

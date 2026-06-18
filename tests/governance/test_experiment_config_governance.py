@@ -95,4 +95,5 @@ def test_adaptive_sparse_mad_experiments_directory_only_keeps_current_mainline_c
         "same_context_main_v5.toml",
         "same_context_main_v5_json_legacy.toml",
         "same_context_main_v6.toml",
+        "same_context_main_v7.toml",
     ]

@@ -46,10 +46,13 @@ from research_experiments.families.adaptive_sparse_mad.algorithms import (
 )
 from research_experiments.families.adaptive_sparse_mad.config import (
     ADAPTIVE_SPARSE_DEBATE_METHOD,
+    ADAPTIVE_SPARSE_META_HEAD_METHOD,
+    ADAPTIVE_SPARSE_META_ROUTE_METHOD,
     ADAPTIVE_SPARSE_PROBE_ONLY_METHOD,
     ADAPTIVE_SPARSE_RESCUE_ONLY_METHOD,
     ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD,
     ADAPTIVE_SPARSE_V6_METHODS,
+    ADAPTIVE_SPARSE_V7_METHODS,
     ADAPTIVE_POLICY_METHODS,
     DEBATE_ENABLED_METHODS,
     FALSE_CONSENSUS_PROBE_METHODS,
@@ -60,14 +63,18 @@ from research_experiments.families.adaptive_sparse_mad.config import (
 )
 from research_experiments.families.adaptive_sparse_mad.prompts import (
     FREE_TEXT_DEBATE_PROMPT_VERSION,
+    META_ROUTER_ERROR_MODES,
+    META_ROUTER_NO_CONFIDENT_CANDIDATE,
     SOLVER_MODES,
     STAGE_A_V2_PROMPT_VERSION,
     STAGE_A_V4_PROMPT_VERSION,
     build_adaptive_addon_messages,
+    build_meta_router_head_messages,
     build_sparse_debate_messages,
     build_stage_a_messages,
     build_stage_a_safe_retry_messages,
     parse_adaptive_sparse_mad_free_text_output,
+    parse_meta_router_head_output,
 )
 from research_experiments.family_runtime.free_text_protocol import parse_free_text_answer_output, task_format_ok
 from research_experiments.family_runtime.common import (
@@ -98,6 +105,8 @@ DISPLAY_NAME_MAP = {
     ADAPTIVE_SPARSE_RESCUE_ONLY_METHOD: ADAPTIVE_SPARSE_RESCUE_ONLY_METHOD,
     ADAPTIVE_SPARSE_PROBE_ONLY_METHOD: ADAPTIVE_SPARSE_PROBE_ONLY_METHOD,
     ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD: ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD,
+    ADAPTIVE_SPARSE_META_HEAD_METHOD: ADAPTIVE_SPARSE_META_HEAD_METHOD,
+    ADAPTIVE_SPARSE_META_ROUTE_METHOD: ADAPTIVE_SPARSE_META_ROUTE_METHOD,
 }
 _MULTIPLE_CHOICE_DATASETS = {"mmlu_pro", "gpqa_diamond", "mmlu", "mmlu_abstract_algebra"}
 
@@ -309,6 +318,8 @@ def refresh_prediction_rows_for_run(
                 if method_name == ADAPTIVE_SPARSE_DEBATE_METHOD
                 else _replay_v6_variant
                 if method_name in ADAPTIVE_SPARSE_V6_METHODS
+                else _replay_v7_variant
+                if method_name in ADAPTIVE_SPARSE_V7_METHODS
                 else _replay_adaptive_variant
             )
             refreshed_router_row, refreshed_prediction_row = replay_fn(
@@ -412,9 +423,10 @@ def build_metrics_payload(prediction_rows: list[dict[str, Any]]) -> dict[str, An
 def build_router_eval_payload(router_rows: list[dict[str, Any]]) -> dict[str, Any]:
     """汇总自适应 router 的触发率、改答案率和追加 solver 分布。"""
     if not router_rows:
-        return {"sample_rows": [], "summary_rows": []}
+        return {"sample_rows": [], "summary_rows": [], "bucket_rows": []}
 
     summary_rows: list[dict[str, Any]] = []
+    bucket_rows: list[dict[str, Any]] = []
     datasets = sorted({str(row.get("dataset") or "") for row in router_rows})
     policy_names = sorted(
         {str(row.get("policy_name") or "") for row in router_rows if str(row.get("policy_name") or "")}
@@ -433,6 +445,28 @@ def build_router_eval_payload(router_rows: list[dict[str, Any]]) -> dict[str, An
                 solver_name = str(row.get("selected_addon_solver") or "")
                 if solver_name:
                     addon_solver_counts[solver_name] += 1
+            triggered_count = sum(1 for row in rows if row.get("triggered"))
+            stage_a_correct_count = sum(1 for row in rows if float(row.get("baseline_score") or 0.0) >= 1.0)
+            stage_a_accuracy = stage_a_correct_count / question_count
+            stage_a_oracle_count = sum(1 for row in rows if row.get("stage_a_oracle_correct"))
+            stage_a_oracle_accuracy = stage_a_oracle_count / question_count
+            pre_route_correct_count = sum(1 for row in rows if row.get("pre_route_correct"))
+            pre_route_accuracy = pre_route_correct_count / question_count
+            oracle_gap_vs_hetero = stage_a_oracle_accuracy - stage_a_accuracy
+            oracle_gap_capture_by_preroute = 0.0
+            if oracle_gap_vs_hetero > 0.0:
+                oracle_gap_capture_by_preroute = max(
+                    0.0,
+                    min(1.0, (pre_route_accuracy - stage_a_accuracy) / oracle_gap_vs_hetero),
+                )
+            high_value_rows = [row for row in rows if row.get("high_value_bucket")]
+            high_value_triggered_count = sum(1 for row in high_value_rows if row.get("triggered"))
+            all_three_wrong_rows = [row for row in rows if row.get("stage_a_error_bucket") == "all_three_wrong"]
+            harmed_on_stage_a_correct = sum(
+                1
+                for row in rows
+                if float(row.get("baseline_score") or 0.0) >= 1.0 and row.get("harmed_by_method")
+            )
             summary_rows.append(
                 {
                     "dataset": dataset,
@@ -471,9 +505,73 @@ def build_router_eval_payload(router_rows: list[dict[str, Any]]) -> dict[str, An
                         6,
                     ),
                     "addon_solver_counts": dict(sorted(addon_solver_counts.items())),
+                    "stage_a_accuracy": round(stage_a_accuracy, 6),
+                    "pre_route_accuracy": round(pre_route_accuracy, 6),
+                    "stage_a_oracle_accuracy": round(stage_a_oracle_accuracy, 6),
+                    "oracle_gap_vs_hetero": round(oracle_gap_vs_hetero, 6),
+                    "oracle_gap_capture_by_preroute": round(oracle_gap_capture_by_preroute, 6),
+                    "high_value_trigger_precision": round(
+                        high_value_triggered_count / triggered_count,
+                        6,
+                    )
+                    if triggered_count
+                    else 0.0,
+                    "high_value_trigger_recall": round(
+                        high_value_triggered_count / len(high_value_rows),
+                        6,
+                    )
+                    if high_value_rows
+                    else 0.0,
+                    "all_three_wrong_trigger_rate": round(
+                        sum(1 for row in all_three_wrong_rows if row.get("triggered")) / len(all_three_wrong_rows),
+                        6,
+                    )
+                    if all_three_wrong_rows
+                    else 0.0,
+                    "correct_to_wrong_rate_on_stage_a_correct": round(
+                        harmed_on_stage_a_correct / stage_a_correct_count,
+                        6,
+                    )
+                    if stage_a_correct_count
+                    else 0.0,
                 }
             )
-    return {"sample_rows": router_rows, "summary_rows": summary_rows}
+        bucket_names = sorted({str(row.get("stage_a_error_bucket") or "unknown") for row in policy_rows})
+        for dataset in [*datasets, "overall"]:
+            dataset_policy_rows = (
+                policy_rows if dataset == "overall" else [row for row in policy_rows if row.get("dataset") == dataset]
+            )
+            for bucket_name in bucket_names:
+                bucket_only_rows = [
+                    row for row in dataset_policy_rows if str(row.get("stage_a_error_bucket") or "unknown") == bucket_name
+                ]
+                if not bucket_only_rows:
+                    continue
+                bucket_question_count = len(bucket_only_rows)
+                bucket_rows.append(
+                    {
+                        "dataset": dataset,
+                        "policy_name": policy_name,
+                        "stage_a_error_bucket": bucket_name,
+                        "question_count": bucket_question_count,
+                        "trigger_rate": round(
+                            sum(1.0 if row.get("triggered") else 0.0 for row in bucket_only_rows) / bucket_question_count,
+                            6,
+                        ),
+                        "changed_answer_rate": round(
+                            sum(1.0 if row.get("changed_answer") else 0.0 for row in bucket_only_rows) / bucket_question_count,
+                            6,
+                        ),
+                        "corrected_count": sum(1 for row in bucket_only_rows if row.get("corrected_by_method")),
+                        "harmed_count": sum(1 for row in bucket_only_rows if row.get("harmed_by_method")),
+                        "override_accepted_rate": round(
+                            sum(1.0 if row.get("override_accepted") else 0.0 for row in bucket_only_rows)
+                            / bucket_question_count,
+                            6,
+                        ),
+                    }
+                )
+    return {"sample_rows": router_rows, "summary_rows": summary_rows, "bucket_rows": bucket_rows}
 
 
 def build_policy_diagnostics(
@@ -481,14 +579,17 @@ def build_policy_diagnostics(
     router_eval_payload: dict[str, Any],
 ) -> dict[str, Any]:
     """构造策略级诊断，包括两两比较、晋级门和主线准入门。"""
-    del router_eval_payload
     aggregate_rows = [row for row in prediction_rows if str(row.get("method_kind") or "") == "aggregate"]
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in aggregate_rows:
         grouped[str(row.get("method_name") or "")].append(row)
+    router_summary_rows = list(router_eval_payload.get("summary_rows", []))
+    router_bucket_rows = list(router_eval_payload.get("bucket_rows", []))
     if not grouped or set(grouped) == {"hetero_vote_3"}:
         return {
             "policy_rows": [],
+            "router_summary_rows": router_summary_rows,
+            "router_bucket_rows": router_bucket_rows,
             "recommended_next_default_policy": {
                 "selected_policy": "hetero_vote_3",
                 "reason": "stage_a_only_current_default",
@@ -509,6 +610,8 @@ def build_policy_diagnostics(
     pairwise_rows = build_method_pairwise_rows(prediction_rows)
     return {
         "policy_rows": policy_rows,
+        "router_summary_rows": router_summary_rows,
+        "router_bucket_rows": router_bucket_rows,
         "pairwise_rows": pairwise_rows,
         "promotion_gate": build_promotion_gate_payload(
             prediction_rows=prediction_rows,
@@ -1306,8 +1409,12 @@ def estimate_work(
             generate_split_manifests([benchmark], manifest_path.parents[2])
         sample_count = len(load_split_ids(benchmark.cache_namespace or benchmark.slug, split_name))
         total_calls += sample_count * len(SOLVER_MODES)
-        if any(method_name in ADAPTIVE_POLICY_METHODS for method_name in experiment.aggregate_methods):
+        adaptive_policy_count = sum(1 for method_name in experiment.aggregate_methods if method_name in ADAPTIVE_POLICY_METHODS)
+        if adaptive_policy_count:
             total_calls += sample_count * experiment.max_adaptive_addon_calls
+            total_calls += sample_count * sum(
+                1 for method_name in experiment.aggregate_methods if method_name in ADAPTIVE_SPARSE_V7_METHODS
+            )
         if ADAPTIVE_SPARSE_DEBATE_METHOD in experiment.aggregate_methods:
             total_calls += sample_count * max(0, protocol.agent_count) * max(0, protocol.debate_rounds)
         total_calls += sample_count * sum(method.budget_calls for method in controls.values())
@@ -1469,6 +1576,31 @@ def _run_sample(
             )
             stage_a_rows.extend(adaptive_rows)
             debate_message_rows.extend(debate_rows)
+            if adaptive_router_row is not None:
+                router_rows.append(adaptive_router_row)
+            prediction_rows.append(adaptive_prediction_row)
+            continue
+        if aggregate_method in ADAPTIVE_SPARSE_V7_METHODS:
+            adaptive_rows, adaptive_router_row, adaptive_prediction_row = _run_v7_variant(
+                method_name=aggregate_method,
+                run_id=run_id,
+                benchmark_slug=benchmark_slug,
+                split_name=split_name,
+                sample=sample,
+                protocol=protocol,
+                experiment=experiment,
+                backbone=backbone,
+                provider=provider,
+                cache=cache,
+                throttle=throttle,
+                core_stage_a_rows=core_stage_a_rows,
+                stage_a_answer=stage_a_prediction,
+                stage_a_score=stage_a_score,
+                stage_a_weighted_support=stage_a_weighted_support,
+                stage_a_resolver=stage_a_resolver,
+                stage_a_trace_hash=stage_a_trace_hash,
+            )
+            stage_a_rows.extend(adaptive_rows)
             if adaptive_router_row is not None:
                 router_rows.append(adaptive_router_row)
             prediction_rows.append(adaptive_prediction_row)
@@ -1770,10 +1902,11 @@ def _run_sparse_debate_variant(
     """Run the trigger-only free-text debate variant."""
     if method_name not in DEBATE_ENABLED_METHODS:
         raise ValueError(f"Unsupported sparse debate method_name: {method_name}")
-    if experiment.stage_a_prompt_version != FREE_TEXT_DEBATE_PROMPT_VERSION:
-        raise ValueError(f"{method_name} requires the free-text debate Stage A prompt version.")
-    if experiment.adaptive_prompt_version != FREE_TEXT_DEBATE_PROMPT_VERSION:
-        raise ValueError(f"{method_name} requires the free-text debate adaptive prompt version.")
+    allowed_prompt_versions = {FREE_TEXT_DEBATE_PROMPT_VERSION, STAGE_A_V4_PROMPT_VERSION}
+    if experiment.stage_a_prompt_version not in allowed_prompt_versions:
+        raise ValueError(f"{method_name} requires Stage A prompt_version in {sorted(allowed_prompt_versions)}.")
+    if experiment.adaptive_prompt_version not in allowed_prompt_versions:
+        raise ValueError(f"{method_name} requires adaptive prompt_version in {sorted(allowed_prompt_versions)}.")
     if protocol.debate_trigger_mode != "adaptive_gate":
         raise ValueError(f"Unsupported debate_trigger_mode: {protocol.debate_trigger_mode}")
 
@@ -2059,15 +2192,16 @@ def _run_v6_variant(
     """Run the V6 family-slot rescue / false-consensus probe variants."""
     if method_name not in ADAPTIVE_SPARSE_V6_METHODS:
         raise ValueError(f"Unsupported V6 method_name: {method_name}")
-    if experiment.adaptive_prompt_version != FREE_TEXT_DEBATE_PROMPT_VERSION:
-        raise ValueError(f"{method_name} requires the free-text debate adaptive prompt version.")
+    allowed_prompt_versions = {FREE_TEXT_DEBATE_PROMPT_VERSION, STAGE_A_V4_PROMPT_VERSION}
+    if experiment.adaptive_prompt_version not in allowed_prompt_versions:
+        raise ValueError(f"{method_name} requires adaptive prompt_version in {sorted(allowed_prompt_versions)}.")
 
     gate_decision = _build_adaptive_gate_decision(
         sample=sample,
         protocol=protocol,
         stage_a_rows=core_stage_a_rows,
         support=stage_a_weighted_support,
-        enable_false_consensus_probe=False,
+        enable_false_consensus_probe=method_name in FALSE_CONSENSUS_PROBE_METHODS,
     )
     gate_decision["policy_name"] = method_name
     gate_decision["probe_accepted"] = False
@@ -2329,6 +2463,781 @@ def _run_v6_variant(
         }
     )
     return adaptive_rows + debate_revision_rows, debate_message_rows, router_row, prediction_row
+
+
+def _run_v7_variant(
+    *,
+    method_name: str,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    sample: DatasetSample,
+    protocol: AdaptiveSparseMadProtocolConfig,
+    experiment: AdaptiveSparseMadExperimentConfig,
+    backbone,
+    provider: OpenAICompatibleProvider,
+    cache: RequestCache,
+    throttle: RequestThrottle,
+    core_stage_a_rows: list[dict[str, Any]],
+    stage_a_answer: str,
+    stage_a_score: float,
+    stage_a_weighted_support: dict[str, float],
+    stage_a_resolver: str,
+    stage_a_trace_hash: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    """Run the V7 meta-head / typed-route variants."""
+    if method_name not in ADAPTIVE_SPARSE_V7_METHODS:
+        raise ValueError(f"Unsupported V7 method_name: {method_name}")
+
+    gate_decision = _build_adaptive_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=core_stage_a_rows,
+        support=stage_a_weighted_support,
+        enable_false_consensus_probe=True,
+    )
+    meta_router_row = _execute_meta_router_turn(
+        run_id=run_id,
+        dataset=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        method_name=method_name,
+        backbone=backbone,
+        provider=provider,
+        cache=cache,
+        throttle=throttle,
+        temperature=min(protocol.stage_a_temperature, 0.2),
+        top_p=protocol.top_p,
+        seed=experiment.global_seed + 7000,
+        stage_a_rows=core_stage_a_rows,
+        stage_a_answer=stage_a_answer,
+        stage_a_support=stage_a_weighted_support,
+        gate_decision=gate_decision,
+        stage_a_trace_hash=stage_a_trace_hash,
+        protocol=protocol,
+    )
+    meta_payload = _meta_router_payload_from_row(meta_router_row)
+    pre_route_answer, pre_route_support, pre_route_resolver, pre_route_score = _resolve_v7_pre_route_candidate(
+        sample=sample,
+        benchmark_slug=benchmark_slug,
+        protocol=protocol,
+        core_stage_a_rows=core_stage_a_rows,
+        stage_a_answer=stage_a_answer,
+        stage_a_weighted_support=stage_a_weighted_support,
+        stage_a_resolver=stage_a_resolver,
+        meta_payload=meta_payload,
+    )
+    error_mode = str(meta_payload.get("error_mode") or "clean_consensus")
+    should_trigger = bool(meta_payload.get("should_trigger")) and error_mode != "clean_consensus"
+    executed_addon_solvers: list[str] = []
+    addon_rows: list[dict[str, Any]] = []
+    final_stage_rows = list(core_stage_a_rows)
+    adaptive_rows: list[dict[str, Any]] = [meta_router_row]
+    if method_name == ADAPTIVE_SPARSE_META_ROUTE_METHOD and should_trigger:
+        executed_addon_solvers = _select_v7_solver_sequence(sample=sample, error_mode=error_mode)
+        executed_addon_solvers = executed_addon_solvers[: max(0, experiment.max_adaptive_addon_calls)]
+        for addon_index, addon_solver in enumerate(executed_addon_solvers, start=1):
+            adaptive_row = _execute_turn(
+                run_id=run_id,
+                dataset=benchmark_slug,
+                split_name=split_name,
+                sample=sample,
+                stage_name="adaptive_stage_a",
+                method_name=addon_solver,
+                role="adaptive_stage_a",
+                round_index=addon_index,
+                agent_id=protocol.agent_count + addon_index,
+                messages=build_adaptive_addon_messages(
+                    sample,
+                    solver_mode=addon_solver,
+                    agent_id=protocol.agent_count + addon_index,
+                    stage_a_rows=final_stage_rows,
+                    prompt_version=experiment.adaptive_prompt_version,
+                ),
+                backbone=backbone,
+                provider=provider,
+                cache=cache,
+                throttle=throttle,
+                temperature=protocol.stage_a_temperature,
+                top_p=protocol.top_p,
+                seed=experiment.global_seed + protocol.agent_count + addon_index + 7000,
+                output_mode="stage_a",
+                stage_a_retry_seed=experiment.global_seed,
+                prompt_version=experiment.adaptive_prompt_version,
+                response_format_mode=experiment.adaptive_response_format_mode,
+                extra_fields={
+                    "solver_mode": addon_solver,
+                    "adaptive_policy_name": method_name,
+                    "adaptive_parent_trace_hash": stage_a_trace_hash,
+                    "meta_router_error_mode": error_mode,
+                },
+            )
+            addon_rows.append(adaptive_row)
+            final_stage_rows.append(adaptive_row)
+        adaptive_rows.extend(addon_rows)
+
+    accepted_answer = pre_route_answer or stage_a_answer
+    accepted_support = dict(pre_route_support or stage_a_weighted_support)
+    accepted_resolver = pre_route_resolver or stage_a_resolver
+    override_details = _default_v7_override_details()
+    if method_name == ADAPTIVE_SPARSE_META_ROUTE_METHOD and should_trigger:
+        if error_mode in {"pseudo_majority", "false_consensus"}:
+            accepted_answer, accepted_support, accepted_resolver, override_details = _resolve_v7_single_step_override(
+                sample=sample,
+                benchmark_slug=benchmark_slug,
+                protocol=protocol,
+                rows=final_stage_rows,
+                pre_route_answer=accepted_answer,
+                pre_route_support=accepted_support,
+                pre_route_resolver=accepted_resolver,
+            )
+        elif error_mode == "all_three_wrong_suspect":
+            accepted_answer, accepted_support, accepted_resolver, override_details = (
+                _resolve_v7_all_three_wrong_override(
+                    sample=sample,
+                    benchmark_slug=benchmark_slug,
+                    protocol=protocol,
+                    rows=final_stage_rows,
+                    addon_rows=addon_rows,
+                    pre_route_answer=accepted_answer,
+                    pre_route_support=accepted_support,
+                    pre_route_resolver=accepted_resolver,
+                )
+            )
+
+    normalized_final_answer = normalize_prediction(benchmark_slug, accepted_answer) if accepted_answer else ""
+    final_score = (
+        score_prediction(benchmark_slug, normalized_final_answer, sample.reference_answer)
+        if normalized_final_answer
+        else 0.0
+    )
+    adaptive_trace_hash = _trace_hash(
+        final_stage_rows,
+        ["agent_id", "solver_mode", "normalized_answer", "confidence_value", "output_status"],
+    )
+    gate_decision.update(
+        {
+            "policy_name": method_name,
+            "triggered": should_trigger,
+            "selected_addon_solver": executed_addon_solvers[0] if executed_addon_solvers else "",
+            "executed_addon_solvers": list(executed_addon_solvers),
+            "probe_accepted": bool(override_details.get("override_accepted") and error_mode == "false_consensus"),
+            "debate_after_probe_triggered": False,
+            "error_mode": error_mode,
+            "meta_router_selected_candidate": meta_payload.get("selected_candidate"),
+            "meta_router_confidence": meta_payload.get("router_confidence"),
+            "meta_router_reasoning_short": meta_payload.get("reasoning_short"),
+            "meta_router_should_trigger": bool(meta_payload.get("should_trigger")),
+            "recommended_solver_sequence": list(meta_payload.get("recommended_solver_sequence") or []),
+            "meta_router_used_fallback": bool(meta_payload.get("used_fallback")),
+            "override_accepted": bool(override_details.get("override_accepted")),
+            "override_rule": str(override_details.get("override_rule") or ""),
+            "override_margin": float(override_details.get("override_margin") or 0.0),
+            "typed_candidate_answer": str(override_details.get("typed_candidate_answer") or ""),
+            "typed_candidate_resolver": str(override_details.get("typed_candidate_resolver") or ""),
+            "all_three_wrong_chain_supported": bool(override_details.get("all_three_wrong_chain_supported")),
+        }
+    )
+    router_row = _build_adaptive_router_row(
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        gate_decision=gate_decision,
+        stage_a_answer=stage_a_answer,
+        stage_a_score=stage_a_score,
+        pre_answer=pre_route_answer,
+        pre_resolver=pre_route_resolver,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_resolver=accepted_resolver,
+        extra_fields=_build_v7_router_extra_fields(
+            sample=sample,
+            benchmark_slug=benchmark_slug,
+            core_stage_a_rows=core_stage_a_rows,
+            stage_a_answer=stage_a_answer,
+            stage_a_score=stage_a_score,
+            stage_a_weighted_support=stage_a_weighted_support,
+            pre_route_answer=pre_route_answer,
+            pre_route_score=pre_route_score,
+            pre_route_resolver=pre_route_resolver,
+            final_answer=normalized_final_answer,
+            final_score=final_score,
+            meta_payload=meta_payload,
+            override_details=override_details,
+        ),
+    )
+    router_row.update(
+        {
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": adaptive_trace_hash,
+            "meta_router_trace_hash": stable_trace_hash(meta_router_row),
+            "debate_triggered": False,
+            "debate_rounds": 0,
+            "debate_trace_hash": "",
+        }
+    )
+    prediction_row = _build_adaptive_prediction_row(
+        method_name=method_name,
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        backbone=backbone,
+        final_rows=final_stage_rows,
+        extra_cost_rows=[meta_router_row],
+        confidence_rows=final_stage_rows,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_support=accepted_support,
+        final_resolver=accepted_resolver,
+        adaptive_trace_hash=adaptive_trace_hash,
+        triggered=should_trigger,
+        baseline_answer=stage_a_answer,
+        baseline_score=stage_a_score,
+    )
+    if method_name == ADAPTIVE_SPARSE_META_HEAD_METHOD:
+        prediction_row["early_exit"] = True
+    prediction_row.update(
+        {
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": adaptive_trace_hash,
+            "meta_router_trace_hash": stable_trace_hash(meta_router_row),
+            "meta_router_used_fallback": bool(meta_payload.get("used_fallback")),
+            "pre_route_answer": pre_route_answer,
+            "pre_route_resolver": pre_route_resolver,
+            "pre_route_score": pre_route_score,
+        }
+    )
+    return adaptive_rows, router_row, prediction_row
+
+
+def _replay_v7_variant(
+    *,
+    method_name: str,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    sample: DatasetSample,
+    backbone,
+    protocol: AdaptiveSparseMadProtocolConfig,
+    core_stage_a_rows: list[dict[str, Any]],
+    adaptive_rows: list[dict[str, Any]],
+    stage_a_answer: str,
+    stage_a_score: float,
+    stage_a_weighted_support: dict[str, float],
+    stage_a_resolver: str,
+    stage_a_trace_hash: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Replay the V7 meta-route variants from persisted rows."""
+    if method_name not in ADAPTIVE_SPARSE_V7_METHODS:
+        raise ValueError(f"Unsupported V7 replay method_name: {method_name}")
+
+    meta_router_row = next(
+        (row for row in adaptive_rows if str(row.get("stage_name") or "") == "meta_router"),
+        None,
+    )
+    if meta_router_row is None:
+        raise ValueError(f"Missing meta_router row for {method_name} replay on {benchmark_slug}:{sample.sample_id}")
+    meta_payload = _meta_router_payload_from_row(meta_router_row)
+    pre_route_answer, pre_route_support, pre_route_resolver, pre_route_score = _resolve_v7_pre_route_candidate(
+        sample=sample,
+        benchmark_slug=benchmark_slug,
+        protocol=protocol,
+        core_stage_a_rows=core_stage_a_rows,
+        stage_a_answer=stage_a_answer,
+        stage_a_weighted_support=stage_a_weighted_support,
+        stage_a_resolver=stage_a_resolver,
+        meta_payload=meta_payload,
+    )
+    error_mode = str(meta_payload.get("error_mode") or "clean_consensus")
+    should_trigger = bool(meta_payload.get("should_trigger")) and error_mode != "clean_consensus"
+    addon_rows = [row for row in adaptive_rows if str(row.get("stage_name") or "") != "meta_router"]
+    executed_addon_solvers = [str(row.get("solver_mode") or "") for row in addon_rows if str(row.get("solver_mode") or "")]
+    final_stage_rows = list(core_stage_a_rows)
+    if method_name == ADAPTIVE_SPARSE_META_ROUTE_METHOD and should_trigger:
+        final_stage_rows.extend(addon_rows)
+
+    accepted_answer = pre_route_answer or stage_a_answer
+    accepted_support = dict(pre_route_support or stage_a_weighted_support)
+    accepted_resolver = pre_route_resolver or stage_a_resolver
+    override_details = _default_v7_override_details()
+    if method_name == ADAPTIVE_SPARSE_META_ROUTE_METHOD and should_trigger:
+        if error_mode in {"pseudo_majority", "false_consensus"}:
+            accepted_answer, accepted_support, accepted_resolver, override_details = _resolve_v7_single_step_override(
+                sample=sample,
+                benchmark_slug=benchmark_slug,
+                protocol=protocol,
+                rows=final_stage_rows,
+                pre_route_answer=accepted_answer,
+                pre_route_support=accepted_support,
+                pre_route_resolver=accepted_resolver,
+            )
+        elif error_mode == "all_three_wrong_suspect":
+            accepted_answer, accepted_support, accepted_resolver, override_details = (
+                _resolve_v7_all_three_wrong_override(
+                    sample=sample,
+                    benchmark_slug=benchmark_slug,
+                    protocol=protocol,
+                    rows=final_stage_rows,
+                    addon_rows=addon_rows,
+                    pre_route_answer=accepted_answer,
+                    pre_route_support=accepted_support,
+                    pre_route_resolver=accepted_resolver,
+                )
+            )
+
+    normalized_final_answer = normalize_prediction(benchmark_slug, accepted_answer) if accepted_answer else ""
+    final_score = (
+        score_prediction(benchmark_slug, normalized_final_answer, sample.reference_answer)
+        if normalized_final_answer
+        else 0.0
+    )
+    adaptive_trace_hash = _trace_hash(
+        final_stage_rows,
+        ["agent_id", "solver_mode", "normalized_answer", "confidence_value", "output_status"],
+    )
+    gate_decision = _build_adaptive_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=core_stage_a_rows,
+        support=stage_a_weighted_support,
+        enable_false_consensus_probe=True,
+    )
+    gate_decision.update(
+        {
+            "policy_name": method_name,
+            "triggered": should_trigger,
+            "selected_addon_solver": executed_addon_solvers[0] if executed_addon_solvers else "",
+            "executed_addon_solvers": executed_addon_solvers,
+            "probe_accepted": bool(override_details.get("override_accepted") and error_mode == "false_consensus"),
+            "debate_after_probe_triggered": False,
+            "error_mode": error_mode,
+            "meta_router_selected_candidate": meta_payload.get("selected_candidate"),
+            "meta_router_confidence": meta_payload.get("router_confidence"),
+            "meta_router_reasoning_short": meta_payload.get("reasoning_short"),
+            "meta_router_should_trigger": bool(meta_payload.get("should_trigger")),
+            "recommended_solver_sequence": list(meta_payload.get("recommended_solver_sequence") or []),
+            "meta_router_used_fallback": bool(meta_payload.get("used_fallback")),
+            "override_accepted": bool(override_details.get("override_accepted")),
+            "override_rule": str(override_details.get("override_rule") or ""),
+            "override_margin": float(override_details.get("override_margin") or 0.0),
+            "typed_candidate_answer": str(override_details.get("typed_candidate_answer") or ""),
+            "typed_candidate_resolver": str(override_details.get("typed_candidate_resolver") or ""),
+            "all_three_wrong_chain_supported": bool(override_details.get("all_three_wrong_chain_supported")),
+        }
+    )
+    router_row = _build_adaptive_router_row(
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        gate_decision=gate_decision,
+        stage_a_answer=stage_a_answer,
+        stage_a_score=stage_a_score,
+        pre_answer=pre_route_answer,
+        pre_resolver=pre_route_resolver,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_resolver=accepted_resolver,
+        extra_fields=_build_v7_router_extra_fields(
+            sample=sample,
+            benchmark_slug=benchmark_slug,
+            core_stage_a_rows=core_stage_a_rows,
+            stage_a_answer=stage_a_answer,
+            stage_a_score=stage_a_score,
+            stage_a_weighted_support=stage_a_weighted_support,
+            pre_route_answer=pre_route_answer,
+            pre_route_score=pre_route_score,
+            pre_route_resolver=pre_route_resolver,
+            final_answer=normalized_final_answer,
+            final_score=final_score,
+            meta_payload=meta_payload,
+            override_details=override_details,
+        ),
+    )
+    router_row.update(
+        {
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": adaptive_trace_hash,
+            "meta_router_trace_hash": stable_trace_hash(meta_router_row),
+            "debate_triggered": False,
+            "debate_rounds": 0,
+            "debate_trace_hash": "",
+        }
+    )
+    prediction_row = _build_adaptive_prediction_row(
+        method_name=method_name,
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        backbone=backbone,
+        final_rows=final_stage_rows,
+        extra_cost_rows=[meta_router_row],
+        confidence_rows=final_stage_rows,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_support=accepted_support,
+        final_resolver=accepted_resolver,
+        adaptive_trace_hash=adaptive_trace_hash,
+        triggered=should_trigger,
+        baseline_answer=stage_a_answer,
+        baseline_score=stage_a_score,
+    )
+    if method_name == ADAPTIVE_SPARSE_META_HEAD_METHOD:
+        prediction_row["early_exit"] = True
+    prediction_row.update(
+        {
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": adaptive_trace_hash,
+            "meta_router_trace_hash": stable_trace_hash(meta_router_row),
+            "meta_router_used_fallback": bool(meta_payload.get("used_fallback")),
+            "pre_route_answer": pre_route_answer,
+            "pre_route_resolver": pre_route_resolver,
+            "pre_route_score": pre_route_score,
+        }
+    )
+    return router_row, prediction_row
+
+
+def _default_v7_override_details() -> dict[str, Any]:
+    return {
+        "override_accepted": False,
+        "override_rule": "",
+        "override_margin": 0.0,
+        "typed_candidate_answer": "",
+        "typed_candidate_resolver": "",
+        "all_three_wrong_chain_supported": False,
+    }
+
+
+def _resolve_v7_pre_route_candidate(
+    *,
+    sample: DatasetSample,
+    benchmark_slug: str,
+    protocol: AdaptiveSparseMadProtocolConfig,
+    core_stage_a_rows: list[dict[str, Any]],
+    stage_a_answer: str,
+    stage_a_weighted_support: dict[str, float],
+    stage_a_resolver: str,
+    meta_payload: dict[str, Any],
+) -> tuple[str, dict[str, float], str, float]:
+    selected_candidate = str(meta_payload.get("selected_candidate") or META_ROUTER_NO_CONFIDENT_CANDIDATE)
+    router_confidence = float(meta_payload.get("router_confidence") or 0.0)
+    selected_row = next(
+        (row for row in core_stage_a_rows if str(row.get("solver_mode") or "") == selected_candidate),
+        None,
+    )
+    selected_answer = normalize_prediction(
+        benchmark_slug,
+        str(selected_row.get("normalized_answer") or selected_row.get("prediction") or ""),
+    ) if selected_row is not None else ""
+    if (
+        selected_row is None
+        or selected_candidate == META_ROUTER_NO_CONFIDENT_CANDIDATE
+        or router_confidence < protocol.meta_router_confidence_threshold
+        or not _task_format_ok_for_adaptive_sample(benchmark_slug, selected_answer)
+        or selected_answer.lower() in {"", "unknown"}
+    ):
+        pre_route_answer = stage_a_answer
+        pre_route_resolver = stage_a_resolver
+        pre_route_support = dict(stage_a_weighted_support)
+    else:
+        pre_route_answer = selected_answer
+        pre_route_resolver = f"meta_router_head_v1:{selected_candidate}"
+        _, pre_route_support, _ = aggregate_evidence_grounded_stage_a(
+            core_stage_a_rows,
+            anchor_answer=pre_route_answer or stage_a_answer,
+            question=sample.question,
+        )
+    pre_route_score = (
+        score_prediction(benchmark_slug, pre_route_answer, sample.reference_answer) if pre_route_answer else 0.0
+    )
+    return pre_route_answer, pre_route_support, pre_route_resolver, pre_route_score
+
+
+def _resolve_v7_single_step_override(
+    *,
+    sample: DatasetSample,
+    benchmark_slug: str,
+    protocol: AdaptiveSparseMadProtocolConfig,
+    rows: list[dict[str, Any]],
+    pre_route_answer: str,
+    pre_route_support: dict[str, float],
+    pre_route_resolver: str,
+) -> tuple[str, dict[str, float], str, dict[str, Any]]:
+    del pre_route_support
+    evidence_answer, evidence_support, evidence_resolver = aggregate_evidence_grounded_stage_a(
+        rows,
+        anchor_answer=pre_route_answer,
+        question=sample.question,
+    )
+    family_answer, family_support, family_resolver = aggregate_family_slot_grounded_stage_a(
+        rows,
+        dataset=benchmark_slug,
+        question=sample.question,
+        promotion_gap_threshold=protocol.family_promotion_gap_threshold,
+    )
+    best_candidate = _pick_v7_override_candidate(
+        rows=rows,
+        benchmark_slug=benchmark_slug,
+        pre_route_answer=pre_route_answer,
+        typed_override_margin=protocol.typed_override_margin,
+        candidates=[
+            (evidence_answer, evidence_support, evidence_resolver),
+            (family_answer, family_support, family_resolver),
+        ],
+    )
+    if best_candidate is None:
+        return pre_route_answer, {}, pre_route_resolver, _default_v7_override_details()
+    candidate_answer, candidate_support, candidate_resolver, margin = best_candidate
+    return (
+        candidate_answer,
+        dict(candidate_support),
+        candidate_resolver,
+        {
+            "override_accepted": True,
+            "override_rule": "typed_margin_override",
+            "override_margin": margin,
+            "typed_candidate_answer": candidate_answer,
+            "typed_candidate_resolver": candidate_resolver,
+            "all_three_wrong_chain_supported": False,
+        },
+    )
+
+
+def _resolve_v7_all_three_wrong_override(
+    *,
+    sample: DatasetSample,
+    benchmark_slug: str,
+    protocol: AdaptiveSparseMadProtocolConfig,
+    rows: list[dict[str, Any]],
+    addon_rows: list[dict[str, Any]],
+    pre_route_answer: str,
+    pre_route_support: dict[str, float],
+    pre_route_resolver: str,
+) -> tuple[str, dict[str, float], str, dict[str, Any]]:
+    del pre_route_support
+    disconfirm_row = next(
+        (row for row in addon_rows if str(row.get("solver_mode") or "") == "solver_disconfirm"),
+        None,
+    )
+    verifier_row = next(
+        (row for row in reversed(addon_rows) if str(row.get("solver_mode") or "") != "solver_disconfirm"),
+        None,
+    )
+    if disconfirm_row is None or verifier_row is None:
+        return pre_route_answer, {}, pre_route_resolver, _default_v7_override_details()
+    disconfirm_answer = str(disconfirm_row.get("normalized_answer") or "").strip()
+    verifier_answer = str(verifier_row.get("normalized_answer") or "").strip()
+    if disconfirm_answer.lower() in {"", "unknown"} or verifier_answer.lower() in {"", "unknown"}:
+        return pre_route_answer, {}, pre_route_resolver, _default_v7_override_details()
+    chain_supported = _answers_share_family(disconfirm_answer, verifier_answer)
+    if protocol.all_three_wrong_double_support_required and not chain_supported:
+        return pre_route_answer, {}, pre_route_resolver, _default_v7_override_details()
+    candidate_answer = verifier_answer if chain_supported else disconfirm_answer
+    if _answers_share_family(candidate_answer, pre_route_answer):
+        return pre_route_answer, {}, pre_route_resolver, _default_v7_override_details()
+    if not _task_format_ok_for_adaptive_sample(benchmark_slug, candidate_answer):
+        return pre_route_answer, {}, pre_route_resolver, _default_v7_override_details()
+    if not _answer_has_clean_support(addon_rows, candidate_answer):
+        return pre_route_answer, {}, pre_route_resolver, _default_v7_override_details()
+    evidence_answer, evidence_support, evidence_resolver = aggregate_evidence_grounded_stage_a(
+        rows,
+        anchor_answer=candidate_answer,
+        question=sample.question,
+    )
+    family_answer, family_support, family_resolver = aggregate_family_slot_grounded_stage_a(
+        rows,
+        dataset=benchmark_slug,
+        question=sample.question,
+        promotion_gap_threshold=protocol.family_promotion_gap_threshold,
+    )
+    if _answers_share_family(family_answer, candidate_answer):
+        return (
+            family_answer,
+            dict(family_support),
+            family_resolver,
+            {
+                "override_accepted": True,
+                "override_rule": "all_three_wrong_double_support",
+                "override_margin": _support_margin(family_support, candidate_answer, pre_route_answer),
+                "typed_candidate_answer": family_answer,
+                "typed_candidate_resolver": family_resolver,
+                "all_three_wrong_chain_supported": chain_supported,
+            },
+        )
+    if _answers_share_family(evidence_answer, candidate_answer):
+        return (
+            evidence_answer,
+            dict(evidence_support),
+            evidence_resolver,
+            {
+                "override_accepted": True,
+                "override_rule": "all_three_wrong_double_support",
+                "override_margin": _support_margin(evidence_support, evidence_answer, pre_route_answer),
+                "typed_candidate_answer": evidence_answer,
+                "typed_candidate_resolver": evidence_resolver,
+                "all_three_wrong_chain_supported": chain_supported,
+            },
+        )
+    return pre_route_answer, {}, pre_route_resolver, _default_v7_override_details()
+
+
+def _pick_v7_override_candidate(
+    *,
+    rows: list[dict[str, Any]],
+    benchmark_slug: str,
+    pre_route_answer: str,
+    typed_override_margin: float,
+    candidates: list[tuple[str, dict[str, float], str]],
+) -> tuple[str, dict[str, float], str, float] | None:
+    best: tuple[str, dict[str, float], str, float] | None = None
+    for candidate_answer, candidate_support, candidate_resolver in candidates:
+        normalized_candidate = normalize_prediction(benchmark_slug, candidate_answer) if candidate_answer else ""
+        if normalized_candidate.lower() in {"", "unknown"}:
+            continue
+        if _answers_share_family(normalized_candidate, pre_route_answer):
+            continue
+        if not _task_format_ok_for_adaptive_sample(benchmark_slug, normalized_candidate):
+            continue
+        if not _answer_has_clean_support(rows, normalized_candidate):
+            continue
+        margin = _support_margin(candidate_support, normalized_candidate, pre_route_answer)
+        if margin < typed_override_margin:
+            continue
+        if best is None or margin > best[3]:
+            best = (normalized_candidate, candidate_support, candidate_resolver, margin)
+    return best
+
+
+def _answer_has_clean_support(rows: list[dict[str, Any]], answer: str) -> bool:
+    supporting_rows = [row for row in rows if _answers_share_family(str(row.get("normalized_answer") or ""), answer)]
+    return any(not _stage_a_row_is_degraded(row) for row in supporting_rows)
+
+
+def _select_stage_a_solver_for_answer(stage_a_rows: list[dict[str, Any]], answer: str) -> str:
+    matching_rows = [
+        row for row in stage_a_rows if _answers_share_family(str(row.get("normalized_answer") or ""), answer)
+    ]
+    if not matching_rows:
+        matching_rows = list(stage_a_rows)
+    if not matching_rows:
+        return META_ROUTER_NO_CONFIDENT_CANDIDATE
+    selected_row = max(
+        matching_rows,
+        key=lambda row: (
+            0 if _stage_a_row_is_degraded(row) else 1,
+            float(row.get("confidence_value") or 0.0),
+            -int(row.get("agent_id") or 0),
+        ),
+    )
+    return str(selected_row.get("solver_mode") or META_ROUTER_NO_CONFIDENT_CANDIDATE)
+
+
+def _support_margin(support: dict[str, float], candidate_answer: str, baseline_answer: str) -> float:
+    candidate_strength = float(support.get(candidate_answer, 0.0) or 0.0)
+    baseline_strength = float(support.get(baseline_answer, 0.0) or 0.0)
+    return round(candidate_strength - baseline_strength, 6)
+
+
+def _meta_router_payload_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    validated_output = row.get("validated_output")
+    if isinstance(validated_output, dict):
+        return {
+            "selected_candidate": str(validated_output.get("selected_candidate") or META_ROUTER_NO_CONFIDENT_CANDIDATE),
+            "error_mode": str(validated_output.get("error_mode") or "clean_consensus"),
+            "should_trigger": bool(validated_output.get("should_trigger")),
+            "recommended_solver_sequence": [str(item) for item in (validated_output.get("recommended_solver_sequence") or [])],
+            "router_confidence": float(validated_output.get("router_confidence") or 0.0),
+            "reasoning_short": str(validated_output.get("reasoning_short") or ""),
+            "used_fallback": bool(validated_output.get("used_fallback")),
+        }
+    return {
+        "selected_candidate": str(row.get("selected_candidate") or META_ROUTER_NO_CONFIDENT_CANDIDATE),
+        "error_mode": str(row.get("error_mode") or "clean_consensus"),
+        "should_trigger": bool(row.get("should_trigger")),
+        "recommended_solver_sequence": [str(item) for item in (row.get("recommended_solver_sequence") or [])],
+        "router_confidence": float(row.get("router_confidence") or 0.0),
+        "reasoning_short": str(row.get("reasoning_short") or ""),
+        "used_fallback": bool(row.get("meta_router_used_fallback")),
+    }
+
+
+def _build_v7_router_extra_fields(
+    *,
+    sample: DatasetSample,
+    benchmark_slug: str,
+    core_stage_a_rows: list[dict[str, Any]],
+    stage_a_answer: str,
+    stage_a_score: float,
+    stage_a_weighted_support: dict[str, float],
+    pre_route_answer: str,
+    pre_route_score: float,
+    pre_route_resolver: str,
+    final_answer: str,
+    final_score: float,
+    meta_payload: dict[str, Any],
+    override_details: dict[str, Any],
+) -> dict[str, Any]:
+    del stage_a_weighted_support
+    stage_a_prediction_row = {"prediction": stage_a_answer}
+    stage_a_error_bucket = (
+        "stage_a_correct"
+        if stage_a_score >= 1.0
+        else _classify_stage_a_error_bucket(core_stage_a_rows, prediction_row=stage_a_prediction_row)
+    )
+    stage_a_oracle_correct = any(float(row.get("score") or 0.0) >= 1.0 for row in core_stage_a_rows)
+    return {
+        "pre_route_answer": pre_route_answer,
+        "pre_route_resolver": pre_route_resolver,
+        "pre_route_score": pre_route_score,
+        "pre_route_correct": pre_route_score >= 1.0,
+        "pre_route_changed_answer": pre_route_answer != stage_a_answer,
+        "final_changed_vs_pre_route": final_answer != pre_route_answer,
+        "stage_a_oracle_correct": stage_a_oracle_correct,
+        "stage_a_error_bucket": stage_a_error_bucket,
+        "high_value_bucket": stage_a_error_bucket in {"clean_pseudo_majority", "confidence_miscalibration"},
+        "meta_router_selected_candidate": str(meta_payload.get("selected_candidate") or META_ROUTER_NO_CONFIDENT_CANDIDATE),
+        "meta_router_confidence": float(meta_payload.get("router_confidence") or 0.0),
+        "meta_router_should_trigger": bool(meta_payload.get("should_trigger")),
+        "meta_router_reasoning_short": str(meta_payload.get("reasoning_short") or ""),
+        "meta_router_recommended_solver_sequence": list(meta_payload.get("recommended_solver_sequence") or []),
+        "meta_router_used_fallback": bool(meta_payload.get("used_fallback")),
+        "override_accepted": bool(override_details.get("override_accepted")),
+        "override_rule": str(override_details.get("override_rule") or ""),
+        "override_margin": float(override_details.get("override_margin") or 0.0),
+        "typed_candidate_answer": str(override_details.get("typed_candidate_answer") or ""),
+        "typed_candidate_resolver": str(override_details.get("typed_candidate_resolver") or ""),
+        "all_three_wrong_chain_supported": bool(override_details.get("all_three_wrong_chain_supported")),
+        "final_correct": final_score >= 1.0,
+        "sample_dataset": sample.dataset,
+    }
+
+
+def _select_v7_solver_sequence(*, sample: DatasetSample, error_mode: str) -> list[str]:
+    if error_mode == "clean_consensus":
+        return []
+    verifier_solver = _select_v7_verifier_solver(sample)
+    if error_mode in {"pseudo_majority", "false_consensus"}:
+        return [verifier_solver]
+    if error_mode == "all_three_wrong_suspect":
+        return ["solver_disconfirm", verifier_solver]
+    return []
+
+
+def _select_v7_verifier_solver(sample: DatasetSample) -> str:
+    dataset = str(sample.dataset or "")
+    if dataset in {"hotpotqa", "webquestions"}:
+        return "solver_evidence"
+    if dataset in {"strategyqa", "mmlu_pro"} or _question_looks_mathy(sample.question):
+        return "solver_verify"
+    if _sample_is_multiple_choice(sample):
+        return "solver_option_elim"
+    if sample.prompt_context:
+        return "solver_evidence"
+    return "solver_verify"
 
 
 def _replay_adaptive_variant(
@@ -2646,7 +3555,7 @@ def _replay_v6_variant(
         protocol=protocol,
         stage_a_rows=core_stage_a_rows,
         support=stage_a_weighted_support,
-        enable_false_consensus_probe=False,
+        enable_false_consensus_probe=method_name in FALSE_CONSENSUS_PROBE_METHODS,
     )
     gate_decision["policy_name"] = method_name
     gate_decision["selected_addon_solver"] = str(adaptive_rows[0].get("solver_mode") or "") if adaptive_rows else ""
@@ -3301,6 +4210,143 @@ def _count_reason_missing_turns(rows: list[dict[str, Any]]) -> int:
     return count
 
 
+def _execute_meta_router_turn(
+    *,
+    run_id: str,
+    dataset: str,
+    split_name: str,
+    sample: DatasetSample,
+    method_name: str,
+    backbone,
+    provider: OpenAICompatibleProvider,
+    cache: RequestCache,
+    throttle: RequestThrottle,
+    temperature: float,
+    top_p: float,
+    seed: int,
+    stage_a_rows: list[dict[str, Any]],
+    stage_a_answer: str,
+    stage_a_support: dict[str, float],
+    gate_decision: dict[str, Any],
+    stage_a_trace_hash: str,
+    protocol: AdaptiveSparseMadProtocolConfig,
+) -> dict[str, Any]:
+    """Execute the V7 meta-router head as a strict-JSON sidecar turn."""
+
+    def validator(raw_text: str, provider_reasoning_text: str) -> dict[str, Any]:
+        del provider_reasoning_text
+        return parse_meta_router_head_output(raw_text)
+
+    fallback_payload = _default_meta_router_payload(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=stage_a_rows,
+        stage_a_answer=stage_a_answer,
+        support=stage_a_support,
+        gate_decision=gate_decision,
+    )
+    result = execute_cached_turn(
+        backbone=backbone,
+        provider=provider,
+        cache=cache,
+        throttle=throttle,
+        messages=build_meta_router_head_messages(sample, stage_a_rows=stage_a_rows),
+        temperature=temperature,
+        top_p=top_p,
+        seed=seed,
+        validator=validator,
+        use_response_format=True,
+    )
+    used_fallback = result.output_status != "ok" or not isinstance(result.validated_output, dict)
+    validated = dict(result.validated_output) if isinstance(result.validated_output, dict) else {}
+    if used_fallback:
+        validated = dict(fallback_payload)
+    validated.setdefault("recommended_solver_sequence", fallback_payload["recommended_solver_sequence"])
+    validated["used_fallback"] = used_fallback
+    reasoning_short = str(validated.get("reasoning_short") or fallback_payload["reasoning_short"])
+    return {
+        "run_id": run_id,
+        "dataset": dataset,
+        "split": split_name,
+        "sample_id": sample.sample_id,
+        "question_preview": build_question_preview(sample.question),
+        "stage_name": "meta_router",
+        "method_name": "meta_router_head_v1",
+        "round_index": 0,
+        "agent_id": 0,
+        "role": "meta_router",
+        "prompt_hash": result.prompt_hash,
+        "output_status": result.output_status,
+        "prediction": "",
+        "normalized_answer": "",
+        "score": 0.0,
+        "reasoning": reasoning_short,
+        "confidence_raw": validated.get("router_confidence"),
+        "confidence_value": float(validated.get("router_confidence") or 0.0),
+        "confidence_valid": True,
+        "confidence_source": "meta_router_head",
+        "selected_candidate": validated.get("selected_candidate"),
+        "error_mode": validated.get("error_mode"),
+        "should_trigger": bool(validated.get("should_trigger")),
+        "recommended_solver_sequence": list(validated.get("recommended_solver_sequence") or []),
+        "router_confidence": float(validated.get("router_confidence") or 0.0),
+        "reasoning_short": reasoning_short,
+        "meta_router_used_fallback": used_fallback,
+        "prompt_tokens": float(result.usage.get("prompt_tokens") or 0.0),
+        "completion_tokens": float(result.usage.get("completion_tokens") or 0.0),
+        "total_tokens": float(result.usage.get("total_tokens") or 0.0),
+        "latency_ms": float(result.response_payload.get("latency_ms") or 0.0),
+        "cache_hit": result.cache_hit,
+        "request_error": result.request_error,
+        "assistant_text": result.response_payload.get("assistant_text", ""),
+        "provider_reasoning_text": result.response_payload.get("provider_reasoning_text", ""),
+        "validated_output": validated,
+        "adaptive_policy_name": method_name,
+        "adaptive_parent_trace_hash": stage_a_trace_hash,
+        "request_started_at": result.response_payload.get("request_started_at"),
+    }
+
+
+def _default_meta_router_payload(
+    *,
+    sample: DatasetSample | None,
+    protocol: AdaptiveSparseMadProtocolConfig,
+    stage_a_rows: list[dict[str, Any]],
+    stage_a_answer: str,
+    support: dict[str, float],
+    gate_decision: dict[str, Any],
+) -> dict[str, Any]:
+    grouped = _group_rows_by_answer(stage_a_rows)
+    unique_answer_count = len(grouped)
+    if unique_answer_count <= 1:
+        error_mode = "false_consensus" if gate_decision.get("false_consensus_risk") else "clean_consensus"
+    elif unique_answer_count >= 3:
+        error_mode = "all_three_wrong_suspect"
+    elif gate_decision.get("unknown_count") or gate_decision.get("degraded_count"):
+        error_mode = "all_three_wrong_suspect"
+    else:
+        error_mode = "pseudo_majority"
+    selected_candidate = _select_stage_a_solver_for_answer(stage_a_rows, stage_a_answer)
+    if error_mode == "all_three_wrong_suspect":
+        selected_candidate = META_ROUTER_NO_CONFIDENT_CANDIDATE
+    avg_confidence = gate_decision.get("avg_confidence")
+    top_support = float(gate_decision.get("top_support") or 0.0)
+    support_floor = max(1.0, float(protocol.agent_count or 3))
+    router_confidence = float(avg_confidence) if avg_confidence is not None else min(1.0, top_support / support_floor)
+    should_trigger = error_mode != "clean_consensus"
+    return {
+        "selected_candidate": selected_candidate or META_ROUTER_NO_CONFIDENT_CANDIDATE,
+        "error_mode": error_mode,
+        "should_trigger": should_trigger,
+        "recommended_solver_sequence": _select_v7_solver_sequence(
+            sample=sample if sample is not None else DatasetSample("", "", "", "", "", {}),
+            error_mode=error_mode,
+        ),
+        "router_confidence": round(router_confidence, 6),
+        "reasoning_short": "heuristic_meta_router_fallback",
+    }
+
+
 def _execute_turn(
     *,
     run_id: str,
@@ -3825,6 +4871,8 @@ def _build_adaptive_prediction_row(
     sample: DatasetSample,
     backbone,
     final_rows: list[dict[str, Any]],
+    extra_cost_rows: list[dict[str, Any]] | None = None,
+    confidence_rows: list[dict[str, Any]] | None = None,
     final_answer: str,
     final_score: float,
     final_support: dict[str, float],
@@ -3835,7 +4883,9 @@ def _build_adaptive_prediction_row(
     baseline_score: float,
 ) -> dict[str, Any]:
     """构造自适应聚合方法的 prediction 行。"""
-    costs = summarize_row_cost(final_rows)
+    cost_rows = list(final_rows) + list(extra_cost_rows or [])
+    confidence_source_rows = confidence_rows if confidence_rows is not None else final_rows
+    costs = summarize_row_cost(cost_rows)
     return {
         "run_id": run_id,
         "dataset": benchmark_slug,
@@ -3860,17 +4910,17 @@ def _build_adaptive_prediction_row(
         "debate_rounds": 0,
         "debate_tokens_per_question": 0.0,
         "debate_trace_hash": "",
-        "protocol_failures_per_question": _count_protocol_failures(final_rows),
-        "reason_missing_turns_per_question": _count_reason_missing_turns(final_rows),
+        "protocol_failures_per_question": _count_protocol_failures(cost_rows),
+        "reason_missing_turns_per_question": _count_reason_missing_turns(cost_rows),
         "prompt_tokens_per_question": costs["prompt_tokens"],
         "completion_tokens_per_question": costs["completion_tokens"],
         "total_tokens_per_question": costs["total_tokens"],
         "latency_ms_per_question": costs["latency_ms"],
-        "calls_per_question": len(final_rows),
-        "rows_with_request_failures": sum(1 for row in final_rows if row.get("output_status") == "request_fail"),
-        "rows_with_schema_failures": sum(1 for row in final_rows if row.get("output_status") == "schema_fail"),
+        "calls_per_question": len(cost_rows),
+        "rows_with_request_failures": sum(1 for row in cost_rows if row.get("output_status") == "request_fail"),
+        "rows_with_schema_failures": sum(1 for row in cost_rows if row.get("output_status") == "schema_fail"),
         "model_name": backbone.name,
-        "average_confidence": safe_mean(float(row.get("confidence_value") or 0.5) for row in final_rows),
+        "average_confidence": safe_mean(float(row.get("confidence_value") or 0.5) for row in confidence_source_rows),
     }
 
 
@@ -3888,9 +4938,10 @@ def _build_adaptive_router_row(
     final_answer: str,
     final_score: float,
     final_resolver: str,
+    extra_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """构造记录自适应触发原因和最终答案变化的 router 行。"""
-    return {
+    row = {
         "run_id": run_id,
         "dataset": benchmark_slug,
         "split": split_name,
@@ -3927,6 +4978,9 @@ def _build_adaptive_router_row(
         "corrected_by_method": final_score >= 1.0 and stage_a_score < 1.0,
         "harmed_by_method": final_score < 1.0 and stage_a_score >= 1.0,
     }
+    if extra_fields:
+        row.update(extra_fields)
+    return row
 
 
 def _build_aggregate_prediction_row(

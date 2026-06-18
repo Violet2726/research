@@ -533,6 +533,37 @@ def test_adaptive_sparse_mad_main_v6_inspect_cli() -> None:
     assert payload["adaptive_response_format_mode"] == "free_text"
 
 
+def test_adaptive_sparse_mad_main_v7_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "experiment",
+            "--family",
+            "adaptive_sparse_mad",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/adaptive_sparse_mad/experiments/same_context_main_v7.toml",
+        ],
+    )
+    assert payload["name"] == "same_context_main_v7"
+    assert payload["benchmarks"] == ["math500", "hotpotqa", "gpqa_diamond", "strategyqa", "mmlu_pro"]
+    assert payload["methods"] == [
+        "cot_1",
+        "sc_3",
+        "sc_5",
+        "hetero_vote_3",
+        "adaptive_sparse_rescue_only_v1",
+        "adaptive_sparse_debate_v1",
+        "adaptive_sparse_meta_head_v7",
+        "adaptive_sparse_meta_route_v7",
+    ]
+    assert payload["protocol"]["meta_router_confidence_threshold"] == 0.65
+    assert payload["protocol"]["typed_override_margin"] == 0.15
+    assert payload["protocol"]["all_three_wrong_double_support_required"] is True
+    assert payload["stage_a_response_format_mode"] == "json_object"
+    assert payload["adaptive_response_format_mode"] == "json_object"
+
+
 def test_adaptive_sparse_mad_main_v5_json_legacy_inspect_cli() -> None:
     payload = run_cli_json(
         [

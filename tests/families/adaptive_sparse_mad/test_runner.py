@@ -25,17 +25,22 @@ from research_experiments.families.adaptive_sparse_mad.prompts import (
     STAGE_A_V2_PROMPT_VERSION,
     STAGE_A_V4_PROMPT_VERSION,
     build_adaptive_addon_messages,
+    build_meta_router_head_messages,
     build_sparse_debate_messages,
     build_stage_a_messages,
     parse_adaptive_sparse_mad_free_text_output,
+    parse_meta_router_head_output,
 )
 from research_experiments.families.adaptive_sparse_mad.run.sample import (
     _answers_share_family,
     _apply_stage_a_answer_slot_safeguard,
     _apply_stage_a_consistency_safeguard,
     _build_adaptive_gate_decision,
+    _default_meta_router_payload,
     _execute_control_turn,
     _execute_turn,
+    _resolve_v7_all_three_wrong_override,
+    _resolve_v7_single_step_override,
     _select_adaptive_addon_solver_sequence,
     _should_accept_counterfactual_override,
     _should_safe_retry_stage_a_result,
@@ -218,6 +223,68 @@ def test_parse_adaptive_sparse_mad_free_text_output_preserves_plain_math_answer(
 
     assert payload["final_answer"] == "x + 1"
     assert payload["confidence_raw"] == 0.75
+
+
+def test_parse_meta_router_head_output_normalizes_aliases_and_sequences() -> None:
+    payload = parse_meta_router_head_output(
+        """
+        {
+          "selected_candidate": "cot",
+          "error_mode": "pseudo_majority",
+          "should_trigger": true,
+          "recommended_solver_sequence": ["solver_verify"],
+          "router_confidence": "82%",
+          "reasoning_short": "  majority looks fragile but recoverable  "
+        }
+        """
+    )
+
+    assert payload == {
+        "selected_candidate": "solver_cot",
+        "error_mode": "pseudo_majority",
+        "should_trigger": True,
+        "recommended_solver_sequence": ["solver_verify"],
+        "router_confidence": 0.82,
+        "reasoning_short": "majority looks fragile but recoverable",
+    }
+
+
+def test_build_meta_router_head_messages_includes_strict_json_contract() -> None:
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which language is spoken there?",
+        reference_answer="French",
+        prompt_context="The town is in Quebec, where French is spoken.",
+        metadata={},
+    )
+
+    messages = build_meta_router_head_messages(
+        sample,
+        stage_a_rows=[
+            {
+                "solver_mode": "solver_cot",
+                "normalized_answer": "french",
+                "confidence_value": 0.9,
+                "reasoning": "Quebec implies French.",
+                "key_evidence": "French is spoken in Quebec.",
+            },
+            {
+                "solver_mode": "solver_l2m",
+                "normalized_answer": "english",
+                "confidence_value": 0.5,
+                "reasoning": "Nearby regions use English.",
+                "key_evidence": "English appears elsewhere.",
+            },
+        ],
+    )
+
+    assert messages[0]["role"] == "system"
+    assert "Return exactly one JSON object." in messages[0]["content"]
+    assert messages[1]["role"] == "user"
+    assert "selected_candidate" in messages[1]["content"]
+    assert "recommended_solver_sequence" in messages[1]["content"]
+    assert "no_confident_candidate" in messages[1]["content"]
 
 
 def test_build_sparse_debate_messages_includes_peer_evidence_prior_answer_and_gate_reasons() -> None:
@@ -1367,6 +1434,12 @@ def test_build_router_eval_payload_summarizes_adaptive_router_rows() -> None:
                 "false_consensus_risk": True,
                 "probe_accepted": True,
                 "debate_after_probe_triggered": False,
+                "baseline_score": 0.0,
+                "stage_a_oracle_correct": True,
+                "pre_route_correct": True,
+                "stage_a_error_bucket": "clean_pseudo_majority",
+                "high_value_bucket": True,
+                "override_accepted": True,
             },
             {
                 "dataset": "hotpotqa",
@@ -1382,6 +1455,12 @@ def test_build_router_eval_payload_summarizes_adaptive_router_rows() -> None:
                 "false_consensus_risk": False,
                 "probe_accepted": False,
                 "debate_after_probe_triggered": False,
+                "baseline_score": 1.0,
+                "stage_a_oracle_correct": True,
+                "pre_route_correct": True,
+                "stage_a_error_bucket": "stage_a_correct",
+                "high_value_bucket": False,
+                "override_accepted": False,
             },
         ]
     )
@@ -1391,6 +1470,19 @@ def test_build_router_eval_payload_summarizes_adaptive_router_rows() -> None:
     assert overall["corrected_count"] == 1
     assert overall["false_consensus_risk_rate"] == 0.5
     assert overall["probe_accepted_count"] == 1
+    assert overall["stage_a_oracle_accuracy"] == 1.0
+    assert overall["oracle_gap_vs_hetero"] == 0.5
+    assert overall["oracle_gap_capture_by_preroute"] == 1.0
+    assert overall["high_value_trigger_precision"] == 1.0
+    assert overall["high_value_trigger_recall"] == 1.0
+    assert overall["correct_to_wrong_rate_on_stage_a_correct"] == 0.0
+    clean_bucket = next(
+        row
+        for row in payload["bucket_rows"]
+        if row["dataset"] == "overall" and row["stage_a_error_bucket"] == "clean_pseudo_majority"
+    )
+    assert clean_bucket["override_accepted_rate"] == 1.0
+    assert clean_bucket["corrected_count"] == 1
 
 
 def test_build_router_eval_payload_separates_policy_variants() -> None:
@@ -1443,6 +1535,306 @@ def test_build_router_eval_payload_separates_policy_variants() -> None:
     assert dual_open_row["corrected_count"] == 0
     assert dual_open_row["false_consensus_risk_rate"] == 1.0
     assert dual_open_row["probe_accepted_count"] == 1
+
+
+def test_build_policy_diagnostics_preserves_router_summary_and_bucket_rows() -> None:
+    router_eval_payload = {
+        "summary_rows": [
+            {
+                "dataset": "overall",
+                "policy_name": "adaptive_sparse_meta_route_v7",
+                "trigger_rate": 0.3,
+            }
+        ],
+        "bucket_rows": [
+            {
+                "dataset": "overall",
+                "policy_name": "adaptive_sparse_meta_route_v7",
+                "stage_a_error_bucket": "clean_pseudo_majority",
+                "trigger_rate": 0.8,
+            }
+        ],
+    }
+    payload = build_policy_diagnostics(
+        prediction_rows=[
+            {
+                "dataset": "overall",
+                "method_name": "hetero_vote_3",
+                "score": 1.0,
+                "method_kind": "aggregate",
+            }
+        ],
+        router_eval_payload=router_eval_payload,
+    )
+
+    assert payload["router_summary_rows"] == router_eval_payload["summary_rows"]
+    assert payload["router_bucket_rows"] == router_eval_payload["bucket_rows"]
+
+
+def test_default_meta_router_payload_assigns_typed_sequences() -> None:
+    protocol = AdaptiveSparseMadProtocolConfig(
+        agent_count=3,
+        top_p=1.0,
+        stage_a_temperature=0.7,
+        consensus_confidence_threshold=0.65,
+        majority_confidence_threshold=0.6,
+        majority_margin_threshold=0.25,
+    )
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which language is spoken there?",
+        reference_answer="French",
+        prompt_context="The town is in Quebec, where French is spoken.",
+        metadata={},
+    )
+
+    false_consensus_payload = _default_meta_router_payload(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=[
+            {"solver_mode": "solver_cot", "normalized_answer": "french", "confidence_value": 0.9},
+            {"solver_mode": "solver_l2m", "normalized_answer": "french", "confidence_value": 0.8},
+            {"solver_mode": "solver_skeptic", "normalized_answer": "french", "confidence_value": 0.7},
+        ],
+        stage_a_answer="french",
+        support={"french": 2.4},
+        gate_decision={"false_consensus_risk": True, "avg_confidence": 0.8, "top_support": 2.4},
+    )
+    pseudo_majority_payload = _default_meta_router_payload(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=[
+            {"solver_mode": "solver_cot", "normalized_answer": "french", "confidence_value": 0.9},
+            {"solver_mode": "solver_l2m", "normalized_answer": "english", "confidence_value": 0.8},
+            {"solver_mode": "solver_skeptic", "normalized_answer": "french", "confidence_value": 0.7},
+        ],
+        stage_a_answer="french",
+        support={"french": 1.6, "english": 0.8},
+        gate_decision={"avg_confidence": 0.8, "top_support": 1.6},
+    )
+    all_three_wrong_payload = _default_meta_router_payload(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=[
+            {"solver_mode": "solver_cot", "normalized_answer": "french", "confidence_value": 0.9},
+            {"solver_mode": "solver_l2m", "normalized_answer": "english", "confidence_value": 0.8},
+            {"solver_mode": "solver_skeptic", "normalized_answer": "german", "confidence_value": 0.7},
+        ],
+        stage_a_answer="french",
+        support={"french": 0.9, "english": 0.8, "german": 0.7},
+        gate_decision={"avg_confidence": 0.8, "top_support": 0.9},
+    )
+
+    assert false_consensus_payload["error_mode"] == "false_consensus"
+    assert false_consensus_payload["recommended_solver_sequence"] == ["solver_evidence"]
+    assert pseudo_majority_payload["error_mode"] == "pseudo_majority"
+    assert pseudo_majority_payload["recommended_solver_sequence"] == ["solver_evidence"]
+    assert all_three_wrong_payload["error_mode"] == "all_three_wrong_suspect"
+    assert all_three_wrong_payload["selected_candidate"] == "no_confident_candidate"
+    assert all_three_wrong_payload["recommended_solver_sequence"] == ["solver_disconfirm", "solver_evidence"]
+
+
+def test_resolve_v7_single_step_override_accepts_grounded_verifier_flip() -> None:
+    protocol = AdaptiveSparseMadProtocolConfig(
+        agent_count=3,
+        top_p=1.0,
+        stage_a_temperature=0.7,
+        consensus_confidence_threshold=0.65,
+        majority_confidence_threshold=0.6,
+        majority_margin_threshold=0.25,
+        typed_override_margin=0.15,
+    )
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which language is spoken there?",
+        reference_answer="French",
+        prompt_context="The town is in Quebec, where French is spoken.",
+        metadata={},
+    )
+    rows = [
+        {
+            "solver_mode": "solver_cot",
+            "normalized_answer": "english",
+            "prediction": "english",
+            "score": 0.0,
+            "confidence_value": 0.8,
+            "claim_span": "English",
+            "key_evidence": "English appears nearby",
+            "answer_type": "language",
+            "key_constraints": "short exact span",
+        },
+        {
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "french",
+            "prediction": "french",
+            "score": 1.0,
+            "confidence_value": 0.7,
+            "claim_span": "French",
+            "key_evidence": "French is spoken",
+            "answer_type": "language",
+            "key_constraints": "short exact span",
+        },
+        {
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "french",
+            "prediction": "french",
+            "score": 1.0,
+            "confidence_value": 0.6,
+            "claim_span": "French",
+            "key_evidence": "French is spoken",
+            "answer_type": "language",
+            "key_constraints": "short exact span",
+        },
+        {
+            "solver_mode": "solver_evidence",
+            "normalized_answer": "french",
+            "prediction": "french",
+            "score": 1.0,
+            "confidence_value": 0.9,
+            "claim_span": "French",
+            "key_evidence": "French is spoken",
+            "answer_type": "language",
+            "key_constraints": "short exact span",
+        },
+    ]
+
+    answer, support, resolver, override = _resolve_v7_single_step_override(
+        sample=sample,
+        benchmark_slug="hotpotqa",
+        protocol=protocol,
+        rows=rows,
+        pre_route_answer="english",
+        pre_route_support={"english": 0.8},
+        pre_route_resolver="meta_router_head_v1:solver_cot",
+    )
+
+    assert answer == "french"
+    assert resolver == "evidence_grounded_score_vote"
+    assert support["french"] > support["english"]
+    assert override["override_accepted"] is True
+    assert override["override_rule"] == "typed_margin_override"
+    assert override["override_margin"] >= 0.15
+
+
+def test_resolve_v7_all_three_wrong_override_requires_double_support_and_novel_family() -> None:
+    protocol = AdaptiveSparseMadProtocolConfig(
+        agent_count=3,
+        top_p=1.0,
+        stage_a_temperature=0.7,
+        consensus_confidence_threshold=0.65,
+        majority_confidence_threshold=0.6,
+        majority_margin_threshold=0.25,
+    )
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which language is spoken there?",
+        reference_answer="French",
+        prompt_context="The town is in Quebec, where French is spoken.",
+        metadata={},
+    )
+    base_rows = [
+        {
+            "solver_mode": "solver_cot",
+            "normalized_answer": "english",
+            "prediction": "english",
+            "score": 0.0,
+            "confidence_value": 0.8,
+            "claim_span": "English",
+            "key_evidence": "English appears nearby",
+            "answer_type": "language",
+            "key_constraints": "short exact span",
+        },
+        {
+            "solver_mode": "solver_l2m",
+            "normalized_answer": "spanish",
+            "prediction": "spanish",
+            "score": 0.0,
+            "confidence_value": 0.7,
+            "claim_span": "Spanish",
+            "key_evidence": "Spanish appears nearby",
+            "answer_type": "language",
+            "key_constraints": "short exact span",
+        },
+        {
+            "solver_mode": "solver_skeptic",
+            "normalized_answer": "german",
+            "prediction": "german",
+            "score": 0.0,
+            "confidence_value": 0.6,
+            "claim_span": "German",
+            "key_evidence": "German appears nearby",
+            "answer_type": "language",
+            "key_constraints": "short exact span",
+        },
+    ]
+    supportive_addon_rows = [
+        {
+            "solver_mode": "solver_disconfirm",
+            "normalized_answer": "french",
+            "prediction": "french",
+            "score": 1.0,
+            "confidence_value": 0.8,
+            "claim_span": "French",
+            "key_evidence": "French is spoken",
+            "answer_type": "language",
+            "key_constraints": "short exact span",
+        },
+        {
+            "solver_mode": "solver_evidence",
+            "normalized_answer": "french",
+            "prediction": "french",
+            "score": 1.0,
+            "confidence_value": 0.9,
+            "claim_span": "French",
+            "key_evidence": "French is spoken",
+            "answer_type": "language",
+            "key_constraints": "short exact span",
+        },
+    ]
+
+    accepted_answer, _accepted_support, accepted_resolver, accepted_override = _resolve_v7_all_three_wrong_override(
+        sample=sample,
+        benchmark_slug="hotpotqa",
+        protocol=protocol,
+        rows=[*base_rows, *supportive_addon_rows],
+        addon_rows=supportive_addon_rows,
+        pre_route_answer="english",
+        pre_route_support={"english": 0.8},
+        pre_route_resolver="meta_router_head_v1:solver_cot",
+    )
+
+    assert accepted_answer == "french"
+    assert accepted_resolver in {"family_slot_grounded_score_vote", "evidence_grounded_score_vote"}
+    assert accepted_override["override_accepted"] is True
+    assert accepted_override["all_three_wrong_chain_supported"] is True
+
+    rejected_answer, _rejected_support, rejected_resolver, rejected_override = _resolve_v7_all_three_wrong_override(
+        sample=sample,
+        benchmark_slug="hotpotqa",
+        protocol=protocol,
+        rows=[*base_rows, *supportive_addon_rows],
+        addon_rows=[
+            supportive_addon_rows[0],
+            {
+                **supportive_addon_rows[1],
+                "normalized_answer": "spanish",
+                "prediction": "spanish",
+                "score": 0.0,
+                "claim_span": "Spanish",
+                "key_evidence": "Spanish is spoken",
+            },
+        ],
+        pre_route_answer="english",
+        pre_route_support={"english": 0.8},
+        pre_route_resolver="meta_router_head_v1:solver_cot",
+    )
+
+    assert rejected_answer == "english"
+    assert rejected_resolver == "meta_router_head_v1:solver_cot"
+    assert rejected_override["override_accepted"] is False
 
 
 def test_family_slot_grounded_stage_a_prefers_short_exact_open_qa_span() -> None:

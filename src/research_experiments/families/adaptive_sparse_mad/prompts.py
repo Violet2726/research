@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -33,6 +34,13 @@ ADAPTIVE_ADDON_SOLVER_MODES = (
     "solver_counterfactual",
     "solver_disconfirm",
 )
+META_ROUTER_ERROR_MODES = (
+    "clean_consensus",
+    "pseudo_majority",
+    "false_consensus",
+    "all_three_wrong_suspect",
+)
+META_ROUTER_NO_CONFIDENT_CANDIDATE = "no_confident_candidate"
 _MULTIPLE_CHOICE_DATASETS = {"mmlu_pro", "gpqa_diamond", "mmlu", "mmlu_abstract_algebra"}
 
 
@@ -158,6 +166,53 @@ def build_adaptive_addon_free_text_messages(
     ]
 
 
+def build_meta_router_head_messages(
+    sample: DatasetSample,
+    *,
+    stage_a_rows: list[dict[str, object]],
+) -> list[dict[str, str]]:
+    """Build the strict-JSON V7 meta-router prompt from the three Stage A packets."""
+    allowed_candidates = ", ".join([*SOLVER_MODES, META_ROUTER_NO_CONFIDENT_CANDIDATE])
+    allowed_error_modes = ", ".join(META_ROUTER_ERROR_MODES)
+    allowed_addons = ", ".join(ADAPTIVE_ADDON_SOLVER_MODES)
+    user_prompt = (
+        "You are the meta-router head for A-SMAD V7.\n"
+        "Read the Stage A candidate packets and decide whether this sample is already clean, is a pseudo-majority,"
+        " hides a false consensus, or looks like an all-three-wrong capacity failure.\n"
+        f"{_dataset_instruction(sample)}\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+    )
+    if sample.prompt_context:
+        user_prompt += f"Context:\n{sample.prompt_context}\n\n"
+    user_prompt += "Stage A candidate summary:\n"
+    user_prompt += _format_stage_a_candidate_summary(stage_a_rows)
+    user_prompt += (
+        "\nReturn exactly one JSON object with keys "
+        '{"selected_candidate":"solver label","error_mode":"mode","should_trigger":true,'
+        '"recommended_solver_sequence":["solver_a","solver_b"],"router_confidence":0.0,"reasoning_short":"brief rationale"}.\n'
+        f"- selected_candidate must be one of: {allowed_candidates}.\n"
+        f"- error_mode must be one of: {allowed_error_modes}.\n"
+        f"- recommended_solver_sequence may only use: {allowed_addons}.\n"
+        "- Keep reasoning_short under 40 words.\n"
+        "- Do not propose a new final answer. Only pick an existing candidate label or no_confident_candidate.\n"
+        "- If error_mode is clean_consensus, should_trigger should usually be false and recommended_solver_sequence should be []."
+    )
+    return [
+        {
+            "role": "system",
+            "content": build_json_system_prompt(
+                "You are a precise routing assistant for controlled reasoning experiments.",
+                extra_rules=[
+                    "Return exactly one JSON object.",
+                    "Do not add markdown, code fences, or extra commentary.",
+                    "Use only the allowed enum values provided by the user.",
+                ],
+            ),
+        },
+        {"role": "user", "content": user_prompt},
+    ]
+
+
 def build_sparse_debate_messages(
     sample: DatasetSample,
     *,
@@ -171,8 +226,39 @@ def build_sparse_debate_messages(
 ) -> list[dict[str, str]]:
     """Build one cross-examination revision prompt for trigger-only A-SMAD debate."""
     _ensure_prompt_version(prompt_version)
+    if prompt_version == STAGE_A_V4_PROMPT_VERSION:
+        user_prompt = (
+            f"You are agent_{agent_id} in debate revision round {round_index} of A-SMAD.\n"
+            f"{_dataset_instruction(sample)}\n"
+            f"Question:\n{sample.question.strip()}\n\n"
+        )
+        if sample.prompt_context:
+            user_prompt += f"Context:\n{sample.prompt_context}\n\n"
+        user_prompt += (
+            "Your prior answer packet:\n"
+            f"- answer=`{_row_answer(own_row) or 'unknown'}`\n"
+            f"- reasoning=`{_row_reasoning(own_row) or 'n/a'}`\n"
+            f"- evidence=`{_row_evidence(own_row) or 'n/a'}`\n"
+            f"- confidence=`{own_row.get('confidence_value') if own_row.get('confidence_value') is not None else 'unknown'}`\n\n"
+            "Peer answers and evidence:\n"
+            f"{_format_debate_peer_summary(peer_rows)}\n"
+            f"Gate reasons: {', '.join(str(item) for item in (gate_decision.get('trigger_reasons') or [])) or 'none'}.\n"
+            f"Current leading answer family: `{leading_answer or 'unknown'}`.\n\n"
+            "Cross-examine the peers and your own prior answer. Preserve the correct answer slot, and revise only when another candidate is better grounded.\n"
+            'Return exactly one JSON object with keys '
+            '{"reasoning":"brief reasoning","final_answer":"answer","answer_type":"type","key_constraints":"short constraints",'
+            '"failure_risk":"short risk","confidence_raw":0.0,"claim_span":"exact answer span or canonical slot",'
+            '"key_evidence":"short supporting snippet","uncertainty_type":"short label","selected_candidate":"solver label or novel_answer","revision_note":"short change note"}.\n'
+            "Use confidence_raw on a 0 to 1 scale.\n"
+            "If you keep an existing candidate family, selected_candidate should name that solver. "
+            "If every existing candidate is wrong and you propose a new answer family, selected_candidate should be `novel_answer`."
+        )
+        return [
+            {"role": "system", "content": _schema_solver_v4_system_prompt()},
+            {"role": "user", "content": user_prompt},
+        ]
     if prompt_version != FREE_TEXT_DEBATE_PROMPT_VERSION:
-        raise ValueError("Sparse debate messages require the free-text debate prompt version.")
+        raise ValueError("Sparse debate messages require the free-text debate or v4 structured prompt version.")
     user_prompt = (
         f"You are agent_{agent_id} in debate revision round {round_index} of A-SMAD.\n"
         f"{_dataset_instruction(sample)}\n"
@@ -241,6 +327,37 @@ def parse_adaptive_sparse_mad_free_text_output(raw_text: str, *, dataset: str) -
     if not task_format_ok(dataset, final_answer):
         payload["format_warning"] = "free_text_answer_outside_task_format"
     return payload
+
+
+def parse_meta_router_head_output(raw_text: str) -> dict[str, Any]:
+    """Parse and normalize the strict-JSON V7 meta-router output."""
+    cleaned = _strip_code_fences(str(raw_text or "").strip())
+    if not cleaned:
+        raise ValueError("Meta-router output is empty.")
+    try:
+        payload = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Meta-router output must be valid JSON.") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Meta-router output must be a JSON object.")
+    selected_candidate = _normalize_meta_router_selected_candidate(payload.get("selected_candidate"))
+    error_mode = _normalize_meta_router_error_mode(payload.get("error_mode"))
+    should_trigger = payload.get("should_trigger")
+    if not isinstance(should_trigger, bool):
+        raise ValueError("Meta-router should_trigger must be boolean.")
+    recommended_solver_sequence = _normalize_meta_router_solver_sequence(payload.get("recommended_solver_sequence"))
+    router_confidence = _parse_confidence(str(payload.get("router_confidence") or ""))
+    reasoning_short = _collapse_whitespace(str(payload.get("reasoning_short") or "").strip())
+    if not reasoning_short:
+        raise ValueError("Meta-router reasoning_short must be non-empty.")
+    return {
+        "selected_candidate": selected_candidate,
+        "error_mode": error_mode,
+        "should_trigger": should_trigger,
+        "recommended_solver_sequence": recommended_solver_sequence,
+        "router_confidence": router_confidence,
+        "reasoning_short": reasoning_short,
+    }
 
 
 def _build_stage_a_v2_messages(
@@ -551,6 +668,42 @@ def _row_reasoning(row: dict[str, object]) -> str:
 
 def _row_evidence(row: dict[str, object]) -> str:
     return str(row.get("key_evidence") or row.get("claim_span") or "").strip()
+
+
+def _normalize_meta_router_selected_candidate(value: object) -> str:
+    normalized = str(value or "").strip().lower().replace("agent_", "solver_")
+    aliases = {
+        "cot": "solver_cot",
+        "l2m": "solver_l2m",
+        "skeptic": "solver_skeptic",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized in SOLVER_MODES:
+        return normalized
+    if normalized == META_ROUTER_NO_CONFIDENT_CANDIDATE:
+        return normalized
+    raise ValueError("Meta-router selected_candidate must be a known Stage A solver label.")
+
+
+def _normalize_meta_router_error_mode(value: object) -> str:
+    normalized = _collapse_whitespace(str(value or "").strip().lower())
+    if normalized not in META_ROUTER_ERROR_MODES:
+        raise ValueError("Meta-router error_mode must use a supported enum value.")
+    return normalized
+
+
+def _normalize_meta_router_solver_sequence(value: object) -> list[str]:
+    if value in (None, ""):
+        return []
+    if not isinstance(value, list):
+        raise ValueError("Meta-router recommended_solver_sequence must be a JSON array.")
+    normalized: list[str] = []
+    for item in value:
+        solver_name = _collapse_whitespace(str(item or "").strip())
+        if solver_name not in ADAPTIVE_ADDON_SOLVER_MODES:
+            raise ValueError("Meta-router recommended_solver_sequence contains an unsupported solver.")
+        normalized.append(solver_name)
+    return normalized
 
 
 def _extract_tagged_values(text: str) -> dict[str, str]:

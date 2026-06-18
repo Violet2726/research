@@ -112,6 +112,12 @@ def run_experiment(
                 if protocol.debate_temperature is not None
                 else protocol.stage_a_temperature,
                 "debate_trigger_mode": protocol.debate_trigger_mode,
+                "false_consensus_confidence_threshold": protocol.false_consensus_confidence_threshold,
+                "family_promotion_gap_threshold": protocol.family_promotion_gap_threshold,
+                "post_probe_debate_gap_threshold": protocol.post_probe_debate_gap_threshold,
+                "meta_router_confidence_threshold": protocol.meta_router_confidence_threshold,
+                "typed_override_margin": protocol.typed_override_margin,
+                "all_three_wrong_double_support_required": protocol.all_three_wrong_double_support_required,
             },
             "controls": {name: method.__dict__ for name, method in controls.items()},
             "aggregate_methods": list(experiment.aggregate_methods),
@@ -259,6 +265,16 @@ def refresh_stage_a_only_run_artifacts(run_dir: str | Path) -> Path:
             or 0.7
         ),
         debate_trigger_mode=str(protocol_payload.get("debate_trigger_mode") or "adaptive_gate"),
+        false_consensus_confidence_threshold=float(
+            protocol_payload.get("false_consensus_confidence_threshold") or 0.9
+        ),
+        family_promotion_gap_threshold=float(protocol_payload.get("family_promotion_gap_threshold") or 0.35),
+        post_probe_debate_gap_threshold=float(protocol_payload.get("post_probe_debate_gap_threshold") or 0.35),
+        meta_router_confidence_threshold=float(protocol_payload.get("meta_router_confidence_threshold") or 0.65),
+        typed_override_margin=float(protocol_payload.get("typed_override_margin") or 0.15),
+        all_three_wrong_double_support_required=bool(
+            protocol_payload.get("all_three_wrong_double_support_required", True)
+        ),
     )
     model_name = str((manifest.get("resolved_model") or {}).get("name") or manifest.get("primary_model_ref") or "unknown_model")
     stage_a_rows = read_jsonl(root / "turns" / "stage_a_turns.jsonl")
