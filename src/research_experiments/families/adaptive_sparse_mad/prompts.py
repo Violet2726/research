@@ -10,7 +10,7 @@ import json
 import re
 from typing import Any
 
-from research_experiments.core.controls.control_prompts import build_cot_messages
+from research_experiments.core.controls.control_prompts import FREE_TEXT_V1_PROMPT_VERSION, build_cot_messages
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.prompts.dataset_contracts import build_json_system_prompt, dataset_instruction_for_sample
 from research_experiments.family_runtime.free_text_protocol import build_free_text_system_prompt, task_format_ok
@@ -19,11 +19,13 @@ from research_experiments.family_runtime.reasoning_methods import resolve_reason
 STAGE_A_V2_PROMPT_VERSION = "adaptive_sparse_mad_v2_task_schema"
 STAGE_A_V4_PROMPT_VERSION = "adaptive_sparse_mad_v4_evidence_gate"
 FREE_TEXT_DEBATE_PROMPT_VERSION = "adaptive_sparse_mad_free_text_debate_v1"
+COT_GLOBAL_SYNC_PROMPT_VERSION = "adaptive_sparse_mad_cot_global_sync_v1"
 DEFAULT_PROMPT_VERSION = STAGE_A_V2_PROMPT_VERSION
 _SUPPORTED_PROMPT_VERSIONS = {
     STAGE_A_V2_PROMPT_VERSION,
     STAGE_A_V4_PROMPT_VERSION,
     FREE_TEXT_DEBATE_PROMPT_VERSION,
+    COT_GLOBAL_SYNC_PROMPT_VERSION,
 }
 SOLVER_MODES = ("solver_cot", "solver_l2m", "solver_skeptic")
 ADAPTIVE_ADDON_SOLVER_MODES = (
@@ -53,8 +55,17 @@ def build_stage_a_messages(
 ) -> list[dict[str, str]]:
     """构造核心 Stage A solver 消息，并按版本选择 v2 或 v4 schema。"""
     _ensure_prompt_version(prompt_version)
-    if prompt_version == FREE_TEXT_DEBATE_PROMPT_VERSION:
-        return build_stage_a_free_text_messages(sample, solver_mode=solver_mode, agent_id=agent_id)
+    if prompt_version == COT_GLOBAL_SYNC_PROMPT_VERSION:
+        if solver_mode != "solver_cot":
+            raise ValueError("adaptive_sparse_mad_cot_global_sync_v1 only supports solver_cot in Stage A.")
+        return build_cot_messages(sample, agent_id, FREE_TEXT_V1_PROMPT_VERSION)
+    if prompt_version in {FREE_TEXT_DEBATE_PROMPT_VERSION, COT_GLOBAL_SYNC_PROMPT_VERSION}:
+        return build_stage_a_free_text_messages(
+            sample,
+            solver_mode=solver_mode,
+            agent_id=agent_id,
+            prompt_version=prompt_version,
+        )
     if solver_mode == "solver_cot" and prompt_version == STAGE_A_V2_PROMPT_VERSION:
         return build_cot_messages(sample, agent_id, None)
     if prompt_version == STAGE_A_V4_PROMPT_VERSION:
@@ -98,11 +109,17 @@ def build_stage_a_free_text_messages(
     *,
     solver_mode: str,
     agent_id: int,
+    prompt_version: str = FREE_TEXT_DEBATE_PROMPT_VERSION,
 ) -> list[dict[str, str]]:
     """Build Stage A messages for the enhanced free-text A-SMAD protocol."""
+    if prompt_version == COT_GLOBAL_SYNC_PROMPT_VERSION:
+        return build_cot_messages(sample, agent_id, FREE_TEXT_V1_PROMPT_VERSION)
     instruction = _stage_a_v2_instruction(sample.dataset, solver_mode)
+    stage_label = "adaptive heterogeneous reasoning experiment"
+    if prompt_version == COT_GLOBAL_SYNC_PROMPT_VERSION:
+        stage_label = "5-agent homogeneous CoT reasoning experiment"
     user_prompt = (
-        f"You are agent_{agent_id} in Stage A of an adaptive heterogeneous reasoning experiment.\n"
+        f"You are agent_{agent_id} in Stage A of a {stage_label}.\n"
         f"Solver role: {instruction['label']}\n"
         f"Role summary: {instruction['summary']}\n"
         f"Role guidance: {instruction['guidance']}\n"
@@ -119,6 +136,63 @@ def build_stage_a_free_text_messages(
     )
     return [
         {"role": "system", "content": _free_text_solver_system_prompt()},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_global_sync_audit_messages(
+    sample: DatasetSample,
+    *,
+    agent_id: int,
+    own_row: dict[str, object],
+    stage_a_rows: list[dict[str, object]],
+    candidate_board: list[dict[str, object]],
+    gate_decision: dict[str, object],
+    stage_a_majority_answer: str,
+) -> list[dict[str, str]]:
+    """Backward-compatible wrapper for the budgeted V9 certificate prompt."""
+    return build_global_sync_certificate_messages(
+        sample,
+        agent_id=agent_id,
+        own_row=own_row,
+        candidate_board=candidate_board,
+        gate_decision=gate_decision,
+        stage_a_majority_answer=stage_a_majority_answer,
+    )
+
+
+def build_global_sync_certificate_messages(
+    sample: DatasetSample,
+    *,
+    agent_id: int,
+    own_row: dict[str, object],
+    candidate_board: list[dict[str, object]],
+    gate_decision: dict[str, object],
+    stage_a_majority_answer: str,
+    own_prior_max_chars: int = 120,
+) -> list[dict[str, str]]:
+    """Build the budgeted synchronized certificate prompt used by the V9 method."""
+    user_prompt = (
+        f"You are agent_{agent_id} in the budgeted certificate round of a 5-agent homogeneous CoT experiment.\n"
+        f"{_dataset_instruction(sample)}\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+    )
+    user_prompt += (
+        "Your prior answer summary:\n"
+        f"- answer=`{_row_answer(own_row) or 'unknown'}`\n"
+        f"- evidence_digest=`{_truncate_text(_row_evidence(own_row), own_prior_max_chars) or 'n/a'}`\n"
+        f"- confidence=`{own_row.get('confidence_value') if own_row.get('confidence_value') is not None else 'unknown'}`\n\n"
+        f"Gate reasons: {', '.join(str(item) for item in (gate_decision.get('trigger_reasons') or [])) or 'none'}.\n"
+        f"Stage A vote pattern: {str(gate_decision.get('vote_pattern') or 'unknown')}.\n"
+        f"Stage A majority answer: `{stage_a_majority_answer or 'unknown'}`.\n\n"
+        "Compressed Stage A candidate board:\n"
+        f"{_format_global_sync_candidate_board(candidate_board)}\n"
+        "Privately check the candidates briefly. Do not output a full chain of thought or restate peer reasoning.\n"
+        "Prefer the Stage A majority unless there is a concrete, checkable majority-error certificate.\n"
+        + _global_sync_certificate_protocol_instruction(sample.dataset)
+    )
+    return [
+        {"role": "system", "content": _free_text_debate_system_prompt()},
         {"role": "user", "content": user_prompt},
     ]
 
@@ -381,10 +455,57 @@ def parse_adaptive_sparse_mad_free_text_output(raw_text: str, *, dataset: str) -
         "failure_risk": values["FAILURE_RISK"],
         "selected_candidate": values.get("SELECTED_CANDIDATE"),
         "revision_note": values.get("REVISION_NOTE"),
+        "majority_error": values.get("MAJORITY_ERROR"),
         "output_protocol": FREE_TEXT_DEBATE_PROMPT_VERSION,
     }
     if not task_format_ok(dataset, final_answer):
         payload["format_warning"] = "free_text_answer_outside_task_format"
+    return payload
+
+
+def parse_global_sync_certificate_output(raw_text: str, *, dataset: str) -> dict[str, Any]:
+    """Parse the V9 budgeted certificate output into the Stage A row shape."""
+    cleaned = _strip_code_fences(str(raw_text or "").strip())
+    if not cleaned:
+        raise ValueError("Assistant output is empty.")
+    values = _extract_tagged_values(cleaned)
+    required_labels = (
+        "PREFERRED_FAMILY",
+        "FINAL_ANSWER",
+        "MAJORITY_ERROR",
+        "ERROR_TYPE",
+        "CERT_EVIDENCE",
+        "CONFIDENCE",
+        "REVISION_NOTE",
+    )
+    missing = [label for label in required_labels if not values.get(label)]
+    if missing:
+        raise ValueError(f"Missing required certificate tagged line(s): {', '.join(missing)}.")
+    confidence = _parse_confidence(values["CONFIDENCE"])
+    final_answer = _normalize_free_text_final_answer(values["FINAL_ANSWER"], dataset=dataset)
+    if not final_answer:
+        raise ValueError("FINAL_ANSWER must be non-empty.")
+    cert_evidence = values["CERT_EVIDENCE"]
+    payload: dict[str, Any] = {
+        "final_answer": final_answer,
+        "reasoning": cert_evidence,
+        "confidence_raw": confidence,
+        "answer_type": "global_sync_certificate",
+        "key_constraints": "budgeted_certificate",
+        "key_evidence": cert_evidence,
+        "claim_span": final_answer,
+        "failure_risk": "none",
+        "uncertainty_type": values["ERROR_TYPE"],
+        "selected_candidate": values["PREFERRED_FAMILY"],
+        "preferred_family": values["PREFERRED_FAMILY"],
+        "majority_error": values["MAJORITY_ERROR"],
+        "error_type": values["ERROR_TYPE"],
+        "cert_evidence": cert_evidence,
+        "revision_note": values["REVISION_NOTE"],
+        "output_protocol": COT_GLOBAL_SYNC_PROMPT_VERSION,
+    }
+    if not task_format_ok(dataset, final_answer):
+        payload["format_warning"] = "certificate_answer_outside_task_format"
     return payload
 
 
@@ -564,7 +685,9 @@ def build_stage_a_safe_retry_messages(
 ) -> list[dict[str, str]]:
     """构造 Stage A 兜底重试消息，优先恢复最短合法答案槽。"""
     _ensure_prompt_version(prompt_version)
-    if prompt_version == FREE_TEXT_DEBATE_PROMPT_VERSION:
+    if prompt_version == COT_GLOBAL_SYNC_PROMPT_VERSION:
+        return build_cot_messages(sample, agent_id, FREE_TEXT_V1_PROMPT_VERSION)
+    if prompt_version in {FREE_TEXT_DEBATE_PROMPT_VERSION, COT_GLOBAL_SYNC_PROMPT_VERSION}:
         user_prompt = (
             f"You are agent_{agent_id} in a fallback Stage A reasoning pass.\n"
             f"{_dataset_instruction(sample)}\n"
@@ -699,6 +822,7 @@ def _enhanced_free_text_protocol_instruction(
     *,
     selected_candidate: bool,
     revision_note: bool,
+    majority_error: bool = False,
 ) -> str:
     lines = [
         "Return only tagged lines in this exact order:",
@@ -712,6 +836,8 @@ def _enhanced_free_text_protocol_instruction(
     ]
     if selected_candidate:
         lines.append("SELECTED_CANDIDATE: <source candidate label or novel_answer>")
+    if majority_error:
+        lines.append("MAJORITY_ERROR: <none or a concise statement of why the Stage A majority is wrong>")
     if revision_note:
         lines.append("REVISION_NOTE: <defend_or_revise plus why>")
     lines.extend(
@@ -723,6 +849,31 @@ def _enhanced_free_text_protocol_instruction(
             "- Keep KEY_EVIDENCE short but specific enough for a deterministic resolver.",
         ]
     )
+    if dataset in _MULTIPLE_CHOICE_DATASETS:
+        lines.append('- FINAL_ANSWER must be exactly one visible option letter such as "A" or "B".')
+    elif dataset in {"gsm8k", "math500", "competition_math"}:
+        lines.append("- FINAL_ANSWER must use plain ASCII math only; do not use LaTeX commands or backslashes.")
+    elif dataset in {"hotpotqa", "webquestions"}:
+        lines.append("- FINAL_ANSWER must be the shortest judgeable text span.")
+    return "\n".join(lines)
+
+
+def _global_sync_certificate_protocol_instruction(dataset: str) -> str:
+    lines = [
+        "Return only tagged lines in this exact order:",
+        "PREFERRED_FAMILY: <family_id from the board or novel_answer>",
+        "FINAL_ANSWER: <canonical final answer only>",
+        "MAJORITY_ERROR: <none or one concrete reason the Stage A majority is wrong>",
+        "ERROR_TYPE: <none|format_error|constraint_miss|evidence_conflict|calculation_error|answer_slot_error|other>",
+        "CERT_EVIDENCE: <one short checkable evidence snippet or calculation>",
+        "CONFIDENCE: <number from 0.0 to 1.0>",
+        "REVISION_NOTE: <keep_majority or revise_to_family_id plus why>",
+        "Rules:",
+        "- Do not output a full chain of thought.",
+        "- Do not quote or summarize every peer rationale.",
+        "- MAJORITY_ERROR must be none unless you can state a specific checkable error.",
+        "- FINAL_ANSWER must contain only the answer, with no explanation.",
+    ]
     if dataset in _MULTIPLE_CHOICE_DATASETS:
         lines.append('- FINAL_ANSWER must be exactly one visible option letter such as "A" or "B".')
     elif dataset in {"gsm8k", "math500", "competition_math"}:
@@ -748,6 +899,28 @@ def _format_debate_peer_summary(peer_rows: list[dict[str, object]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _format_global_sync_candidate_board(candidate_board: list[dict[str, object]]) -> str:
+    if not candidate_board:
+        return "- no candidate families available\n"
+    lines: list[str] = []
+    for row in candidate_board:
+        risk_signals = row.get("risk_signals") or []
+        agent_ids = row.get("agent_ids") or []
+        evidence_digest = str(row.get("evidence_digest") or "").strip()
+        lines.append(
+            "- "
+            f"{str(row.get('family_id') or row.get('family_key') or 'unknown_family')}: "
+            f"answer=`{str(row.get('representative_answer') or 'unknown')}`, "
+            f"vote_count={row.get('vote_count')}, "
+            f"stage_a_support={row.get('stage_a_support')}, "
+            f"agent_ids=[{', '.join(str(item) for item in agent_ids) or 'none'}], "
+            f"avg_confidence={row.get('avg_confidence')}, "
+            f"risk_signals=[{', '.join(str(item) for item in risk_signals) or 'none'}], "
+            f"evidence_digest=`{evidence_digest or 'n/a'}`"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def _row_answer(row: dict[str, object]) -> str:
     return str(row.get("normalized_answer") or row.get("prediction") or "").strip()
 
@@ -758,6 +931,13 @@ def _row_reasoning(row: dict[str, object]) -> str:
 
 def _row_evidence(row: dict[str, object]) -> str:
     return str(row.get("key_evidence") or row.get("claim_span") or "").strip()
+
+
+def _truncate_text(value: object, max_chars: int) -> str:
+    text = _collapse_whitespace(str(value or "").strip())
+    if max_chars <= 0 or len(text) <= max_chars:
+        return text
+    return text[: max(0, max_chars - 3)].rstrip() + "..."
 
 
 def _normalize_meta_router_selected_candidate(value: object) -> str:
@@ -806,6 +986,7 @@ def _extract_tagged_values(text: str) -> dict[str, str]:
         "KEY_EVIDENCE",
         "FAILURE_RISK",
         "SELECTED_CANDIDATE",
+        "MAJORITY_ERROR",
         "REVISION_NOTE",
     }
     values: dict[str, str] = {}

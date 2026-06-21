@@ -110,6 +110,7 @@ def execute_cached_request(
     top_p: float,
     seed: int | None,
     use_response_format: bool = True,
+    max_tokens: int | None = None,
     request_executor: TurnRequestExecutor | None = None,
     response_hook: TurnResponseHook | None = None,
 ) -> CachedRequestResult:
@@ -122,6 +123,7 @@ def execute_cached_request(
         top_p=top_p,
         seed=seed,
         use_response_format=use_response_format,
+        max_tokens=max_tokens,
     )
     hashed_prompt = prompt_hash(messages)
     cache_key = build_request_cache_key(
@@ -182,6 +184,7 @@ def execute_cached_turn(
     schema_id: SchemaId | None = None,
     dataset: str | None = None,
     use_response_format: bool = True,
+    max_tokens: int | None = None,
     request_executor: TurnRequestExecutor | None = None,
     response_hook: TurnResponseHook | None = None,
 ) -> CachedTurnResult:
@@ -197,6 +200,7 @@ def execute_cached_turn(
         top_p=top_p,
         seed=seed,
         use_response_format=use_response_format,
+        max_tokens=max_tokens,
         request_executor=request_executor,
         response_hook=response_hook,
     )

@@ -630,6 +630,142 @@ def test_validate_run_requires_debate_messages_for_sparse_debate_manifest(tmp_pa
     assert present_result["checks"]["debate_messages_check"]["required"] is True
 
 
+def test_validate_run_requires_debate_messages_for_global_sync_manifest(tmp_path: Path) -> None:
+    write_registered_family_manifest(
+        tmp_path / "manifest.json",
+        family_name="adaptive_sparse_mad",
+        payload={
+            "aggregate_methods": ["cot_mad_global_sync_v1"],
+        },
+    )
+    write_json(tmp_path / "progress.json", {"rate_limit_429_count": 0})
+    write_json(
+        tmp_path / "views" / "metrics.json",
+        {
+            "summary": [
+                {
+                    "dataset": "overall",
+                    "method_name": "cot_mad_global_sync_v1",
+                    "accuracy_mean": 0.9,
+                    "trigger_rate": 0.4,
+                    "early_exit_rate": 0.6,
+                    "changed_answer_rate": 0.06,
+                    "corrected_rate": 0.05,
+                    "harmed_rate": 0.01,
+                    "total_tokens_mean": 1800.0,
+                }
+            ]
+        },
+    )
+    write_json(
+        tmp_path / "diagnostics" / "router_eval.json",
+        {
+            "summary_rows": [_adaptive_router_summary_row("cot_mad_global_sync_v1")],
+            "sample_rows": [],
+            "bucket_rows": [],
+        },
+    )
+    write_json(
+        tmp_path / "diagnostics" / "policy_diagnostics.json",
+        {
+            "policy_rows": [{"dataset": "overall", "method_name": "cot_mad_global_sync_v1"}],
+            "router_summary_rows": [_adaptive_router_summary_row("cot_mad_global_sync_v1")],
+            "router_bucket_rows": [],
+            "recommended_next_default_policy": {"selected_policy": "cot_mad_global_sync_v1"},
+        },
+    )
+    write_json(
+        tmp_path / "diagnostics" / "stage_a_resolver_breakdown.json",
+        {"summary_rows": [], "sample_rows": [], "example_rows": []},
+    )
+    write_json(
+        tmp_path / "diagnostics" / "stage_a_error_buckets.json",
+        {"summary": {"error_count": 0}, "dataset_rows": [], "sample_rows": [], "example_rows": []},
+    )
+    write_json(
+        tmp_path / "diagnostics" / "stage_a_solver_contributions.json",
+        {"summary_rows": [], "sample_pattern_rows": []},
+    )
+    touch_figure_contract(tmp_path)
+    write_jsonl(
+        tmp_path / "turns" / "stage_a_turns.jsonl",
+        [
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "s1",
+                "method_name": "solver_cot",
+                "output_status": "ok",
+                "cache_hit": True,
+                "request_started_at": "2026-06-05T00:00:00+00:00",
+                "core_stage_a": True,
+            }
+        ],
+    )
+    write_jsonl(
+        tmp_path / "turns" / "control_turns.jsonl",
+        [
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "s1",
+                "method_name": "cot_1",
+                "output_status": "ok",
+                "cache_hit": True,
+                "request_started_at": "2026-06-05T00:00:01+00:00",
+            }
+        ],
+    )
+    write_jsonl(
+        tmp_path / "turns" / "router_decisions.jsonl",
+        [
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "s1",
+                "policy_name": "cot_mad_global_sync_v1",
+                "triggered": True,
+                "selected_addon_solver": "",
+            }
+        ],
+    )
+    write_jsonl(
+        tmp_path / "views" / "predictions.jsonl",
+        [
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "s1",
+                "method_name": "cot_mad_global_sync_v1",
+                "method_kind": "aggregate",
+                "triggered": True,
+                "debate_triggered": True,
+                "early_exit": False,
+                "communication_tokens_per_question": 100.0,
+            },
+        ],
+    )
+
+    missing_result = validate_run(tmp_path)
+
+    assert missing_result["passed"] is False
+    assert "turns/debate_messages.jsonl" in missing_result["missing_files"]
+
+    write_jsonl(
+        tmp_path / "turns" / "debate_messages.jsonl",
+        [
+            {
+                "dataset": "hotpotqa",
+                "sample_id": "s1",
+                "sender_agent_id": 1,
+                "recipient_agent_id": 2,
+                "sender_answer": "french",
+                "gate_reasons": ["non_unanimous_vote"],
+            }
+        ],
+    )
+    present_result = validate_run(tmp_path)
+
+    assert present_result["passed"] is True
+    assert present_result["checks"]["debate_messages_check"]["required"] is True
+
+
 def test_validate_run_accepts_v7_meta_route_router_rows(tmp_path: Path) -> None:
     write_registered_family_manifest(
         tmp_path / "manifest.json",

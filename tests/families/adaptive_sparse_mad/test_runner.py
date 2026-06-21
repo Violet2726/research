@@ -16,15 +16,20 @@ from research_experiments.families.adaptive_sparse_mad.algorithms import (
     aggregate_family_slot_grounded_stage_a,
 )
 from research_experiments.families.adaptive_sparse_mad.config import (
+    COT_MAD_GLOBAL_SYNC_METHOD,
     AdaptiveSparseMadProtocolConfig,
     load_control_catalog,
     load_experiment_config,
+    load_protocol_config,
 )
 from research_experiments.families.adaptive_sparse_mad.prompts import (
+    COT_GLOBAL_SYNC_PROMPT_VERSION,
     FREE_TEXT_DEBATE_PROMPT_VERSION,
     STAGE_A_V2_PROMPT_VERSION,
     STAGE_A_V4_PROMPT_VERSION,
     build_adaptive_addon_messages,
+    build_global_sync_certificate_messages,
+    build_global_sync_audit_messages,
     build_meta_router_head_messages,
     build_sparse_debate_messages,
     build_stage_a_messages,
@@ -36,14 +41,18 @@ from research_experiments.families.adaptive_sparse_mad.run.sample import (
     _apply_stage_a_answer_slot_safeguard,
     _apply_stage_a_consistency_safeguard,
     _build_adaptive_gate_decision,
+    _build_global_sync_candidate_board,
+    _build_global_sync_gate_decision,
     _default_meta_router_payload,
     _execute_control_turn,
     _execute_turn,
+    _resolve_global_sync_audit_outcome,
     _resolve_v7_all_three_wrong_override,
     _resolve_v7_single_step_override,
     _select_adaptive_addon_solver_sequence,
     _should_accept_counterfactual_override,
     _should_safe_retry_stage_a_result,
+    _run_sample,
     _validate_control_output,
     _validate_stage_a_output,
     build_policy_diagnostics,
@@ -147,6 +156,26 @@ def test_stage_a_free_text_prompt_uses_required_tags_without_json_contract() -> 
     assert "CONFIDENCE:" in user_content
     assert "Return exactly one JSON object" not in user_content
     assert "strict JSON" not in messages[0]["content"]
+
+
+def test_stage_a_global_sync_prompt_reuses_sc5_aligned_free_text_prompt() -> None:
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which language is spoken there?",
+        reference_answer="French",
+        prompt_context="The town is in Quebec, where French is spoken.",
+        metadata={},
+    )
+
+    messages = build_stage_a_messages(
+        sample,
+        solver_mode="solver_cot",
+        agent_id=1,
+        prompt_version=COT_GLOBAL_SYNC_PROMPT_VERSION,
+    )
+
+    assert messages == build_cot_messages(sample, 1, FREE_TEXT_V1_PROMPT_VERSION)
 
 
 def test_parse_adaptive_sparse_mad_free_text_output_validates_required_tags() -> None:
@@ -331,6 +360,114 @@ def test_build_sparse_debate_messages_includes_peer_evidence_prior_answer_and_ga
     assert "French is spoken" in content
     assert "answer_disagreement" in content
     assert "REVISION_NOTE:" in content
+
+
+def test_build_global_sync_certificate_messages_uses_budgeted_board_without_raw_reasoning() -> None:
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which language is spoken there?",
+        reference_answer="French",
+        prompt_context="The town is in Quebec, where French is spoken. " * 200,
+        metadata={},
+    )
+    own_row = {
+        "agent_id": 1,
+        "solver_mode": "solver_cot",
+        "normalized_answer": "english",
+        "reasoning": "RAW_OWN_REASONING_SHOULD_NOT_APPEAR " * 30,
+        "key_evidence": "English appears nearby.",
+        "confidence_value": 0.44,
+    }
+    stage_a_rows = [
+        own_row,
+        {
+            "agent_id": 2,
+            "solver_mode": "solver_cot",
+            "normalized_answer": "french",
+            "reasoning": "RAW_PEER_REASONING_SHOULD_NOT_APPEAR " * 30,
+            "key_evidence": "French is spoken in Quebec.",
+            "confidence_value": 0.84,
+        },
+    ]
+    candidate_board = [
+        {
+            "family_key": "open:french",
+            "family_id": "F1",
+            "representative_answer": "french",
+            "vote_count": 4,
+            "stage_a_support": 4,
+            "agent_ids": [2, 3, 4, 5],
+            "avg_confidence": 0.82,
+            "evidence_digest": "French is spoken in Quebec.",
+            "risk_signals": [],
+        },
+        {
+            "family_key": "open:english",
+            "family_id": "F2",
+            "representative_answer": "english",
+            "vote_count": 1,
+            "stage_a_support": 1,
+            "agent_ids": [1],
+            "avg_confidence": 0.44,
+            "evidence_digest": "English appears nearby.",
+            "risk_signals": ["minority_only"],
+        },
+    ]
+
+    messages = build_global_sync_certificate_messages(
+        sample,
+        agent_id=1,
+        own_row=own_row,
+        candidate_board=candidate_board,
+        gate_decision={"trigger_reasons": ["answer_disagreement"], "vote_pattern": "4-1"},
+        stage_a_majority_answer="french",
+        own_prior_max_chars=32,
+    )
+
+    content = messages[1]["content"]
+    assert "Compressed Stage A candidate board" in content
+    assert "vote_count=4" in content
+    assert "PREFERRED_FAMILY:" in content
+    assert "MAJORITY_ERROR:" in content
+    assert "ERROR_TYPE:" in content
+    assert "CERT_EVIDENCE:" in content
+    assert "REVISION_NOTE:" in content
+    assert "RAW_OWN_REASONING_SHOULD_NOT_APPEAR" not in content
+    assert "RAW_PEER_REASONING_SHOULD_NOT_APPEAR" not in content
+    assert "Stage A peer packets" not in content
+    assert "where French is spoken. The town is in Quebec" not in content
+    assert "Return exactly one JSON object" not in content
+
+
+def test_build_global_sync_candidate_board_limits_to_top_two_families_and_budget() -> None:
+    rows = []
+    for agent_id, answer in enumerate(["A", "A", "A", "B", "C"], start=1):
+        rows.append(
+            {
+                "agent_id": agent_id,
+                "solver_mode": "solver_cot",
+                "normalized_answer": answer,
+                "confidence_value": 0.8,
+                "key_evidence": f"evidence for {answer} " * 80,
+                "reasoning": f"long raw reasoning for {answer} " * 100,
+                "output_status": "ok",
+            }
+        )
+
+    board = _build_global_sync_candidate_board(
+        rows,
+        dataset="mmlu_pro",
+        question="Which option is best?",
+        max_board_chars=900,
+        family_evidence_max_chars=80,
+    )
+
+    assert len(board) == 2
+    assert [row["representative_answer"] for row in board] == ["A", "B"]
+    assert all("evidence_snippets" not in row for row in board)
+    assert all(len(str(row["evidence_digest"])) <= 80 for row in board)
+    assert len(str(board)) <= 1200
 
 
 def test_build_adaptive_addon_messages_includes_stage_a_candidate_summary() -> None:
@@ -1096,6 +1233,154 @@ def test_execute_turn_free_text_mode_disables_response_format(monkeypatch: pytes
     assert row["prediction"] == "42"
 
 
+def test_execute_turn_passes_certificate_max_tokens_only_when_requested(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[int | None] = []
+
+    def fake_execute_cached_turn(**kwargs):
+        captured.append(kwargs.get("max_tokens"))
+        return SimpleNamespace(
+            output_status="ok",
+            validated_output={
+                "final_answer": "B",
+                "reasoning": "certificate",
+                "confidence_raw": 0.8,
+                "selected_candidate": "F2",
+                "majority_error": "majority conflicts with option text",
+                "error_type": "evidence_conflict",
+                "cert_evidence": "Option B states the required condition.",
+            },
+            usage={"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
+            response_payload={"latency_ms": 9, "assistant_text": "ok", "provider_reasoning_text": ""},
+            cache_hit=False,
+            request_error=None,
+            prompt_hash="prompt-hash",
+        )
+
+    monkeypatch.setattr(
+        "research_experiments.families.adaptive_sparse_mad.run.sample.execute_cached_turn",
+        fake_execute_cached_turn,
+    )
+
+    sample = DatasetSample(
+        dataset="mmlu_pro",
+        sample_id="demo",
+        question="Which option is best?",
+        reference_answer="B|||beta",
+        prompt_context="A. alpha\nB. beta",
+        metadata={"options": ["alpha", "beta"]},
+    )
+
+    row = _execute_turn(
+        run_id="run1",
+        dataset="mmlu_pro",
+        split_name="count20_seed42",
+        sample=sample,
+        stage_name="global_sync_certificate",
+        method_name="global_sync_certificate",
+        role="certificate_revision",
+        round_index=1,
+        agent_id=1,
+        messages=[{"role": "system", "content": "demo"}, {"role": "user", "content": "demo"}],
+        backbone=SimpleNamespace(name="demo"),
+        provider=SimpleNamespace(),
+        cache=SimpleNamespace(),
+        throttle=SimpleNamespace(),
+        temperature=0.7,
+        top_p=1.0,
+        seed=42,
+        output_mode="stage_a",
+        prompt_version=COT_GLOBAL_SYNC_PROMPT_VERSION,
+        response_format_mode="free_text",
+        max_tokens=256,
+    )
+
+    assert captured == [256]
+    assert row["majority_error"] == "majority conflicts with option text"
+    assert row["budget_cap_tokens"] == 256
+    assert row["budget_cap_retry"] is False
+
+
+def test_execute_turn_retries_without_budget_cap_when_provider_rejects_max_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[int | None] = []
+
+    def fake_execute_cached_turn(**kwargs):
+        captured.append(kwargs.get("max_tokens"))
+        if kwargs.get("max_tokens") is not None:
+            return SimpleNamespace(
+                output_status="request_fail",
+                validated_output={},
+                usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                response_payload={
+                    "latency_ms": 1,
+                    "assistant_text": "",
+                    "provider_reasoning_text": "",
+                    "request_error": "unsupported parameter: max_tokens",
+                },
+                cache_hit=False,
+                request_error="unsupported parameter: max_tokens",
+                prompt_hash="prompt-hash",
+            )
+        return SimpleNamespace(
+            output_status="ok",
+            validated_output={
+                "final_answer": "B",
+                "reasoning": "certificate",
+                "confidence_raw": 0.8,
+                "selected_candidate": "F2",
+                "majority_error": "majority conflicts with option text",
+                "error_type": "evidence_conflict",
+                "cert_evidence": "Option B states the required condition.",
+            },
+            usage={"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
+            response_payload={"latency_ms": 9, "assistant_text": "ok", "provider_reasoning_text": ""},
+            cache_hit=False,
+            request_error=None,
+            prompt_hash="prompt-hash-2",
+        )
+
+    monkeypatch.setattr(
+        "research_experiments.families.adaptive_sparse_mad.run.sample.execute_cached_turn",
+        fake_execute_cached_turn,
+    )
+
+    sample = DatasetSample(
+        dataset="mmlu_pro",
+        sample_id="demo",
+        question="Which option is best?",
+        reference_answer="B|||beta",
+        prompt_context="A. alpha\nB. beta",
+        metadata={"options": ["alpha", "beta"]},
+    )
+
+    row = _execute_turn(
+        run_id="run1",
+        dataset="mmlu_pro",
+        split_name="count20_seed42",
+        sample=sample,
+        stage_name="global_sync_certificate",
+        method_name="global_sync_certificate",
+        role="certificate_revision",
+        round_index=1,
+        agent_id=1,
+        messages=[{"role": "system", "content": "demo"}, {"role": "user", "content": "demo"}],
+        backbone=SimpleNamespace(name="demo"),
+        provider=SimpleNamespace(),
+        cache=SimpleNamespace(),
+        throttle=SimpleNamespace(),
+        temperature=0.7,
+        top_p=1.0,
+        seed=42,
+        output_mode="stage_a",
+        prompt_version=COT_GLOBAL_SYNC_PROMPT_VERSION,
+        response_format_mode="free_text",
+        max_tokens=256,
+    )
+
+    assert captured == [256, None]
+    assert row["prediction"] == "B"
+    assert row["budget_cap_retry"] is True
+
+
 def test_execute_control_turn_uses_output_protocol_runner(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
@@ -1183,6 +1468,26 @@ def test_same_context_main_v5_configs_load_mainline_and_legacy_contracts() -> No
     assert legacy.stage_a_response_format_mode == "json_object"
     assert legacy.adaptive_response_format_mode == "json_object"
     assert legacy.legacy_json_mode is True
+
+
+def test_same_context_main_v9_config_loads_global_sync_free_text_contract() -> None:
+    mainline = load_experiment_config(
+        "configs/families/adaptive_sparse_mad/experiments/same_context_main_v9.toml"
+    )
+    protocol = load_protocol_config(mainline.protocol)
+    controls = load_control_catalog(mainline.control_catalog)
+
+    assert list(controls) == ["cot_1", "sc_3", "sc_5"]
+    assert mainline.aggregate_methods == (COT_MAD_GLOBAL_SYNC_METHOD,)
+    assert mainline.stage_a_prompt_version == COT_GLOBAL_SYNC_PROMPT_VERSION
+    assert mainline.adaptive_prompt_version == COT_GLOBAL_SYNC_PROMPT_VERSION
+    assert mainline.stage_a_response_format_mode == "free_text"
+    assert mainline.adaptive_response_format_mode == "free_text"
+    assert mainline.legacy_json_mode is False
+    assert protocol.sync_board_max_chars == 1600
+    assert protocol.family_evidence_max_chars == 180
+    assert protocol.own_prior_max_chars == 120
+    assert protocol.certificate_max_tokens == 256
 
 
 def test_same_context_main_v5_control_messages_match_baseline_free_text_prompt() -> None:
@@ -2129,6 +2434,294 @@ def test_adaptive_gate_decision_uses_protocol_thresholds_without_hidden_floor() 
     assert "narrow_support_gap" not in decision["trigger_reasons"]
 
 
+def test_global_sync_gate_decision_skips_clean_five_way_consensus() -> None:
+    protocol = AdaptiveSparseMadProtocolConfig(
+        agent_count=5,
+        top_p=1.0,
+        stage_a_temperature=0.7,
+        consensus_confidence_threshold=0.65,
+        majority_confidence_threshold=0.6,
+        majority_margin_threshold=0.25,
+    )
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which language is spoken there?",
+        reference_answer="French",
+        prompt_context="The town is in Quebec, where French is spoken.",
+        metadata={},
+    )
+    stage_a_rows = [
+        {
+            "solver_mode": "solver_cot",
+            "normalized_answer": "french",
+            "confidence_value": 0.91,
+            "confidence_valid": True,
+            "key_evidence": "French is spoken in Quebec.",
+            "answer_type": "language",
+            "key_constraints": "short exact span",
+        }
+        for _ in range(5)
+    ]
+
+    decision = _build_global_sync_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=stage_a_rows,
+        stage_a_majority_answer="french",
+        stage_a_vote_counts={"french": 5},
+    )
+
+    assert decision["triggered"] is False
+    assert decision["trigger_reasons"] == []
+    assert decision["vote_pattern"] == "5"
+
+
+def test_global_sync_gate_decision_skips_four_to_one_pattern_without_majority_risk() -> None:
+    protocol = AdaptiveSparseMadProtocolConfig(
+        agent_count=5,
+        top_p=1.0,
+        stage_a_temperature=0.7,
+        consensus_confidence_threshold=0.65,
+        majority_confidence_threshold=0.6,
+        majority_margin_threshold=0.25,
+    )
+    sample = DatasetSample(
+        dataset="mmlu_pro",
+        sample_id="demo",
+        question="Which option is correct?",
+        reference_answer="A|||alpha",
+        prompt_context="A. alpha\nB. beta",
+        metadata={"options": ["alpha", "beta"]},
+    )
+    stage_a_rows = [
+        {"solver_mode": "solver_cot", "normalized_answer": "A", "confidence_value": 0.88, "confidence_valid": True},
+        {"solver_mode": "solver_cot", "normalized_answer": "A", "confidence_value": 0.86, "confidence_valid": True},
+        {"solver_mode": "solver_cot", "normalized_answer": "A", "confidence_value": 0.84, "confidence_valid": True},
+        {"solver_mode": "solver_cot", "normalized_answer": "A", "confidence_value": 0.82, "confidence_valid": True},
+        {"solver_mode": "solver_cot", "normalized_answer": "B", "confidence_value": 0.74, "confidence_valid": True},
+    ]
+
+    decision = _build_global_sync_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=stage_a_rows,
+        stage_a_majority_answer="A",
+        stage_a_vote_counts={"A": 4, "B": 1},
+    )
+
+    assert decision["triggered"] is False
+    assert decision["trigger_reasons"] == []
+    assert decision["vote_pattern"] == "4-1"
+
+
+def test_global_sync_gate_decision_triggers_on_three_to_two_pattern() -> None:
+    protocol = AdaptiveSparseMadProtocolConfig(
+        agent_count=5,
+        top_p=1.0,
+        stage_a_temperature=0.7,
+        consensus_confidence_threshold=0.65,
+        majority_confidence_threshold=0.6,
+        majority_margin_threshold=0.25,
+    )
+    sample = DatasetSample(
+        dataset="strategyqa",
+        sample_id="demo",
+        question="Could a black widow woman have use for peaches?",
+        reference_answer="yes",
+        prompt_context="",
+        metadata={},
+    )
+    stage_a_rows = [
+        {"solver_mode": "solver_cot", "normalized_answer": "yes", "confidence_value": 0.76, "confidence_valid": True},
+        {"solver_mode": "solver_cot", "normalized_answer": "yes", "confidence_value": 0.74, "confidence_valid": True},
+        {"solver_mode": "solver_cot", "normalized_answer": "yes", "confidence_value": 0.72, "confidence_valid": True},
+        {"solver_mode": "solver_cot", "normalized_answer": "no", "confidence_value": 0.71, "confidence_valid": True},
+        {"solver_mode": "solver_cot", "normalized_answer": "no", "confidence_value": 0.69, "confidence_valid": True},
+    ]
+
+    decision = _build_global_sync_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=stage_a_rows,
+        stage_a_majority_answer="yes",
+        stage_a_vote_counts={"yes": 3, "no": 2},
+    )
+
+    assert decision["triggered"] is True
+    assert "non_unanimous_vote" in decision["trigger_reasons"]
+    assert decision["vote_pattern"] == "3-2"
+
+
+def test_global_sync_gate_decision_records_protocol_failure_consensus_without_triggering_certificate_sync() -> None:
+    protocol = AdaptiveSparseMadProtocolConfig(
+        agent_count=5,
+        top_p=1.0,
+        stage_a_temperature=0.7,
+        consensus_confidence_threshold=0.65,
+        majority_confidence_threshold=0.6,
+        majority_margin_threshold=0.25,
+    )
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which language is spoken there?",
+        reference_answer="French",
+        prompt_context="The town is in Quebec, where French is spoken.",
+        metadata={},
+    )
+    stage_a_rows = [
+        {
+            "solver_mode": "solver_cot",
+            "normalized_answer": "french",
+            "confidence_value": 0.87,
+            "confidence_valid": True,
+        }
+        for _ in range(4)
+    ] + [
+        {
+            "solver_mode": "solver_cot",
+            "normalized_answer": "french",
+            "confidence_value": 0.87,
+            "confidence_valid": True,
+            "stage_a_safe_retry_used": True,
+        }
+    ]
+
+    decision = _build_global_sync_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=stage_a_rows,
+        stage_a_majority_answer="french",
+        stage_a_vote_counts={"french": 5},
+    )
+
+    assert decision["triggered"] is False
+    assert "protocol_failure_risk" in decision["trigger_reasons"]
+
+
+def test_global_sync_gate_decision_records_low_confidence_unanimous_consensus_without_triggering_certificate_sync() -> None:
+    protocol = AdaptiveSparseMadProtocolConfig(
+        agent_count=5,
+        top_p=1.0,
+        stage_a_temperature=0.7,
+        consensus_confidence_threshold=0.65,
+        majority_confidence_threshold=0.6,
+        majority_margin_threshold=0.25,
+    )
+    sample = DatasetSample(
+        dataset="mmlu_pro",
+        sample_id="demo",
+        question="Which option is correct?",
+        reference_answer="A|||alpha",
+        prompt_context="A. alpha\nB. beta",
+        metadata={"options": ["alpha", "beta"]},
+    )
+    stage_a_rows = [
+        {"solver_mode": "solver_cot", "normalized_answer": "A", "confidence_value": 0.42, "confidence_valid": True}
+        for _ in range(5)
+    ]
+
+    decision = _build_global_sync_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=stage_a_rows,
+        stage_a_majority_answer="A",
+        stage_a_vote_counts={"A": 5},
+    )
+
+    assert decision["triggered"] is False
+    assert "low_confidence_consensus" in decision["trigger_reasons"]
+
+
+def test_global_sync_gate_decision_does_not_treat_failure_risk_none_as_signal() -> None:
+    protocol = AdaptiveSparseMadProtocolConfig(
+        agent_count=5,
+        top_p=1.0,
+        stage_a_temperature=0.7,
+        consensus_confidence_threshold=0.65,
+        majority_confidence_threshold=0.6,
+        majority_margin_threshold=0.25,
+    )
+    sample = DatasetSample(
+        dataset="math500",
+        sample_id="demo",
+        question="What is 1 + 1?",
+        reference_answer="2",
+        prompt_context="",
+        metadata={},
+    )
+    stage_a_rows = [
+        {
+            "solver_mode": "solver_cot",
+            "normalized_answer": "2",
+            "confidence_value": 1.0,
+            "confidence_valid": True,
+            "failure_risk": "none",
+            "uncertainty_type": "",
+        }
+        for _ in range(5)
+    ]
+
+    decision = _build_global_sync_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=stage_a_rows,
+        stage_a_majority_answer="2",
+        stage_a_vote_counts={"2": 5},
+    )
+
+    assert decision["triggered"] is False
+    assert "repeated_risk_signals" not in decision["trigger_reasons"]
+
+
+def test_global_sync_gate_decision_triggers_on_four_to_one_pattern_with_majority_invalid() -> None:
+    protocol = AdaptiveSparseMadProtocolConfig(
+        agent_count=5,
+        top_p=1.0,
+        stage_a_temperature=0.7,
+        consensus_confidence_threshold=0.65,
+        majority_confidence_threshold=0.6,
+        majority_margin_threshold=0.25,
+    )
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which court decided the case?",
+        reference_answer="Supreme Court",
+        prompt_context="The Supreme Court decided the case.",
+        metadata={},
+    )
+    stage_a_rows = [
+        {
+            "solver_mode": "solver_cot",
+            "normalized_answer": "court",
+            "confidence_value": 0.9,
+            "confidence_valid": True,
+            "validated_output": {"format_warning": "answer_outside_expected_slot"},
+        }
+        for _ in range(4)
+    ] + [
+        {
+            "solver_mode": "solver_cot",
+            "normalized_answer": "supreme court",
+            "confidence_value": 0.8,
+            "confidence_valid": True,
+        }
+    ]
+
+    decision = _build_global_sync_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=stage_a_rows,
+        stage_a_majority_answer="court",
+        stage_a_vote_counts={"court": 4, "supreme court": 1},
+    )
+
+    assert decision["triggered"] is True
+    assert "invalid_majority_answer" in decision["trigger_reasons"]
+
+
 def test_build_policy_diagnostics_emits_dataset_and_overall_pairwise_rows() -> None:
     payload = build_policy_diagnostics(
         prediction_rows=[
@@ -2444,6 +3037,36 @@ def test_load_experiment_config_requires_v4_stage_a_for_structured_methods(tmp_p
     from research_experiments.families.adaptive_sparse_mad.config import load_experiment_config
 
     with pytest.raises(ValueError, match="stage_a_prompt_version in"):
+        load_experiment_config(experiment_path)
+
+
+def test_load_experiment_config_rejects_json_mode_for_global_sync_method(tmp_path: Path) -> None:
+    experiment_path = tmp_path / "bad_global_sync.toml"
+    experiment_path.write_text(
+        "\n".join(
+            [
+                'name = "bad_global_sync"',
+                'description = "demo"',
+                'benchmark_configs = ["configs/core/shared/benchmarks/gsm8k/test.toml"]',
+                'protocol = "configs/families/adaptive_sparse_mad/protocols/global_sync_cot5.toml"',
+                'control_catalog = "configs/families/adaptive_sparse_mad/controls/same_context_main_v5_controls.toml"',
+                f'aggregate_methods = ["{COT_MAD_GLOBAL_SYNC_METHOD}"]',
+                "global_seed = 42",
+                f'prompt_version = "{COT_GLOBAL_SYNC_PROMPT_VERSION}"',
+                f'stage_a_prompt_version = "{COT_GLOBAL_SYNC_PROMPT_VERSION}"',
+                f'adaptive_prompt_version = "{COT_GLOBAL_SYNC_PROMPT_VERSION}"',
+                'stage_a_response_format_mode = "json_object"',
+                'adaptive_response_format_mode = "json_object"',
+                'primary_model_ref = "xiaomimimo/mimo-v2.5"',
+                "",
+                "[phases.count20]",
+                'split_overrides = { gsm8k = "count20_seed42" }',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="free-text"):
         load_experiment_config(experiment_path)
 
 
@@ -2996,6 +3619,353 @@ def test_refresh_prediction_rows_for_run_replays_adaptive_counterfactual_policy(
     assert adaptive_router_row["selected_addon_solver"] == "solver_counterfactual"
     assert adaptive_router_row["executed_addon_solvers"] == ["solver_counterfactual"]
     assert adaptive_router_row["final_answer"] == "yes"
+
+
+def test_resolve_global_sync_audit_outcome_keeps_safe_stage_a_majority() -> None:
+    stage_a_rows = [
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "B"},
+    ]
+    audit_rows = [
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "A", "selected_candidate": "stage_a_majority"},
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "A", "selected_candidate": "stage_a_majority"},
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "A", "selected_candidate": "stage_a_majority"},
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "B", "selected_candidate": "challenger_family"},
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "B", "selected_candidate": "challenger_family"},
+    ]
+
+    answer, _support, resolver, summary = _resolve_global_sync_audit_outcome(
+        benchmark_slug="mmlu_pro",
+        stage_a_rows=stage_a_rows,
+        audit_rows=audit_rows,
+        stage_a_answer="A",
+        gate_decision={"majority_risky": False, "majority_invalid": False},
+    )
+
+    assert answer == "A"
+    assert resolver == "cot_mad_global_sync_keep_stage_a_majority"
+    assert summary["accepted_override"] is False
+
+
+def test_resolve_global_sync_audit_outcome_accepts_three_of_five_challenger_with_two_of_five_stage_a_support() -> None:
+    stage_a_rows = [
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "B"},
+        {"solver_mode": "solver_cot", "normalized_answer": "B"},
+    ]
+    audit_rows = [
+        {
+            "solver_mode": "audit_solver_cot",
+            "normalized_answer": "B",
+            "selected_candidate": "challenger_family",
+            "majority_error": "majority ignores option text evidence",
+        },
+        {
+            "solver_mode": "audit_solver_cot",
+            "normalized_answer": "B",
+            "selected_candidate": "challenger_family",
+            "majority_error": "majority conflicts with exact option wording",
+        },
+        {
+            "solver_mode": "audit_solver_cot",
+            "normalized_answer": "B",
+            "selected_candidate": "challenger_family",
+            "majority_error": "majority evidence is unsupported",
+        },
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "A", "selected_candidate": "stage_a_majority", "majority_error": "none"},
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "A", "selected_candidate": "stage_a_majority", "majority_error": "none"},
+    ]
+
+    answer, _support, resolver, summary = _resolve_global_sync_audit_outcome(
+        benchmark_slug="mmlu_pro",
+        stage_a_rows=stage_a_rows,
+        audit_rows=audit_rows,
+        stage_a_answer="A",
+        gate_decision={"majority_risky": False, "majority_invalid": False},
+    )
+
+    assert answer == "B"
+    assert resolver == "cot_mad_global_sync_accept_supported_challenger"
+    assert summary["accepted_override"] is True
+
+
+def test_resolve_global_sync_audit_outcome_rejects_challenger_without_majority_error_certificate() -> None:
+    stage_a_rows = [
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "B"},
+        {"solver_mode": "solver_cot", "normalized_answer": "B"},
+    ]
+    audit_rows = [
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "B", "selected_candidate": "challenger_family", "majority_error": "none"},
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "B", "selected_candidate": "challenger_family", "majority_error": "none"},
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "B", "selected_candidate": "challenger_family", "majority_error": "none"},
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "A", "selected_candidate": "stage_a_majority", "majority_error": "none"},
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "A", "selected_candidate": "stage_a_majority", "majority_error": "none"},
+    ]
+
+    answer, _support, resolver, summary = _resolve_global_sync_audit_outcome(
+        benchmark_slug="mmlu_pro",
+        stage_a_rows=stage_a_rows,
+        audit_rows=audit_rows,
+        stage_a_answer="A",
+        gate_decision={"majority_risky": False, "majority_invalid": False},
+    )
+
+    assert answer == "A"
+    assert resolver == "cot_mad_global_sync_keep_stage_a_majority"
+    assert summary["accepted_override"] is False
+
+
+def test_resolve_global_sync_audit_outcome_rejects_singleton_minority_without_majority_risk() -> None:
+    stage_a_rows = [
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "B"},
+    ]
+    audit_rows = [
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "B", "selected_candidate": "challenger_family", "majority_error": "majority missed direct contradiction"},
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "B", "selected_candidate": "challenger_family", "majority_error": "majority missed direct contradiction"},
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "B", "selected_candidate": "challenger_family", "majority_error": "majority missed direct contradiction"},
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "A", "selected_candidate": "stage_a_majority", "majority_error": "none"},
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "A", "selected_candidate": "stage_a_majority", "majority_error": "none"},
+    ]
+
+    answer, _support, resolver, summary = _resolve_global_sync_audit_outcome(
+        benchmark_slug="mmlu_pro",
+        stage_a_rows=stage_a_rows,
+        audit_rows=audit_rows,
+        stage_a_answer="A",
+        gate_decision={"majority_risky": False, "majority_invalid": False},
+    )
+
+    assert answer == "A"
+    assert resolver == "cot_mad_global_sync_keep_stage_a_majority"
+    assert summary["accepted_override"] is False
+
+
+def test_resolve_global_sync_audit_outcome_accepts_four_of_five_singleton_when_majority_is_risky() -> None:
+    stage_a_rows = [
+        {"solver_mode": "solver_cot", "normalized_answer": "perfect storm"},
+        {"solver_mode": "solver_cot", "normalized_answer": "perfect storm"},
+        {"solver_mode": "solver_cot", "normalized_answer": "perfect storm"},
+        {"solver_mode": "solver_cot", "normalized_answer": "perfect storm"},
+        {"solver_mode": "solver_cot", "normalized_answer": "1991 perfect storm"},
+    ]
+    audit_rows = [
+        {
+            "solver_mode": "audit_solver_cot",
+            "normalized_answer": "1991 perfect storm",
+            "selected_candidate": "challenger_family",
+            "majority_error": "majority omits required year in answer slot",
+        },
+        {
+            "solver_mode": "audit_solver_cot",
+            "normalized_answer": "1991 perfect storm",
+            "selected_candidate": "challenger_family",
+            "majority_error": "majority omits required year in answer slot",
+        },
+        {
+            "solver_mode": "audit_solver_cot",
+            "normalized_answer": "1991 perfect storm",
+            "selected_candidate": "challenger_family",
+            "majority_error": "majority answer is underspecified",
+        },
+        {
+            "solver_mode": "audit_solver_cot",
+            "normalized_answer": "1991 perfect storm",
+            "selected_candidate": "challenger_family",
+            "majority_error": "majority answer is underspecified",
+        },
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "perfect storm", "selected_candidate": "stage_a_majority", "majority_error": "none"},
+    ]
+
+    answer, _support, resolver, summary = _resolve_global_sync_audit_outcome(
+        benchmark_slug="hotpotqa",
+        stage_a_rows=stage_a_rows,
+        audit_rows=audit_rows,
+        stage_a_answer="perfect storm",
+        gate_decision={"majority_risky": True, "majority_invalid": False},
+    )
+
+    assert answer == "1991 perfect storm"
+    assert resolver == "cot_mad_global_sync_accept_risky_majority_override"
+    assert summary["accepted_override"] is True
+
+
+def test_resolve_global_sync_audit_outcome_rejects_under_supported_novel_answer() -> None:
+    stage_a_rows = [
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "B"},
+        {"solver_mode": "solver_cot", "normalized_answer": "B"},
+    ]
+    audit_rows = [
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "C", "selected_candidate": "novel_answer", "majority_error": "majority option conflicts with evidence"},
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "C", "selected_candidate": "novel_answer", "majority_error": "majority option conflicts with evidence"},
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "C", "selected_candidate": "novel_answer", "majority_error": "majority option conflicts with evidence"},
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "A", "selected_candidate": "stage_a_majority", "majority_error": "none"},
+        {"solver_mode": "audit_solver_cot", "normalized_answer": "A", "selected_candidate": "stage_a_majority", "majority_error": "none"},
+    ]
+
+    answer, _support, resolver, summary = _resolve_global_sync_audit_outcome(
+        benchmark_slug="mmlu_pro",
+        stage_a_rows=stage_a_rows,
+        audit_rows=audit_rows,
+        stage_a_answer="A",
+        gate_decision={"majority_risky": False, "majority_invalid": False},
+    )
+
+    assert answer == "A"
+    assert resolver == "cot_mad_global_sync_keep_stage_a_majority"
+    assert summary["rejected_novel_answer"] is True
+
+
+def test_resolve_global_sync_audit_outcome_falls_back_on_invalid_task_format() -> None:
+    stage_a_rows = [
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "A"},
+        {"solver_mode": "solver_cot", "normalized_answer": "B"},
+        {"solver_mode": "solver_cot", "normalized_answer": "B"},
+    ]
+    audit_rows = [
+        {
+            "solver_mode": "audit_solver_cot",
+            "normalized_answer": "Option B because it fits best",
+            "selected_candidate": "challenger_family",
+            "majority_error": "majority option letter conflicts with evidence",
+            "validated_output": {"format_warning": "multiple_choice_answer_not_single_letter"},
+        }
+        for _ in range(5)
+    ]
+
+    answer, _support, resolver, summary = _resolve_global_sync_audit_outcome(
+        benchmark_slug="mmlu_pro",
+        stage_a_rows=stage_a_rows,
+        audit_rows=audit_rows,
+        stage_a_answer="A",
+        gate_decision={"majority_risky": True, "majority_invalid": True},
+    )
+
+    assert answer == "A"
+    assert resolver == "cot_mad_global_sync_invalid_format_fallback"
+    assert summary["invalid_format_fallback"] is True
+
+
+def test_run_sample_global_sync_uses_five_cot_stage_a_calls_with_distinct_seeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    experiment = load_experiment_config(
+        "configs/families/adaptive_sparse_mad/experiments/same_context_main_v9.toml"
+    )
+    controls = load_control_catalog(experiment.control_catalog)
+    sample = DatasetSample(
+        dataset="hotpotqa",
+        sample_id="demo",
+        question="Which language is spoken there?",
+        reference_answer="French",
+        prompt_context="The town is in Quebec, where French is spoken.",
+        metadata={},
+    )
+    stage_a_calls: list[tuple[str, int, str]] = []
+
+    def fake_execute_turn(**kwargs):
+        if kwargs["stage_name"] != "stage_a":
+            raise AssertionError(f"unexpected stage_name={kwargs['stage_name']}")
+        solver_mode = str((kwargs.get("extra_fields") or {}).get("solver_mode") or "")
+        stage_a_calls.append((kwargs["stage_name"], kwargs["seed"], solver_mode))
+        return {
+            "run_id": "run1",
+            "dataset": "hotpotqa",
+            "split": "count20_seed42",
+            "sample_id": "demo",
+            "stage_name": kwargs["stage_name"],
+            "method_name": kwargs["method_name"],
+            "round_index": kwargs["round_index"],
+            "agent_id": kwargs["agent_id"],
+            "role": kwargs["role"],
+            "solver_mode": solver_mode,
+            "prediction": "french",
+            "normalized_answer": "french",
+            "score": 1.0,
+            "reasoning": "Quebec implies French.",
+            "confidence_value": 0.88,
+            "confidence_valid": True,
+            "key_evidence": "French is spoken in Quebec.",
+            "answer_type": "language",
+            "key_constraints": "short exact span",
+            "output_status": "ok",
+            "prompt_tokens": 10.0,
+            "completion_tokens": 5.0,
+            "total_tokens": 15.0,
+            "latency_ms": 1.0,
+            "cache_hit": True,
+            "request_error": None,
+            "assistant_text": "demo",
+            "provider_reasoning_text": "",
+            "validated_output": {"final_answer": "french"},
+            "request_started_at": "2026-06-21T00:00:00+00:00",
+            "stage_a_safe_retry_used": False,
+        }
+
+    def fake_run_unified_control_sample(**kwargs):
+        return (
+            [],
+            {
+                "dataset": kwargs["benchmark_slug"],
+                "sample_id": kwargs["sample"].sample_id,
+                "method_name": kwargs["control_name"],
+                "method_kind": "control",
+                "score": 1.0,
+            },
+        )
+
+    monkeypatch.setattr(
+        "research_experiments.families.adaptive_sparse_mad.run.sample._execute_turn",
+        fake_execute_turn,
+    )
+    monkeypatch.setattr(
+        "research_experiments.families.adaptive_sparse_mad.run.sample.run_unified_control_sample",
+        fake_run_unified_control_sample,
+    )
+
+    result = _run_sample(
+        sample,
+        run_id="run1",
+        benchmark_slug="hotpotqa",
+        split_name="count20_seed42",
+        protocol=AdaptiveSparseMadProtocolConfig(
+            agent_count=5,
+            top_p=1.0,
+            stage_a_temperature=0.7,
+            consensus_confidence_threshold=0.65,
+            majority_confidence_threshold=0.6,
+            majority_margin_threshold=0.25,
+            debate_rounds=1,
+            debate_temperature=0.7,
+        ),
+        controls=controls,
+        experiment=experiment,
+        backbone=SimpleNamespace(name="demo-model"),
+        provider=SimpleNamespace(),
+        cache=SimpleNamespace(),
+        throttle=SimpleNamespace(),
+    )
+
+    assert len(stage_a_calls) == 5
+    assert [seed for _stage_name, seed, _solver_mode in stage_a_calls] == [43, 44, 45, 46, 47]
+    assert {solver_mode for _stage_name, _seed, solver_mode in stage_a_calls} == {"solver_cot"}
+    assert len(result.stage_a_turns) == 5
 
 
 def test_render_report_includes_control_and_runtime_contract_fields(tmp_path: Path) -> None:

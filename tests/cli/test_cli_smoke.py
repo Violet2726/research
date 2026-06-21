@@ -591,6 +591,32 @@ def test_adaptive_sparse_mad_main_v5_json_legacy_inspect_cli() -> None:
     assert payload["legacy_json_mode"] is True
 
 
+def test_adaptive_sparse_mad_main_v9_inspect_cli() -> None:
+    payload = run_cli_json(
+        [
+            "research_cli",
+            "experiment",
+            "--family",
+            "adaptive_sparse_mad",
+            "inspect-experiment",
+            "--experiment",
+            "configs/families/adaptive_sparse_mad/experiments/same_context_main_v9.toml",
+        ],
+    )
+    assert payload["name"] == "same_context_main_v9"
+    assert payload["benchmarks"] == ["math500", "hotpotqa", "gpqa_diamond", "strategyqa", "mmlu_pro"]
+    assert payload["methods"] == [
+        "cot_1",
+        "sc_3",
+        "sc_5",
+        "cot_mad_global_sync_v1",
+    ]
+    assert payload["protocol"]["agent_count"] == 5
+    assert payload["stage_a_response_format_mode"] == "free_text"
+    assert payload["adaptive_response_format_mode"] == "free_text"
+    assert payload["legacy_json_mode"] is False
+
+
 def test_adaptive_sparse_mad_full_counterfactual_v1_screen_inspect_cli() -> None:
     payload = run_cli_json(
         [

@@ -1,0 +1,29 @@
+name = "same_context_main_v9"
+description = "A-SMAD same-context V9 mainline with 5-COT Stage A and one global synchronized audit round."
+benchmark_configs = [
+  "configs/core/shared/benchmarks/math500/test.toml",
+  "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
+  "configs/core/shared/benchmarks/gpqa/dataset.toml",
+  "configs/core/shared/benchmarks/strategyqa/dev.toml",
+  "configs/core/shared/benchmarks/mmlu-pro/test.toml",
+]
+protocol = "configs/families/adaptive_sparse_mad/protocols/global_sync_cot5.toml"
+control_catalog = "configs/families/adaptive_sparse_mad/controls/same_context_main_v5_controls.toml"
+aggregate_methods = ["cot_mad_global_sync_v1"]
+max_adaptive_addon_calls = 0
+global_seed = 42
+control_prompt_version = "single_agent_free_text_v1"
+control_output_protocol = "free_text_answer_v1"
+prompt_version = "adaptive_sparse_mad_cot_global_sync_v1"
+stage_a_prompt_version = "adaptive_sparse_mad_cot_global_sync_v1"
+adaptive_prompt_version = "adaptive_sparse_mad_cot_global_sync_v1"
+stage_a_response_format_mode = "free_text"
+adaptive_response_format_mode = "free_text"
+legacy_json_mode = false
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+
+[phases.count20]
+split_overrides = { math500 = "count20_seed42", hotpotqa = "count20_seed42", gpqa_diamond = "count20_seed42", strategyqa = "count20_seed42", mmlu_pro = "count20_seed42" }
+
+[phases.count100]
+split_overrides = { math500 = "count100_seed42", hotpotqa = "count100_seed42", gpqa_diamond = "count100_seed42", strategyqa = "count100_seed42", mmlu_pro = "count100_seed42" }

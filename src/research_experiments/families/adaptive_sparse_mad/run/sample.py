@@ -27,6 +27,7 @@ from research_experiments.core.data.datasets import (
     resolve_split_manifest_path,
 )
 from research_experiments.core.data.evaluation import normalize_prediction, normalize_text, score_prediction
+from research_experiments.core.data.evaluation import aggregate_majority
 from research_experiments.core.execution.cache import RequestCache
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
 from research_experiments.core.execution.rate_limits import RequestThrottle
@@ -51,6 +52,7 @@ from research_experiments.families.adaptive_sparse_mad.algorithms import (
     _looks_explanatory_open_qa_answer,
 )
 from research_experiments.families.adaptive_sparse_mad.config import (
+    COT_MAD_GLOBAL_SYNC_METHOD,
     ADAPTIVE_SPARSE_CAPACITY5_ARBITER_METHOD,
     ADAPTIVE_SPARSE_CAPACITY5_METHOD,
     ADAPTIVE_SPARSE_CAPACITY5_OVERRIDE_METHOD,
@@ -72,6 +74,7 @@ from research_experiments.families.adaptive_sparse_mad.config import (
     load_protocol_config,
 )
 from research_experiments.families.adaptive_sparse_mad.prompts import (
+    COT_GLOBAL_SYNC_PROMPT_VERSION,
     FREE_TEXT_DEBATE_PROMPT_VERSION,
     META_ROUTER_ERROR_MODES,
     META_ROUTER_NO_CONFIDENT_CANDIDATE,
@@ -80,12 +83,14 @@ from research_experiments.families.adaptive_sparse_mad.prompts import (
     STAGE_A_V4_PROMPT_VERSION,
     build_adaptive_addon_messages,
     build_capacity5_arbiter_messages,
+    build_global_sync_certificate_messages,
     build_meta_router_head_messages,
     build_sparse_debate_messages,
     build_stage_a_messages,
     build_stage_a_safe_retry_messages,
     parse_adaptive_sparse_mad_free_text_output,
     parse_capacity5_arbiter_output,
+    parse_global_sync_certificate_output,
     parse_meta_router_head_output,
 )
 from research_experiments.family_runtime.free_text_protocol import parse_free_text_answer_output, task_format_ok
@@ -113,6 +118,7 @@ DISPLAY_NAME_MAP = {
     "adaptive_gate_v4": "adaptive_gate_v4",
     "adaptive_dual_open_v5": "adaptive_dual_open_v5",
     "adaptive_counterfactual_v1": "adaptive_counterfactual_v1",
+    COT_MAD_GLOBAL_SYNC_METHOD: COT_MAD_GLOBAL_SYNC_METHOD,
     ADAPTIVE_SPARSE_DEBATE_METHOD: ADAPTIVE_SPARSE_DEBATE_METHOD,
     ADAPTIVE_SPARSE_RESCUE_ONLY_METHOD: ADAPTIVE_SPARSE_RESCUE_ONLY_METHOD,
     ADAPTIVE_SPARSE_PROBE_ONLY_METHOD: ADAPTIVE_SPARSE_PROBE_ONLY_METHOD,
@@ -144,6 +150,13 @@ def _is_core_stage_a_row(row: dict[str, Any]) -> bool:
 
 def _is_v8_primary_stage_a_row(row: dict[str, Any]) -> bool:
     return bool(row.get("v8_primary_stage_a")) or _is_core_stage_a_row(row)
+
+
+def _stage_a_solver_modes_for_experiment(experiment: AdaptiveSparseMadExperimentConfig) -> tuple[str, ...]:
+    """Return the Stage A solver roster for the current experiment."""
+    if COT_MAD_GLOBAL_SYNC_METHOD in experiment.aggregate_methods:
+        return ("solver_cot",) * 5
+    return SOLVER_MODES
 
 
 def run_sample_batch(
@@ -291,12 +304,17 @@ def refresh_prediction_rows_for_run(
             core_stage_a_rows,
             ["agent_id", "normalized_answer", "confidence_value", "output_status"],
         )
-        stage_a_answer, stage_a_weighted_support, stage_a_resolver = _resolve_stage_a_aggregate(
-            core_stage_a_rows,
-            dataset=dataset,
-            prompt_version=STAGE_A_V4_PROMPT_VERSION,
-            question=sample.question,
-        )
+        if method_name == COT_MAD_GLOBAL_SYNC_METHOD:
+            stage_a_answer, stage_a_weighted_support, stage_a_resolver = _resolve_global_sync_stage_a_majority(
+                core_stage_a_rows
+            )
+        else:
+            stage_a_answer, stage_a_weighted_support, stage_a_resolver = _resolve_stage_a_aggregate(
+                core_stage_a_rows,
+                dataset=dataset,
+                prompt_version=STAGE_A_V4_PROMPT_VERSION,
+                question=sample.question,
+            )
         stage_a_prediction = normalize_prediction(dataset, stage_a_answer) if stage_a_answer else ""
         stage_a_score = (
             score_prediction(dataset, stage_a_prediction, sample.reference_answer) if stage_a_prediction else 0.0
@@ -338,7 +356,9 @@ def refresh_prediction_rows_for_run(
             policy_adaptive_rows = adaptive_rows_by_policy_sample.get((sample_key, method_name), [])
             sample_v8_primary_rows = v8_primary_rows_by_sample.get(sample_key, [])
             replay_fn = (
-                _replay_sparse_debate_variant
+                _replay_global_sync_variant
+                if method_name == COT_MAD_GLOBAL_SYNC_METHOD
+                else _replay_sparse_debate_variant
                 if method_name == ADAPTIVE_SPARSE_DEBATE_METHOD
                 else _replay_v6_variant
                 if method_name in ADAPTIVE_SPARSE_V6_METHODS
@@ -1510,6 +1530,7 @@ def estimate_work(
     total_calls = 0
     total_predictions = 0
     protocol = load_protocol_config(experiment.protocol)
+    stage_a_solver_modes = _stage_a_solver_modes_for_experiment(experiment)
     for benchmark in benchmarks:
         split_name = resolve_phase_split_name(experiment, phase_name, benchmark.slug)
         manifest_path = resolve_split_manifest_path(
@@ -1520,7 +1541,7 @@ def estimate_work(
         if not manifest_path.exists():
             generate_split_manifests([benchmark], manifest_path.parents[2])
         sample_count = len(load_split_ids(benchmark.cache_namespace or benchmark.slug, split_name))
-        total_calls += sample_count * len(SOLVER_MODES)
+        total_calls += sample_count * len(stage_a_solver_modes)
         if any(method_name in ADAPTIVE_SPARSE_V8_METHODS for method_name in experiment.aggregate_methods):
             total_calls += sample_count * 2
         adaptive_policy_count = sum(1 for method_name in experiment.aggregate_methods if method_name in ADAPTIVE_POLICY_METHODS)
@@ -1534,6 +1555,8 @@ def estimate_work(
             )
         if ADAPTIVE_SPARSE_DEBATE_METHOD in experiment.aggregate_methods:
             total_calls += sample_count * max(0, protocol.agent_count) * max(0, protocol.debate_rounds)
+        if COT_MAD_GLOBAL_SYNC_METHOD in experiment.aggregate_methods:
+            total_calls += sample_count * len(stage_a_solver_modes) * max(0, protocol.debate_rounds)
         total_calls += sample_count * sum(method.budget_calls for method in controls.values())
         total_predictions += sample_count * (len(controls) + len(experiment.aggregate_methods))
     return total_calls, total_predictions
@@ -1554,10 +1577,12 @@ def _run_sample(
     throttle: RequestThrottle,
 ) -> SampleResult:
     """执行单个样本的核心 Stage A、聚合方法与 no-comm 对照。"""
+    global_sync_stage_a = COT_MAD_GLOBAL_SYNC_METHOD in experiment.aggregate_methods
+    stage_a_solver_modes = _stage_a_solver_modes_for_experiment(experiment)
     core_stage_a_rows = []
-    for agent_id, solver_mode in enumerate(SOLVER_MODES, start=1):
+    for agent_id, solver_mode in enumerate(stage_a_solver_modes, start=1):
         stage_a_seed = experiment.global_seed + agent_id
-        if solver_mode == "solver_cot":
+        if solver_mode == "solver_cot" and not global_sync_stage_a:
             stage_a_seed = experiment.global_seed
         core_stage_a_rows.append(
             _execute_turn(
@@ -1595,12 +1620,17 @@ def _run_sample(
         core_stage_a_rows,
         ["agent_id", "normalized_answer", "confidence_value", "output_status"],
     )
-    stage_a_answer, stage_a_weighted_support, stage_a_resolver = _resolve_stage_a_aggregate(
-        core_stage_a_rows,
-        dataset=benchmark_slug,
-        prompt_version=experiment.prompt_version,
-        question=sample.question,
-    )
+    if global_sync_stage_a:
+        stage_a_answer, stage_a_weighted_support, stage_a_resolver = _resolve_global_sync_stage_a_majority(
+            core_stage_a_rows
+        )
+    else:
+        stage_a_answer, stage_a_weighted_support, stage_a_resolver = _resolve_stage_a_aggregate(
+            core_stage_a_rows,
+            dataset=benchmark_slug,
+            prompt_version=experiment.prompt_version,
+            question=sample.question,
+        )
     stage_a_prediction = normalize_prediction(benchmark_slug, stage_a_answer) if stage_a_answer else ""
     stage_a_score = (
         score_prediction(benchmark_slug, stage_a_prediction, sample.reference_answer) if stage_a_prediction else 0.0
@@ -1684,6 +1714,32 @@ def _run_sample(
                 stage_a_trace_hash=stage_a_trace_hash,
             )
             prediction_rows.append(ega_prediction_row)
+            continue
+        if aggregate_method == COT_MAD_GLOBAL_SYNC_METHOD:
+            adaptive_rows, debate_rows, adaptive_router_row, adaptive_prediction_row = _run_global_sync_variant(
+                method_name=aggregate_method,
+                run_id=run_id,
+                benchmark_slug=benchmark_slug,
+                split_name=split_name,
+                sample=sample,
+                protocol=protocol,
+                experiment=experiment,
+                backbone=backbone,
+                provider=provider,
+                cache=cache,
+                throttle=throttle,
+                core_stage_a_rows=core_stage_a_rows,
+                stage_a_answer=stage_a_prediction,
+                stage_a_score=stage_a_score,
+                stage_a_weighted_support=stage_a_weighted_support,
+                stage_a_resolver=stage_a_resolver,
+                stage_a_trace_hash=stage_a_trace_hash,
+            )
+            stage_a_rows.extend(adaptive_rows)
+            debate_message_rows.extend(debate_rows)
+            if adaptive_router_row is not None:
+                router_rows.append(adaptive_router_row)
+            prediction_rows.append(adaptive_prediction_row)
             continue
         if aggregate_method == ADAPTIVE_SPARSE_DEBATE_METHOD:
             adaptive_rows, debate_rows, adaptive_router_row, adaptive_prediction_row = _run_sparse_debate_variant(
@@ -2061,6 +2117,221 @@ def _run_adaptive_variant(
         baseline_score=stage_a_score,
     )
     return adaptive_rows, router_row, prediction_row
+
+
+def _run_global_sync_variant(
+    *,
+    method_name: str,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    sample: DatasetSample,
+    protocol: AdaptiveSparseMadProtocolConfig,
+    experiment: AdaptiveSparseMadExperimentConfig,
+    backbone,
+    provider: OpenAICompatibleProvider,
+    cache: RequestCache,
+    throttle: RequestThrottle,
+    core_stage_a_rows: list[dict[str, Any]],
+    stage_a_answer: str,
+    stage_a_score: float,
+    stage_a_weighted_support: dict[str, float],
+    stage_a_resolver: str,
+    stage_a_trace_hash: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    """Run the V9 5-COT global synchronized audit policy."""
+    if method_name != COT_MAD_GLOBAL_SYNC_METHOD:
+        raise ValueError(f"Unsupported global-sync method_name: {method_name}")
+    if experiment.stage_a_prompt_version != COT_GLOBAL_SYNC_PROMPT_VERSION:
+        raise ValueError(
+            f"{method_name} requires stage_a_prompt_version={COT_GLOBAL_SYNC_PROMPT_VERSION}."
+        )
+    if experiment.adaptive_prompt_version != COT_GLOBAL_SYNC_PROMPT_VERSION:
+        raise ValueError(
+            f"{method_name} requires adaptive_prompt_version={COT_GLOBAL_SYNC_PROMPT_VERSION}."
+        )
+
+    stage_a_vote_counts = {str(key): int(value) for key, value in stage_a_weighted_support.items()}
+    gate_decision = _build_global_sync_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=core_stage_a_rows,
+        stage_a_majority_answer=stage_a_answer,
+        stage_a_vote_counts=stage_a_vote_counts,
+    )
+    gate_decision["policy_name"] = method_name
+    gate_decision["selected_addon_solver"] = ""
+    gate_decision["executed_addon_solvers"] = []
+    candidate_board = _build_global_sync_candidate_board(
+        core_stage_a_rows,
+        dataset=benchmark_slug,
+        question=sample.question,
+        max_board_chars=protocol.sync_board_max_chars,
+        family_evidence_max_chars=protocol.family_evidence_max_chars,
+    )
+
+    audit_rows: list[dict[str, Any]] = []
+    debate_message_rows: list[dict[str, Any]] = []
+    final_rows = list(core_stage_a_rows)
+    debate_round_limit = min(max(0, int(protocol.debate_rounds)), 1)
+    audit_triggered = bool(gate_decision["triggered"] and debate_round_limit > 0)
+    if audit_triggered:
+        for participant_index, own_row in enumerate(core_stage_a_rows, start=1):
+            agent_id = int(own_row.get("agent_id") or participant_index)
+            source_solver_mode = str(own_row.get("solver_mode") or f"solver_{agent_id}")
+            debate_message_rows.append(
+                _build_global_sync_certificate_artifact_row(
+                    run_id=run_id,
+                    benchmark_slug=benchmark_slug,
+                    split_name=split_name,
+                    sample=sample,
+                    method_name=method_name,
+                    agent_id=agent_id,
+                    own_row=own_row,
+                    candidate_board=candidate_board,
+                    gate_decision=gate_decision,
+                    leading_answer=stage_a_answer,
+                    budget_cap_tokens=protocol.certificate_max_tokens,
+                )
+            )
+            audit_row = _execute_turn(
+                run_id=run_id,
+                dataset=benchmark_slug,
+                split_name=split_name,
+                sample=sample,
+                stage_name="global_sync_certificate",
+                method_name="global_sync_certificate",
+                role="certificate_revision",
+                round_index=1,
+                agent_id=agent_id,
+                messages=build_global_sync_certificate_messages(
+                    sample,
+                    agent_id=agent_id,
+                    own_row=own_row,
+                    candidate_board=candidate_board,
+                    gate_decision=gate_decision,
+                    stage_a_majority_answer=stage_a_answer,
+                    own_prior_max_chars=protocol.own_prior_max_chars,
+                ),
+                backbone=backbone,
+                provider=provider,
+                cache=cache,
+                throttle=throttle,
+                temperature=_debate_temperature(protocol),
+                top_p=protocol.top_p,
+                seed=experiment.global_seed + 2000 + agent_id,
+                output_mode="stage_a",
+                stage_a_retry_seed=experiment.global_seed,
+                prompt_version=experiment.adaptive_prompt_version,
+                response_format_mode=experiment.adaptive_response_format_mode,
+                max_tokens=protocol.certificate_max_tokens,
+                extra_fields={
+                    "solver_mode": f"certificate_{source_solver_mode}",
+                    "source_solver_mode": source_solver_mode,
+                    "adaptive_policy_name": method_name,
+                    "adaptive_parent_trace_hash": stage_a_trace_hash,
+                    "debate_round_index": 1,
+                    "debate_leading_answer": stage_a_answer,
+                },
+            )
+            audit_rows.append(audit_row)
+            final_rows.append(audit_row)
+
+    final_answer, final_support, final_resolver, resolution_summary = _resolve_global_sync_audit_outcome(
+        benchmark_slug=benchmark_slug,
+        stage_a_rows=core_stage_a_rows,
+        audit_rows=audit_rows,
+        stage_a_answer=stage_a_answer,
+        gate_decision=gate_decision,
+    )
+    normalized_final_answer = normalize_prediction(benchmark_slug, final_answer) if final_answer else ""
+    final_score = (
+        score_prediction(benchmark_slug, normalized_final_answer, sample.reference_answer)
+        if normalized_final_answer
+        else 0.0
+    )
+    adaptive_trace_hash = _trace_hash(
+        final_rows,
+        ["agent_id", "solver_mode", "normalized_answer", "confidence_value", "output_status"],
+    )
+    debate_trace_hash = (
+        _trace_hash(
+            audit_rows,
+            ["agent_id", "source_solver_mode", "normalized_answer", "confidence_value", "output_status"],
+        )
+        if audit_rows
+        else ""
+    )
+    router_extra_fields = _build_global_sync_router_extra_fields(
+        core_stage_a_rows=core_stage_a_rows,
+        stage_a_answer=stage_a_answer,
+        stage_a_score=stage_a_score,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        stage_a_vote_counts=stage_a_vote_counts,
+        candidate_board=candidate_board,
+        audit_rows=audit_rows,
+        resolution_summary=resolution_summary,
+        gate_decision=gate_decision,
+    )
+    router_row = _build_adaptive_router_row(
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        gate_decision=gate_decision,
+        stage_a_answer=stage_a_answer,
+        stage_a_score=stage_a_score,
+        pre_answer=stage_a_answer,
+        pre_resolver=stage_a_resolver,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_resolver=final_resolver,
+        extra_fields=router_extra_fields,
+    )
+    router_row.update(
+        {
+            "debate_triggered": bool(audit_rows),
+            "debate_rounds": 1 if audit_rows else 0,
+            "debate_trace_hash": debate_trace_hash,
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": adaptive_trace_hash,
+        }
+    )
+    prediction_row = _build_adaptive_prediction_row(
+        method_name=method_name,
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        backbone=backbone,
+        final_rows=final_rows,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_support=final_support,
+        final_resolver=final_resolver,
+        adaptive_trace_hash=adaptive_trace_hash,
+        triggered=bool(gate_decision["triggered"]),
+        baseline_answer=stage_a_answer,
+        baseline_score=stage_a_score,
+    )
+    debate_tokens = _sum_total_tokens(audit_rows)
+    prediction_row.update(
+        {
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": adaptive_trace_hash,
+            "debate_trace_hash": debate_trace_hash,
+            "debate_triggered": bool(audit_rows),
+            "debate_rounds": 1 if audit_rows else 0,
+            "debate_tokens_per_question": debate_tokens,
+            "communication_tokens_per_question": debate_tokens,
+            "protocol_failures_per_question": _count_protocol_failures(final_rows),
+            "reason_missing_turns_per_question": _count_reason_missing_turns(final_rows),
+            "pre_debate_answer": stage_a_answer,
+            "pre_debate_resolver": stage_a_resolver,
+        }
+    )
+    return audit_rows, debate_message_rows, router_row, prediction_row
 
 
 def _run_sparse_debate_variant(
@@ -3909,6 +4180,260 @@ def _build_v7_router_extra_fields(
     }
 
 
+def _answer_family_key(answer: str, *, dataset: str) -> str:
+    return _family_key_for_row({"normalized_answer": answer, "prediction": answer}, dataset=dataset)
+
+
+def _build_global_sync_candidate_board(
+    stage_a_rows: list[dict[str, Any]],
+    *,
+    dataset: str,
+    question: str,
+    max_board_chars: int = 1600,
+    family_evidence_max_chars: int = 180,
+    max_families: int = 2,
+) -> list[dict[str, Any]]:
+    """Summarize Stage A answer families for the synchronized audit board."""
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in stage_a_rows:
+        grouped[_family_key_for_row(row, dataset=dataset)].append(row)
+
+    board_rows: list[dict[str, Any]] = []
+    for family_key, rows in grouped.items():
+        evidence_digest = _select_budgeted_family_evidence(rows, max_chars=family_evidence_max_chars)
+        risk_signals: list[str] = []
+        if any(_stage_a_row_is_degraded(row) for row in rows):
+            risk_signals.append("degraded_output")
+        if any(_row_has_risk_signal(row) for row in rows):
+            risk_signals.append("self_reported_risk")
+        if len(rows) == 1:
+            risk_signals.append("minority_only")
+        representative = _select_family_representative(
+            family_key=family_key,
+            rows=rows,
+            dataset=dataset,
+            question=question,
+        )
+        board_rows.append(
+            {
+                "family_id": f"F{len(board_rows) + 1}",
+                "family_key": family_key,
+                "representative_answer": representative,
+                "vote_count": len(rows),
+                "stage_a_support": len(rows),
+                "agent_ids": [int(row.get("agent_id") or index + 1) for index, row in enumerate(rows)],
+                "first_agent_id": min(int(row.get("agent_id") or index + 1) for index, row in enumerate(rows)),
+                "avg_confidence": round(
+                    safe_mean(float(row.get("confidence_value") or 0.5) for row in rows),
+                    6,
+                ),
+                "evidence_digest": evidence_digest,
+                "risk_signals": risk_signals,
+            }
+        )
+    board_rows.sort(
+        key=lambda row: (
+            int(row.get("vote_count") or 0),
+            float(row.get("avg_confidence") or 0.0),
+            -int(row.get("first_agent_id") or 999),
+        ),
+        reverse=True,
+    )
+    board_rows = board_rows[: max(1, int(max_families))]
+    for index, row in enumerate(board_rows, start=1):
+        row["family_id"] = f"F{index}"
+    while len(str(board_rows)) > max_board_chars and any(str(row.get("evidence_digest") or "") for row in board_rows):
+        for row in board_rows:
+            current = str(row.get("evidence_digest") or "")
+            if current:
+                row["evidence_digest"] = _truncate_budget_text(current, max(24, len(current) // 2))
+        if all(len(str(row.get("evidence_digest") or "")) <= 24 for row in board_rows):
+            break
+    if len(str(board_rows)) > max_board_chars:
+        for row in board_rows:
+            row["evidence_digest"] = ""
+            row["representative_answer"] = _truncate_budget_text(row.get("representative_answer"), 120)
+            row["family_key"] = _truncate_budget_text(row.get("family_key"), 80)
+    while len(str(board_rows)) > max_board_chars and len(board_rows) > 1:
+        board_rows.pop()
+    return board_rows
+
+
+def _select_budgeted_family_evidence(rows: list[dict[str, Any]], *, max_chars: int) -> str:
+    candidates: list[str] = []
+    for row in rows:
+        for key in ("key_evidence", "claim_span"):
+            value = _truncate_budget_text(row.get(key), max_chars)
+            if value and value not in candidates:
+                candidates.append(value)
+    if not candidates:
+        return ""
+    return candidates[0]
+
+
+def _truncate_budget_text(value: Any, max_chars: int) -> str:
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    if max_chars <= 0 or len(text) <= max_chars:
+        return text
+    return text[: max(0, max_chars - 3)].rstrip() + "..."
+
+
+def _build_global_sync_gate_decision(
+    *,
+    sample: DatasetSample,
+    protocol: AdaptiveSparseMadProtocolConfig,
+    stage_a_rows: list[dict[str, Any]],
+    stage_a_majority_answer: str,
+    stage_a_vote_counts: dict[str, int],
+) -> dict[str, Any]:
+    """Decide whether the 5-COT majority should trigger a synchronized audit."""
+    ordered_counts = sorted((int(value) for value in stage_a_vote_counts.values()), reverse=True)
+    vote_pattern = "-".join(str(value) for value in ordered_counts) if ordered_counts else "0"
+    unique_answer_count = len(stage_a_vote_counts)
+    top_support = float(ordered_counts[0]) if ordered_counts else 0.0
+    second_support = float(ordered_counts[1]) if len(ordered_counts) > 1 else 0.0
+    support_gap = top_support - second_support
+    valid_confidence_values = [
+        float(row["confidence_value"]) for row in stage_a_rows if _row_has_valid_confidence_signal(row)
+    ]
+    avg_confidence = safe_mean(valid_confidence_values) if valid_confidence_values else None
+    confidence_signal_available = len(valid_confidence_values) >= 2
+    degraded_count = sum(1 for row in stage_a_rows if _stage_a_row_is_degraded(row))
+    risk_count = sum(1 for row in stage_a_rows if _row_has_risk_signal(row))
+    majority_rows = [
+        row
+        for row in stage_a_rows
+        if _answers_share_family(str(row.get("normalized_answer") or ""), stage_a_majority_answer)
+    ]
+    majority_invalid = (
+        not _task_format_ok_for_adaptive_sample(str(sample.dataset), stage_a_majority_answer)
+        or any(
+            str((row.get("validated_output") or {}).get("format_warning") or "").strip()
+            for row in majority_rows
+            if isinstance(row.get("validated_output"), dict)
+        )
+    )
+    suspicious_slot_signal = bool(
+        str(sample.dataset) in {"hotpotqa", "webquestions"} and _looks_explanatory_open_qa_answer(stage_a_majority_answer)
+    )
+    low_confidence_consensus = bool(
+        confidence_signal_available
+        and avg_confidence is not None
+        and avg_confidence < protocol.consensus_confidence_threshold
+    )
+    majority_risky = bool(
+        degraded_count > 0
+        or majority_invalid
+        or suspicious_slot_signal
+        or low_confidence_consensus
+    )
+
+    trigger_reasons: list[str] = []
+    high_value_disagreement = bool(
+        vote_pattern in {"3-2", "2-2-1", "3-1-1", "2-1-1-1", "2-1-1"}
+        or (vote_pattern == "4-1" and majority_risky)
+    )
+    if high_value_disagreement:
+        trigger_reasons.append("non_unanimous_vote")
+    if degraded_count > 0:
+        trigger_reasons.append("protocol_failure_risk")
+    if majority_invalid:
+        trigger_reasons.append("invalid_majority_answer")
+    if low_confidence_consensus:
+        trigger_reasons.append("low_confidence_consensus")
+    if suspicious_slot_signal:
+        trigger_reasons.append("suspicious_answer_slot")
+
+    false_consensus_risk = bool(unique_answer_count == 1 and majority_risky)
+    certificate_triggered = bool(high_value_disagreement)
+    return {
+        "policy_name": COT_MAD_GLOBAL_SYNC_METHOD,
+        "triggered": certificate_triggered,
+        "trigger_reasons": sorted(set(trigger_reasons)),
+        "selected_addon_solver": "",
+        "executed_addon_solvers": [],
+        "unique_answer_count": unique_answer_count,
+        "top_support": round(top_support, 6),
+        "second_support": round(second_support, 6),
+        "support_gap": round(support_gap, 6),
+        "avg_confidence": round(avg_confidence, 6) if avg_confidence is not None else None,
+        "valid_confidence_count": len(valid_confidence_values),
+        "unknown_count": sum(
+            1 for row in stage_a_rows if str(row.get("normalized_answer") or "").strip().lower() in {"", "unknown"}
+        ),
+        "degraded_count": degraded_count,
+        "risk_count": risk_count,
+        "type_conflict": False,
+        "evidence_conflict": False,
+        "false_consensus_risk": false_consensus_risk,
+        "answer_family_count": unique_answer_count,
+        "slot_mismatch_risk": suspicious_slot_signal,
+        "vote_pattern": vote_pattern,
+        "majority_risky": majority_risky,
+        "majority_invalid": majority_invalid,
+        "certificate_triggered": certificate_triggered,
+    }
+
+
+def _build_global_sync_router_extra_fields(
+    *,
+    core_stage_a_rows: list[dict[str, Any]],
+    stage_a_answer: str,
+    stage_a_score: float,
+    final_answer: str,
+    final_score: float,
+    stage_a_vote_counts: dict[str, int],
+    candidate_board: list[dict[str, Any]],
+    audit_rows: list[dict[str, Any]],
+    resolution_summary: dict[str, Any],
+    gate_decision: dict[str, Any],
+) -> dict[str, Any]:
+    stage_a_prediction_row = {"prediction": stage_a_answer}
+    stage_a_error_bucket = (
+        "stage_a_correct"
+        if stage_a_score >= 1.0
+        else _classify_stage_a_error_bucket(core_stage_a_rows, prediction_row=stage_a_prediction_row)
+    )
+    stage_a_oracle_correct = any(float(row.get("score") or 0.0) >= 1.0 for row in core_stage_a_rows)
+    return {
+        "pre_route_answer": stage_a_answer,
+        "pre_route_resolver": "cot_mad_global_sync_stage_a_majority",
+        "pre_route_score": stage_a_score,
+        "pre_route_correct": stage_a_score >= 1.0,
+        "pre_route_changed_answer": False,
+        "final_changed_vs_pre_route": final_answer != stage_a_answer,
+        "stage_a_oracle_correct": stage_a_oracle_correct,
+        "stage_a_oracle_3core": stage_a_oracle_correct,
+        "stage_a_oracle_5expert": stage_a_oracle_correct,
+        "stage_a_error_bucket": stage_a_error_bucket,
+        "high_value_bucket": stage_a_error_bucket in {"clean_pseudo_majority", "confidence_miscalibration"},
+        "all_three_wrong_before_expansion": not stage_a_oracle_correct,
+        "all_three_wrong_after_expansion": not stage_a_oracle_correct,
+        "override_accepted": bool(resolution_summary.get("accepted_override")),
+        "override_rule": str(resolution_summary.get("override_rule") or ""),
+        "stage_a_vote_counts": dict(stage_a_vote_counts),
+        "candidate_board": candidate_board,
+        "audit_vote_counts": dict(resolution_summary.get("audit_vote_counts") or {}),
+        "certificate_vote_counts": dict(resolution_summary.get("audit_vote_counts") or {}),
+        "certificate_count": int(resolution_summary.get("certificate_count") or 0),
+        "certificate_gate_passed": bool(resolution_summary.get("accepted_override")),
+        "kept_by_budget_gate": not bool(resolution_summary.get("accepted_override")),
+        "budgeted_sync_version": "budgeted_certificate_v1",
+        "board_char_count": len(str(candidate_board)),
+        "board_truncated": len(str(candidate_board)) >= 1500,
+        "budget_cap_tokens": max(
+            [int(row.get("budget_cap_tokens") or 0) for row in audit_rows if row.get("budget_cap_tokens")]
+            + [0]
+        ),
+        "budget_cap_retry": any(bool(row.get("budget_cap_retry")) for row in audit_rows),
+        "accepted_override": bool(resolution_summary.get("accepted_override")),
+        "rejected_novel_answer": bool(resolution_summary.get("rejected_novel_answer")),
+        "invalid_format_fallback": bool(resolution_summary.get("invalid_format_fallback")),
+        "majority_risky": bool(gate_decision.get("majority_risky")),
+        "majority_invalid": bool(gate_decision.get("majority_invalid")),
+    }
+
+
 def _select_v7_solver_sequence(*, sample: DatasetSample, error_mode: str) -> list[str]:
     if error_mode == "clean_consensus":
         return []
@@ -4063,6 +4588,153 @@ def _replay_adaptive_variant(
         triggered=bool(gate_decision["triggered"]),
         baseline_answer=stage_a_answer,
         baseline_score=stage_a_score,
+    )
+    return router_row, prediction_row
+
+
+def _replay_global_sync_variant(
+    *,
+    method_name: str,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    sample: DatasetSample,
+    backbone,
+    protocol: AdaptiveSparseMadProtocolConfig,
+    core_stage_a_rows: list[dict[str, Any]],
+    adaptive_rows: list[dict[str, Any]],
+    v8_primary_rows: list[dict[str, Any]],
+    stage_a_answer: str,
+    stage_a_score: float,
+    stage_a_weighted_support: dict[str, float],
+    stage_a_resolver: str,
+    stage_a_trace_hash: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Replay the V9 global synchronized audit method from persisted rows."""
+    del v8_primary_rows
+    if method_name != COT_MAD_GLOBAL_SYNC_METHOD:
+        raise ValueError(f"Unsupported global-sync replay method_name: {method_name}")
+
+    stage_a_vote_counts = {str(key): int(value) for key, value in stage_a_weighted_support.items()}
+    gate_decision = _build_global_sync_gate_decision(
+        sample=sample,
+        protocol=protocol,
+        stage_a_rows=core_stage_a_rows,
+        stage_a_majority_answer=stage_a_answer,
+        stage_a_vote_counts=stage_a_vote_counts,
+    )
+    gate_decision["policy_name"] = method_name
+    gate_decision["selected_addon_solver"] = ""
+    gate_decision["executed_addon_solvers"] = []
+    candidate_board = _build_global_sync_candidate_board(
+        core_stage_a_rows,
+        dataset=benchmark_slug,
+        question=sample.question,
+        max_board_chars=protocol.sync_board_max_chars,
+        family_evidence_max_chars=protocol.family_evidence_max_chars,
+    )
+    audit_rows = [
+        row
+        for row in adaptive_rows
+        if str(row.get("role") or "") in {"certificate_revision", "debate_revision"}
+    ]
+    final_rows = list(core_stage_a_rows)
+    if gate_decision["triggered"]:
+        final_rows.extend(audit_rows)
+
+    final_answer, final_support, final_resolver, resolution_summary = _resolve_global_sync_audit_outcome(
+        benchmark_slug=benchmark_slug,
+        stage_a_rows=core_stage_a_rows,
+        audit_rows=audit_rows,
+        stage_a_answer=stage_a_answer,
+        gate_decision=gate_decision,
+    )
+    normalized_final_answer = normalize_prediction(benchmark_slug, final_answer) if final_answer else ""
+    final_score = (
+        score_prediction(benchmark_slug, normalized_final_answer, sample.reference_answer)
+        if normalized_final_answer
+        else 0.0
+    )
+    adaptive_trace_hash = _trace_hash(
+        final_rows,
+        ["agent_id", "solver_mode", "normalized_answer", "confidence_value", "output_status"],
+    )
+    debate_trace_hash = (
+        _trace_hash(
+            audit_rows,
+            ["agent_id", "source_solver_mode", "normalized_answer", "confidence_value", "output_status"],
+        )
+        if audit_rows
+        else ""
+    )
+    router_extra_fields = _build_global_sync_router_extra_fields(
+        core_stage_a_rows=core_stage_a_rows,
+        stage_a_answer=stage_a_answer,
+        stage_a_score=stage_a_score,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        stage_a_vote_counts=stage_a_vote_counts,
+        candidate_board=candidate_board,
+        audit_rows=audit_rows,
+        resolution_summary=resolution_summary,
+        gate_decision=gate_decision,
+    )
+    router_row = _build_adaptive_router_row(
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        gate_decision=gate_decision,
+        stage_a_answer=stage_a_answer,
+        stage_a_score=stage_a_score,
+        pre_answer=stage_a_answer,
+        pre_resolver=stage_a_resolver,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_resolver=final_resolver,
+        extra_fields=router_extra_fields,
+    )
+    router_row.update(
+        {
+            "debate_triggered": bool(audit_rows),
+            "debate_rounds": 1 if audit_rows else 0,
+            "debate_trace_hash": debate_trace_hash,
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": adaptive_trace_hash,
+        }
+    )
+    prediction_row = _build_adaptive_prediction_row(
+        method_name=method_name,
+        run_id=run_id,
+        benchmark_slug=benchmark_slug,
+        split_name=split_name,
+        sample=sample,
+        backbone=backbone,
+        final_rows=final_rows,
+        final_answer=normalized_final_answer,
+        final_score=final_score,
+        final_support=final_support,
+        final_resolver=final_resolver,
+        adaptive_trace_hash=adaptive_trace_hash,
+        triggered=bool(gate_decision["triggered"]),
+        baseline_answer=stage_a_answer,
+        baseline_score=stage_a_score,
+    )
+    debate_tokens = _sum_total_tokens(audit_rows)
+    prediction_row.update(
+        {
+            "stage_a_trace_hash": stage_a_trace_hash,
+            "adaptive_trace_hash": adaptive_trace_hash,
+            "debate_trace_hash": debate_trace_hash,
+            "debate_triggered": bool(audit_rows),
+            "debate_rounds": 1 if audit_rows else 0,
+            "debate_tokens_per_question": debate_tokens,
+            "communication_tokens_per_question": debate_tokens,
+            "protocol_failures_per_question": _count_protocol_failures(final_rows),
+            "reason_missing_turns_per_question": _count_reason_missing_turns(final_rows),
+            "pre_debate_answer": stage_a_answer,
+            "pre_debate_resolver": stage_a_resolver,
+        }
     )
     return router_row, prediction_row
 
@@ -5121,6 +5793,43 @@ def _build_debate_message_artifact_rows(
     return rows
 
 
+def _build_global_sync_certificate_artifact_row(
+    *,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    sample: DatasetSample,
+    method_name: str,
+    agent_id: int,
+    own_row: dict[str, Any],
+    candidate_board: list[dict[str, Any]],
+    gate_decision: dict[str, Any],
+    leading_answer: str,
+    budget_cap_tokens: int,
+) -> dict[str, Any]:
+    return {
+        "run_id": run_id,
+        "dataset": benchmark_slug,
+        "split": split_name,
+        "sample_id": sample.sample_id,
+        "method_name": method_name,
+        "round_index": 1,
+        "sender_agent_id": agent_id,
+        "recipient_agent_id": agent_id,
+        "sender_solver_mode": str(own_row.get("solver_mode") or "solver_cot"),
+        "recipient_solver_mode": "global_sync_certificate",
+        "sender_answer": str(own_row.get("normalized_answer") or own_row.get("prediction") or ""),
+        "sender_reasoning": "",
+        "sender_confidence": own_row.get("confidence_value"),
+        "sender_evidence": _truncate_budget_text(own_row.get("key_evidence") or own_row.get("claim_span"), 120),
+        "gate_reasons": list(gate_decision.get("trigger_reasons") or []),
+        "leading_answer": leading_answer,
+        "candidate_board_summary": candidate_board,
+        "board_char_count": len(str(candidate_board)),
+        "budget_cap_tokens": budget_cap_tokens,
+    }
+
+
 def _should_accept_debate_candidate(
     *,
     candidate_answer: str,
@@ -5349,6 +6058,7 @@ def _execute_turn(
     stage_a_retry_seed: int | None = None,
     prompt_version: str = STAGE_A_V2_PROMPT_VERSION,
     response_format_mode: str = "json_object",
+    max_tokens: int | None = None,
     extra_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """执行一次 Stage A 或追加 Stage A 调用，并进行安全重试与答案槽修正。"""
@@ -5361,10 +6071,13 @@ def _execute_turn(
             dataset=dataset,
             provider_reasoning_text=provider_reasoning_text,
             response_format_mode=response_format_mode,
+            prompt_version=prompt_version,
+            stage_name=stage_name,
         )
 
     use_response_format = response_format_mode == "json_object"
     retry_used = False
+    budget_cap_retry_used = False
     result = execute_cached_turn(
         backbone=backbone,
         provider=provider,
@@ -5376,8 +6089,28 @@ def _execute_turn(
         seed=seed,
         validator=validator,
         use_response_format=use_response_format,
+        max_tokens=max_tokens,
     )
-    if output_mode == "stage_a" and _should_safe_retry_stage_a_result(result):
+    if max_tokens is not None and _max_tokens_rejected_by_provider(result):
+        result = execute_cached_turn(
+            backbone=backbone,
+            provider=provider,
+            cache=cache,
+            throttle=throttle,
+            messages=messages,
+            temperature=temperature,
+            top_p=top_p,
+            seed=seed,
+            validator=validator,
+            use_response_format=use_response_format,
+            max_tokens=None,
+        )
+        budget_cap_retry_used = True
+    if (
+        output_mode == "stage_a"
+        and stage_name != "global_sync_certificate"
+        and _should_safe_retry_stage_a_result(result)
+    ):
         retry_result = execute_cached_turn(
             backbone=backbone,
             provider=provider,
@@ -5393,6 +6126,7 @@ def _execute_turn(
             seed=seed,
             validator=validator,
             use_response_format=use_response_format,
+            max_tokens=max_tokens,
         )
         if not _should_safe_retry_stage_a_result(retry_result):
             result = retry_result
@@ -5419,6 +6153,7 @@ def _execute_turn(
                 seed=stage_a_retry_seed if stage_a_retry_seed is not None else seed,
                 validator=validator,
                 use_response_format=use_response_format,
+                max_tokens=max_tokens,
             )
             if not _should_safe_retry_stage_a_result(cot_retry):
                 result = cot_retry
@@ -5467,6 +6202,12 @@ def _execute_turn(
         "critique_point": validated.get("critique_point"),
         "revision_note": validated.get("revision_note"),
         "selected_candidate": validated.get("selected_candidate"),
+        "preferred_family": validated.get("preferred_family") or validated.get("selected_candidate"),
+        "majority_error": validated.get("majority_error"),
+        "error_type": validated.get("error_type"),
+        "cert_evidence": validated.get("cert_evidence"),
+        "budget_cap_tokens": max_tokens,
+        "budget_cap_retry": budget_cap_retry_used,
         "prompt_tokens": float(result.usage.get("prompt_tokens") or 0.0),
         "completion_tokens": float(result.usage.get("completion_tokens") or 0.0),
         "total_tokens": float(result.usage.get("total_tokens") or 0.0),
@@ -5488,6 +6229,23 @@ def _execute_turn(
 def _is_soft_rejection_result(result) -> bool:
     """判断模型回复是否像安全拒答或软拒答。"""
     return looks_like_soft_rejection_text(str(result.response_payload.get("assistant_text") or ""))
+
+
+def _max_tokens_rejected_by_provider(result) -> bool:
+    response_payload = getattr(result, "response_payload", {})
+    payload_error = response_payload.get("request_error") if isinstance(response_payload, dict) else ""
+    message = " ".join(
+        str(value or "")
+        for value in (
+            getattr(result, "request_error", None),
+            payload_error,
+        )
+    ).lower()
+    return bool(
+        message
+        and "max_tokens" in message
+        and any(marker in message for marker in ("unsupported", "invalid", "unrecognized", "unknown", "not support"))
+    )
 
 
 def _should_safe_retry_stage_a_result(result) -> bool:
@@ -5729,6 +6487,16 @@ def _resolve_stage_a_aggregate(
     return aggregate_constraint_aware_stage_a(stage_a_rows)
 
 
+def _resolve_global_sync_stage_a_majority(
+    stage_a_rows: list[dict[str, Any]],
+) -> tuple[str, dict[str, float], str]:
+    """Resolve the V9 Stage A result with the same majority semantics as sc_5."""
+    winner, vote_counts = aggregate_majority(
+        str(row.get("normalized_answer") or row.get("prediction") or "").strip() for row in stage_a_rows
+    )
+    return winner, {str(key): float(value) for key, value in vote_counts.items()}, "cot_mad_global_sync_stage_a_majority"
+
+
 def _resolve_stage_a_aggregate_v6(
     stage_a_rows: list[dict[str, Any]],
     *,
@@ -5745,6 +6513,138 @@ def _resolve_stage_a_aggregate_v6(
     if family_answer and family_answer.lower() not in {"", "unknown"}:
         return family_answer, family_support, family_resolver
     return aggregate_constraint_aware_stage_a(stage_a_rows)
+
+
+def _resolve_global_sync_audit_outcome(
+    *,
+    benchmark_slug: str,
+    stage_a_rows: list[dict[str, Any]],
+    audit_rows: list[dict[str, Any]],
+    stage_a_answer: str,
+    gate_decision: dict[str, Any],
+) -> tuple[str, dict[str, float], str, dict[str, Any]]:
+    """Apply the V9 override rules to synchronized audit revisions."""
+    _, stage_a_vote_counts = aggregate_majority(
+        str(row.get("normalized_answer") or row.get("prediction") or "").strip() for row in stage_a_rows
+    )
+    stage_a_support_payload = {str(key): float(value) for key, value in stage_a_vote_counts.items()}
+    if not audit_rows:
+        return (
+            stage_a_answer,
+            stage_a_support_payload,
+            "cot_mad_global_sync_keep_stage_a_majority",
+            {
+                "accepted_override": False,
+                "override_rule": "no_audit_rows",
+                "audit_vote_counts": {},
+                "rejected_novel_answer": False,
+                "invalid_format_fallback": False,
+            },
+        )
+
+    _, audit_vote_counts = aggregate_majority(
+        str(row.get("normalized_answer") or row.get("prediction") or "").strip() for row in audit_rows
+    )
+    family_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in audit_rows:
+        family_rows[_family_key_for_row(row, dataset=benchmark_slug)].append(row)
+    ranked_family_keys = sorted(
+        family_rows,
+        key=lambda family_key: (
+            len(family_rows[family_key]),
+            safe_mean(float(row.get("confidence_value") or 0.5) for row in family_rows[family_key]),
+            _select_family_representative(
+                family_key=family_key,
+                rows=family_rows[family_key],
+                dataset=benchmark_slug,
+                question="",
+            ),
+        ),
+        reverse=True,
+    )
+    winning_family_key = ranked_family_keys[0]
+    winning_rows = family_rows[winning_family_key]
+    winning_answer = _select_family_representative(
+        family_key=winning_family_key,
+        rows=winning_rows,
+        dataset=benchmark_slug,
+        question="",
+    )
+    winning_support = len(winning_rows)
+    stage_a_family_support = sum(
+        1
+        for row in stage_a_rows
+        if _answer_family_key(str(row.get("normalized_answer") or row.get("prediction") or ""), dataset=benchmark_slug)
+        == winning_family_key
+    )
+    stage_a_majority_family_key = _answer_family_key(stage_a_answer, dataset=benchmark_slug)
+    winner_is_stage_a_majority = winning_family_key == stage_a_majority_family_key
+    winner_is_novel = stage_a_family_support == 0 and any(
+        str(row.get("selected_candidate") or "").strip() == "novel_answer" for row in winning_rows
+    )
+    certificate_count = sum(1 for row in winning_rows if _audit_row_has_majority_error_certificate(row))
+    majority_side_certificate_count = _majority_side_certificate_count(
+        stage_a_rows=stage_a_rows,
+        winning_rows=winning_rows,
+        stage_a_majority_family_key=stage_a_majority_family_key,
+        benchmark_slug=benchmark_slug,
+    )
+    majority_risky = bool(gate_decision.get("majority_risky"))
+    majority_invalid = bool(gate_decision.get("majority_invalid"))
+    summary = {
+        "accepted_override": False,
+        "override_rule": "",
+        "audit_vote_counts": {str(key): int(value) for key, value in audit_vote_counts.items()},
+        "winning_answer": winning_answer,
+        "winning_family_key": winning_family_key,
+        "winning_support": winning_support,
+        "certificate_count": certificate_count,
+        "majority_side_certificate_count": majority_side_certificate_count,
+        "rejected_novel_answer": False,
+        "invalid_format_fallback": False,
+    }
+    if winner_is_stage_a_majority:
+        return stage_a_answer, stage_a_support_payload, "cot_mad_global_sync_keep_stage_a_majority", summary
+
+    candidate_answer = normalize_prediction(benchmark_slug, winning_answer) if winning_answer else ""
+    if winner_is_novel and winning_support < 4:
+        summary["rejected_novel_answer"] = True
+        return stage_a_answer, stage_a_support_payload, "cot_mad_global_sync_keep_stage_a_majority", summary
+
+    override_rule = ""
+    if winner_is_novel:
+        if winning_support >= 4 and certificate_count >= 3:
+            override_rule = "accept_novel_answer"
+    elif stage_a_family_support <= 1:
+        if winning_support >= 4 and certificate_count >= 3 and (majority_risky or majority_invalid):
+            override_rule = "accept_risky_majority_override"
+    elif (
+        winning_support >= 3
+        and certificate_count >= 2
+        and (stage_a_family_support >= 2 or majority_side_certificate_count >= 1)
+    ):
+        override_rule = (
+            "accept_risky_majority_override" if (majority_risky or majority_invalid) else "accept_supported_challenger"
+        )
+
+    if not override_rule:
+        return stage_a_answer, stage_a_support_payload, "cot_mad_global_sync_keep_stage_a_majority", summary
+    if any(
+        str((row.get("validated_output") or {}).get("format_warning") or "").strip()
+        for row in winning_rows
+        if isinstance(row.get("validated_output"), dict)
+    ) or not _task_format_ok_for_adaptive_sample(benchmark_slug, winning_answer):
+        summary["invalid_format_fallback"] = True
+        return stage_a_answer, stage_a_support_payload, "cot_mad_global_sync_invalid_format_fallback", summary
+
+    summary["accepted_override"] = True
+    summary["override_rule"] = override_rule
+    return (
+        candidate_answer,
+        {str(key): float(value) for key, value in audit_vote_counts.items()},
+        f"cot_mad_global_sync_{override_rule}",
+        summary,
+    )
 
 
 def _score_existing_stage_a_answer(stage_a_rows: list[dict[str, Any]], answer: str) -> float:
@@ -6183,9 +7083,23 @@ def _validate_stage_a_output(
     dataset: str,
     provider_reasoning_text: str = "",
     response_format_mode: str = "json_object",
+    prompt_version: str = STAGE_A_V2_PROMPT_VERSION,
+    stage_name: str = "stage_a",
 ) -> dict[str, Any]:
     """Validate Stage A output with an explicit free-text mainline and legacy JSON split."""
     if response_format_mode == "free_text":
+        if prompt_version == COT_GLOBAL_SYNC_PROMPT_VERSION and stage_name == "global_sync_certificate":
+            return _validate_global_sync_certificate_output(
+                raw_text,
+                dataset=dataset,
+                provider_reasoning_text=provider_reasoning_text,
+            )
+        if prompt_version == COT_GLOBAL_SYNC_PROMPT_VERSION and stage_name == "stage_a":
+            return _validate_stage_a_sc5_aligned_output(
+                raw_text,
+                dataset=dataset,
+                provider_reasoning_text=provider_reasoning_text,
+            )
         return _validate_stage_a_free_text_output(
             raw_text,
             dataset=dataset,
@@ -6198,6 +7112,125 @@ def _validate_stage_a_output(
             provider_reasoning_text=provider_reasoning_text,
         )
     raise ValueError(f"Unsupported response_format_mode: {response_format_mode}")
+
+
+def _validate_global_sync_certificate_output(
+    raw_text: str,
+    *,
+    dataset: str,
+    provider_reasoning_text: str = "",
+) -> dict[str, Any]:
+    """Validate the V9 budgeted certificate output."""
+    try:
+        return parse_global_sync_certificate_output(raw_text, dataset=dataset)
+    except Exception as exc:
+        free_text_parse_error = str(exc)
+    raw_reasoning = _optional_text(raw_text) or _optional_text(provider_reasoning_text)
+    try:
+        recovered = recover_answer_from_reasoning_text(raw_reasoning, dataset) if raw_reasoning else {}
+    except Exception:
+        recovered = {}
+    final_answer = str(recovered.get("final_answer") or "unknown")
+    cert_evidence = _truncate_budget_text(raw_reasoning or "certificate_unrecoverable_output", 180)
+    return {
+        "final_answer": final_answer,
+        "reasoning": cert_evidence,
+        "confidence_raw": recovered.get("confidence_raw") if recovered else 0.0,
+        "answer_type": "global_sync_certificate",
+        "key_constraints": "budgeted_certificate",
+        "key_evidence": cert_evidence,
+        "claim_span": final_answer,
+        "failure_risk": "certificate_parse_error",
+        "uncertainty_type": "other",
+        "selected_candidate": "stage_a_majority",
+        "preferred_family": "stage_a_majority",
+        "majority_error": "none",
+        "error_type": "other",
+        "cert_evidence": cert_evidence,
+        "revision_note": "keep_majority after certificate parse failure",
+        "stage_a_recovery_fallback": "certificate_parse_fallback",
+        "free_text_parse_error": free_text_parse_error,
+    }
+
+
+def _validate_stage_a_sc5_aligned_output(
+    raw_text: str,
+    *,
+    dataset: str,
+    provider_reasoning_text: str = "",
+) -> dict[str, Any]:
+    """Validate the V9 Stage A path using the same light free-text contract as the strong SC baseline."""
+    try:
+        validated = parse_free_text_answer_output(raw_text, dataset=dataset)
+        validated.update(
+            {
+                "confidence_raw": None,
+                "answer_type": "",
+                "key_constraints": "",
+                "key_evidence": str(validated.get("reasoning") or validated.get("final_answer") or ""),
+                "claim_span": str(validated.get("final_answer") or ""),
+                "failure_risk": "none",
+                "uncertainty_type": "",
+            }
+        )
+        return _apply_stage_a_consistency_safeguard(
+            validated,
+            dataset=dataset,
+            allow_numeric_tail_recovery=False,
+        )
+    except Exception as exc:
+        free_text_parse_error = str(exc)
+    raw_reasoning = _optional_text(raw_text)
+    for candidate in (raw_text, provider_reasoning_text):
+        if not str(candidate or "").strip():
+            continue
+        try:
+            recovered = recover_answer_from_reasoning_text(str(candidate), dataset)
+            final_answer = str(recovered.get("final_answer") or "")
+            recovered_reasoning = _optional_text(recovered.get("reasoning"))
+            reasoning = recovered_reasoning or final_answer
+            if raw_reasoning and len(raw_reasoning) > max(40, len(reasoning) + 20):
+                reasoning = raw_reasoning
+            validated = {
+                "final_answer": final_answer,
+                "reasoning": reasoning,
+                "confidence_raw": recovered.get("confidence_raw"),
+                "answer_type": "",
+                "key_constraints": "",
+                "key_evidence": reasoning,
+                "claim_span": final_answer,
+                "failure_risk": "none",
+                "uncertainty_type": _optional_text(recovered.get("uncertainty_type")),
+                "uncertain_point": _optional_text(recovered.get("uncertain_point")),
+                "stage_a_recovery_fallback": "answer_recovered_from_unstructured_stage_a_output",
+                "free_text_parse_error": free_text_parse_error,
+            }
+            return _apply_stage_a_consistency_safeguard(
+                validated,
+                dataset=dataset,
+                allow_numeric_tail_recovery=True,
+            )
+        except Exception:
+            continue
+    validated = {
+        "final_answer": "unknown",
+        "reasoning": raw_reasoning or "stage_a_unrecoverable_output",
+        "confidence_raw": 0.0,
+        "answer_type": "",
+        "key_constraints": "",
+        "key_evidence": raw_reasoning or "stage_a_unrecoverable_output",
+        "claim_span": "unknown",
+        "failure_risk": "none",
+        "uncertainty_type": "other",
+        "uncertain_point": "unknown_after_unrecoverable_stage_a_output",
+        "stage_a_recovery_fallback": "unknown_after_unrecoverable_stage_a_output",
+        "free_text_parse_error": free_text_parse_error,
+    }
+    return _apply_stage_a_consistency_safeguard(
+        validated,
+        dataset=dataset,
+        allow_numeric_tail_recovery=True,
+    )
 
 
 def _validate_stage_a_free_text_output(
@@ -6618,13 +7651,57 @@ def _normalize_router_text(value: str) -> str:
 
 def _row_has_risk_signal(row: dict[str, Any]) -> bool:
     """判断候选行是否自报风险或体现低置信度。"""
-    failure_risk = str(row.get("failure_risk") or "").strip()
-    uncertainty_type = str(row.get("uncertainty_type") or "").strip()
+    failure_risk = _normalize_router_text(str(row.get("failure_risk") or ""))
+    uncertainty_type = _normalize_router_text(str(row.get("uncertainty_type") or ""))
     try:
         confidence_value = float(row.get("confidence_value") or 0.5)
     except (TypeError, ValueError):
         confidence_value = 0.5
-    return bool(failure_risk or uncertainty_type or confidence_value < 0.45)
+    empty_signals = {"", "none", "n a", "na", "null", "unknown", "no material risk", "not applicable"}
+    return bool(
+        failure_risk not in empty_signals
+        or uncertainty_type not in empty_signals
+        or confidence_value < 0.45
+    )
+
+
+def _audit_row_has_majority_error_certificate(row: dict[str, Any]) -> bool:
+    value = _normalize_router_text(
+        str(
+            row.get("majority_error")
+            or (row.get("validated_output") or {}).get("majority_error")
+            or ""
+        )
+    )
+    return value not in {"", "none", "n a", "na", "null", "unknown"}
+
+
+def _majority_side_certificate_count(
+    *,
+    stage_a_rows: list[dict[str, Any]],
+    winning_rows: list[dict[str, Any]],
+    stage_a_majority_family_key: str,
+    benchmark_slug: str,
+) -> int:
+    stage_a_by_agent = {int(row.get("agent_id") or index + 1): row for index, row in enumerate(stage_a_rows)}
+    count = 0
+    for row in winning_rows:
+        if not _audit_row_has_majority_error_certificate(row):
+            continue
+        try:
+            agent_id = int(row.get("agent_id") or 0)
+        except (TypeError, ValueError):
+            agent_id = 0
+        prior_row = stage_a_by_agent.get(agent_id)
+        if prior_row is None:
+            continue
+        prior_family = _answer_family_key(
+            str(prior_row.get("normalized_answer") or prior_row.get("prediction") or ""),
+            dataset=benchmark_slug,
+        )
+        if prior_family == stage_a_majority_family_key:
+            count += 1
+    return count
 
 
 def _trace_hash(rows: list[dict[str, Any]], keys: list[str]) -> str:

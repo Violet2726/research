@@ -13,6 +13,7 @@ def build_payload(
     seed: int | None,
     *,
     use_response_format: bool = True,
+    max_tokens: int | None = None,
 ) -> dict[str, Any]:
     """Map normalized request arguments into a provider payload."""
 
@@ -24,6 +25,8 @@ def build_payload(
     }
     if seed is not None:
         payload["seed"] = seed
+    if max_tokens is not None and max_tokens > 0:
+        payload["max_tokens"] = int(max_tokens)
     apply_thinking_control(config, payload)
     if use_response_format and config.supports_response_format and config.response_format:
         payload["response_format"] = {"type": config.response_format}

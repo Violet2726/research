@@ -12,6 +12,7 @@ from typing import Any
 
 from research_experiments.core.controls.control_prompts import FREE_TEXT_V1_PROMPT_VERSION
 from research_experiments.families.adaptive_sparse_mad.prompts import (
+    COT_GLOBAL_SYNC_PROMPT_VERSION,
     FREE_TEXT_DEBATE_PROMPT_VERSION,
     STAGE_A_V4_PROMPT_VERSION,
 )
@@ -33,6 +34,7 @@ ADAPTIVE_SPARSE_META_ROUTE_METHOD = "adaptive_sparse_meta_route_v7"
 ADAPTIVE_SPARSE_CAPACITY5_METHOD = "adaptive_sparse_capacity5_v8"
 ADAPTIVE_SPARSE_CAPACITY5_OVERRIDE_METHOD = "adaptive_sparse_capacity5_override_v8"
 ADAPTIVE_SPARSE_CAPACITY5_ARBITER_METHOD = "adaptive_sparse_capacity5_arbiter_v8"
+COT_MAD_GLOBAL_SYNC_METHOD = "cot_mad_global_sync_v1"
 ADAPTIVE_SPARSE_V6_METHODS = frozenset(
     {
         ADAPTIVE_SPARSE_RESCUE_ONLY_METHOD,
@@ -56,6 +58,7 @@ ADAPTIVE_SPARSE_V8_METHODS = frozenset(
 FREE_TEXT_ADAPTIVE_METHODS = frozenset(
     {
         ADAPTIVE_SPARSE_DEBATE_METHOD,
+        COT_MAD_GLOBAL_SYNC_METHOD,
         *ADAPTIVE_SPARSE_V6_METHODS,
     }
 )
@@ -72,6 +75,8 @@ FALSE_CONSENSUS_PROBE_METHODS = frozenset(
     }
 )
 DEBATE_ENABLED_METHODS = frozenset({ADAPTIVE_SPARSE_DEBATE_METHOD, ADAPTIVE_SPARSE_RESCUE_PROBE_METHOD})
+GLOBAL_SYNC_AUDIT_METHODS = frozenset({COT_MAD_GLOBAL_SYNC_METHOD})
+FREE_TEXT_PROMPT_VERSIONS = frozenset({FREE_TEXT_DEBATE_PROMPT_VERSION, COT_GLOBAL_SYNC_PROMPT_VERSION})
 STRUCTURED_STAGE_A_PROMPT_VERSIONS = frozenset({STAGE_A_V4_PROMPT_VERSION, FREE_TEXT_DEBATE_PROMPT_VERSION})
 RESPONSE_FORMAT_MODES = frozenset({"free_text", "json_object"})
 
@@ -82,6 +87,7 @@ ACTIVE_AGGREGATE_METHODS = frozenset(
         "adaptive_gate_v4",
         "adaptive_dual_open_v5",
         "adaptive_counterfactual_v1",
+        COT_MAD_GLOBAL_SYNC_METHOD,
         ADAPTIVE_SPARSE_DEBATE_METHOD,
         *ADAPTIVE_SPARSE_V6_METHODS,
         *ADAPTIVE_SPARSE_V7_METHODS,
@@ -105,6 +111,7 @@ ADAPTIVE_POLICY_METHODS = frozenset(
         "adaptive_gate_v4",
         "adaptive_dual_open_v5",
         "adaptive_counterfactual_v1",
+        COT_MAD_GLOBAL_SYNC_METHOD,
         ADAPTIVE_SPARSE_DEBATE_METHOD,
         *ADAPTIVE_SPARSE_V6_METHODS,
         *ADAPTIVE_SPARSE_V7_METHODS,
@@ -135,6 +142,10 @@ class AdaptiveSparseMadProtocolConfig:
     specialist_pair_override_margin: float = 0.15
     arbiter_trigger_margin: float = 0.20
     arbiter_confidence_threshold: float = 0.70
+    sync_board_max_chars: int = 1600
+    family_evidence_max_chars: int = 180
+    own_prior_max_chars: int = 120
+    certificate_max_tokens: int = 256
 
 
 @dataclass(frozen=True)
@@ -185,6 +196,10 @@ def load_protocol_config(path: str | Path) -> AdaptiveSparseMadProtocolConfig:
         specialist_pair_override_margin=float(payload.get("specialist_pair_override_margin", 0.15)),
         arbiter_trigger_margin=float(payload.get("arbiter_trigger_margin", 0.20)),
         arbiter_confidence_threshold=float(payload.get("arbiter_confidence_threshold", 0.70)),
+        sync_board_max_chars=int(payload.get("sync_board_max_chars", 1600)),
+        family_evidence_max_chars=int(payload.get("family_evidence_max_chars", 180)),
+        own_prior_max_chars=int(payload.get("own_prior_max_chars", 120)),
+        certificate_max_tokens=int(payload.get("certificate_max_tokens", 256)),
     )
 
 
@@ -204,6 +219,10 @@ def load_experiment_config(path: str | Path) -> AdaptiveSparseMadExperimentConfi
             "Unsupported adaptive_sparse_mad aggregate_methods: "
             + ", ".join(unsupported_methods)
         )
+    if COT_MAD_GLOBAL_SYNC_METHOD in aggregate_methods and set(aggregate_methods) != {COT_MAD_GLOBAL_SYNC_METHOD}:
+        raise ValueError(
+            "adaptive_sparse_mad cot_mad_global_sync_v1 must run as the only aggregate method in its experiment."
+        )
     max_adaptive_addon_calls = int(
         payload.get(
             "max_adaptive_addon_calls",
@@ -221,12 +240,10 @@ def load_experiment_config(path: str | Path) -> AdaptiveSparseMadExperimentConfi
     )
     if control_output_protocol != FREE_TEXT_ANSWER_PROTOCOL_V1:
         raise ValueError("adaptive_sparse_mad control_output_protocol must be free_text_answer_v1.")
-    default_response_format_mode = (
-        "free_text" if stage_a_prompt_version == FREE_TEXT_DEBATE_PROMPT_VERSION else "json_object"
-    )
+    default_response_format_mode = "free_text" if stage_a_prompt_version in FREE_TEXT_PROMPT_VERSIONS else "json_object"
     stage_a_response_format_mode = str(payload.get("stage_a_response_format_mode", default_response_format_mode))
     adaptive_default_response_format_mode = (
-        "free_text" if adaptive_prompt_version == FREE_TEXT_DEBATE_PROMPT_VERSION else "json_object"
+        "free_text" if adaptive_prompt_version in FREE_TEXT_PROMPT_VERSIONS else "json_object"
     )
     adaptive_response_format_mode = str(
         payload.get("adaptive_response_format_mode", adaptive_default_response_format_mode)
@@ -243,19 +260,19 @@ def load_experiment_config(path: str | Path) -> AdaptiveSparseMadExperimentConfi
         )
     if (
         stage_a_response_format_mode == "free_text"
-        and stage_a_prompt_version != FREE_TEXT_DEBATE_PROMPT_VERSION
+        and stage_a_prompt_version not in FREE_TEXT_PROMPT_VERSIONS
     ):
         raise ValueError(
             "adaptive_sparse_mad free-text Stage A requires "
-            f"stage_a_prompt_version={FREE_TEXT_DEBATE_PROMPT_VERSION}."
+            "a registered free-text prompt version."
         )
     if (
         adaptive_response_format_mode == "free_text"
-        and adaptive_prompt_version != FREE_TEXT_DEBATE_PROMPT_VERSION
+        and adaptive_prompt_version not in FREE_TEXT_PROMPT_VERSIONS
     ):
         raise ValueError(
             "adaptive_sparse_mad free-text adaptive turns require "
-            f"adaptive_prompt_version={FREE_TEXT_DEBATE_PROMPT_VERSION}."
+            "a registered free-text prompt version."
         )
     legacy_json_mode = bool(
         payload.get(
@@ -277,7 +294,10 @@ def load_experiment_config(path: str | Path) -> AdaptiveSparseMadExperimentConfi
                 + ", ".join(sorted(STRUCTURED_STAGE_A_PROMPT_VERSIONS))
             )
     if (
-        any(method_name in ADAPTIVE_POLICY_METHODS for method_name in aggregate_methods)
+        any(
+            method_name in ADAPTIVE_POLICY_METHODS and method_name != COT_MAD_GLOBAL_SYNC_METHOD
+            for method_name in aggregate_methods
+        )
         and adaptive_prompt_version not in STRUCTURED_STAGE_A_PROMPT_VERSIONS
     ):
         raise ValueError(
@@ -285,6 +305,21 @@ def load_experiment_config(path: str | Path) -> AdaptiveSparseMadExperimentConfi
             "adaptive_prompt_version in "
             + ", ".join(sorted(STRUCTURED_STAGE_A_PROMPT_VERSIONS))
         )
+    if COT_MAD_GLOBAL_SYNC_METHOD in aggregate_methods:
+        if stage_a_prompt_version != COT_GLOBAL_SYNC_PROMPT_VERSION:
+            raise ValueError(
+                "adaptive_sparse_mad cot_mad_global_sync_v1 requires "
+                f"stage_a_prompt_version={COT_GLOBAL_SYNC_PROMPT_VERSION}."
+            )
+        if adaptive_prompt_version != COT_GLOBAL_SYNC_PROMPT_VERSION:
+            raise ValueError(
+                "adaptive_sparse_mad cot_mad_global_sync_v1 requires "
+                f"adaptive_prompt_version={COT_GLOBAL_SYNC_PROMPT_VERSION}."
+            )
+        if stage_a_response_format_mode != "free_text" or adaptive_response_format_mode != "free_text":
+            raise ValueError(
+                "adaptive_sparse_mad cot_mad_global_sync_v1 requires free-text response format for Stage A and audit."
+            )
     return AdaptiveSparseMadExperimentConfig(
         name=str(payload["name"]),
         description=str(payload["description"]),

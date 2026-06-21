@@ -11,6 +11,7 @@ from typing import Any
 
 from research_experiments.families.adaptive_sparse_mad.config import (
     ADAPTIVE_POLICY_METHODS,
+    COT_MAD_GLOBAL_SYNC_METHOD,
     ADAPTIVE_SPARSE_DEBATE_METHOD,
 )
 from research_experiments.family_runtime.artifact_index import (
@@ -38,7 +39,10 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
     legacy_judge_path = root / "turns" / "judge_turns.jsonl"
     manifest = load_json(index.manifest_path)
     debate_messages_path = turn_paths.get("debate_messages.jsonl", root / "turns" / "debate_messages.jsonl")
-    debate_method_enabled = _manifest_includes_method(manifest, ADAPTIVE_SPARSE_DEBATE_METHOD)
+    debate_method_enabled = _manifest_includes_any_method(
+        manifest,
+        {ADAPTIVE_SPARSE_DEBATE_METHOD, COT_MAD_GLOBAL_SYNC_METHOD},
+    )
     required_paths = [
         index.manifest_path,
         turn_paths["stage_a_turns.jsonl"],
@@ -279,8 +283,8 @@ def _validate_router_diagnostics(
     }
 
 
-def _manifest_includes_method(manifest: dict[str, Any], method_name: str) -> bool:
-    return method_name in {str(item) for item in manifest.get("aggregate_methods", [])}
+def _manifest_includes_any_method(manifest: dict[str, Any], method_names: set[str]) -> bool:
+    return bool(method_names & {str(item) for item in manifest.get("aggregate_methods", [])})
 
 
 def _count_by_method(rows: list[dict[str, Any]]) -> dict[str, int]:
