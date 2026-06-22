@@ -7,6 +7,7 @@ from testsupport.filesystem import write_json, write_registered_family_manifest
 from research_experiments.families.baseline_compare.config import load_experiment_config
 from research_experiments.families.baseline_compare.run.report import summarize_run
 from research_experiments.families.baseline_compare.run.sample import _build_metrics
+from research_experiments.family_runtime.vanilla_mad_prompting import SC_ALIGNED_MAD_FREE_TEXT_PROMPT_VERSION
 
 
 def test_load_experiment_config_reads_control_methods_and_setups() -> None:
@@ -14,7 +15,7 @@ def test_load_experiment_config_reads_control_methods_and_setups() -> None:
 
     assert experiment.name == "core_six_method_baseline"
     assert experiment.control_prompt_version == "single_agent_free_text_v1"
-    assert experiment.mad_prompt_version == "multi_agent_free_text_v1"
+    assert experiment.mad_prompt_version == SC_ALIGNED_MAD_FREE_TEXT_PROMPT_VERSION
     assert experiment.control_output_protocol == "free_text_answer_v1"
     assert experiment.mad_initial_output_protocol == "free_text_answer_v1"
     assert experiment.mad_debate_output_protocol == "free_text_answer_v1"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -120,7 +121,7 @@ def run_shared_vanilla_mad_rounds(
                     messages=messages,
                     temperature=initial_temperature,
                     top_p=top_p,
-                    seed=global_seed + agent_id,
+                    seed=global_seed + agent_id - 1,
                     prompt_version=prompt_version,
                 )
             )
@@ -130,6 +131,7 @@ def run_shared_vanilla_mad_rounds(
     debate_rows: list[dict[str, Any]] = []
     previous_round = list(initial_turns)
     final_round_turns = list(initial_turns)
+    stage_a_vote, stage_a_vote_counts = aggregate_majority(row["normalized_answer"] for row in initial_turns)
 
     for round_index in range(1, debate_rounds + 1):
         current_round: list[dict[str, Any]] = []
@@ -156,6 +158,8 @@ def run_shared_vanilla_mad_rounds(
                 previous_answer=str(recipient_previous["validated_output"].get("final_answer", "")).strip(),
                 peer_messages=peer_messages,
                 prompt_version=prompt_version,
+                stage_a_majority_answer=stage_a_vote,
+                stage_a_vote_counts=stage_a_vote_counts,
             )
             current_round.append(
                 execute_turn(
@@ -219,6 +223,14 @@ def build_shared_vanilla_mad_prediction(
         "initial_vote_score": result["initial_vote_score"],
         "initial_vote_counts": result["initial_vote_counts"],
         "initial_consensus": result["initial_consensus"],
+        "stage_a_majority_prediction": result["initial_vote_prediction"],
+        "stage_a_majority_score": result["initial_vote_score"],
+        "stage_a_majority_counts": result["initial_vote_counts"],
+        "debate_proposed_prediction": result["debate_proposed_prediction"],
+        "debate_proposed_score": result["debate_proposed_score"],
+        "debate_proposed_counts": result["debate_proposed_counts"],
+        "debate_override_applied": result["debate_override_applied"],
+        "debate_override_reason": result["debate_override_reason"],
         "final_vote_prediction": result["final_vote_prediction"],
         "final_vote_score": result["final_vote_score"],
         "final_vote_counts": result["final_vote_counts"],
@@ -270,13 +282,24 @@ def summarize_shared_vanilla_mad_turn_rows(
     )
 
     initial_answers = [row["normalized_answer"] for row in initial_turns]
-    final_answers = [row["normalized_answer"] for row in final_round_turns]
+    debate_proposed_answers = [row["normalized_answer"] for row in final_round_turns]
     initial_vote, initial_vote_counts = aggregate_majority(initial_answers)
-    final_vote, final_vote_counts = aggregate_majority(final_answers)
+    debate_proposed_vote, debate_proposed_counts = aggregate_majority(debate_proposed_answers)
+    final_vote, final_vote_counts, override_applied, override_reason = _resolve_conservative_mad_final_vote(
+        initial_turns=initial_turns,
+        final_round_turns=final_round_turns,
+        initial_vote=initial_vote,
+        initial_vote_counts=initial_vote_counts,
+        debate_proposed_vote=debate_proposed_vote,
+        debate_proposed_counts=debate_proposed_counts,
+        debate_rounds=debate_rounds,
+        agent_count=agent_count,
+    )
     initial_vote_score = score_prediction(dataset, initial_vote, gold)
+    debate_proposed_score = score_prediction(dataset, debate_proposed_vote, gold)
     final_vote_score = score_prediction(dataset, final_vote, gold)
     initial_consensus = len(set(initial_answers)) == 1
-    final_consensus = len(set(final_answers)) == 1
+    final_consensus = len(final_vote_counts) == 1
     initial_disagreement = len(set(initial_answers)) > 1
 
     initial_prompt_tokens = sum(float(row["prompt_tokens"]) for row in initial_turns)
@@ -296,6 +319,11 @@ def summarize_shared_vanilla_mad_turn_rows(
         "initial_vote_score": initial_vote_score,
         "initial_vote_counts": initial_vote_counts,
         "initial_consensus": initial_consensus,
+        "debate_proposed_prediction": debate_proposed_vote,
+        "debate_proposed_score": debate_proposed_score,
+        "debate_proposed_counts": debate_proposed_counts,
+        "debate_override_applied": override_applied,
+        "debate_override_reason": override_reason,
         "final_vote_prediction": final_vote,
         "final_vote_score": final_vote_score,
         "final_vote_counts": final_vote_counts,
@@ -316,13 +344,121 @@ def summarize_shared_vanilla_mad_turn_rows(
         "calls_per_question": sum(float(row.get("request_count") or 1.0) for row in turn_rows),
         "debate_rounds": debate_rounds,
         "agent_count": agent_count,
-        "vote_flipped": initial_vote != final_vote,
+        "vote_flipped": override_applied and initial_vote != final_vote,
         "corrected_by_debate": initial_vote_score < 1.0 and final_vote_score == 1.0,
         "harmed_by_debate": initial_vote_score == 1.0 and final_vote_score < 1.0,
         "unchanged_correct": initial_vote_score == 1.0 and final_vote_score == 1.0,
         "unchanged_wrong": initial_vote_score < 1.0 and final_vote_score < 1.0,
         "protocol_failures_per_question": sum(1 for row in turn_rows if row.get("protocol_parse_status") == "failed"),
         "reason_missing_turns_per_question": sum(1 for row in turn_rows if not row.get("reason_present")),
+    }
+
+
+def _resolve_conservative_mad_final_vote(
+    *,
+    initial_turns: list[dict[str, Any]],
+    final_round_turns: list[dict[str, Any]],
+    initial_vote: str,
+    initial_vote_counts: dict[str, int],
+    debate_proposed_vote: str,
+    debate_proposed_counts: dict[str, int],
+    debate_rounds: int,
+    agent_count: int,
+) -> tuple[str, dict[str, int], bool, str]:
+    if debate_rounds <= 0:
+        return initial_vote, initial_vote_counts, False, "keep_stage_a_majority_no_debate_rounds"
+    if debate_proposed_vote == initial_vote:
+        return initial_vote, initial_vote_counts, False, "keep_stage_a_majority_no_debate_change"
+
+    rejection_reason = _conservative_override_rejection_reason(
+        initial_turns=initial_turns,
+        final_round_turns=final_round_turns,
+        initial_vote=initial_vote,
+        initial_vote_counts=initial_vote_counts,
+        debate_proposed_vote=debate_proposed_vote,
+        debate_proposed_counts=debate_proposed_counts,
+        agent_count=agent_count,
+    )
+    if rejection_reason is not None:
+        return initial_vote, initial_vote_counts, False, rejection_reason
+    return (
+        debate_proposed_vote,
+        debate_proposed_counts,
+        True,
+        "accepted_debate_majority_with_majority_error_certificate",
+    )
+
+
+def _conservative_override_rejection_reason(
+    *,
+    initial_turns: list[dict[str, Any]],
+    final_round_turns: list[dict[str, Any]],
+    initial_vote: str,
+    initial_vote_counts: dict[str, int],
+    debate_proposed_vote: str,
+    debate_proposed_counts: dict[str, int],
+    agent_count: int,
+) -> str | None:
+    if not str(debate_proposed_vote or "").strip():
+        return "keep_stage_a_majority_empty_debate_candidate"
+
+    candidate_support = int(debate_proposed_counts.get(debate_proposed_vote) or 0)
+    if candidate_support < (agent_count // 2 + 1):
+        return "keep_stage_a_majority_insufficient_debate_majority"
+
+    candidate_rows = [
+        row for row in final_round_turns if str(row.get("normalized_answer") or "").strip() == debate_proposed_vote
+    ]
+    if not candidate_rows:
+        return "keep_stage_a_majority_empty_debate_candidate"
+    if any(row.get("protocol_parse_status") == "failed" for row in candidate_rows):
+        return "keep_stage_a_majority_protocol_failure"
+    if any((row.get("validated_output") or {}).get("format_warning") for row in candidate_rows):
+        return "keep_stage_a_majority_invalid_task_format"
+    if any(not _turn_reasoning_for_prompt(row) for row in candidate_rows):
+        return "keep_stage_a_majority_missing_reasoning"
+
+    initial_by_agent = {_agent_id(row): str(row.get("normalized_answer") or "").strip() for row in initial_turns}
+    switcher_rows = [
+        row
+        for row in candidate_rows
+        if initial_by_agent.get(_agent_id(row)) == initial_vote
+    ]
+    initial_majority_support = int(initial_vote_counts.get(initial_vote) or 0)
+    required_switchers = max(1, initial_majority_support // 2 + 1)
+    if len(switcher_rows) < required_switchers:
+        return "keep_stage_a_majority_insufficient_stage_a_switchers"
+    certified_switchers = [row for row in switcher_rows if _has_majority_error_certificate(row)]
+    if len(certified_switchers) < required_switchers:
+        return "keep_stage_a_majority_missing_majority_error_certificate"
+    return None
+
+
+def _agent_id(row: dict[str, Any]) -> int:
+    try:
+        return int(row.get("agent_id") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _has_majority_error_certificate(row: dict[str, Any]) -> bool:
+    value = str(
+        row.get("majority_error")
+        or (row.get("validated_output") or {}).get("majority_error")
+        or ""
+    )
+    normalized = re.sub(r"[^a-z0-9]+", " ", value.strip().lower()).strip()
+    return normalized not in {
+        "",
+        "none",
+        "no",
+        "n a",
+        "na",
+        "null",
+        "unknown",
+        "not applicable",
+        "no material error",
+        "no concrete error",
     }
 
 

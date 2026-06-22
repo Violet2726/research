@@ -3862,7 +3862,7 @@ def test_resolve_global_sync_audit_outcome_falls_back_on_invalid_task_format() -
     assert summary["invalid_format_fallback"] is True
 
 
-def test_run_sample_global_sync_uses_five_cot_stage_a_calls_with_distinct_seeds(
+def test_run_sample_global_sync_uses_five_cot_stage_a_calls_with_sc5_aligned_seeds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     experiment = load_experiment_config(
@@ -3963,7 +3963,7 @@ def test_run_sample_global_sync_uses_five_cot_stage_a_calls_with_distinct_seeds(
     )
 
     assert len(stage_a_calls) == 5
-    assert [seed for _stage_name, seed, _solver_mode in stage_a_calls] == [43, 44, 45, 46, 47]
+    assert [seed for _stage_name, seed, _solver_mode in stage_a_calls] == [42, 43, 44, 45, 46]
     assert {solver_mode for _stage_name, _seed, solver_mode in stage_a_calls} == {"solver_cot"}
     assert len(result.stage_a_turns) == 5
 

@@ -101,7 +101,9 @@ def load_experiment_config(path: str | Path) -> BaselineCompareExperimentConfig:
     mad_initial_output_protocol = validate_output_protocol(str(payload["mad_initial_output_protocol"]))
     mad_debate_output_protocol = validate_output_protocol(str(payload["mad_debate_output_protocol"]))
     if mad_prompt_version != CONSISTENT_FREE_TEXT_PROMPT_VERSION:
-        raise ValueError("baseline_compare mad_prompt_version must be multi_agent_free_text_v1.")
+        raise ValueError(
+            f"baseline_compare mad_prompt_version must be {CONSISTENT_FREE_TEXT_PROMPT_VERSION}."
+        )
     if control_output_protocol != FREE_TEXT_ANSWER_PROTOCOL_V1:
         raise ValueError("baseline_compare control_output_protocol must be free_text_answer_v1.")
     if mad_initial_output_protocol != FREE_TEXT_ANSWER_PROTOCOL_V1:

@@ -82,11 +82,13 @@ def _build_figure_specs(metrics: dict[str, Any]) -> list[dict[str, Any]]:
     figure_rows = [row for row in summary_rows if row.get("dataset") != "overall_micro"]
     overall_rows = [row for row in summary_rows if row.get("dataset") == "overall"]
     mad_overall_rows = [row for row in overall_rows if row.get("method_type") == "mad"]
+    dataset_count = len({str(row.get("dataset")) for row in figure_rows if row.get("dataset") != "overall"})
+    method_count = len({str(row.get("method_name")) for row in overall_rows})
     return [
         build_frontier_figure_spec(
             figure_rows,
             title="Baseline 成本-性能前沿",
-            caption="六方法基准包在 overall macro 口径下的准确率与平均总 token 关系。",
+            caption=f"{method_count} 方法基准包在 overall macro 口径下的准确率与平均总 token 关系。",
             score_field="accuracy_mean",
             primary_metric="准确率",
             method_label_field="method_name",
@@ -94,7 +96,7 @@ def _build_figure_specs(metrics: dict[str, Any]) -> list[dict[str, Any]]:
         build_efficiency_rank_figure_spec(
             figure_rows,
             title="Baseline 效率排序",
-            caption="六方法基准包在 overall macro 口径下的每千 token 准确率排序。",
+            caption=f"{method_count} 方法基准包在 overall macro 口径下的每千 token 准确率排序。",
             efficiency_field="accuracy_per_1k_tokens",
             primary_metric="每千 token 准确率",
             method_label_field="method_name",
@@ -102,7 +104,7 @@ def _build_figure_specs(metrics: dict[str, Any]) -> list[dict[str, Any]]:
         build_score_by_dataset_figure_spec(
             [row for row in figure_rows if row.get("dataset") != "overall"],
             title="Baseline 跨数据集表现",
-            caption="六方法基准包在六个 benchmark 上的准确率分布。",
+            caption=f"{method_count} 方法基准包在 {dataset_count} 个 benchmark 上的准确率分布。",
             score_field="accuracy_mean",
             primary_metric="准确率",
             method_label_field="method_name",
@@ -215,6 +217,8 @@ def _render_markdown(
     overall_micro_rows = comparison_payload["overall_micro_rows"]
     leaders = comparison_payload["leaders"]
     summary = SummaryTableView.from_metrics_payload(metrics)
+    dataset_count = len(comparison_payload["dataset_order"])
+    method_count = len(comparison_payload["method_order"])
 
     best_accuracy = leaders["overall_macro_best_accuracy"]
     best_efficiency = leaders["overall_macro_best_efficiency"]
@@ -239,8 +243,8 @@ def _render_markdown(
         {
             "title": "研究问题与基准口径",
             "bullets": [
-                "本 family 固定六个 benchmark、六个方法与三档 phase，专门为后续创新方法提供稳定对照。",
-                "主报告使用 `overall` macro-average：六个 benchmark 等权；同时保留 `overall_micro` 作为按题数加权的补充口径。",
+                f"本 family 固定 {dataset_count} 个 benchmark、{method_count} 个方法与三档 phase，专门为后续创新方法提供稳定对照。",
+                f"主报告使用 `overall` macro-average：{dataset_count} 个 benchmark 等权；同时保留 `overall_micro` 作为按题数加权的补充口径。",
                 "相对指标统一输出为：`vs cot_1`、`vs best no-comm`、`debate 内部增益`、token 比率与调用比率。",
             ],
         },

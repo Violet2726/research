@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from research_experiments.core.controls.control_prompts import FREE_TEXT_V1_PROMPT_VERSION, build_cot_messages
 from research_experiments.core.data.datasets import DatasetSample
+from research_experiments.family_runtime.free_text_protocol import parse_free_text_answer_output
 from research_experiments.family_runtime.comparator_impls import (
     build_shared_vanilla_mad_prediction,
     build_stage_a_mv3_prediction,
@@ -8,6 +10,7 @@ from research_experiments.family_runtime.comparator_impls import (
 )
 from research_experiments.family_runtime.vanilla_mad_prompting import (
     CONTROLLED_PROMPT_VERSION,
+    SC_ALIGNED_MAD_FREE_TEXT_PROMPT_VERSION,
     build_debate_messages,
     build_initial_messages,
     prompt_version_uses_json_response_format,
@@ -114,6 +117,153 @@ def test_run_shared_vanilla_mad_rounds_and_prediction_row() -> None:
     assert row["corrected_by_debate"] is False
 
 
+def test_shared_vanilla_mad_stage_a_matches_sc_prompt_and_seed_sequence() -> None:
+    sample = _sample()
+    captured: list[dict[str, object]] = []
+
+    def execute_turn(**kwargs):
+        captured.append(dict(kwargs))
+        return {
+            "agent_id": kwargs["agent_id"],
+            "round_index": kwargs["round_index"],
+            "role": kwargs["role"],
+            "prompt_tokens": 10.0,
+            "completion_tokens": 2.0,
+            "total_tokens": 12.0,
+            "latency_ms": 100.0,
+            "normalized_answer": "4",
+            "validated_output": {"final_answer": "4", "reasoning": "ok"},
+        }
+
+    run_shared_vanilla_mad_rounds(
+        sample=sample,
+        run_id="run",
+        dataset="gsm8k",
+        split_name="count20",
+        method_name="mad_5a_r1",
+        agent_count=5,
+        debate_rounds=0,
+        initial_temperature=0.7,
+        debate_temperature=0.7,
+        top_p=1.0,
+        global_seed=42,
+        prompt_version=CONTROLLED_PROMPT_VERSION,
+        execute_turn=execute_turn,
+        build_debate_row=lambda sender, recipient_id, round_index: {},
+    )
+
+    assert [row["seed"] for row in captured] == [42, 43, 44, 45, 46]
+    assert [row["messages"] for row in captured] == [
+        build_cot_messages(sample, agent_id, FREE_TEXT_V1_PROMPT_VERSION) for agent_id in range(1, 6)
+    ]
+    assert {row["prompt_version"] for row in captured} == {SC_ALIGNED_MAD_FREE_TEXT_PROMPT_VERSION}
+
+
+def test_shared_vanilla_mad_keeps_stage_a_majority_without_debate_certificate() -> None:
+    sample = _sample()
+    responses = {
+        (0, 1): ("4", "stage a majority"),
+        (0, 2): ("4", "stage a majority"),
+        (0, 3): ("4", "stage a majority"),
+        (1, 1): ("5", "changed without certificate"),
+        (1, 2): ("5", "changed without certificate"),
+        (1, 3): ("5", "changed without certificate"),
+    }
+
+    def execute_turn(**kwargs):
+        answer, reasoning = responses[(kwargs["round_index"], kwargs["agent_id"])]
+        return {
+            "agent_id": kwargs["agent_id"],
+            "round_index": kwargs["round_index"],
+            "role": kwargs["role"],
+            "prompt_tokens": 10.0,
+            "completion_tokens": 2.0,
+            "total_tokens": 12.0,
+            "latency_ms": 100.0,
+            "normalized_answer": answer,
+            "protocol_parse_status": "ok",
+            "reason_present": True,
+            "validated_output": {"final_answer": answer, "reasoning": reasoning, "majority_error": "none"},
+        }
+
+    result = run_shared_vanilla_mad_rounds(
+        sample=sample,
+        run_id="run",
+        dataset="gsm8k",
+        split_name="count20",
+        method_name="mad_3a_r1",
+        agent_count=3,
+        debate_rounds=1,
+        initial_temperature=0.7,
+        debate_temperature=0.7,
+        top_p=1.0,
+        global_seed=42,
+        prompt_version=CONTROLLED_PROMPT_VERSION,
+        execute_turn=execute_turn,
+        build_debate_row=lambda sender, recipient_id, round_index: {},
+    )
+
+    assert result["initial_vote_prediction"] == "4"
+    assert result["debate_proposed_prediction"] == "5"
+    assert result["final_vote_prediction"] == "4"
+    assert result["debate_override_applied"] is False
+    assert result["debate_override_reason"] == "keep_stage_a_majority_missing_majority_error_certificate"
+    assert result["harmed_by_debate"] is False
+
+
+def test_shared_vanilla_mad_accepts_certified_debate_override() -> None:
+    sample = _sample()
+    responses = {
+        (0, 1): ("5", "stage a majority"),
+        (0, 2): ("5", "stage a majority"),
+        (0, 3): ("4", "stage a minority"),
+        (1, 1): ("4", "majority made an arithmetic error"),
+        (1, 2): ("4", "majority made an arithmetic error"),
+        (1, 3): ("4", "minority answer verified"),
+    }
+
+    def execute_turn(**kwargs):
+        answer, reasoning = responses[(kwargs["round_index"], kwargs["agent_id"])]
+        majority_error = "majority arithmetic error" if kwargs["role"] == "debate" and answer == "4" else "none"
+        return {
+            "agent_id": kwargs["agent_id"],
+            "round_index": kwargs["round_index"],
+            "role": kwargs["role"],
+            "prompt_tokens": 10.0,
+            "completion_tokens": 2.0,
+            "total_tokens": 12.0,
+            "latency_ms": 100.0,
+            "normalized_answer": answer,
+            "protocol_parse_status": "ok",
+            "reason_present": True,
+            "validated_output": {"final_answer": answer, "reasoning": reasoning, "majority_error": majority_error},
+        }
+
+    result = run_shared_vanilla_mad_rounds(
+        sample=sample,
+        run_id="run",
+        dataset="gsm8k",
+        split_name="count20",
+        method_name="mad_3a_r1",
+        agent_count=3,
+        debate_rounds=1,
+        initial_temperature=0.7,
+        debate_temperature=0.7,
+        top_p=1.0,
+        global_seed=42,
+        prompt_version=CONTROLLED_PROMPT_VERSION,
+        execute_turn=execute_turn,
+        build_debate_row=lambda sender, recipient_id, round_index: {},
+    )
+
+    assert result["initial_vote_prediction"] == "5"
+    assert result["debate_proposed_prediction"] == "4"
+    assert result["final_vote_prediction"] == "4"
+    assert result["debate_override_applied"] is True
+    assert result["debate_override_reason"] == "accepted_debate_majority_with_majority_error_certificate"
+    assert result["corrected_by_debate"] is True
+
+
 def test_run_shared_vanilla_mad_rounds_rejects_unsupported_prompt_version() -> None:
     sample = _sample()
 
@@ -179,12 +329,28 @@ def test_consistent_free_text_prompt_builder_uses_tagged_lines() -> None:
         prompt_version=CONTROLLED_PROMPT_VERSION,
     )
 
-    assert "REASONING" in initial_messages[0]["content"]
-    assert "FINAL_ANSWER" in initial_messages[0]["content"]
-    assert "single best option" in initial_messages[1]["content"]
+    assert initial_messages == build_cot_messages(sample, 1, FREE_TEXT_V1_PROMPT_VERSION)
     assert "Peer feedback:" in debate_messages[1]["content"]
+    assert "Stage A majority answer:" in debate_messages[1]["content"]
+    assert "MAJORITY_ERROR:" in debate_messages[1]["content"]
     assert "agent_2 previous final_answer: B" in debate_messages[1]["content"]
 
 
 def test_prompt_version_response_format_is_disabled_for_free_text() -> None:
     assert prompt_version_uses_json_response_format(CONTROLLED_PROMPT_VERSION) is False
+
+
+def test_free_text_answer_parser_preserves_optional_majority_error_certificate() -> None:
+    payload = parse_free_text_answer_output(
+        "\n".join(
+            [
+                "REASONING: Option B contradicts the majority.",
+                "MAJORITY_ERROR: majority ignored the explicit contradiction",
+                "FINAL_ANSWER: B",
+            ]
+        ),
+        dataset="gpqa_diamond",
+    )
+
+    assert payload["final_answer"] == "B"
+    assert payload["majority_error"] == "majority ignored the explicit contradiction"

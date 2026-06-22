@@ -95,6 +95,12 @@ def parse_free_text_answer_output(
         "final_answer": final_answer,
         "reasoning": reasoning,
     }
+    majority_error_match = _extract_labeled_match(
+        cleaned,
+        ["MAJORITY_ERROR", "MAJORITY_ERR", "ERROR_CERTIFICATE"],
+    )
+    if majority_error_match is not None:
+        payload["majority_error"] = str(majority_error_match["value"]).strip()
 
     format_warning = _task_format_warning(dataset, final_answer)
     if format_warning is not None:

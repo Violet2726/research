@@ -1581,7 +1581,7 @@ def _run_sample(
     stage_a_solver_modes = _stage_a_solver_modes_for_experiment(experiment)
     core_stage_a_rows = []
     for agent_id, solver_mode in enumerate(stage_a_solver_modes, start=1):
-        stage_a_seed = experiment.global_seed + agent_id
+        stage_a_seed = experiment.global_seed + agent_id - 1 if global_sync_stage_a else experiment.global_seed + agent_id
         if solver_mode == "solver_cot" and not global_sync_stage_a:
             stage_a_seed = experiment.global_seed
         core_stage_a_rows.append(
