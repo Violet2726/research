@@ -1,0 +1,40 @@
+
+> **自由文本解题 / 辩论过程 + 末尾最小 JSON 答案块。**
+
+也就是：
+
+```text
+自然语言推理过程……
+
+[FINAL]
+{"answer": "...", "confidence": 0.0}
+[/FINAL]
+```
+
+对于 MAD，每次 API 调用也一样：
+
+```text
+自然语言反驳、修正或裁决过程……
+
+[FINAL]
+{"answer": "...", "confidence": 0.0, "changed": false}
+[/FINAL]
+```
+
+Judge 最后一轮：
+
+```text
+裁决分析……
+
+[FINAL]
+{"answer": "...", "confidence": 0.0, "source": "A|B|mixed"}
+[/FINAL]
+```
+
+所以答案是：**是，自由文本 + JSON。**
+
+但更准确地说，不是“结构化自由文本 + 大 JSON”，而是：
+
+> **主体自由文本，末尾一个很小的 JSON。**
+
+这样既不破坏模型解题能力，又方便程序稳定解析最终答案。
