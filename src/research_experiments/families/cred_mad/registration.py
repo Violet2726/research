@@ -12,6 +12,7 @@ from research_experiments.families.cred_mad.config import (
     load_experiment_config,
     load_protocol_config,
 )
+from research_experiments.families.cred_mad.prompts import CRED_PROMPT_VERSION
 from research_experiments.families.cred_mad.run.execute import run_experiment
 from research_experiments.families.cred_mad.run.report import render_report, summarize_run
 from research_experiments.families.cred_mad.run.validate import validate_run
@@ -35,6 +36,7 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "methods": inspect_methods(experiment),
         "method_order": experiment.method_order,
         "control_prompt_version": experiment.control_prompt_version,
+        "cred_prompt_version": CRED_PROMPT_VERSION,
         "cred_output_protocol": experiment.cred_output_protocol,
         "global_seed": experiment.global_seed,
         "max_concurrent_requests": experiment.max_concurrent_requests,

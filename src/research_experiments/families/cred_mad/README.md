@@ -12,6 +12,10 @@ Current CRED runs use `json_object_tail_v2`: free-text reasoning followed by one
 Router risk is driven only by the structured `risk_level` enum (`none`, `low`, `medium`, `high`);
 `risk_summary` is explanatory text and is not parsed as a trigger signal.
 
+Prompt version `cred_mad_strong_solver_audit_v3` makes every Stage A agent solve with the same
+strong single-agent workflow first, then applies the role as an audit lens. Stage A aggregation is
+family-majority first, with confidence/evidence/risk weighting used only for weak splits.
+
 Run:
 
 ```powershell

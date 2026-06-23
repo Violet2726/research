@@ -821,7 +821,7 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
     question_count = len(rows)
     accuracy = safe_mean(float(row["score"]) for row in rows)
     total_tokens = safe_mean(float(row["total_tokens_per_question"]) for row in rows)
-    initial_accuracy = safe_mean(float(row.get("initial_vote_score") or row["score"]) for row in rows)
+    initial_accuracy = safe_mean(_initial_vote_score(row) for row in rows)
     corrected_count = sum(1 for row in rows if row.get("corrected_by_debate"))
     harmed_count = sum(1 for row in rows if row.get("harmed_by_debate"))
     triggered_count = sum(1 for row in rows if row.get("triggered"))
@@ -856,6 +856,13 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
         "initial_consensus_rate": safe_mean(1.0 if row.get("initial_consensus") else 0.0 for row in rows),
         "final_consensus_rate": safe_mean(1.0 if row.get("final_consensus") else 0.0 for row in rows),
     }
+
+
+def _initial_vote_score(row: dict[str, Any]) -> float:
+    value = row.get("initial_vote_score")
+    if value is None:
+        value = row["score"]
+    return float(value)
 
 
 def _build_macro_rows(dataset_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

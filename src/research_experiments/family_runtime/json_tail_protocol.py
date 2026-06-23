@@ -23,6 +23,7 @@ def build_json_tail_answer_instruction(dataset: str, *, extra_json_keys: list[st
         "Field guide:",
         *(_field_guide_line(key) for key in keys),
         "- Use valid JSON with double-quoted keys and strings.",
+        "- Write JSON string values in plain text; use ASCII math forms such as sqrt(3), pi/6, and x^2.",
     ]
     if dataset in {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro"}:
         lines.append('- For this dataset, answer is exactly one option letter such as "A" or "B".')
@@ -41,7 +42,7 @@ def _field_guide_line(key: str) -> str:
     descriptions = {
         "answer": "the canonical final answer only.",
         "confidence": "a number from 0.0 to 1.0.",
-        "key_evidence": "one concrete calculation, option clue, or context span supporting answer.",
+        "key_evidence": "one concrete plain-text calculation, option clue, or context span supporting answer.",
         "risk_level": 'one of "none", "low", "medium", "high"; use medium/high only for a concrete unresolved risk.',
         "risk_summary": "one short phrase explaining the risk_level.",
         "answer_type": "a short label for the answer form, such as expression, option, span, or yes_no.",

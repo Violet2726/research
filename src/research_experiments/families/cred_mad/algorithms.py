@@ -7,8 +7,6 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
-from research_experiments.core.data.evaluation import aggregate_majority
-
 _NON_ANSWERS = {"", "unknown", "n/a", "none"}
 
 
@@ -48,9 +46,13 @@ def answer_family_key(dataset: str, answer: str) -> str:
 
 
 def build_router_decision(rows: list[dict[str, Any]], *, protocol) -> CredRouterDecision:
-    answers = [_row_answer(row) for row in rows if _is_candidate(_row_answer(row))]
-    leading_answer, vote_counts = aggregate_majority(answers)
-    leading_count = int(vote_counts.get(leading_answer, 0)) if leading_answer else 0
+    dataset = _dataset_from_rows(rows)
+    grouped, _ = _stage_candidate_groups(dataset, rows)
+    stage_decision = aggregate_stage_a_vote(rows)
+    leading_answer = stage_decision.final_answer
+    leading_family = answer_family_key(dataset, leading_answer)
+    vote_counts = {key: int(value) for key, value in stage_decision.support.items()}
+    leading_count = len(grouped.get(leading_family, [])) if leading_answer else 0
     risk_count = sum(1 for row in rows if _risk_is_material(_row_risk_level(row)))
     evidence_mean = _mean(evidence_quality(row) for row in rows)
     falsifier_specific_failure = _falsifier_reports_specific_failure(rows, leading_answer=leading_answer)
@@ -84,12 +86,32 @@ def build_router_decision(rows: list[dict[str, Any]], *, protocol) -> CredRouter
 
 
 def aggregate_stage_a_vote(rows: list[dict[str, Any]]) -> CredAggregateDecision:
-    answers = [_row_answer(row) for row in rows if _is_candidate(_row_answer(row))]
-    winner, counts = aggregate_majority(answers)
+    dataset = _dataset_from_rows(rows)
+    grouped, ordered_families = _stage_candidate_groups(dataset, rows)
+    if not grouped:
+        return CredAggregateDecision(
+            final_answer="",
+            support={},
+            resolver="cred_vote_5_empty",
+            changed=False,
+            source="stage_a_vote",
+        )
+    count_family = max(ordered_families, key=lambda family: (len(grouped[family]), -ordered_families.index(family)))
+    score_family = max(
+        ordered_families,
+        key=lambda family: (_stage_family_score(grouped[family]), len(grouped[family]), -ordered_families.index(family)),
+    )
+    winner_family = count_family
+    if count_family != score_family and len(grouped[count_family]) < 4:
+        score_margin = _stage_family_score(grouped[score_family]) - _stage_family_score(grouped[count_family])
+        if score_margin >= 0.45 and _family_has_concrete_evidence(grouped[score_family], min_chars=12):
+            winner_family = score_family
+    winner = _representative_answer(dataset, grouped[winner_family])
+    counts = _stage_support_counts(dataset, grouped, ordered_families)
     return CredAggregateDecision(
         final_answer=winner,
         support={answer: float(count) for answer, count in counts.items()},
-        resolver="cred_vote_5_majority",
+        resolver="cred_vote_5_audit_weighted" if winner_family != count_family else "cred_vote_5_family_majority",
         changed=False,
         source="stage_a_vote",
     )
@@ -205,6 +227,59 @@ def evidence_quality(row: dict[str, Any]) -> float:
 
 def _row_answer(row: dict[str, Any]) -> str:
     return str(row.get("normalized_answer") or row.get("prediction") or "").strip()
+
+
+def _dataset_from_rows(rows: list[dict[str, Any]]) -> str:
+    return str(next((row.get("dataset") for row in rows if row.get("dataset")), ""))
+
+
+def _stage_candidate_groups(dataset: str, rows: list[dict[str, Any]]) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    ordered_families: list[str] = []
+    for row in rows:
+        answer = _row_answer(row)
+        if not _is_candidate(answer):
+            continue
+        family = answer_family_key(dataset, answer)
+        if family not in grouped:
+            ordered_families.append(family)
+        grouped[family].append(row)
+    return grouped, ordered_families
+
+
+def _stage_support_counts(
+    dataset: str,
+    grouped: dict[str, list[dict[str, Any]]],
+    ordered_families: list[str],
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for family in ordered_families:
+        representative = _representative_answer(dataset, grouped[family])
+        counts[representative] = counts.get(representative, 0) + len(grouped[family])
+    return counts
+
+
+def _stage_family_score(rows: list[dict[str, Any]]) -> float:
+    return sum(1.0 + 0.35 * _row_confidence(row) + 0.25 * evidence_quality(row) - _risk_penalty(_row_risk_level(row)) for row in rows)
+
+
+def _representative_answer(dataset: str, rows: list[dict[str, Any]]) -> str:
+    del dataset
+    if not rows:
+        return ""
+    row = max(
+        rows,
+        key=lambda item: (
+            _row_confidence(item),
+            evidence_quality(item),
+            -len(_row_answer(item)),
+        ),
+    )
+    return _row_answer(row)
+
+
+def _family_has_concrete_evidence(rows: list[dict[str, Any]], *, min_chars: int) -> bool:
+    return any(_has_concrete_evidence(row, min_chars) for row in rows)
 
 
 def _row_confidence(row: dict[str, Any]) -> float:

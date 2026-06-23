@@ -33,18 +33,19 @@ def _row(
     risk_level: str = "none",
     risk_summary: str = "none",
     evidence: str = "because 2+2=4",
+    confidence: float = 0.8,
 ) -> dict:
     return {
         "dataset": "gpqa_diamond",
         "normalized_answer": answer,
         "prediction": answer,
         "agent_role": role,
-        "confidence_value": 0.8,
+        "confidence_value": confidence,
         "key_evidence": evidence,
         "risk_level": risk_level,
         "failure_risk": risk_summary,
         "validated_output": {
-            "confidence": 0.8,
+            "confidence": confidence,
             "key_evidence": evidence,
             "risk_level": risk_level,
             "risk_summary": risk_summary,
@@ -95,6 +96,20 @@ def test_router_ignores_low_risk_prose_summary() -> None:
 
     assert decision.triggered is False
     assert "material_risk_count" not in decision.reasons
+
+
+def test_stage_a_uses_evidence_weighting_only_for_weak_splits() -> None:
+    rows = [
+        _row("A", confidence=0.2, evidence="brief"),
+        _row("A", confidence=0.2, evidence="brief"),
+        _row("B", confidence=0.95, evidence="option B because direct context span supports B"),
+        _row("B", confidence=0.95, evidence="option B because direct calculation supports B"),
+    ]
+
+    decision = aggregate_stage_a_vote(rows)
+
+    assert decision.final_answer == "B"
+    assert decision.resolver == "cred_vote_5_audit_weighted"
 
 
 def test_survival_requires_margin_and_concrete_evidence_to_override() -> None:

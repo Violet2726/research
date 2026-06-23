@@ -8,7 +8,7 @@ from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.prompts.dataset_contracts import dataset_instruction_for_sample
 from research_experiments.family_runtime.json_tail_protocol import build_json_tail_answer_instruction
 
-CRED_PROMPT_VERSION = "cred_mad_json_object_tail_v2"
+CRED_PROMPT_VERSION = "cred_mad_strong_solver_audit_v3"
 
 AGENT_ROLES = (
     "cot_builder",
@@ -18,28 +18,30 @@ AGENT_ROLES = (
     "counterfactual_falsifier",
 )
 
-_ROLE_GUIDANCE = {
-    "cot_builder": "Solve directly with a compact chain of reasoning and a final self-check.",
-    "decomposer": "Break the problem into subclaims or substeps, solve each, then compose the answer.",
-    "constraint_skeptic": "Focus on legal answer format, units, options, hidden constraints, and common traps.",
-    "evidence_slot_verifier": "Anchor the answer to the exact requested slot, evidence span, option, or calculation.",
-    "counterfactual_falsifier": "Test the most tempting answer against counterexamples; output the answer that survives.",
+_ROLE_AUDIT_LENS = {
+    "cot_builder": "Check that the final answer follows from one coherent derivation.",
+    "decomposer": "Check that the subclaims or substeps are solved and recomposed correctly.",
+    "constraint_skeptic": "Check the requested answer format, units, options, hidden constraints, and common traps.",
+    "evidence_slot_verifier": "Check the exact requested slot, evidence span, option clue, or calculation that supports the answer.",
+    "counterfactual_falsifier": "Check the selected answer against the strongest plausible alternative and keep the answer that survives.",
 }
 
 
 def build_stage_a_messages(sample: DatasetSample, *, agent_id: int, agent_role: str) -> list[dict[str, str]]:
     user_prompt = (
         f"You are CRED-MAD agent_{agent_id}.\n"
-        f"Role: {agent_role}\n"
-        f"Contract: {_ROLE_GUIDANCE[agent_role]}\n"
+        "Primary contract: first solve as a strong independent single-agent reasoner; then apply your audit lens.\n"
+        f"Audit lens: {agent_role} - {_ROLE_AUDIT_LENS[agent_role]}\n"
+        f"{_strong_solver_workflow(sample.dataset)}\n"
         f"{_dataset_instruction(sample)}\n"
         f"Question:\n{sample.question.strip()}\n\n"
     )
     if sample.prompt_context:
         user_prompt += f"Context:\n{sample.prompt_context}\n\n"
     user_prompt += (
-        "Reason briefly according to your role. Use risk_level for the remaining risk in your selected answer; "
-        "use medium or high only when a concrete unresolved risk remains.\n"
+        "Write the concise reasoning that leads to your answer, then state how the audit lens affected the commitment. "
+        "In the JSON object, answer is the committed answer after the audit lens; key_evidence is the decisive support; "
+        "risk_level is the remaining unresolved risk in that committed answer.\n"
         + build_json_tail_answer_instruction(
             sample.dataset,
             extra_json_keys=["answer_type"],
@@ -59,7 +61,8 @@ def build_refutation_messages(
     stage_rows: list[dict[str, Any]],
 ) -> list[dict[str, str]]:
     user_prompt = (
-        "You are the CRED-MAD refuter. Your job is not to chat; it is to produce one checkable attack.\n"
+        "You are the CRED-MAD refuter. Produce one checkable attack after solving the task independently.\n"
+        f"{_strong_solver_workflow(sample.dataset)}\n"
         f"{_dataset_instruction(sample)}\n"
         f"Question:\n{sample.question.strip()}\n\n"
     )
@@ -70,9 +73,10 @@ def build_refutation_messages(
         f"Best challenger packet: {_format_packet(target_row)}\n"
         "Stage A board:\n"
         f"{_format_board(stage_rows)}\n"
-        "Test the leading answer against the strongest concrete contradiction, constraint miss, slot error, or calculation error. "
-        "In the final JSON, answer is the surviving answer. Set changed=true only when answer replaces the leading answer; "
-        "set attack_strength=none when the leading answer survives.\n"
+        "Solve independently, compare the leading answer with the challenger packet, and test the strongest concrete "
+        "contradiction, constraint miss, slot error, or calculation error. In the final JSON, answer is the surviving "
+        "answer. Set changed=true only when answer replaces the leading answer; set attack_strength=none when the "
+        "leading answer survives.\n"
         + build_json_tail_answer_instruction(
             sample.dataset,
             extra_json_keys=["changed", "attack_type", "attack_strength"],
@@ -92,7 +96,8 @@ def build_defense_messages(
     stage_rows: list[dict[str, Any]],
 ) -> list[dict[str, str]]:
     user_prompt = (
-        "You are the CRED-MAD defender. Test whether the refutation really defeats the leading answer.\n"
+        "You are the CRED-MAD defender. Solve independently, then test whether the refutation defeats the leading answer.\n"
+        f"{_strong_solver_workflow(sample.dataset)}\n"
         f"{_dataset_instruction(sample)}\n"
         f"Question:\n{sample.question.strip()}\n\n"
     )
@@ -125,7 +130,8 @@ def build_judge_messages(
     defense_rows: list[dict[str, Any]],
 ) -> list[dict[str, str]]:
     user_prompt = (
-        "You are the CRED-MAD judge. Choose the answer that survives the strongest concrete attacks.\n"
+        "You are the CRED-MAD judge. Solve independently, then choose the answer that survives the strongest concrete attacks.\n"
+        f"{_strong_solver_workflow(sample.dataset)}\n"
         f"{_dataset_instruction(sample)}\n"
         f"Question:\n{sample.question.strip()}\n\n"
     )
@@ -150,6 +156,30 @@ def build_judge_messages(
         {"role": "system", "content": "You are a compact final judge for controlled CRED-MAD experiments."},
         {"role": "user", "content": user_prompt},
     ]
+
+
+def _strong_solver_workflow(dataset: str) -> str:
+    return "\n".join(
+        [
+            "Strong solver workflow:",
+            "- Build one coherent derivation before committing to an answer.",
+            "- Keep every decisive inference explicit enough to verify.",
+            f"- {_dataset_solver_focus(dataset)}",
+            "- Check that the final answer fills exactly the requested answer slot.",
+        ]
+    )
+
+
+def _dataset_solver_focus(dataset: str) -> str:
+    if dataset in {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro"}:
+        return "For multiple-choice tasks, identify the decisive concept, compare plausible options, and commit to one option letter."
+    if dataset in {"gsm8k", "math500", "competition_math"}:
+        return "For math tasks, carry out the calculation symbolically or numerically and sanity-check the result."
+    if dataset in {"hotpotqa", "webquestions"}:
+        return "For short-span tasks, connect the evidence hops and commit to the shortest judgeable span."
+    if dataset == "strategyqa":
+        return 'For yes/no tasks, resolve the needed factual subclaims and map them to exactly "yes" or "no".'
+    return "Use the task instruction to decide the answer form."
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
