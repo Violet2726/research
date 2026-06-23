@@ -51,9 +51,9 @@ def build_router_decision(rows: list[dict[str, Any]], *, protocol) -> CredRouter
     answers = [_row_answer(row) for row in rows if _is_candidate(_row_answer(row))]
     leading_answer, vote_counts = aggregate_majority(answers)
     leading_count = int(vote_counts.get(leading_answer, 0)) if leading_answer else 0
-    risks = [_row_risk(row) for row in rows]
-    risk_count = sum(1 for risk in risks if _risk_is_material(risk))
+    risk_count = sum(1 for row in rows if _risk_is_material(_row_risk_level(row)))
     evidence_mean = _mean(evidence_quality(row) for row in rows)
+    falsifier_specific_failure = _falsifier_reports_specific_failure(rows, leading_answer=leading_answer)
     reasons: list[str] = []
     if not leading_answer:
         reasons.append("no_valid_stage_a_answer")
@@ -65,13 +65,13 @@ def build_router_decision(rows: list[dict[str, Any]], *, protocol) -> CredRouter
         reasons.append("no_strong_majority")
     if evidence_mean < float(protocol.min_evidence_quality):
         reasons.append("weak_evidence_quality")
-    if _falsifier_reports_specific_failure(rows):
+    if falsifier_specific_failure:
         reasons.append("falsifier_specific_failure")
     clean_skip = (
         leading_count >= int(protocol.strong_majority_count)
         and evidence_mean >= float(protocol.min_evidence_quality)
         and risk_count < int(protocol.risk_trigger_count)
-        and not _falsifier_reports_specific_failure(rows)
+        and not falsifier_specific_failure
     )
     return CredRouterDecision(
         triggered=not clean_skip,
@@ -112,8 +112,7 @@ def aggregate_survival(
         answer = _row_answer(row)
         if _is_candidate(answer):
             scores[answer] += 1.0 + 0.35 * _row_confidence(row) + 0.25 * evidence_quality(row)
-            if _risk_is_material(_row_risk(row)):
-                scores[answer] -= 0.2
+            scores[answer] -= _risk_penalty(_row_risk_level(row))
     for row in refutation_rows:
         answer = _row_answer(row)
         if _is_candidate(answer) and _has_concrete_evidence(row, concrete_evidence_min_chars):
@@ -174,14 +173,22 @@ def select_refutation_targets(
     candidates.sort(key=lambda row: (_row_confidence(row), evidence_quality(row), str(row.get("agent_role") or "")), reverse=True)
     if candidates:
         return candidates[:max_refutations]
-    falsifier = next((row for row in rows if str(row.get("agent_role") or "") == "counterfactual_falsifier"), None)
+    falsifier = next(
+        (
+            row
+            for row in rows
+            if str(row.get("agent_role") or "") == "counterfactual_falsifier"
+            and _falsifier_reports_specific_failure([row], leading_answer=leading_answer)
+        ),
+        None,
+    )
     return [falsifier] if falsifier is not None and max_refutations > 0 else []
 
 
 def evidence_quality(row: dict[str, Any]) -> float:
     text = " ".join(
         str(row.get(key) or row.get("validated_output", {}).get(key) or "")
-        for key in ("key_evidence", "evidence", "contract", "failure_risk")
+        for key in ("key_evidence", "evidence", "contract", "risk_summary")
     )
     cleaned = " ".join(text.split())
     score = 0.0
@@ -210,18 +217,27 @@ def _row_confidence(row: dict[str, Any]) -> float:
         return 0.5
 
 
-def _row_risk(row: dict[str, Any]) -> str:
+def _row_risk_level(row: dict[str, Any]) -> str:
     payload = row.get("validated_output") if isinstance(row.get("validated_output"), dict) else {}
-    return str(row.get("failure_risk") or payload.get("failure_risk") or payload.get("risk") or "").strip()
+    normalized = str(row.get("risk_level") or payload.get("risk_level") or "").strip().lower()
+    return normalized if normalized in {"none", "low", "medium", "high"} else "none"
 
 
 def _is_candidate(answer: str) -> bool:
     return str(answer or "").strip().lower() not in _NON_ANSWERS
 
 
-def _risk_is_material(risk: str) -> bool:
-    lowered = str(risk or "").strip().lower()
-    return bool(lowered and lowered not in {"none", "low", "n/a", "no major risk"})
+def _risk_is_material(risk_level: str) -> bool:
+    return str(risk_level or "").strip().lower() in {"medium", "high"}
+
+
+def _risk_penalty(risk_level: str) -> float:
+    normalized = str(risk_level or "").strip().lower()
+    if normalized == "high":
+        return 0.35
+    if normalized == "medium":
+        return 0.18
+    return 0.0
 
 
 def _has_concrete_evidence(row: dict[str, Any], min_chars: int) -> bool:
@@ -230,12 +246,18 @@ def _has_concrete_evidence(row: dict[str, Any], min_chars: int) -> bool:
     return len(text) >= int(min_chars)
 
 
-def _falsifier_reports_specific_failure(rows: list[dict[str, Any]]) -> bool:
+def _falsifier_reports_specific_failure(rows: list[dict[str, Any]], *, leading_answer: str) -> bool:
     for row in rows:
         if str(row.get("agent_role") or "") != "counterfactual_falsifier":
             continue
-        risk = _row_risk(row)
-        if _risk_is_material(risk) and len(risk) >= 12:
+        answer = _row_answer(row)
+        if (
+            _row_risk_level(row) == "high"
+            and _is_candidate(answer)
+            and answer_family_key(str(row.get("dataset") or ""), answer)
+            != answer_family_key(str(row.get("dataset") or ""), leading_answer)
+            and evidence_quality(row) >= 0.55
+        ):
             return True
     return False
 

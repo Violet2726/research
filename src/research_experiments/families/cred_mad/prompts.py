@@ -8,7 +8,7 @@ from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.prompts.dataset_contracts import dataset_instruction_for_sample
 from research_experiments.family_runtime.json_tail_protocol import build_json_tail_answer_instruction
 
-CRED_PROMPT_VERSION = "cred_mad_json_tail_v1"
+CRED_PROMPT_VERSION = "cred_mad_json_object_tail_v2"
 
 AGENT_ROLES = (
     "cot_builder",
@@ -23,7 +23,7 @@ _ROLE_GUIDANCE = {
     "decomposer": "Break the problem into subclaims or substeps, solve each, then compose the answer.",
     "constraint_skeptic": "Focus on legal answer format, units, options, hidden constraints, and common traps.",
     "evidence_slot_verifier": "Anchor the answer to the exact requested slot, evidence span, option, or calculation.",
-    "counterfactual_falsifier": "Try to refute the most obvious answer; if it survives, state why it survives.",
+    "counterfactual_falsifier": "Test the most tempting answer against counterexamples; output the answer that survives.",
 }
 
 
@@ -38,11 +38,11 @@ def build_stage_a_messages(sample: DatasetSample, *, agent_id: int, agent_role: 
     if sample.prompt_context:
         user_prompt += f"Context:\n{sample.prompt_context}\n\n"
     user_prompt += (
-        "Before the final JSON block, include concise reasoning plus these contract fields in prose: "
-        "answer contract, key evidence, and failure risk.\n"
+        "Reason briefly according to your role. Use risk_level for the remaining risk in your selected answer; "
+        "use medium or high only when a concrete unresolved risk remains.\n"
         + build_json_tail_answer_instruction(
             sample.dataset,
-            extra_json_keys=["answer_type", "key_evidence", "failure_risk"],
+            extra_json_keys=["answer_type"],
         )
     )
     return [
@@ -70,11 +70,12 @@ def build_refutation_messages(
         f"Best challenger packet: {_format_packet(target_row)}\n"
         "Stage A board:\n"
         f"{_format_board(stage_rows)}\n"
-        "Attack the leading answer only if you can give a concrete contradiction, constraint miss, slot error, or calculation error. "
-        "Otherwise defend the leading answer and keep it.\n"
+        "Test the leading answer against the strongest concrete contradiction, constraint miss, slot error, or calculation error. "
+        "In the final JSON, answer is the surviving answer. Set changed=true only when answer replaces the leading answer; "
+        "set attack_strength=none when the leading answer survives.\n"
         + build_json_tail_answer_instruction(
             sample.dataset,
-            extra_json_keys=["changed", "attack_type", "key_evidence"],
+            extra_json_keys=["changed", "attack_type", "attack_strength"],
         )
     )
     return [
@@ -102,10 +103,11 @@ def build_defense_messages(
         f"Refutation packet: {_format_packet(refutation_row)}\n"
         "Stage A board:\n"
         f"{_format_board(stage_rows)}\n"
-        "If the refutation is stronger, accept the corrected answer. If not, keep the leading answer.\n"
+        "Compare the refutation with the leading answer. In the final JSON, answer is the surviving answer. "
+        "Set changed=true only when the refutation defeats the leading answer; use risk_level for the remaining risk.\n"
         + build_json_tail_answer_instruction(
             sample.dataset,
-            extra_json_keys=["changed", "defense_status", "key_evidence"],
+            extra_json_keys=["changed", "defense_status"],
         )
     )
     return [
@@ -137,10 +139,11 @@ def build_judge_messages(
         f"{_format_board(refutation_rows)}\n"
         "Defenses:\n"
         f"{_format_board(defense_rows)}\n"
-        "Prefer the pre-debate leading answer unless a concrete attack remains undefeated.\n"
+        "Choose the answer with the strongest surviving concrete evidence. In the final JSON, answer is that final answer; "
+        "source identifies where the decisive support came from.\n"
         + build_json_tail_answer_instruction(
             sample.dataset,
-            extra_json_keys=["source", "key_evidence"],
+            extra_json_keys=["source"],
         )
     )
     return [
@@ -150,7 +153,11 @@ def build_judge_messages(
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
-    return dataset_instruction_for_sample(sample, hotpot_style="shortest_span_copy")
+    instruction = dataset_instruction_for_sample(sample, hotpot_style="shortest_span_copy")
+    return instruction.replace("The final_answer must", "The JSON answer field must").replace(
+        "final_answer",
+        "JSON answer field",
+    )
 
 
 def _format_board(rows: list[dict[str, Any]]) -> str:
@@ -166,5 +173,6 @@ def _format_packet(row: dict[str, Any]) -> str:
         f"{row.get('agent_role') or row.get('role') or 'agent'}: answer=`{answer}`, "
         f"confidence={row.get('confidence_value') if row.get('confidence_value') is not None else payload.get('confidence', 'unknown')}, "
         f"evidence=`{payload.get('key_evidence') or row.get('key_evidence') or 'n/a'}`, "
-        f"risk=`{payload.get('failure_risk') or row.get('failure_risk') or 'n/a'}`"
+        f"risk_level={payload.get('risk_level') or row.get('risk_level') or 'unknown'}, "
+        f"risk_summary=`{payload.get('risk_summary') or row.get('failure_risk') or 'n/a'}`"
     )

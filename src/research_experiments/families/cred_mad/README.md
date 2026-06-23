@@ -8,6 +8,10 @@ The framework separates three effects that are usually entangled in MAD:
 - router gain from skipping low-value debate;
 - debate gain from targeted refutation, defense, and survival-score aggregation.
 
+Current CRED runs use `json_object_tail_v2`: free-text reasoning followed by one final JSON object.
+Router risk is driven only by the structured `risk_level` enum (`none`, `low`, `medium`, `high`);
+`risk_summary` is explanatory text and is not parsed as a trigger signal.
+
 Run:
 
 ```powershell

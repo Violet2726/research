@@ -14,7 +14,7 @@ cred_methods = ["cred_vote_5", "cred_refute_queue_v1", "cred_refute_queue_v1_loc
 method_order = ["cot_1", "sc_3", "sc_5", "cred_vote_5", "cred_refute_queue_v1", "cred_refute_queue_v1_lock"]
 global_seed = 42
 control_prompt_version = "single_agent_free_text_v1"
-cred_output_protocol = "json_tail_answer_v1"
+cred_output_protocol = "json_object_tail_v2"
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 
 [phases.count20]

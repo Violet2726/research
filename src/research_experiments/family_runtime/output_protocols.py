@@ -19,11 +19,11 @@ from research_experiments.family_runtime.free_text_protocol import (
     parse_free_text_answer_output,
 )
 from research_experiments.family_runtime.json_tail_protocol import (
-    JSON_TAIL_ANSWER_PROTOCOL_V1,
-    parse_json_tail_answer_output,
+    JSON_OBJECT_TAIL_PROTOCOL_V2,
+    parse_json_object_tail_answer_output,
 )
 
-OutputProtocol = Literal["free_text_answer_v1", "json_tail_answer_v1"]
+OutputProtocol = Literal["free_text_answer_v1", "json_object_tail_v2"]
 ProtocolParseStatus = Literal["ok", "failed", "not_attempted"]
 
 
@@ -152,10 +152,10 @@ def refresh_output_protocol_turn(
 
 def validate_output_protocol(value: str) -> OutputProtocol:
     normalized = str(value or "").strip()
-    if normalized not in {FREE_TEXT_ANSWER_PROTOCOL_V1, JSON_TAIL_ANSWER_PROTOCOL_V1}:
+    if normalized not in {FREE_TEXT_ANSWER_PROTOCOL_V1, JSON_OBJECT_TAIL_PROTOCOL_V2}:
         raise ValueError(
             f"Unsupported output_protocol {value!r}. "
-            f"Expected {FREE_TEXT_ANSWER_PROTOCOL_V1!r} or {JSON_TAIL_ANSWER_PROTOCOL_V1!r}."
+            f"Expected {FREE_TEXT_ANSWER_PROTOCOL_V1!r} or {JSON_OBJECT_TAIL_PROTOCOL_V2!r}."
         )
     return normalized
 
@@ -286,8 +286,8 @@ def _parse_output_protocol_response(
         )
 
     try:
-        if output_protocol == JSON_TAIL_ANSWER_PROTOCOL_V1:
-            validated = parse_json_tail_answer_output(cleaned, dataset=dataset)
+        if output_protocol == JSON_OBJECT_TAIL_PROTOCOL_V2:
+            validated = parse_json_object_tail_answer_output(cleaned, dataset=dataset)
         else:
             validated = parse_free_text_answer_output(
                 cleaned,

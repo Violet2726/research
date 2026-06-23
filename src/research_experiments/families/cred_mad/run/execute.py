@@ -90,7 +90,7 @@ def run_experiment(
             "phase_metadata": phase_metadata(experiment, phase_name),
             "protocol": asdict(protocol),
             "control_prompt_version": experiment.control_prompt_version,
-            "cred_prompt_version": "cred_mad_json_tail_v1",
+            "cred_prompt_version": "cred_mad_json_object_tail_v2",
             "cred_output_protocol": experiment.cred_output_protocol,
             "control_output_protocol": "free_text_answer_v1",
             "artifact_version": ARTIFACT_VERSION,

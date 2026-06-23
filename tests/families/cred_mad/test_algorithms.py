@@ -26,18 +26,28 @@ def _protocol() -> CredMadProtocolConfig:
     )
 
 
-def _row(answer: str, *, role: str = "cot_builder", risk: str = "none", evidence: str = "because 2+2=4") -> dict:
+def _row(
+    answer: str,
+    *,
+    role: str = "cot_builder",
+    risk_level: str = "none",
+    risk_summary: str = "none",
+    evidence: str = "because 2+2=4",
+) -> dict:
     return {
+        "dataset": "gpqa_diamond",
         "normalized_answer": answer,
         "prediction": answer,
         "agent_role": role,
         "confidence_value": 0.8,
         "key_evidence": evidence,
-        "failure_risk": risk,
+        "risk_level": risk_level,
+        "failure_risk": risk_summary,
         "validated_output": {
             "confidence": 0.8,
             "key_evidence": evidence,
-            "failure_risk": risk,
+            "risk_level": risk_level,
+            "risk_summary": risk_summary,
         },
     }
 
@@ -54,16 +64,37 @@ def test_router_skips_clean_strong_majority() -> None:
 def test_router_triggers_on_material_risk() -> None:
     rows = [
         _row("A"),
-        _row("A", risk="possible option trap"),
+        _row("A", risk_level="medium", risk_summary="possible option trap"),
         _row("A"),
-        _row("A"),
-        _row("B", role="counterfactual_falsifier", risk="leading answer misses the requested slot"),
+        _row("A", risk_level="medium", risk_summary="possible calculation trap"),
+        _row(
+            "B",
+            role="counterfactual_falsifier",
+            risk_level="high",
+            risk_summary="leading answer misses the requested slot",
+            evidence="option B directly matches the requested slot because context says option B",
+        ),
     ]
 
     decision = build_router_decision(rows, protocol=_protocol())
 
     assert decision.triggered is True
     assert "material_risk_count" in decision.reasons
+
+
+def test_router_ignores_low_risk_prose_summary() -> None:
+    rows = [
+        _row("A", risk_level="low", risk_summary="Low risk; all checks agree."),
+        _row("A", risk_level="low", risk_summary="Very low; the evidence is direct."),
+        _row("A", risk_level="low", risk_summary="None, as the slot is explicit."),
+        _row("A", risk_level="none", risk_summary="No major risk."),
+        _row("B", role="counterfactual_falsifier", risk_level="low", risk_summary="Low risk; leading answer survives."),
+    ]
+
+    decision = build_router_decision(rows, protocol=_protocol())
+
+    assert decision.triggered is False
+    assert "material_risk_count" not in decision.reasons
 
 
 def test_survival_requires_margin_and_concrete_evidence_to_override() -> None:

@@ -8,7 +8,7 @@ from typing import Any
 
 from research_experiments.core.controls.control_prompts import FREE_TEXT_V1_PROMPT_VERSION
 from research_experiments.family_runtime.config_helpers import apply_runtime_defaults, load_benchmarks, load_toml
-from research_experiments.family_runtime.json_tail_protocol import JSON_TAIL_ANSWER_PROTOCOL_V1
+from research_experiments.family_runtime.json_tail_protocol import JSON_OBJECT_TAIL_PROTOCOL_V2
 from research_experiments.family_runtime.method_catalog import MethodConfig, load_method_catalog
 from research_experiments.family_runtime.output_protocols import validate_output_protocol
 
@@ -93,9 +93,9 @@ def load_experiment_config(path: str | Path) -> CredMadExperimentConfig:
     control_prompt_version = str(payload.get("control_prompt_version", FREE_TEXT_V1_PROMPT_VERSION))
     if control_prompt_version != FREE_TEXT_V1_PROMPT_VERSION:
         raise ValueError(f"cred_mad control_prompt_version must be {FREE_TEXT_V1_PROMPT_VERSION}.")
-    cred_output_protocol = validate_output_protocol(str(payload.get("cred_output_protocol", JSON_TAIL_ANSWER_PROTOCOL_V1)))
-    if cred_output_protocol != JSON_TAIL_ANSWER_PROTOCOL_V1:
-        raise ValueError("cred_mad cred_output_protocol must be json_tail_answer_v1.")
+    cred_output_protocol = validate_output_protocol(str(payload.get("cred_output_protocol", JSON_OBJECT_TAIL_PROTOCOL_V2)))
+    if cred_output_protocol != JSON_OBJECT_TAIL_PROTOCOL_V2:
+        raise ValueError("cred_mad cred_output_protocol must be json_object_tail_v2.")
     return CredMadExperimentConfig(
         name=str(payload["name"]),
         description=str(payload["description"]),

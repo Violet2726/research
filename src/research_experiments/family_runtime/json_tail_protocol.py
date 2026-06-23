@@ -1,4 +1,4 @@
-"""自由文本推理 + 末尾小 JSON 答案块协议。"""
+"""自由文本推理 + 末尾单个 JSON 对象协议。"""
 
 from __future__ import annotations
 
@@ -8,57 +8,67 @@ from typing import Any
 
 from research_experiments.family_runtime.free_text_protocol import task_format_ok
 
-JSON_TAIL_ANSWER_PROTOCOL_V1 = "json_tail_answer_v1"
+JSON_OBJECT_TAIL_PROTOCOL_V2 = "json_object_tail_v2"
+_RISK_LEVELS = {"none", "low", "medium", "high"}
 
 
 def build_json_tail_answer_instruction(dataset: str, *, extra_json_keys: list[str] | None = None) -> str:
-    """Return the shared CRED-MAD output contract."""
+    """Return the shared CRED-MAD JSON-object-tail contract."""
 
-    keys = ["answer", "confidence", *(extra_json_keys or [])]
+    keys = _dedupe_keys(["answer", "confidence", "key_evidence", "risk_level", "risk_summary", *(extra_json_keys or [])])
+    example = {key: _example_value_for_key(key) for key in keys}
     lines = [
-        "Write concise natural-language reasoning first.",
-        "End with exactly one final JSON answer block in this format:",
-        "[FINAL]",
-        json.dumps({key: _example_value_for_key(key) for key in keys}, ensure_ascii=False),
-        "[/FINAL]",
-        "Rules:",
-        "- The JSON block must be the final content in your response.",
-        "- The JSON must be one small object only.",
-        "- confidence must be a number from 0.0 to 1.0.",
-        "- answer must contain only the canonical final answer.",
+        "Write concise natural-language reasoning first, then write this JSON object as the final content:",
+        json.dumps(example, ensure_ascii=False),
+        "Field guide:",
+        *(_field_guide_line(key) for key in keys),
+        "- Use valid JSON with double-quoted keys and strings.",
     ]
     if dataset in {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro"}:
-        lines.append('- answer must be exactly one option letter such as "A" or "B".')
+        lines.append('- For this dataset, answer is exactly one option letter such as "A" or "B".')
     elif dataset in {"gsm8k", "math500", "competition_math"}:
-        lines.append("- answer must use plain ASCII math only; do not use LaTeX commands or backslashes.")
+        lines.append("- For this dataset, answer uses plain ASCII math, such as sqrt(3), pi/6, x^2, [a,b], or (a,b).")
     elif dataset in {"hotpotqa", "webquestions"}:
-        lines.append("- answer must be the shortest judgeable text span.")
+        lines.append("- For this dataset, answer is the shortest judgeable text span.")
     return "\n".join(lines)
 
 
-def parse_json_tail_answer_output(raw_text: str, *, dataset: str) -> dict[str, Any]:
-    """Parse a free-text response ending with [FINAL] JSON [/FINAL]."""
+def _dedupe_keys(keys: list[str]) -> list[str]:
+    return list(dict.fromkeys(key for key in keys if key))
+
+
+def _field_guide_line(key: str) -> str:
+    descriptions = {
+        "answer": "the canonical final answer only.",
+        "confidence": "a number from 0.0 to 1.0.",
+        "key_evidence": "one concrete calculation, option clue, or context span supporting answer.",
+        "risk_level": 'one of "none", "low", "medium", "high"; use medium/high only for a concrete unresolved risk.',
+        "risk_summary": "one short phrase explaining the risk_level.",
+        "answer_type": "a short label for the answer form, such as expression, option, span, or yes_no.",
+        "changed": "true when answer replaces the prior leading answer; false when the prior answer survives.",
+        "attack_type": "a short label for the tested issue, such as contradiction, constraint_miss, slot_error, or calculation_error.",
+        "attack_strength": 'one of "none", "weak", "medium", "high" for the strongest surviving attack.',
+        "defense_status": "a short label for the result, such as defended, corrected, or unresolved.",
+        "source": "the decisive support source: stage_a, refutation, defense, or mixed.",
+    }
+    return f"- {key}: {descriptions.get(key, 'a short task-specific value.')}"
+
+
+def parse_json_object_tail_answer_output(raw_text: str, *, dataset: str) -> dict[str, Any]:
+    """Parse a response whose final content is one JSON object."""
 
     cleaned = _strip_code_fences(str(raw_text or "").strip())
     if not cleaned:
         raise ValueError("Assistant output is empty.")
 
-    match = re.search(r"\[FINAL\]\s*(\{.*?\})\s*\[/FINAL\]\s*$", cleaned, flags=re.DOTALL | re.IGNORECASE)
-    if match is None:
-        raise ValueError("Missing final [FINAL] JSON block.")
-
-    reasoning = cleaned[: match.start()].strip()
-    try:
-        payload = json.loads(match.group(1))
-    except json.JSONDecodeError as exc:
-        raise ValueError("Final JSON block is invalid.") from exc
-    if not isinstance(payload, dict):
-        raise ValueError("Final JSON block must contain one object.")
-
+    reasoning, payload = _extract_tail_json_object(cleaned)
     answer = str(payload.get("answer") or payload.get("final_answer") or "").strip()
     if not answer:
-        raise ValueError("Final JSON must include a non-empty answer.")
+        raise ValueError("Final JSON object must include a non-empty answer.")
     confidence = _parse_confidence(payload.get("confidence"))
+    risk_level = _parse_risk_level(payload.get("risk_level"))
+    if not str(payload.get("key_evidence") or payload.get("evidence") or "").strip():
+        raise ValueError("Final JSON object must include key_evidence.")
     if not reasoning:
         reasoning = str(payload.get("reasoning") or payload.get("rationale") or "").strip()
 
@@ -66,10 +76,32 @@ def parse_json_tail_answer_output(raw_text: str, *, dataset: str) -> dict[str, A
     parsed["answer"] = answer
     parsed["final_answer"] = answer
     parsed["confidence"] = confidence
+    parsed["risk_level"] = risk_level
     parsed["reasoning"] = reasoning
     if not task_format_ok(dataset, answer):
         parsed["format_warning"] = _task_format_warning(dataset)
     return parsed
+
+
+def _extract_tail_json_object(text: str) -> tuple[str, dict[str, Any]]:
+    decoder = json.JSONDecoder()
+    saw_tail_candidate = False
+    for match in reversed(list(re.finditer(r"\{", text))):
+        start = match.start()
+        candidate = text[start:]
+        try:
+            payload, end = decoder.raw_decode(candidate)
+        except json.JSONDecodeError:
+            saw_tail_candidate = True
+            continue
+        if candidate[end:].strip():
+            continue
+        if not isinstance(payload, dict):
+            raise ValueError("Final JSON content must be one object.")
+        return text[:start].strip(), payload
+    if saw_tail_candidate or text.endswith("}"):
+        raise ValueError("Final JSON object is invalid.")
+    raise ValueError("Missing final JSON object.")
 
 
 def _example_value_for_key(key: str) -> object:
@@ -77,16 +109,22 @@ def _example_value_for_key(key: str) -> object:
         return "..."
     if key == "confidence":
         return 0.0
+    if key == "risk_level":
+        return "none"
+    if key == "risk_summary":
+        return "short reason for the risk level"
     if key == "changed":
         return False
     if key == "source":
-        return "A|B|mixed"
+        return "stage_a|refutation|defense|mixed"
+    if key == "attack_strength":
+        return "none|weak|medium|high"
     return "..."
 
 
 def _parse_confidence(value: object) -> float:
     if value is None:
-        raise ValueError("Final JSON must include confidence.")
+        raise ValueError("Final JSON object must include confidence.")
     try:
         confidence = float(value)
     except (TypeError, ValueError) as exc:
@@ -94,6 +132,13 @@ def _parse_confidence(value: object) -> float:
     if confidence < 0.0 or confidence > 1.0:
         raise ValueError("confidence must be between 0 and 1.")
     return round(confidence, 6)
+
+
+def _parse_risk_level(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized not in _RISK_LEVELS:
+        raise ValueError('risk_level must be one of "none", "low", "medium", or "high".')
+    return normalized
 
 
 def _strip_code_fences(text: str) -> str:

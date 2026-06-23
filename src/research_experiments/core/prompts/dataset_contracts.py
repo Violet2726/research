@@ -54,7 +54,7 @@ def dataset_instruction(
                 f"Answer the multi-hop question using only the {context_phrase}. "
                 "The final_answer must be the shortest judgeable text span. "
                 "Prefer copying the exact wording from the context when possible. "
-                "Do not add category words, parentheses, explanations, or extra qualifiers."
+                "Return the entity or literal answer span itself, with qualifiers only when they are part of that span."
             )
         if hotpot_style == "shortest_span":
             return (
@@ -70,7 +70,7 @@ def dataset_instruction(
         return (
             f"Answer the graph question using only the {context_phrase}. "
             "The final_answer must be the shortest judgeable entity span or literal answer. "
-            "Do not add category words, explanations, or extra qualifiers."
+            "Return the entity or literal answer span itself, with qualifiers only when they are part of that span."
         )
     if dataset in {"mmlu_pro", "gpqa_diamond", "mmlu_abstract_algebra"}:
         if multiple_choice_scope == "visible":

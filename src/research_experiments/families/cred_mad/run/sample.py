@@ -76,6 +76,7 @@ class CredTurnRecord:
     visible_peer_count: int
     confidence_value: float | None
     key_evidence: str
+    risk_level: str
     failure_risk: str
     evidence_quality: float
     payload: dict[str, Any]
@@ -451,7 +452,8 @@ def _execute_turn(
     except (TypeError, ValueError):
         confidence_value = None
     key_evidence = str(result.validated_output.get("key_evidence") or result.validated_output.get("evidence") or "")
-    failure_risk = str(result.validated_output.get("failure_risk") or result.validated_output.get("risk") or "")
+    risk_level = str(result.validated_output.get("risk_level") or "none").strip().lower()
+    failure_risk = str(result.validated_output.get("risk_summary") or "")
     row = asdict(
         CredTurnRecord(
             run_id=run_id,
@@ -491,6 +493,7 @@ def _execute_turn(
             visible_peer_count=visible_peer_count,
             confidence_value=confidence_value,
             key_evidence=key_evidence,
+            risk_level=risk_level if risk_level in {"none", "low", "medium", "high"} else "none",
             failure_risk=failure_risk,
             evidence_quality=0.0,
             payload=result.payload,
