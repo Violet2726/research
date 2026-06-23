@@ -22,6 +22,10 @@ def _protocol() -> CredMadProtocolConfig:
         weak_majority_count=3,
         locked_override_margin=1.0,
         concrete_evidence_min_chars=12,
+        stage_a_max_tokens=640,
+        refutation_max_tokens=512,
+        defense_max_tokens=448,
+        judge_max_tokens=512,
     )
 
 
@@ -33,7 +37,19 @@ def _row(
     risk_summary: str = "none",
     evidence: str = "because 2+2=4",
     confidence: float = 0.8,
+    changed: bool | None = None,
+    attack_strength: str | None = None,
 ) -> dict:
+    validated = {
+        "confidence": confidence,
+        "key_evidence": evidence,
+        "risk_level": risk_level,
+        "risk_summary": risk_summary,
+    }
+    if changed is not None:
+        validated["changed"] = changed
+    if attack_strength is not None:
+        validated["attack_strength"] = attack_strength
     return {
         "dataset": "gpqa_diamond",
         "normalized_answer": answer,
@@ -43,12 +59,7 @@ def _row(
         "key_evidence": evidence,
         "risk_level": risk_level,
         "failure_risk": risk_summary,
-        "validated_output": {
-            "confidence": confidence,
-            "key_evidence": evidence,
-            "risk_level": risk_level,
-            "risk_summary": risk_summary,
-        },
+        "validated_output": validated,
     }
 
 
@@ -59,9 +70,10 @@ def test_router_skips_clean_strong_majority() -> None:
 
     assert decision.triggered is False
     assert decision.leading_answer == "A"
+    assert decision.reasons == ("strong_majority_skip",)
 
 
-def test_router_triggers_on_material_risk() -> None:
+def test_router_uses_risk_as_diagnostic_not_trigger() -> None:
     rows = [
         _row("A"),
         _row("A", risk_level="medium", risk_summary="possible option trap"),
@@ -78,8 +90,18 @@ def test_router_triggers_on_material_risk() -> None:
 
     decision = build_router_decision(rows, protocol=_protocol())
 
+    assert decision.triggered is False
+    assert decision.risk_count == 3
+    assert decision.reasons == ("strong_majority_skip",)
+
+
+def test_router_triggers_only_on_weak_split_without_strong_majority() -> None:
+    rows = [_row("A"), _row("A"), _row("B"), _row("B"), _row("C")]
+
+    decision = build_router_decision(rows, protocol=_protocol())
+
     assert decision.triggered is True
-    assert "material_risk_count" in decision.reasons
+    assert decision.reasons == ("weak_split_no_strong_majority",)
 
 
 def test_router_ignores_low_risk_prose_summary() -> None:
@@ -134,3 +156,28 @@ def test_survival_requires_margin_and_concrete_evidence_to_override() -> None:
 
     assert decision.final_answer == "A"
     assert decision.resolver == "cred_survival_override_rejected"
+
+
+def test_locked_survival_requires_verified_override_signal() -> None:
+    stage_rows = [_row("A"), _row("B"), _row("A"), _row("B"), _row("C")]
+    stage = aggregate_stage_a_vote(stage_rows)
+    refute = [
+        _row("B", role="refuter", evidence="specific contradiction in option B evidence"),
+        _row("B", role="refuter", evidence="another concrete contradiction in option B evidence"),
+    ]
+    judge = _row("B", role="judge", evidence="judge accepts the concrete contradiction")
+
+    decision = aggregate_survival(
+        dataset="gpqa_diamond",
+        stage_rows=stage_rows,
+        refutation_rows=refute,
+        defense_rows=[],
+        judge_row=judge,
+        stage_winner=stage.final_answer,
+        survival_override_margin=0.0,
+        concrete_evidence_min_chars=12,
+        locked=True,
+    )
+
+    assert decision.final_answer == "A"
+    assert decision.resolver == "cred_survival_override_rejected_locked"

@@ -18,11 +18,11 @@ def _sample(dataset: str = "gpqa_diamond") -> DatasetSample:
 def test_stage_a_prompt_keeps_role_as_audit_lens_after_strong_solving() -> None:
     content = build_stage_a_messages(_sample(), agent_id=1, agent_role="counterfactual_falsifier")[1]["content"]
 
-    assert "solve the task independently" in content
+    assert "solve independently" in content
     assert "Audit lens: counterfactual_falsifier" in content
     assert "Strong solver workflow:" in content
     assert "compare plausible options" in content
-    assert "Return exactly one JSON object" in content
+    assert "compact JSON answer card" in content
 
 
 def test_judge_prompt_solves_independently_before_using_board() -> None:

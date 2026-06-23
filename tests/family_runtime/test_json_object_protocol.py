@@ -82,9 +82,11 @@ def test_execute_json_object_answer_protocol_uses_provider_response_format(tmp_p
         dataset="gpqa_diamond",
         role="judge",
         output_protocol="json_object_answer_v3",
+        max_tokens=512,
         request_executor=request_executor,
     )
     cache.close()
 
     assert result.output_status == "ok"
     assert captured_payloads[0]["response_format"] == {"type": "json_object"}
+    assert captured_payloads[0]["max_tokens"] == 512

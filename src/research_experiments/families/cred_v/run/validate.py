@@ -1,4 +1,4 @@
-"""CRED-MAD 运行产物校验。"""
+"""CRED-V 运行产物校验。"""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from research_experiments.family_runtime.validation import (
 )
 
 
-def validate_run(run_dir: str | Path, *, family_name: str = "cred_mad") -> dict[str, Any]:
+def validate_run(run_dir: str | Path, *, family_name: str = "cred_v") -> dict[str, Any]:
     index = resolve_run_artifact_index(run_dir, family_name=family_name)
     root = index.run_dir
     turn_paths = named_turn_record_paths(root, family_name=family_name)
@@ -104,7 +104,7 @@ def _method_coverage_check(manifest: dict[str, Any], prediction_rows: list[dict[
 
 def _router_check(manifest: dict[str, Any], router_rows: list[dict[str, Any]]) -> dict[str, Any]:
     cred_methods = list(manifest.get("cred_methods") or [])
-    required = bool({"cred_refute_queue_v1_lock", "cred_v_selective_verify_v1"} & set(cred_methods))
+    required = bool({"cred_v_selective_verify_v1"} & set(cred_methods))
     return {
         "passed": (not required) or bool(router_rows),
         "required": required,

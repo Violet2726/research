@@ -72,6 +72,7 @@ def execute_output_protocol_turn(
     dataset: str,
     role: str,
     output_protocol: OutputProtocol,
+    max_tokens: int | None = None,
     request_executor: TurnRequestExecutor | None = None,
 ) -> OutputProtocolTurnResult:
     request = execute_cached_request(
@@ -84,6 +85,7 @@ def execute_output_protocol_turn(
         top_p=top_p,
         seed=seed,
         use_response_format=output_protocol == JSON_OBJECT_ANSWER_PROTOCOL_V3,
+        max_tokens=max_tokens,
         request_executor=request_executor,
     )
     return _finalize_turn_result(request, dataset=dataset, output_protocol=output_protocol)

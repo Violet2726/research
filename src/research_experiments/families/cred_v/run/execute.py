@@ -1,4 +1,4 @@
-"""CRED-MAD 运行编排。"""
+"""CRED-V 运行编排。"""
 
 from __future__ import annotations
 
@@ -16,14 +16,14 @@ from research_experiments.core.execution.providers import OpenAICompatibleProvid
 from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from research_experiments.core.structured_outputs import ARTIFACT_VERSION
-from research_experiments.families.cred_mad.config import (
+from research_experiments.families.cred_v.config import (
     CredMadExperimentConfig,
     load_control_catalog,
     load_protocol_config,
 )
-from research_experiments.families.cred_mad.prompts import CRED_PROMPT_VERSION
-from research_experiments.families.cred_mad.run.report import render_report, summarize_run
-from research_experiments.families.cred_mad.run.sample import (
+from research_experiments.families.cred_v.prompts import CRED_PROMPT_VERSION
+from research_experiments.families.cred_v.run.report import render_report, summarize_run
+from research_experiments.families.cred_v.run.sample import (
     _execute_turn,
     append_outputs,
     build_control_prediction_row,
@@ -35,7 +35,7 @@ from research_experiments.families.cred_mad.run.sample import (
     resolve_split_name,
     run_cred_batch,
 )
-from research_experiments.families.cred_mad.run.validate import validate_run
+from research_experiments.families.cred_v.run.validate import validate_run
 from research_experiments.family_runtime.config_helpers import load_benchmarks, phase_metadata
 from research_experiments.family_runtime.layout import prepare_registered_run_layout
 from research_experiments.family_runtime.manifest import finalize_family_manifest
@@ -50,8 +50,8 @@ def run_experiment(
     run_root: str | Path | None = None,
     cache_root: str | Path | None = None,
     *,
-    family_name: str = "cred_mad",
-    display_name: str = "CRED-MAD",
+    family_name: str = "cred_v",
+    display_name: str = "CRED-V",
 ) -> Path:
     load_dotenv(".env.local", override=False)
     run_root = run_root or default_runs_root(family_name)
@@ -245,4 +245,4 @@ def _control_results_as_cred_shape(control_results):
 def _validate_control_methods(experiment: CredMadExperimentConfig, controls) -> None:
     missing = [name for name in experiment.control_methods if name not in controls]
     if missing:
-        raise RuntimeError("Unknown cred_mad control methods: " + ", ".join(missing))
+        raise RuntimeError("Unknown cred_v control methods: " + ", ".join(missing))

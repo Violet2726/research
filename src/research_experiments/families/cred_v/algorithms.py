@@ -1,4 +1,4 @@
-"""CRED-MAD 路由与聚合的纯逻辑。"""
+"""CRED-V 路由与聚合的纯逻辑。"""
 
 from __future__ import annotations
 
@@ -78,7 +78,7 @@ def aggregate_stage_a_vote(rows: list[dict[str, Any]]) -> CredAggregateDecision:
         return CredAggregateDecision(
             final_answer="",
             support={},
-            resolver="cred_vote_5_empty",
+            resolver="cred_v_vote_5_empty",
             changed=False,
             source="stage_a_vote",
         )
@@ -97,7 +97,7 @@ def aggregate_stage_a_vote(rows: list[dict[str, Any]]) -> CredAggregateDecision:
     return CredAggregateDecision(
         final_answer=winner,
         support={answer: float(count) for answer, count in counts.items()},
-        resolver="cred_vote_5_audit_weighted" if winner_family != count_family else "cred_vote_5_family_majority",
+        resolver="cred_v_vote_5_audit_weighted" if winner_family != count_family else "cred_v_vote_5_family_majority",
         changed=False,
         source="stage_a_vote",
     )
@@ -134,7 +134,7 @@ def aggregate_survival(
         if _is_candidate(answer):
             scores[answer] += 0.65 + 0.25 * _row_confidence(judge_row)
     if not scores:
-        return CredAggregateDecision(stage_winner, {}, "cred_survival_empty_fallback", False, "fallback")
+        return CredAggregateDecision(stage_winner, {}, "cred_v_survival_empty_fallback", False, "fallback")
 
     winner = max(scores, key=lambda item: (scores[item], item == stage_winner, item))
     stage_score = float(scores.get(stage_winner, 0.0))
@@ -159,14 +159,14 @@ def aggregate_survival(
             return CredAggregateDecision(
                 stage_winner,
                 dict(scores),
-                "cred_survival_override_rejected_locked" if locked else "cred_survival_override_rejected",
+                "cred_v_survival_override_rejected_locked" if locked else "cred_v_survival_override_rejected",
                 False,
                 "stage_a_locked" if locked else "stage_a",
             )
     return CredAggregateDecision(
         winner,
         dict(scores),
-        "cred_survival_score_locked" if locked else "cred_survival_score",
+        "cred_v_survival_score_locked" if locked else "cred_v_survival_score",
         changed,
         "survival",
     )

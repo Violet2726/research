@@ -1,7 +1,7 @@
 stage_a_agent_count = 5
 max_refutations = 1
 stage_a_temperature = 0.7
-debate_temperature = 0.4
+debate_temperature = 0.3
 judge_temperature = 0.0
 top_p = 1.0
 strong_majority_count = 4

@@ -1,4 +1,4 @@
-"""CRED-MAD 报告渲染。"""
+"""CRED-V 报告渲染。"""
 
 from __future__ import annotations
 
@@ -24,11 +24,11 @@ from research_experiments.reporting.scientific_report import format_float, rende
 from research_experiments.workspace.layout import default_reports_root
 
 
-def load_metrics(run_dir: str | Path, *, family_name: str = "cred_mad") -> dict[str, Any]:
+def load_metrics(run_dir: str | Path, *, family_name: str = "cred_v") -> dict[str, Any]:
     return load_metrics_payload(run_dir, family_name=family_name)
 
 
-def summarize_run(run_dir: str | Path, *, family_name: str = "cred_mad") -> dict[str, Any]:
+def summarize_run(run_dir: str | Path, *, family_name: str = "cred_v") -> dict[str, Any]:
     summary = SummaryTableView.from_metrics_payload(load_metrics(run_dir, family_name=family_name))
     grouped = summary.grouped_by_dataset()
     return {
@@ -43,8 +43,8 @@ def render_report(
     run_dir: str | Path,
     publish_dir: str | Path | None = None,
     *,
-    family_name: str = "cred_mad",
-    display_name: str = "CRED-MAD",
+    family_name: str = "cred_v",
+    display_name: str = "CRED-V",
 ) -> dict[str, Any]:
     publish_dir = publish_dir or default_reports_root(family_name)
     index = resolve_run_artifact_index(run_dir, family_name=family_name)
@@ -82,7 +82,7 @@ def render_report(
     return payload
 
 
-def _build_figure_specs(metrics: dict[str, Any], *, display_name: str = "CRED-MAD") -> list[dict[str, Any]]:
+def _build_figure_specs(metrics: dict[str, Any], *, display_name: str = "CRED-V") -> list[dict[str, Any]]:
     summary_rows = [row for row in metrics.get("summary", []) if row.get("dataset") != "overall_micro"]
     overall_rows = [row for row in summary_rows if row.get("dataset") == "overall"]
     cred_rows = [row for row in overall_rows if str(row.get("method_name") or "").startswith("cred_")]
@@ -90,7 +90,7 @@ def _build_figure_specs(metrics: dict[str, Any], *, display_name: str = "CRED-MA
         build_frontier_figure_spec(
             summary_rows,
             title=f"{display_name} 成本-性能前沿",
-            caption="CRED-MAD 与 no-comm 控制组在 overall macro 口径下的准确率与平均 token。",
+            caption="CRED-V 与 no-comm 控制组在 overall macro 口径下的准确率与平均 token。",
             score_field="accuracy_mean",
             primary_metric="准确率",
             method_label_field="method_name",
@@ -168,7 +168,7 @@ def _render_markdown(
     comparison: dict[str, Any],
     run_dir: Path,
     *,
-    display_name: str = "CRED-MAD",
+    display_name: str = "CRED-V",
 ) -> str:
     del debate_diagnostics
     backbone_name = resolve_manifest_model_name(manifest)
@@ -185,7 +185,7 @@ def _render_markdown(
         {
             "title": "理论假设",
             "bullets": [
-                "固定轮次 MAD 的收益常被初始投票解释；CRED-MAD 只在 router 判定有高价值错误风险时触发反驳。",
+                "固定轮次 MAD 的收益常被初始投票解释；CRED-V 只在 router 判定有高价值错误风险时触发反驳。",
                 "反驳必须给出可证伪攻击；聚合只在挑战者具备足够 survival margin 和具体证据时覆盖初始赢家。",
                 "主指标同时观察 accuracy、token、trigger rate、corrected rate、harmed rate 与 debate gain。",
             ],

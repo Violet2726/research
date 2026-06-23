@@ -11,3 +11,6 @@ def test_cred_mad_main_config_loads() -> None:
     assert experiment.cred_methods == ["cred_vote_5", "cred_refute_queue_v1_lock"]
     assert protocol.stage_a_agent_count == 5
     assert protocol.risk_trigger_count == 3
+    assert protocol.max_refutations == 1
+    assert protocol.locked_override_margin == 1.25
+    assert protocol.stage_a_max_tokens == 640

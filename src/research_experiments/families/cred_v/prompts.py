@@ -1,4 +1,4 @@
-"""CRED-MAD 提示词构造。"""
+"""CRED-V 提示词构造。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.family_runtime.json_object_protocol import build_json_object_answer_instruction
 
-CRED_PROMPT_VERSION = "cred_mad_selective_verify_v5"
+CRED_PROMPT_VERSION = "cred_v_selective_verify_v1"
 
 AGENT_ROLES = (
     "cot_builder",
@@ -28,7 +28,7 @@ _ROLE_AUDIT_LENS = {
 
 def build_stage_a_messages(sample: DatasetSample, *, agent_id: int, agent_role: str) -> list[dict[str, str]]:
     user_prompt = (
-        f"You are CRED-MAD agent_{agent_id}.\n"
+        f"You are CRED-V agent_{agent_id}.\n"
         "Primary contract: solve independently, audit once, then commit a compact answer card.\n"
         f"Audit lens: {agent_role} - {_ROLE_AUDIT_LENS[agent_role]}\n"
         f"{_strong_solver_workflow(sample.dataset)}\n"
@@ -49,7 +49,7 @@ def build_stage_a_messages(sample: DatasetSample, *, agent_id: int, agent_role: 
         )
     )
     return [
-        {"role": "system", "content": "You are an expert reasoning agent in a controlled CRED-MAD experiment. Return a JSON answer object."},
+        {"role": "system", "content": "You are an expert reasoning agent in a controlled CRED-V experiment. Return a JSON answer object."},
         {"role": "user", "content": user_prompt},
     ]
 
@@ -62,7 +62,7 @@ def build_refutation_messages(
     stage_rows: list[dict[str, Any]],
 ) -> list[dict[str, str]]:
     user_prompt = (
-        "You are the CRED-MAD refutation verifier. Test whether the challenger defeats the leading answer with one checkable error certificate.\n"
+        "You are the CRED-V refutation verifier. Test whether the challenger defeats the leading answer with one checkable error certificate.\n"
         f"{_compact_audit_workflow(sample.dataset)}\n"
         f"{_dataset_instruction(sample)}\n"
         f"Question:\n{sample.question.strip()}\n\n"
@@ -83,7 +83,7 @@ def build_refutation_messages(
         )
     )
     return [
-        {"role": "system", "content": "You are a precise refutation agent for controlled CRED-MAD experiments."},
+        {"role": "system", "content": "You are a precise refutation agent for controlled CRED-V experiments."},
         {"role": "user", "content": user_prompt},
     ]
 
@@ -96,7 +96,7 @@ def build_defense_messages(
     stage_rows: list[dict[str, Any]],
 ) -> list[dict[str, str]]:
     user_prompt = (
-        "You are the CRED-MAD defense verifier. Decide whether the refutation really defeats the leading answer.\n"
+        "You are the CRED-V defense verifier. Decide whether the refutation really defeats the leading answer.\n"
         f"{_compact_audit_workflow(sample.dataset)}\n"
         f"{_dataset_instruction(sample)}\n"
         f"Question:\n{sample.question.strip()}\n\n"
@@ -116,7 +116,7 @@ def build_defense_messages(
         )
     )
     return [
-        {"role": "system", "content": "You are a precise defense agent for controlled CRED-MAD experiments."},
+        {"role": "system", "content": "You are a precise defense agent for controlled CRED-V experiments."},
         {"role": "user", "content": user_prompt},
     ]
 
@@ -130,7 +130,7 @@ def build_judge_messages(
     defense_rows: list[dict[str, Any]],
 ) -> list[dict[str, str]]:
     user_prompt = (
-        "You are the CRED-MAD final verifier. Choose the answer that survives the strongest concrete attacks.\n"
+        "You are the CRED-V final verifier. Choose the answer that survives the strongest concrete attacks.\n"
         f"{_compact_audit_workflow(sample.dataset)}\n"
         f"{_dataset_instruction(sample)}\n"
         f"Question:\n{sample.question.strip()}\n\n"
@@ -153,7 +153,7 @@ def build_judge_messages(
         )
     )
     return [
-        {"role": "system", "content": "You are a compact final judge for controlled CRED-MAD experiments."},
+        {"role": "system", "content": "You are a compact final judge for controlled CRED-V experiments."},
         {"role": "user", "content": user_prompt},
     ]
 

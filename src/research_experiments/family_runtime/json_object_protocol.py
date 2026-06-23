@@ -20,12 +20,14 @@ def build_json_object_answer_instruction(dataset: str, *, extra_json_keys: list[
     )
     example = {key: _example_value_for_key(key) for key in keys}
     lines = [
-        "Return exactly one JSON object with these fields:",
+        "Return one compact JSON answer card with these fields:",
         json.dumps(example, ensure_ascii=False),
         "Field guide:",
         *(_field_guide_line(key) for key in keys),
-        "- Use JSON strings for text fields and a JSON number for confidence.",
-        "- Keep reasoning compact: 3 to 5 decisive verification steps.",
+        "- Use JSON strings for text fields, JSON booleans for true/false fields, and a JSON number for confidence.",
+        "- reasoning is a compact three-part verification trace: slot; decisive check; answer fit.",
+        "- key_evidence is one short concrete clue, equation, option contrast, or context span.",
+        "- risk_summary is a short phrase naming the remaining uncertainty.",
     ]
     if dataset in {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro"}:
         lines.append('- For this dataset, answer is exactly one option letter such as "A" or "B".')
@@ -89,7 +91,7 @@ def _dedupe_keys(keys: list[str]) -> list[str]:
 
 def _field_guide_line(key: str) -> str:
     descriptions = {
-        "reasoning": "compact verification steps that justify the answer.",
+        "reasoning": "three compact verification clauses that justify the answer.",
         "answer": "the canonical final answer only.",
         "confidence": "a number from 0.0 to 1.0.",
         "key_evidence": "one concrete plain-text calculation, option clue, or context span supporting answer.",
@@ -107,7 +109,7 @@ def _field_guide_line(key: str) -> str:
 
 def _example_value_for_key(key: str) -> object:
     if key == "reasoning":
-        return "step 1; step 2; step 3"
+        return "slot identified; decisive check made; answer fits"
     if key == "answer":
         return "..."
     if key == "confidence":

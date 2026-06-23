@@ -1,4 +1,4 @@
-"""CRED-MAD 配置加载。"""
+"""CRED-V 验证器中心实验配置加载。"""
 
 from __future__ import annotations
 
@@ -12,13 +12,11 @@ from research_experiments.family_runtime.json_object_protocol import JSON_OBJECT
 from research_experiments.family_runtime.method_catalog import MethodConfig, load_method_catalog
 from research_experiments.family_runtime.output_protocols import validate_output_protocol
 
-CRED_VOTE_5 = "cred_vote_5"
-CRED_REFUTE_QUEUE_V1_LOCK = "cred_refute_queue_v1_lock"
-CRED_METHODS = frozenset({CRED_VOTE_5, CRED_REFUTE_QUEUE_V1_LOCK})
-CRED_V_SELECTIVE_VERIFY_V1 = "cred_v_selective_verify_v1"
 CRED_V_VOTE_5 = "cred_v_vote_5"
-CRED_DEBATE_METHODS = frozenset({CRED_REFUTE_QUEUE_V1_LOCK, CRED_V_SELECTIVE_VERIFY_V1})
-CRED_VOTE_METHODS = frozenset({CRED_VOTE_5, CRED_V_VOTE_5})
+CRED_V_SELECTIVE_VERIFY_V1 = "cred_v_selective_verify_v1"
+CRED_METHODS = frozenset({CRED_V_VOTE_5, CRED_V_SELECTIVE_VERIFY_V1})
+CRED_DEBATE_METHODS = frozenset({CRED_V_SELECTIVE_VERIFY_V1})
+CRED_VOTE_METHODS = frozenset({CRED_V_VOTE_5})
 
 
 @dataclass(frozen=True)
@@ -64,16 +62,16 @@ def load_protocol_config(path: str | Path) -> CredMadProtocolConfig:
     payload = load_toml(path)
     return CredMadProtocolConfig(
         stage_a_agent_count=int(payload.get("stage_a_agent_count", 5)),
-        max_refutations=int(payload.get("max_refutations", 2)),
+        max_refutations=int(payload.get("max_refutations", 1)),
         stage_a_temperature=float(payload.get("stage_a_temperature", 0.7)),
-        debate_temperature=float(payload.get("debate_temperature", 0.4)),
+        debate_temperature=float(payload.get("debate_temperature", 0.3)),
         judge_temperature=float(payload.get("judge_temperature", 0.0)),
         top_p=float(payload.get("top_p", 1.0)),
         strong_majority_count=int(payload.get("strong_majority_count", 4)),
         min_evidence_quality=float(payload.get("min_evidence_quality", 0.45)),
-        risk_trigger_count=int(payload.get("risk_trigger_count", 2)),
+        risk_trigger_count=int(payload.get("risk_trigger_count", 3)),
         weak_majority_count=int(payload.get("weak_majority_count", 3)),
-        locked_override_margin=float(payload.get("locked_override_margin", 1.0)),
+        locked_override_margin=float(payload.get("locked_override_margin", 1.25)),
         concrete_evidence_min_chars=int(payload.get("concrete_evidence_min_chars", 12)),
         stage_a_max_tokens=int(payload.get("stage_a_max_tokens", 640)),
         refutation_max_tokens=int(payload.get("refutation_max_tokens", 512)),
@@ -93,18 +91,18 @@ def load_experiment_config(path: str | Path) -> CredMadExperimentConfig:
     cred_methods = [str(item) for item in payload.get("cred_methods", [])]
     unsupported = sorted(set(cred_methods) - CRED_METHODS)
     if unsupported:
-        raise ValueError("Unsupported cred_mad methods: " + ", ".join(unsupported))
+        raise ValueError("Unsupported cred_v methods: " + ", ".join(unsupported))
     method_order = [str(item) for item in payload.get("method_order", [])]
     if set(method_order) != set(control_methods) | set(cred_methods):
-        raise ValueError("cred_mad method_order must exactly cover control_methods and cred_methods.")
+        raise ValueError("cred_v method_order must exactly cover control_methods and cred_methods.")
     if len(method_order) != len(set(method_order)):
-        raise ValueError("cred_mad method_order must not contain duplicates.")
+        raise ValueError("cred_v method_order must not contain duplicates.")
     control_prompt_version = str(payload.get("control_prompt_version", FREE_TEXT_V1_PROMPT_VERSION))
     if control_prompt_version != FREE_TEXT_V1_PROMPT_VERSION:
-        raise ValueError(f"cred_mad control_prompt_version must be {FREE_TEXT_V1_PROMPT_VERSION}.")
+        raise ValueError(f"cred_v control_prompt_version must be {FREE_TEXT_V1_PROMPT_VERSION}.")
     cred_output_protocol = validate_output_protocol(str(payload.get("cred_output_protocol", JSON_OBJECT_ANSWER_PROTOCOL_V3)))
     if cred_output_protocol != JSON_OBJECT_ANSWER_PROTOCOL_V3:
-        raise ValueError("cred_mad cred_output_protocol must be json_object_answer_v3.")
+        raise ValueError("cred_v cred_output_protocol must be json_object_answer_v3.")
     return CredMadExperimentConfig(
         name=str(payload["name"]),
         description=str(payload["description"]),
@@ -130,3 +128,4 @@ def inspect_methods(experiment: CredMadExperimentConfig) -> list[str]:
 
 def inspect_benchmarks(experiment: CredMadExperimentConfig) -> list[str]:
     return [benchmark.slug for benchmark in load_benchmarks(experiment)]
+

@@ -1,4 +1,4 @@
-"""CRED-MAD 样本级执行辅助。"""
+"""CRED-V 样本级执行辅助。"""
 
 from __future__ import annotations
 
@@ -10,19 +10,19 @@ from typing import Any
 from research_experiments.core.data.datasets import DatasetSample, load_split_ids, select_samples
 from research_experiments.core.data.evaluation import normalize_prediction, score_prediction
 from research_experiments.core.execution.runner_common import iter_indexed_batch
-from research_experiments.families.cred_mad.algorithms import (
+from research_experiments.families.cred_v.algorithms import (
     aggregate_stage_a_vote,
     aggregate_survival,
     build_router_decision,
     evidence_quality,
     select_refutation_targets,
 )
-from research_experiments.families.cred_mad.config import (
+from research_experiments.families.cred_v.config import (
     CRED_DEBATE_METHODS,
     CredMadExperimentConfig,
     CredMadProtocolConfig,
 )
-from research_experiments.families.cred_mad.prompts import (
+from research_experiments.families.cred_v.prompts import (
     AGENT_ROLES,
     build_defense_messages,
     build_judge_messages,
@@ -779,7 +779,7 @@ def _router_row(
         "dataset": dataset,
         "split": split_name,
         "sample_id": sample.sample_id,
-        "policy_name": "cred_router_v5",
+        "policy_name": "cred_v_router_v1",
         "triggered": router.triggered,
         "trigger_reasons": list(router.reasons),
         "leading_answer": router.leading_answer,
