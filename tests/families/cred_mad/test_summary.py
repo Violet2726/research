@@ -32,7 +32,7 @@ def test_summary_preserves_zero_initial_vote_score_for_debate_gain() -> None:
         rows,
         dataset="math500",
         model_name="model",
-        method_name="cred_refute_queue_v1",
+        method_name="cred_refute_queue_v1_lock",
         aggregate_kind="dataset",
     )
 

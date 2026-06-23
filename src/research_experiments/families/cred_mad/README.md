@@ -8,13 +8,16 @@ The framework separates three effects that are usually entangled in MAD:
 - router gain from skipping low-value debate;
 - debate gain from targeted refutation, defense, and survival-score aggregation.
 
-Current CRED runs use `json_object_tail_v2`: free-text reasoning followed by one final JSON object.
+Current CRED runs use `json_object_answer_v3`: one JSON object containing compact reasoning,
+answer, confidence, key evidence, and risk fields. This protocol uses provider JSON-object
+response formatting when the selected model supports it.
 Router risk is driven only by the structured `risk_level` enum (`none`, `low`, `medium`, `high`);
 `risk_summary` is explanatory text and is not parsed as a trigger signal.
 
-Prompt version `cred_mad_strong_solver_audit_v3` makes every Stage A agent solve with the same
-strong single-agent workflow first, then applies the role as an audit lens. Stage A aggregation is
-family-majority first, with confidence/evidence/risk weighting used only for weak splits.
+Prompt version `cred_mad_json_object_lock_v4` makes every Stage A agent solve with the same
+strong single-agent workflow first, then applies the role as an audit lens. The main debate method
+is lock-only survival aggregation (`cred_refute_queue_v1_lock`); the older unlocked refutation
+branch is removed from the maintained CRED mainline because it introduced harm in count100 results.
 
 Run:
 

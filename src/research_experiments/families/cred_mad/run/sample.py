@@ -18,7 +18,6 @@ from research_experiments.families.cred_mad.algorithms import (
     select_refutation_targets,
 )
 from research_experiments.families.cred_mad.config import (
-    CRED_REFUTE_QUEUE_V1,
     CRED_REFUTE_QUEUE_V1_LOCK,
     CredMadExperimentConfig,
     CredMadProtocolConfig,
@@ -260,7 +259,7 @@ def _run_cred_sample(
     judge_row: dict[str, Any] | None = None
     debate_rows: list[dict[str, Any]] = []
 
-    if router.triggered and {CRED_REFUTE_QUEUE_V1, CRED_REFUTE_QUEUE_V1_LOCK} & set(experiment.cred_methods):
+    if router.triggered and CRED_REFUTE_QUEUE_V1_LOCK in set(experiment.cred_methods):
         targets = select_refutation_targets(
             dataset=benchmark_slug,
             rows=stage_rows,
@@ -373,8 +372,7 @@ def _run_cred_sample(
         decision = vote_decision
         method_turns = list(stage_rows)
         debate_turns: list[dict[str, Any]] = []
-        if method_name in {CRED_REFUTE_QUEUE_V1, CRED_REFUTE_QUEUE_V1_LOCK}:
-            locked = method_name == CRED_REFUTE_QUEUE_V1_LOCK
+        if method_name == CRED_REFUTE_QUEUE_V1_LOCK:
             decision = aggregate_survival(
                 dataset=benchmark_slug,
                 stage_rows=stage_rows,
@@ -382,9 +380,9 @@ def _run_cred_sample(
                 defense_rows=defense_rows,
                 judge_row=judge_row,
                 stage_winner=vote_decision.final_answer,
-                override_margin=protocol.locked_override_margin if locked else protocol.override_margin,
+                survival_override_margin=protocol.locked_override_margin,
                 concrete_evidence_min_chars=protocol.concrete_evidence_min_chars,
-                locked=locked,
+                locked=True,
             )
             debate_turns = [*refutation_rows, *defense_rows, *([judge_row] if judge_row is not None else [])]
             method_turns = [*stage_rows, *debate_turns]
@@ -742,7 +740,7 @@ def estimate_work(experiment: CredMadExperimentConfig, phase_name: str, benchmar
         split_name = resolve_phase_split_name(experiment, phase_name, benchmark.slug)
         sample_count = len(load_split_ids(benchmark.cache_namespace or benchmark.slug, split_name))
         total_calls += sample_count * protocol.stage_a_agent_count
-        if {CRED_REFUTE_QUEUE_V1, CRED_REFUTE_QUEUE_V1_LOCK} & set(experiment.cred_methods):
+        if CRED_REFUTE_QUEUE_V1_LOCK in set(experiment.cred_methods):
             total_calls += sample_count * (protocol.max_refutations * 2 + 1)
         total_predictions += sample_count * len(experiment.cred_methods)
         for method_name in experiment.control_methods:

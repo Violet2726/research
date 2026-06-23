@@ -125,7 +125,7 @@ def aggregate_survival(
     defense_rows: list[dict[str, Any]],
     judge_row: dict[str, Any] | None,
     stage_winner: str,
-    override_margin: float,
+    survival_override_margin: float,
     concrete_evidence_min_chars: int,
     locked: bool,
 ) -> CredAggregateDecision:
@@ -157,7 +157,7 @@ def aggregate_survival(
     if changed:
         margin = winner_score - stage_score
         concrete = any(_row_answer(row) == winner and _has_concrete_evidence(row, concrete_evidence_min_chars) for row in [*refutation_rows, *defense_rows])
-        if margin < float(override_margin) or not concrete:
+        if margin < float(survival_override_margin) or not concrete:
             return CredAggregateDecision(
                 stage_winner,
                 dict(scores),

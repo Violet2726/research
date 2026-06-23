@@ -18,11 +18,11 @@ def _sample(dataset: str = "gpqa_diamond") -> DatasetSample:
 def test_stage_a_prompt_keeps_role_as_audit_lens_after_strong_solving() -> None:
     content = build_stage_a_messages(_sample(), agent_id=1, agent_role="counterfactual_falsifier")[1]["content"]
 
-    assert "first solve as a strong independent single-agent reasoner" in content
+    assert "solve the task independently" in content
     assert "Audit lens: counterfactual_falsifier" in content
     assert "Strong solver workflow:" in content
     assert "compare plausible options" in content
-    assert "Reason briefly according to your role" not in content
+    assert "Return exactly one JSON object" in content
 
 
 def test_judge_prompt_solves_independently_before_using_board() -> None:
@@ -34,5 +34,12 @@ def test_judge_prompt_solves_independently_before_using_board() -> None:
         defense_rows=[],
     )[1]["content"]
 
-    assert "Solve independently" in content
+    assert "Compact audit workflow:" in content
     assert 'exactly "yes" or "no"' in content
+
+
+def test_hotpot_prompt_asks_for_complete_judgeable_span() -> None:
+    content = build_stage_a_messages(_sample(dataset="hotpotqa"), agent_id=1, agent_role="cot_builder")[1]["content"]
+
+    assert "complete judgeable text span" in content
+    assert "essential type or unit words" in content

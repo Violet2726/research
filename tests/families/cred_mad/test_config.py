@@ -7,7 +7,7 @@ def test_cred_mad_main_config_loads() -> None:
     experiment = load_experiment_config("configs/families/cred_mad/experiments/cred_mad_main.toml")
     protocol = load_protocol_config(experiment.protocol)
 
-    assert experiment.cred_output_protocol == "json_object_tail_v2"
-    assert experiment.cred_methods == ["cred_vote_5", "cred_refute_queue_v1", "cred_refute_queue_v1_lock"]
+    assert experiment.cred_output_protocol == "json_object_answer_v3"
+    assert experiment.cred_methods == ["cred_vote_5", "cred_refute_queue_v1_lock"]
     assert protocol.stage_a_agent_count == 5
     assert protocol.risk_trigger_count == 3

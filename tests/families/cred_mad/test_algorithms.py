@@ -20,7 +20,6 @@ def _protocol() -> CredMadProtocolConfig:
         min_evidence_quality=0.45,
         risk_trigger_count=2,
         weak_majority_count=3,
-        override_margin=0.75,
         locked_override_margin=1.0,
         concrete_evidence_min_chars=12,
     )
@@ -128,7 +127,7 @@ def test_survival_requires_margin_and_concrete_evidence_to_override() -> None:
         defense_rows=[],
         judge_row=judge,
         stage_winner=stage.final_answer,
-        override_margin=10.0,
+        survival_override_margin=10.0,
         concrete_evidence_min_chars=12,
         locked=False,
     )

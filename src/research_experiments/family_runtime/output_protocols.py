@@ -18,12 +18,12 @@ from research_experiments.family_runtime.free_text_protocol import (
     FREE_TEXT_ANSWER_PROTOCOL_V1,
     parse_free_text_answer_output,
 )
-from research_experiments.family_runtime.json_tail_protocol import (
-    JSON_OBJECT_TAIL_PROTOCOL_V2,
-    parse_json_object_tail_answer_output,
+from research_experiments.family_runtime.json_object_protocol import (
+    JSON_OBJECT_ANSWER_PROTOCOL_V3,
+    parse_json_object_answer_output,
 )
 
-OutputProtocol = Literal["free_text_answer_v1", "json_object_tail_v2"]
+OutputProtocol = Literal["free_text_answer_v1", "json_object_answer_v3"]
 ProtocolParseStatus = Literal["ok", "failed", "not_attempted"]
 
 
@@ -83,7 +83,7 @@ def execute_output_protocol_turn(
         temperature=temperature,
         top_p=top_p,
         seed=seed,
-        use_response_format=False,
+        use_response_format=output_protocol == JSON_OBJECT_ANSWER_PROTOCOL_V3,
         request_executor=request_executor,
     )
     return _finalize_turn_result(request, dataset=dataset, output_protocol=output_protocol)
@@ -152,10 +152,10 @@ def refresh_output_protocol_turn(
 
 def validate_output_protocol(value: str) -> OutputProtocol:
     normalized = str(value or "").strip()
-    if normalized not in {FREE_TEXT_ANSWER_PROTOCOL_V1, JSON_OBJECT_TAIL_PROTOCOL_V2}:
+    if normalized not in {FREE_TEXT_ANSWER_PROTOCOL_V1, JSON_OBJECT_ANSWER_PROTOCOL_V3}:
         raise ValueError(
             f"Unsupported output_protocol {value!r}. "
-            f"Expected {FREE_TEXT_ANSWER_PROTOCOL_V1!r} or {JSON_OBJECT_TAIL_PROTOCOL_V2!r}."
+            f"Expected {FREE_TEXT_ANSWER_PROTOCOL_V1!r} or {JSON_OBJECT_ANSWER_PROTOCOL_V3!r}."
         )
     return normalized
 
@@ -286,8 +286,8 @@ def _parse_output_protocol_response(
         )
 
     try:
-        if output_protocol == JSON_OBJECT_TAIL_PROTOCOL_V2:
-            validated = parse_json_object_tail_answer_output(cleaned, dataset=dataset)
+        if output_protocol == JSON_OBJECT_ANSWER_PROTOCOL_V3:
+            validated = parse_json_object_answer_output(cleaned, dataset=dataset)
         else:
             validated = parse_free_text_answer_output(
                 cleaned,
