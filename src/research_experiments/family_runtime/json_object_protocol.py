@@ -98,6 +98,11 @@ def _field_guide_line(key: str) -> str:
         "risk_level": 'one of "none", "low", "medium", "high"; medium/high means a concrete unresolved risk remains.',
         "risk_summary": "one short phrase explaining the risk_level.",
         "answer_type": "a short label for the answer form, such as expression, option, span, or yes_no.",
+        "promote": "true when a challenger should replace the current leading answer.",
+        "verification_type": "a short label for the decisive task check, such as option_concept, calculation, span_match, or factual_mapping.",
+        "leader_score": "a number from 0.0 to 1.0 for how well the current leader passes the decisive check.",
+        "challenger_score": "a number from 0.0 to 1.0 for how well the challenger passes the decisive check.",
+        "verdict": "one compact sentence explaining why the selected answer survives.",
         "changed": "true when answer replaces the prior leading answer; false when the prior answer survives.",
         "attack_type": "a short label for the tested issue, such as contradiction, constraint_miss, slot_error, or calculation_error.",
         "attack_strength": 'one of "none", "weak", "medium", "high" for the strongest surviving attack.',
@@ -120,6 +125,10 @@ def _example_value_for_key(key: str) -> object:
         return "short reason for the risk level"
     if key == "changed":
         return False
+    if key == "promote":
+        return False
+    if key in {"leader_score", "challenger_score"}:
+        return 0.0
     if key == "source":
         return "stage_a|refutation|defense|mixed"
     if key == "attack_strength":

@@ -1,4 +1,4 @@
-"""CRED-V 报告渲染。"""
+"""CRED-V 任务验证报告渲染。"""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def render_report(
     manifest = load_json_payload(index.manifest_path)
     metrics = load_metrics(root, family_name=family_name)
     router_eval = load_json_payload(root / "diagnostics" / "router_eval.json")
-    debate_diagnostics = load_json_payload(root / "diagnostics" / "debate_diagnostics.json")
+    verification_diagnostics = load_json_payload(root / "diagnostics" / "debate_diagnostics.json")
     output_protocol_diagnostics = load_json_payload(root / "diagnostics" / "output_protocol_diagnostics.json")
     comparison = _build_comparison_payload(manifest, metrics)
     comparison_path = root / "exports" / "cred_comparison.json"
@@ -63,7 +63,7 @@ def render_report(
         manifest,
         metrics,
         router_eval,
-        debate_diagnostics,
+        verification_diagnostics,
         output_protocol_diagnostics,
         comparison,
         root,
@@ -112,9 +112,9 @@ def _build_figure_specs(metrics: dict[str, Any], *, display_name: str = "CRED-V"
             method_label_field="method_name",
         ),
         build_grouped_bar_figure_spec(
-            figure_id="cred_mechanism_diagnostics",
-            title=f"{display_name} 机制诊断",
-            caption="CRED 方法的触发率、纠正率、伤害率与 debate 内部增益。",
+            figure_id="cred_v_mechanism_diagnostics",
+            title=f"{display_name} 任务验证机制诊断",
+            caption="CRED-V 方法的触发率、纠正率、伤害率与验证增益。",
             primary_metric="比率或差值",
             data=[
                 {
@@ -123,7 +123,7 @@ def _build_figure_specs(metrics: dict[str, Any], *, display_name: str = "CRED-V"
                     "trigger_rate": float(row.get("trigger_rate") or 0.0),
                     "corrected_rate": float(row.get("corrected_rate") or 0.0),
                     "harmed_rate": float(row.get("harmed_rate") or 0.0),
-                    "debate_gain": float(row.get("debate_gain_over_initial_vote") or 0.0),
+                    "verification_gain": float(row.get("verification_gain_over_initial_vote") or row.get("debate_gain_over_initial_vote") or 0.0),
                 }
                 for row in cred_rows
             ],
@@ -131,12 +131,12 @@ def _build_figure_specs(metrics: dict[str, Any], *, display_name: str = "CRED-V"
                 ("trigger_rate", "触发率"),
                 ("corrected_rate", "纠正率"),
                 ("harmed_rate", "伤害率"),
-                ("debate_gain", "debate 增益"),
+                ("verification_gain", "验证增益"),
             ],
             x_label="比率或差值",
             source_kind="metrics.summary",
             dataset_scope="overall",
-            note="CRED 的核心验收是纠正率高于伤害率，并在成本受控下取得正向 debate gain。",
+            note="CRED-V 的核心验收是验证触发子集上纠正多于伤害，并在成本受控下取得正向净增益。",
         ),
     ]
 
@@ -152,10 +152,7 @@ def _build_comparison_payload(manifest: dict[str, Any], metrics: dict[str, Any])
         "dataset_order": dataset_order,
         "overall_macro_rows": _ordered_rows(summary_rows, dataset="overall", method_order=method_order),
         "overall_micro_rows": _ordered_rows(summary_rows, dataset="overall_micro", method_order=method_order),
-        "per_dataset_rows": {
-            dataset: _ordered_rows(summary_rows, dataset=dataset, method_order=method_order)
-            for dataset in dataset_order
-        },
+        "per_dataset_rows": {dataset: _ordered_rows(summary_rows, dataset=dataset, method_order=method_order) for dataset in dataset_order},
     }
 
 
@@ -163,20 +160,20 @@ def _render_markdown(
     manifest: dict[str, Any],
     metrics: dict[str, Any],
     router_eval: dict[str, Any],
-    debate_diagnostics: dict[str, Any],
+    verification_diagnostics: dict[str, Any],
     output_protocol_diagnostics: dict[str, Any],
     comparison: dict[str, Any],
     run_dir: Path,
     *,
     display_name: str = "CRED-V",
 ) -> str:
-    del debate_diagnostics
+    del verification_diagnostics
     backbone_name = resolve_manifest_model_name(manifest)
     overall_rows = comparison["overall_macro_rows"]
     cred_rows = [row for row in overall_rows if str(row.get("method_name") or "").startswith("cred_")]
     best = max(overall_rows, key=lambda row: float(row.get("accuracy_mean") or 0.0)) if overall_rows else None
     abstract = [
-        f"{display_name} 将多候选预提交、分裂投票路由、定向反驳验证和生存分数聚合串联起来，目标是验证交互是否带来低伤害的正向纠错。",
+        f"{display_name} 将五路 SC 对齐候选、弱分歧路由、单次任务验证器和晋级证书聚合串联起来，目标是检验少数正确候选能否低伤害晋级。",
     ]
     if best is not None:
         abstract.append(f"本 run overall macro 最高准确率方法为 `{best['method_name']}`，准确率 {format_float(best.get('accuracy_mean'))}。")
@@ -185,15 +182,16 @@ def _render_markdown(
         {
             "title": "理论假设",
             "bullets": [
-                "固定轮次 MAD 的收益常被初始投票解释；CRED-V 只在 router 判定有高价值错误风险时触发反驳。",
-                "反驳必须给出可证伪攻击；聚合只在挑战者具备足够 survival margin 和具体证据时覆盖初始赢家。",
-                "主指标同时观察 accuracy、token、trigger rate、corrected rate、harmed rate 与 debate gain。",
+                "Stage A 已经达到 `sc_5` 候选质量，CRED-V 不再用开放辩论增加噪声。",
+                "Router 只在 5 路候选低于强多数时触发验证，主要攻击弱分歧样本里的错误多数。",
+                "Verifier 输出 promotion certificate；只有分数差、置信度和具体证据同时过门槛时，challenger 才能覆盖初始赢家。",
+                "主指标同时观察 accuracy、token、trigger rate、corrected rate、harmed rate 与 verification gain。",
             ],
         },
         {
-            "title": "总体主表（Macro）",
+            "title": "总体主表",
             "table": {
-                "headers": ["方法", "类型", "准确率", "vs cot_1", "vs best no-comm", "初始 vote", "debate 增益", "触发率", "总 token", "每千 token 准确率"],
+                "headers": ["方法", "类型", "准确率", "vs cot_1", "vs best no-comm", "初始 vote", "验证增益", "触发率", "总 token", "每千 token 准确率"],
                 "rows": [
                     [
                         f"`{row['method_name']}`",
@@ -202,7 +200,7 @@ def _render_markdown(
                         _signed_float(row.get("accuracy_delta_vs_cot_1")),
                         _signed_float(row.get("accuracy_delta_vs_best_no_comm")),
                         format_float(row.get("initial_vote_accuracy_mean")),
-                        _signed_float(row.get("debate_gain_over_initial_vote")),
+                        _signed_float(row.get("verification_gain_over_initial_vote") or row.get("debate_gain_over_initial_vote")),
                         format_float(row.get("trigger_rate")),
                         format_float(row.get("total_tokens_mean"), 2),
                         format_float(row.get("accuracy_per_1k_tokens"), 6),
@@ -212,9 +210,9 @@ def _render_markdown(
             },
         },
         {
-            "title": "CRED 机制诊断",
+            "title": "CRED-V 机制诊断",
             "table": {
-                "headers": ["方法", "纠正率", "伤害率", "翻票率", "通信 token", "调用数"],
+                "headers": ["方法", "纠正率", "伤害率", "翻票率", "验证 token", "调用数"],
                 "rows": [
                     [
                         f"`{row['method_name']}`",
@@ -231,7 +229,7 @@ def _render_markdown(
         {
             "title": "Router 诊断",
             "table": {
-                "headers": ["数据集", "题数", "触发率", "平均风险数", "平均证据质量", "平均反驳调用"],
+                "headers": ["数据集", "题数", "触发率", "平均风险数", "平均证据质量", "平均验证调用"],
                 "rows": [
                     [
                         str(row.get("dataset")),
@@ -276,7 +274,7 @@ def _render_markdown(
             ("Phase", str(manifest.get("phase"))),
             ("CRED Output Protocol", str(manifest.get("cred_output_protocol"))),
             ("CRED Stage A Protocol", str(manifest.get("cred_stage_a_output_protocol") or manifest.get("cred_output_protocol"))),
-            ("CRED Debate Protocol", str(manifest.get("cred_debate_output_protocol") or manifest.get("cred_output_protocol"))),
+            ("CRED Verification Protocol", str(manifest.get("cred_verification_output_protocol") or manifest.get("cred_output_protocol"))),
             ("Backbone", backbone_name),
             ("运行目录", run_dir.as_posix()),
         ],
@@ -296,6 +294,7 @@ def _write_paper_summary(path: Path, summary_rows: list[dict[str, Any]]) -> None
         "accuracy_delta_vs_cot_1",
         "accuracy_delta_vs_best_no_comm",
         "initial_vote_accuracy_mean",
+        "verification_gain_over_initial_vote",
         "debate_gain_over_initial_vote",
         "trigger_rate",
         "corrected_rate",

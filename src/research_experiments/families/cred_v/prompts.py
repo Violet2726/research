@@ -1,4 +1,4 @@
-"""CRED-V 提示词构造。"""
+"""CRED-V 任务验证提示词构造。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.family_runtime.free_text_protocol import FREE_TEXT_ANSWER_PROTOCOL_V1
 from research_experiments.family_runtime.json_object_protocol import build_json_object_answer_instruction
 
-CRED_PROMPT_VERSION = "cred_v_sc_aligned_selective_verify_v2"
+CRED_PROMPT_VERSION = "cred_v_task_verify_v3"
 
 AGENT_ROLES = (
     "cot_builder",
@@ -66,106 +66,41 @@ def build_stage_a_messages(
     ]
 
 
-def build_refutation_messages(
+def build_task_verifier_messages(
     sample: DatasetSample,
     *,
     leading_answer: str,
     target_row: dict[str, Any],
     stage_rows: list[dict[str, Any]],
 ) -> list[dict[str, str]]:
+    challenger_answer = _row_answer(target_row)
     user_prompt = (
-        "You are the CRED-V refutation verifier. Test whether the challenger defeats the leading answer with one checkable error certificate.\n"
-        f"{_compact_audit_workflow(sample.dataset)}\n"
+        "You are the CRED-V task verifier. Run one decisive task check that compares the current leader with one challenger.\n"
+        f"{_task_verifier_workflow(sample.dataset)}\n"
         f"{_dataset_instruction(sample)}\n"
         f"Question:\n{sample.question.strip()}\n\n"
     )
     if sample.prompt_context:
         user_prompt += f"Context:\n{sample.prompt_context}\n\n"
     user_prompt += (
-        f"Current leading answer: `{leading_answer or 'unknown'}`.\n"
-        f"Best challenger packet: {_format_packet(target_row)}\n"
+        f"Current leader answer: `{leading_answer or 'unknown'}`.\n"
+        f"Challenger answer: `{challenger_answer or 'unknown'}`.\n"
+        f"Challenger packet: {_format_packet(target_row)}\n"
         "Stage A board:\n"
         f"{_format_board(stage_rows)}\n"
-        "Test the strongest concrete contradiction, constraint miss, slot error, or calculation error. "
-        "In the JSON object, answer is the surviving answer; changed=true when the challenger defeats the leading answer; "
-        "attack_strength is high or medium for a checkable defeat and weak or none for a surviving leading answer.\n"
+        "Promotion certificate: promote=true when the challenger passes the decisive task check and the leader fails that same check. "
+        "promote=false when the leader passes, both answers remain unresolved, or both answers pass equivalently. "
+        "answer is the selected final answer. leader_score and challenger_score are 0.0 to 1.0 scores for the decisive check. "
+        "confidence is confidence in the selected final answer. key_evidence names the concrete check result that decides the certificate. "
+        "verification_type is a short label such as option_concept, calculation, span_match, factual_mapping, or format_slot. "
+        "verdict is one compact sentence explaining why the selected answer survives.\n"
         + build_json_object_answer_instruction(
             sample.dataset,
-            extra_json_keys=["changed", "attack_type", "attack_strength"],
+            extra_json_keys=["promote", "verification_type", "leader_score", "challenger_score", "verdict"],
         )
     )
     return [
-        {"role": "system", "content": "You are a precise refutation agent for controlled CRED-V experiments."},
-        {"role": "user", "content": user_prompt},
-    ]
-
-
-def build_defense_messages(
-    sample: DatasetSample,
-    *,
-    leading_answer: str,
-    refutation_row: dict[str, Any],
-    stage_rows: list[dict[str, Any]],
-) -> list[dict[str, str]]:
-    user_prompt = (
-        "You are the CRED-V defense verifier. Decide whether the refutation really defeats the leading answer.\n"
-        f"{_compact_audit_workflow(sample.dataset)}\n"
-        f"{_dataset_instruction(sample)}\n"
-        f"Question:\n{sample.question.strip()}\n\n"
-    )
-    if sample.prompt_context:
-        user_prompt += f"Context:\n{sample.prompt_context}\n\n"
-    user_prompt += (
-        f"Leading answer to defend: `{leading_answer or 'unknown'}`.\n"
-        f"Refutation packet: {_format_packet(refutation_row)}\n"
-        "Stage A board:\n"
-        f"{_format_board(stage_rows)}\n"
-        "Compare the refutation with the leading answer. In the JSON object, answer is the surviving answer. "
-        "changed=true when the refutation defeats the leading answer; defense_status names defended, corrected, or unresolved.\n"
-        + build_json_object_answer_instruction(
-            sample.dataset,
-            extra_json_keys=["changed", "defense_status"],
-        )
-    )
-    return [
-        {"role": "system", "content": "You are a precise defense agent for controlled CRED-V experiments."},
-        {"role": "user", "content": user_prompt},
-    ]
-
-
-def build_judge_messages(
-    sample: DatasetSample,
-    *,
-    leading_answer: str,
-    stage_rows: list[dict[str, Any]],
-    refutation_rows: list[dict[str, Any]],
-    defense_rows: list[dict[str, Any]],
-) -> list[dict[str, str]]:
-    user_prompt = (
-        "You are the CRED-V final verifier. Choose the answer that survives the strongest concrete attacks.\n"
-        f"{_compact_audit_workflow(sample.dataset)}\n"
-        f"{_dataset_instruction(sample)}\n"
-        f"Question:\n{sample.question.strip()}\n\n"
-    )
-    if sample.prompt_context:
-        user_prompt += f"Context:\n{sample.prompt_context}\n\n"
-    user_prompt += (
-        f"Pre-debate leading answer: `{leading_answer or 'unknown'}`.\n"
-        "Stage A board:\n"
-        f"{_format_board(stage_rows)}\n"
-        "Refutations:\n"
-        f"{_format_board(refutation_rows)}\n"
-        "Defenses:\n"
-        f"{_format_board(defense_rows)}\n"
-        "Prefer the pre-debate leading answer. Switch to a challenger when a concrete refutation and the verification packets support that challenger. "
-        "In the JSON object, answer is the final answer and source identifies the decisive support.\n"
-        + build_json_object_answer_instruction(
-            sample.dataset,
-            extra_json_keys=["source"],
-        )
-    )
-    return [
-        {"role": "system", "content": "You are a compact final judge for controlled CRED-V experiments."},
+        {"role": "system", "content": "You are a precise task verifier for controlled CRED-V experiments. Return one JSON answer object."},
         {"role": "user", "content": user_prompt},
     ]
 
@@ -182,14 +117,15 @@ def _strong_solver_workflow(dataset: str) -> str:
     )
 
 
-def _compact_audit_workflow(dataset: str) -> str:
+def _task_verifier_workflow(dataset: str) -> str:
     return "\n".join(
         [
-            "Compact audit workflow:",
+            "Task verifier workflow:",
             "- Identify the requested answer slot.",
-            "- Compare the leading answer and challenger against the decisive check.",
-            f"- {_dataset_solver_focus(dataset)}",
-            "- Commit to the answer that survives the concrete check.",
+            "- Apply one decisive check to the leader and the challenger.",
+            f"- {_dataset_verifier_focus(dataset)}",
+            "- Score each answer by how well it passes that check.",
+            "- Select the answer with the stronger verified fit.",
         ]
     )
 
@@ -204,6 +140,18 @@ def _dataset_solver_focus(dataset: str) -> str:
     if dataset == "strategyqa":
         return 'For yes/no tasks, resolve the needed factual subclaims and map them to exactly "yes" or "no".'
     return "Use the task instruction to decide the answer form."
+
+
+def _dataset_verifier_focus(dataset: str) -> str:
+    if dataset in {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro"}:
+        return "For multiple-choice tasks, compare the leader letter and challenger letter by the decisive concept or option clue."
+    if dataset in {"gsm8k", "math500", "competition_math"}:
+        return "For math tasks, recompute the critical step, check equivalence, and score the requested final expression."
+    if dataset in {"hotpotqa", "webquestions"}:
+        return "For short-span tasks, match each answer to the necessary evidence span and score completeness of the judgeable span."
+    if dataset == "strategyqa":
+        return 'For yes/no tasks, verify the needed factual mapping and score the exact "yes" or "no" answer.'
+    return "Use the task instruction to compare answer fit."
 
 
 def _dataset_instruction(sample: DatasetSample) -> str:
@@ -238,7 +186,7 @@ def _format_board(rows: list[dict[str, Any]]) -> str:
 
 def _format_packet(row: dict[str, Any]) -> str:
     payload = row.get("validated_output") if isinstance(row.get("validated_output"), dict) else {}
-    answer = str(row.get("normalized_answer") or row.get("prediction") or payload.get("answer") or "unknown")
+    answer = _row_answer(row) or str(payload.get("answer") or "unknown")
     return (
         f"{row.get('agent_role') or row.get('role') or 'agent'}: answer=`{answer}`, "
         f"confidence={row.get('confidence_value') if row.get('confidence_value') is not None else payload.get('confidence', 'unknown')}, "
@@ -246,6 +194,10 @@ def _format_packet(row: dict[str, Any]) -> str:
         f"risk_level={payload.get('risk_level') or row.get('risk_level') or 'unknown'}, "
         f"risk_summary=`{_clip(payload.get('risk_summary') or row.get('failure_risk') or 'n/a', 120)}`"
     )
+
+
+def _row_answer(row: dict[str, Any]) -> str:
+    return str(row.get("normalized_answer") or row.get("prediction") or "").strip()
 
 
 def _clip(value: object, limit: int) -> str:

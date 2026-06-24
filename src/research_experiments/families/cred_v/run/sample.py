@@ -12,22 +12,20 @@ from research_experiments.core.data.evaluation import normalize_prediction, scor
 from research_experiments.core.execution.runner_common import iter_indexed_batch
 from research_experiments.families.cred_v.algorithms import (
     aggregate_stage_a_vote,
-    aggregate_survival,
+    aggregate_task_verification,
     build_router_decision,
     evidence_quality,
-    select_refutation_targets,
+    select_verification_targets,
 )
 from research_experiments.families.cred_v.config import (
-    CRED_DEBATE_METHODS,
-    CredMadExperimentConfig,
-    CredMadProtocolConfig,
+    CRED_VERIFY_METHODS,
+    CredVExperimentConfig,
+    CredVProtocolConfig,
 )
 from research_experiments.families.cred_v.prompts import (
     AGENT_ROLES,
-    build_defense_messages,
-    build_judge_messages,
-    build_refutation_messages,
     build_stage_a_messages,
+    build_task_verifier_messages,
 )
 from research_experiments.family_runtime.common import resolve_phase_split_name, safe_mean, safe_ratio
 from research_experiments.family_runtime.output_protocols import (
@@ -138,12 +136,15 @@ class CredPredictionRecord:
     vote_flipped: bool
     corrected_by_debate: bool
     harmed_by_debate: bool
+    corrected_by_verification: bool
+    harmed_by_verification: bool
     unchanged_correct: bool
     unchanged_wrong: bool
     triggered: bool
     router_reasons: list[str]
     resolver: str
     survival_support: dict[str, float]
+    verification_support: dict[str, float]
     protocol_failures_per_question: int
     reason_missing_turns_per_question: int
 
@@ -154,8 +155,8 @@ def run_cred_batch(
     benchmark_slug: str,
     split_name: str,
     samples: list[DatasetSample],
-    experiment: CredMadExperimentConfig,
-    protocol: CredMadProtocolConfig,
+    experiment: CredVExperimentConfig,
+    protocol: CredVProtocolConfig,
     backbone,
     provider,
     cache,
@@ -218,8 +219,8 @@ def _run_cred_sample(
     run_id: str,
     benchmark_slug: str,
     split_name: str,
-    experiment: CredMadExperimentConfig,
-    protocol: CredMadProtocolConfig,
+    experiment: CredVExperimentConfig,
+    protocol: CredVProtocolConfig,
     backbone,
     provider,
     cache,
@@ -260,32 +261,30 @@ def _run_cred_sample(
 
     vote_decision = aggregate_stage_a_vote(stage_rows)
     router = build_router_decision(stage_rows, protocol=protocol)
-    refutation_rows: list[dict[str, Any]] = []
-    defense_rows: list[dict[str, Any]] = []
-    judge_row: dict[str, Any] | None = None
+    verification_rows: list[dict[str, Any]] = []
     debate_rows: list[dict[str, Any]] = []
 
-    if router.triggered and CRED_DEBATE_METHODS & set(experiment.cred_methods):
-        targets = select_refutation_targets(
+    if router.triggered and CRED_VERIFY_METHODS & set(experiment.cred_methods):
+        targets = select_verification_targets(
             dataset=benchmark_slug,
             rows=stage_rows,
             leading_answer=vote_decision.final_answer,
-            max_refutations=protocol.max_refutations,
+            max_verifications=protocol.max_verifications,
         )
-        for refutation_index, target in enumerate(targets, start=1):
-            refutation_row = _execute_turn(
+        for verification_index, target in enumerate(targets, start=1):
+            verifier_row = _execute_turn(
                 run_id=run_id,
                 dataset=benchmark_slug,
                 split_name=split_name,
                 sample=sample,
-                method_name="cred_refutation",
-                method_type="mad",
+                method_name="cred_task_verifier",
+                method_type="verification",
                 round_index=1,
-                agent_id=100 + refutation_index,
-                role="refutation",
-                agent_role="refuter",
+                agent_id=100 + verification_index,
+                role="verification",
+                agent_role="task_verifier",
                 visible_peer_count=len(stage_rows),
-                messages=build_refutation_messages(
+                messages=build_task_verifier_messages(
                     sample,
                     leading_answer=vote_decision.final_answer,
                     target_row=target,
@@ -295,105 +294,40 @@ def _run_cred_sample(
                 provider=provider,
                 cache=cache,
                 throttle=throttle,
-                temperature=protocol.debate_temperature,
+                temperature=protocol.verifier_temperature,
                 top_p=protocol.top_p,
-                seed=experiment.global_seed + 100 + refutation_index,
-                output_protocol=experiment.cred_debate_output_protocol,
-                max_tokens=_positive_token_cap(protocol.refutation_max_tokens),
+                seed=experiment.global_seed + 100 + verification_index,
+                output_protocol=experiment.cred_verification_output_protocol,
+                max_tokens=_positive_token_cap(protocol.verifier_max_tokens),
             )
-            refutation_rows.append(refutation_row)
-            debate_rows.append(_debate_message_row(run_id, benchmark_slug, split_name, sample, refutation_row, "refutation"))
-            defense_row = _execute_turn(
-                run_id=run_id,
-                dataset=benchmark_slug,
-                split_name=split_name,
-                sample=sample,
-                method_name="cred_defense",
-                method_type="mad",
-                round_index=1,
-                agent_id=200 + refutation_index,
-                role="defense",
-                agent_role="defender",
-                visible_peer_count=len(stage_rows) + 1,
-                messages=build_defense_messages(
-                    sample,
-                    leading_answer=vote_decision.final_answer,
-                    refutation_row=refutation_row,
-                    stage_rows=stage_rows,
-                ),
-                backbone=backbone,
-                provider=provider,
-                cache=cache,
-                throttle=throttle,
-                temperature=protocol.debate_temperature,
-                top_p=protocol.top_p,
-                seed=experiment.global_seed + 200 + refutation_index,
-                output_protocol=experiment.cred_debate_output_protocol,
-                max_tokens=_positive_token_cap(protocol.defense_max_tokens),
-            )
-            defense_rows.append(defense_row)
-            debate_rows.append(_debate_message_row(run_id, benchmark_slug, split_name, sample, defense_row, "defense"))
-        if refutation_rows or defense_rows:
-            judge_row = _execute_turn(
-                run_id=run_id,
-                dataset=benchmark_slug,
-                split_name=split_name,
-                sample=sample,
-                method_name="cred_judge",
-                method_type="mad",
-                round_index=2,
-                agent_id=300,
-                role="judge",
-                agent_role="judge",
-                visible_peer_count=len(stage_rows) + len(refutation_rows) + len(defense_rows),
-                messages=build_judge_messages(
-                    sample,
-                    leading_answer=vote_decision.final_answer,
-                    stage_rows=stage_rows,
-                    refutation_rows=refutation_rows,
-                    defense_rows=defense_rows,
-                ),
-                backbone=backbone,
-                provider=provider,
-                cache=cache,
-                throttle=throttle,
-                temperature=protocol.judge_temperature,
-                top_p=protocol.top_p,
-                seed=experiment.global_seed + 300,
-                output_protocol=experiment.cred_debate_output_protocol,
-                max_tokens=_positive_token_cap(protocol.judge_max_tokens),
-            )
-            debate_rows.append(_debate_message_row(run_id, benchmark_slug, split_name, sample, judge_row, "judge"))
+            verification_rows.append(verifier_row)
+            debate_rows.append(_debate_message_row(run_id, benchmark_slug, split_name, sample, verifier_row, "task_verification"))
 
-    all_turns = [*stage_rows, *refutation_rows, *defense_rows, *([judge_row] if judge_row is not None else [])]
+    all_turns = [*stage_rows, *verification_rows]
     router_row = _router_row(
         run_id=run_id,
         dataset=benchmark_slug,
         split_name=split_name,
         sample=sample,
         router=router,
-        refutation_count=len(refutation_rows),
-        defense_count=len(defense_rows),
-        judge_used=judge_row is not None,
+        verification_count=len(verification_rows),
     )
     prediction_rows: list[dict[str, Any]] = []
     for method_name in experiment.cred_methods:
         decision = vote_decision
         method_turns = list(stage_rows)
         debate_turns: list[dict[str, Any]] = []
-        if method_name in CRED_DEBATE_METHODS:
-            decision = aggregate_survival(
+        if method_name in CRED_VERIFY_METHODS:
+            decision = aggregate_task_verification(
                 dataset=benchmark_slug,
                 stage_rows=stage_rows,
-                refutation_rows=refutation_rows,
-                defense_rows=defense_rows,
-                judge_row=judge_row,
+                verifier_rows=verification_rows,
                 stage_winner=vote_decision.final_answer,
-                survival_override_margin=protocol.locked_override_margin,
+                promotion_confidence_min=protocol.promotion_confidence_min,
+                promotion_score_margin=protocol.promotion_score_margin,
                 concrete_evidence_min_chars=protocol.concrete_evidence_min_chars,
-                locked=True,
             )
-            debate_turns = [*refutation_rows, *defense_rows, *([judge_row] if judge_row is not None else [])]
+            debate_turns = list(verification_rows)
             method_turns = [*stage_rows, *debate_turns]
         prediction_rows.append(
             _prediction_row(
@@ -580,12 +514,15 @@ def _prediction_row(
             vote_flipped=decision.changed,
             corrected_by_debate=corrected,
             harmed_by_debate=harmed,
+            corrected_by_verification=corrected,
+            harmed_by_verification=harmed,
             unchanged_correct=not decision.changed and score == 1.0,
             unchanged_wrong=not decision.changed and score < 1.0,
             triggered=router.triggered,
             router_reasons=list(router.reasons),
             resolver=decision.resolver,
             survival_support={key: round(float(value), 6) for key, value in decision.support.items()},
+            verification_support={key: round(float(value), 6) for key, value in decision.support.items()},
             protocol_failures_per_question=sum(1 for row in method_turns if row.get("protocol_parse_status") == "failed"),
             reason_missing_turns_per_question=sum(1 for row in method_turns if not row.get("reason_present")),
         )
@@ -652,12 +589,15 @@ def build_control_prediction_row(
         "vote_flipped": False,
         "corrected_by_debate": False,
         "harmed_by_debate": False,
+        "corrected_by_verification": False,
+        "harmed_by_verification": False,
         "unchanged_correct": final_score == 1.0,
         "unchanged_wrong": final_score < 1.0,
         "triggered": False,
         "router_reasons": [],
         "resolver": "no_comm_control",
         "survival_support": {},
+        "verification_support": {},
         "protocol_failures_per_question": sum(1 for row in turn_rows if row.get("protocol_parse_status") == "failed"),
         "reason_missing_turns_per_question": sum(1 for row in turn_rows if not row.get("reason_present")),
         "vote_counts": vote_counts,
@@ -699,6 +639,8 @@ def build_debate_diagnostics(
             "resolver": row.get("resolver"),
             "corrected_by_debate": row.get("corrected_by_debate"),
             "harmed_by_debate": row.get("harmed_by_debate"),
+            "corrected_by_verification": row.get("corrected_by_verification"),
+            "harmed_by_verification": row.get("harmed_by_verification"),
             "initial_vote_prediction": row.get("initial_vote_prediction"),
             "prediction": row.get("prediction"),
             "debate_tokens": row.get("debate_total_tokens_per_question"),
@@ -744,15 +686,15 @@ def build_router_eval(router_rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {"sample_rows": router_rows, "summary_rows": summary_rows}
 
 
-def estimate_work(experiment: CredMadExperimentConfig, phase_name: str, benchmarks, controls, protocol: CredMadProtocolConfig) -> tuple[int, int]:
+def estimate_work(experiment: CredVExperimentConfig, phase_name: str, benchmarks, controls, protocol: CredVProtocolConfig) -> tuple[int, int]:
     total_calls = 0
     total_predictions = 0
     for benchmark in benchmarks:
         split_name = resolve_phase_split_name(experiment, phase_name, benchmark.slug)
         sample_count = len(load_split_ids(benchmark.cache_namespace or benchmark.slug, split_name))
         total_calls += sample_count * protocol.stage_a_agent_count
-        if CRED_DEBATE_METHODS & set(experiment.cred_methods):
-            total_calls += sample_count * (protocol.max_refutations * 2 + 1)
+        if CRED_VERIFY_METHODS & set(experiment.cred_methods):
+            total_calls += sample_count * protocol.max_verifications
         total_predictions += sample_count * len(experiment.cred_methods)
         for method_name in experiment.control_methods:
             total_calls += sample_count * controls[method_name].budget_calls
@@ -764,7 +706,7 @@ def load_selected_samples(benchmark, split_name: str) -> list[DatasetSample]:
     return select_samples(benchmark, split_name)
 
 
-def resolve_split_name(experiment: CredMadExperimentConfig, phase_name: str, benchmark_slug: str) -> str:
+def resolve_split_name(experiment: CredVExperimentConfig, phase_name: str, benchmark_slug: str) -> str:
     return resolve_phase_split_name(experiment, phase_name, benchmark_slug)
 
 
@@ -775,25 +717,24 @@ def _router_row(
     split_name: str,
     sample: DatasetSample,
     router,
-    refutation_count: int,
-    defense_count: int,
-    judge_used: bool,
+    verification_count: int,
 ) -> dict[str, Any]:
     return {
         "run_id": run_id,
         "dataset": dataset,
         "split": split_name,
         "sample_id": sample.sample_id,
-        "policy_name": "cred_v_router_v1",
+        "policy_name": "cred_v_task_router_v3",
         "triggered": router.triggered,
         "trigger_reasons": list(router.reasons),
         "leading_answer": router.leading_answer,
         "vote_counts": router.vote_counts,
         "risk_count": router.risk_count,
         "evidence_quality_mean": router.evidence_quality_mean,
-        "refutation_count": refutation_count,
-        "defense_count": defense_count,
-        "judge_used": judge_used,
+        "verification_count": verification_count,
+        "refutation_count": verification_count,
+        "defense_count": 0,
+        "judge_used": False,
     }
 
 
@@ -851,6 +792,7 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
         "accuracy_mean": accuracy,
         "initial_vote_accuracy_mean": initial_accuracy,
         "debate_gain_over_initial_vote": round(accuracy - initial_accuracy, 6),
+        "verification_gain_over_initial_vote": round(accuracy - initial_accuracy, 6),
         "prompt_tokens_mean": safe_mean(float(row["prompt_tokens_per_question"]) for row in rows),
         "completion_tokens_mean": safe_mean(float(row["completion_tokens_per_question"]) for row in rows),
         "total_tokens_mean": total_tokens,
@@ -865,6 +807,8 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
         "trigger_rate": safe_ratio(triggered_count, question_count),
         "corrected_count": corrected_count,
         "harmed_count": harmed_count,
+        "verified_corrected_count": corrected_count,
+        "verified_harmed_count": harmed_count,
         "corrected_rate": safe_ratio(corrected_count, question_count),
         "harmed_rate": safe_ratio(harmed_count, question_count),
         "flip_rate": safe_mean(1.0 if row.get("vote_flipped") else 0.0 for row in rows),
@@ -914,6 +858,7 @@ def _macro_from_rows(rows: list[dict[str, Any]], *, dataset: str, model_name: st
         "accuracy_mean": accuracy,
         "initial_vote_accuracy_mean": safe_mean(float(row["initial_vote_accuracy_mean"]) for row in rows),
         "debate_gain_over_initial_vote": round(accuracy - safe_mean(float(row["initial_vote_accuracy_mean"]) for row in rows), 6),
+        "verification_gain_over_initial_vote": round(accuracy - safe_mean(float(row["initial_vote_accuracy_mean"]) for row in rows), 6),
         "prompt_tokens_mean": safe_mean(float(row["prompt_tokens_mean"]) for row in rows),
         "completion_tokens_mean": safe_mean(float(row["completion_tokens_mean"]) for row in rows),
         "total_tokens_mean": total_tokens,
@@ -928,6 +873,8 @@ def _macro_from_rows(rows: list[dict[str, Any]], *, dataset: str, model_name: st
         "trigger_rate": safe_mean(float(row.get("trigger_rate") or 0.0) for row in rows),
         "corrected_count": sum(int(row["corrected_count"]) for row in rows),
         "harmed_count": sum(int(row["harmed_count"]) for row in rows),
+        "verified_corrected_count": sum(int(row["corrected_count"]) for row in rows),
+        "verified_harmed_count": sum(int(row["harmed_count"]) for row in rows),
         "corrected_rate": safe_mean(float(row["corrected_rate"]) for row in rows),
         "harmed_rate": safe_mean(float(row["harmed_rate"]) for row in rows),
         "flip_rate": safe_mean(float(row["flip_rate"]) for row in rows),

@@ -17,7 +17,7 @@ from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from research_experiments.core.structured_outputs import ARTIFACT_VERSION
 from research_experiments.families.cred_v.config import (
-    CredMadExperimentConfig,
+    CredVExperimentConfig,
     load_control_catalog,
     load_protocol_config,
 )
@@ -44,7 +44,7 @@ from research_experiments.workspace.layout import default_cache_root, default_ru
 
 
 def run_experiment(
-    experiment: CredMadExperimentConfig,
+    experiment: CredVExperimentConfig,
     phase_name: str,
     backbone,
     run_root: str | Path | None = None,
@@ -98,7 +98,7 @@ def run_experiment(
             "cred_prompt_version": CRED_PROMPT_VERSION,
             "cred_output_protocol": experiment.cred_output_protocol,
             "cred_stage_a_output_protocol": experiment.cred_stage_a_output_protocol,
-            "cred_debate_output_protocol": experiment.cred_debate_output_protocol,
+            "cred_verification_output_protocol": experiment.cred_verification_output_protocol,
             "control_output_protocol": "free_text_answer_v1",
             "artifact_version": ARTIFACT_VERSION,
             "global_seed": experiment.global_seed,
@@ -244,7 +244,7 @@ def _control_results_as_cred_shape(control_results):
         yield sample_index, turn_rows, debate_rows, [], [prediction_row]
 
 
-def _validate_control_methods(experiment: CredMadExperimentConfig, controls) -> None:
+def _validate_control_methods(experiment: CredVExperimentConfig, controls) -> None:
     missing = [name for name in experiment.control_methods if name not in controls]
     if missing:
         raise RuntimeError("Unknown cred_v control methods: " + ", ".join(missing))

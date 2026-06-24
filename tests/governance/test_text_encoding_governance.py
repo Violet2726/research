@@ -56,7 +56,7 @@ def _tracked_text_paths() -> list[Path]:
         if not raw_name:
             continue
         path = ROOT / raw_name
-        if path.suffix.lower() in TEXT_SUFFIXES or path.name in TEXT_FILENAMES:
+        if path.exists() and (path.suffix.lower() in TEXT_SUFFIXES or path.name in TEXT_FILENAMES):
             paths.append(path)
     return paths
 

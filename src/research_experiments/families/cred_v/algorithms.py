@@ -1,4 +1,4 @@
-"""CRED-V 路由与聚合的纯逻辑。"""
+"""CRED-V 验证器路由与聚合逻辑。"""
 
 from __future__ import annotations
 
@@ -83,101 +83,89 @@ def aggregate_stage_a_vote(rows: list[dict[str, Any]]) -> CredAggregateDecision:
             source="stage_a_vote",
         )
     count_family = max(ordered_families, key=lambda family: (len(grouped[family]), -ordered_families.index(family)))
-    score_family = max(
-        ordered_families,
-        key=lambda family: (_stage_family_score(grouped[family]), len(grouped[family]), -ordered_families.index(family)),
-    )
-    winner_family = count_family
-    if count_family != score_family and len(grouped[count_family]) < 4:
-        score_margin = _stage_family_score(grouped[score_family]) - _stage_family_score(grouped[count_family])
-        if score_margin >= 0.45 and _family_has_concrete_evidence(grouped[score_family], min_chars=12):
-            winner_family = score_family
-    winner = _representative_answer(dataset, grouped[winner_family])
+    winner = _representative_answer(dataset, grouped[count_family])
     counts = _stage_support_counts(dataset, grouped, ordered_families)
     return CredAggregateDecision(
         final_answer=winner,
         support={answer: float(count) for answer, count in counts.items()},
-        resolver="cred_v_vote_5_audit_weighted" if winner_family != count_family else "cred_v_vote_5_family_majority",
+        resolver="cred_v_vote_5_family_majority",
         changed=False,
         source="stage_a_vote",
     )
 
 
-def aggregate_survival(
+def aggregate_task_verification(
     *,
     dataset: str,
     stage_rows: list[dict[str, Any]],
-    refutation_rows: list[dict[str, Any]],
-    defense_rows: list[dict[str, Any]],
-    judge_row: dict[str, Any] | None,
+    verifier_rows: list[dict[str, Any]],
     stage_winner: str,
-    survival_override_margin: float,
+    promotion_confidence_min: float,
+    promotion_score_margin: float,
     concrete_evidence_min_chars: int,
-    locked: bool,
 ) -> CredAggregateDecision:
-    scores: dict[str, float] = defaultdict(float)
-    for row in stage_rows:
-        answer = _row_answer(row)
-        if _is_candidate(answer):
-            scores[answer] += 1.0 + 0.35 * _row_confidence(row) + 0.25 * evidence_quality(row)
-            scores[answer] -= _risk_penalty(_row_risk_level(row))
-    for row in refutation_rows:
-        answer = _row_answer(row)
-        if _is_candidate(answer) and _has_concrete_evidence(row, concrete_evidence_min_chars):
-            scores[answer] += 0.55 + 0.25 * _row_confidence(row)
-    for row in defense_rows:
-        answer = _row_answer(row)
-        if _is_candidate(answer) and _has_concrete_evidence(row, concrete_evidence_min_chars):
-            scores[answer] += 0.35 + 0.15 * _row_confidence(row)
-    if judge_row is not None:
-        answer = _row_answer(judge_row)
-        if _is_candidate(answer):
-            scores[answer] += 0.65 + 0.25 * _row_confidence(judge_row)
-    if not scores:
-        return CredAggregateDecision(stage_winner, {}, "cred_v_survival_empty_fallback", False, "fallback")
+    stage_support = dict(aggregate_stage_a_vote(stage_rows).support)
+    if not verifier_rows or not stage_winner:
+        return CredAggregateDecision(
+            stage_winner,
+            stage_support,
+            "cred_v_task_verify_empty_fallback",
+            False,
+            "stage_a",
+        )
 
-    winner = max(scores, key=lambda item: (scores[item], item == stage_winner, item))
-    stage_score = float(scores.get(stage_winner, 0.0))
-    winner_score = float(scores[winner])
-    changed = bool(stage_winner and winner != stage_winner)
-    if changed:
-        margin = winner_score - stage_score
-        concrete = any(
-            _same_answer_family(dataset, _row_answer(row), winner)
-            and _has_concrete_evidence(row, concrete_evidence_min_chars)
-            for row in [*refutation_rows, *defense_rows, *([judge_row] if judge_row is not None else [])]
+    leader_family = answer_family_key(dataset, stage_winner)
+    eligible: list[tuple[float, float, float, str, dict[str, Any]]] = []
+    for row in verifier_rows:
+        candidate = _row_answer(row)
+        if not _is_candidate(candidate):
+            continue
+        candidate_family = answer_family_key(dataset, candidate)
+        if candidate_family == leader_family:
+            continue
+        if not _stage_has_family(dataset, stage_rows, candidate_family):
+            continue
+        if not _row_bool(row, "promote"):
+            continue
+        if not _has_concrete_evidence(row, concrete_evidence_min_chars):
+            continue
+        confidence = _row_confidence(row)
+        if confidence < float(promotion_confidence_min):
+            continue
+        leader_score = _row_float(row, "leader_score", default=0.5)
+        challenger_score = _row_float(row, "challenger_score", default=0.5)
+        margin = challenger_score - leader_score
+        if margin < float(promotion_score_margin):
+            continue
+        eligible.append((margin, confidence, challenger_score, candidate, row))
+
+    if not eligible:
+        return CredAggregateDecision(
+            stage_winner,
+            _verification_support(stage_support, verifier_rows, stage_winner),
+            "cred_v_task_verify_rejected",
+            False,
+            "stage_a",
         )
-        verified_override = _override_supported_by_verification(
-            dataset=dataset,
-            candidate_answer=winner,
-            refutation_rows=refutation_rows,
-            defense_rows=defense_rows,
-            judge_row=judge_row,
-            concrete_evidence_min_chars=concrete_evidence_min_chars,
-        )
-        if margin < float(survival_override_margin) or not concrete or (locked and not verified_override):
-            return CredAggregateDecision(
-                stage_winner,
-                dict(scores),
-                "cred_v_survival_override_rejected_locked" if locked else "cred_v_survival_override_rejected",
-                False,
-                "stage_a_locked" if locked else "stage_a",
-            )
+
+    margin, confidence, challenger_score, winner, _ = max(eligible, key=lambda item: (item[0], item[1], item[2], item[3]))
+    support = _verification_support(stage_support, verifier_rows, stage_winner)
+    support[winner] = round(max(float(support.get(winner, 0.0)), 5.0 + margin + confidence + challenger_score), 6)
     return CredAggregateDecision(
         winner,
-        dict(scores),
-        "cred_v_survival_score_locked" if locked else "cred_v_survival_score",
-        changed,
-        "survival",
+        support,
+        "cred_v_task_verify_promoted",
+        True,
+        "task_verifier",
     )
 
 
-def select_refutation_targets(
+def select_verification_targets(
     *,
     dataset: str,
     rows: list[dict[str, Any]],
     leading_answer: str,
-    max_refutations: int,
+    max_verifications: int,
 ) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
@@ -190,14 +178,17 @@ def select_refutation_targets(
         for family, items in grouped.items()
         if family != leading_family
     ]
-    candidates.sort(key=lambda row: (_row_confidence(row), evidence_quality(row), str(row.get("agent_role") or "")), reverse=True)
-    return candidates[:max_refutations]
+    candidates.sort(
+        key=lambda row: (_row_confidence(row), evidence_quality(row), str(row.get("agent_role") or "")),
+        reverse=True,
+    )
+    return candidates[: int(max_verifications)]
 
 
 def evidence_quality(row: dict[str, Any]) -> float:
     text = " ".join(
         str(row.get(key) or row.get("validated_output", {}).get(key) or "")
-        for key in ("key_evidence", "evidence", "contract", "risk_summary")
+        for key in ("key_evidence", "evidence", "contract", "risk_summary", "reasoning")
     )
     cleaned = " ".join(text.split())
     score = 0.0
@@ -210,6 +201,25 @@ def evidence_quality(row: dict[str, Any]) -> float:
     if _is_candidate(_row_answer(row)) and _row_answer(row).lower() in cleaned.lower():
         score += 0.2
     return min(1.0, round(score, 6))
+
+
+def _verification_support(stage_support: dict[str, float], verifier_rows: list[dict[str, Any]], stage_winner: str) -> dict[str, float]:
+    support = {answer: float(value) for answer, value in stage_support.items()}
+    if stage_winner:
+        support.setdefault(stage_winner, 0.0)
+    for row in verifier_rows:
+        answer = _row_answer(row)
+        if not _is_candidate(answer):
+            continue
+        leader_score = _row_float(row, "leader_score", default=0.5)
+        challenger_score = _row_float(row, "challenger_score", default=0.5)
+        if _row_bool(row, "promote"):
+            support[answer] = max(float(support.get(answer, 0.0)), 4.0 + challenger_score + _row_confidence(row))
+            if stage_winner:
+                support[stage_winner] = max(float(support.get(stage_winner, 0.0)), 4.0 + leader_score)
+        elif stage_winner:
+            support[stage_winner] = max(float(support.get(stage_winner, 0.0)), 4.0 + leader_score + _row_confidence(row))
+    return {answer: round(value, 6) for answer, value in support.items()}
 
 
 def _row_answer(row: dict[str, Any]) -> str:
@@ -246,10 +256,6 @@ def _stage_support_counts(
     return counts
 
 
-def _stage_family_score(rows: list[dict[str, Any]]) -> float:
-    return sum(1.0 + 0.35 * _row_confidence(row) + 0.25 * evidence_quality(row) - _risk_penalty(_row_risk_level(row)) for row in rows)
-
-
 def _representative_answer(dataset: str, rows: list[dict[str, Any]]) -> str:
     del dataset
     if not rows:
@@ -265,8 +271,8 @@ def _representative_answer(dataset: str, rows: list[dict[str, Any]]) -> str:
     return _row_answer(row)
 
 
-def _family_has_concrete_evidence(rows: list[dict[str, Any]], *, min_chars: int) -> bool:
-    return any(_has_concrete_evidence(row, min_chars) for row in rows)
+def _stage_has_family(dataset: str, rows: list[dict[str, Any]], family: str) -> bool:
+    return any(answer_family_key(dataset, _row_answer(row)) == family for row in rows)
 
 
 def _row_confidence(row: dict[str, Any]) -> float:
@@ -289,55 +295,10 @@ def _is_candidate(answer: str) -> bool:
     return str(answer or "").strip().lower() not in _NON_ANSWERS
 
 
-def _risk_penalty(risk_level: str) -> float:
-    normalized = str(risk_level or "").strip().lower()
-    if normalized == "high":
-        return 0.35
-    if normalized == "medium":
-        return 0.18
-    return 0.0
-
-
 def _has_concrete_evidence(row: dict[str, Any], min_chars: int) -> bool:
     payload = row.get("validated_output") if isinstance(row.get("validated_output"), dict) else {}
     text = str(row.get("key_evidence") or payload.get("key_evidence") or payload.get("evidence") or "").strip()
     return len(text) >= int(min_chars)
-
-
-def _override_supported_by_verification(
-    *,
-    dataset: str,
-    candidate_answer: str,
-    refutation_rows: list[dict[str, Any]],
-    defense_rows: list[dict[str, Any]],
-    judge_row: dict[str, Any] | None,
-    concrete_evidence_min_chars: int,
-) -> bool:
-    judge_support = (
-        judge_row is not None
-        and _same_answer_family(dataset, _row_answer(judge_row), candidate_answer)
-        and _has_concrete_evidence(judge_row, concrete_evidence_min_chars)
-    )
-    if not judge_support:
-        return False
-    refutation_support = any(
-        _same_answer_family(dataset, _row_answer(row), candidate_answer)
-        and _has_concrete_evidence(row, concrete_evidence_min_chars)
-        and _row_bool(row, "changed")
-        and _row_label(row, "attack_strength") in {"medium", "high"}
-        for row in refutation_rows
-    )
-    defense_support = any(
-        _same_answer_family(dataset, _row_answer(row), candidate_answer)
-        and _has_concrete_evidence(row, concrete_evidence_min_chars)
-        and _row_bool(row, "changed")
-        for row in defense_rows
-    )
-    return refutation_support or defense_support
-
-
-def _same_answer_family(dataset: str, left: str, right: str) -> bool:
-    return answer_family_key(dataset, left) == answer_family_key(dataset, right)
 
 
 def _row_bool(row: dict[str, Any], key: str) -> bool:
@@ -348,9 +309,13 @@ def _row_bool(row: dict[str, Any], key: str) -> bool:
     return str(value or "").strip().lower() in {"true", "yes", "1"}
 
 
-def _row_label(row: dict[str, Any], key: str) -> str:
+def _row_float(row: dict[str, Any], key: str, *, default: float) -> float:
     payload = row.get("validated_output") if isinstance(row.get("validated_output"), dict) else {}
-    return str(payload.get(key, row.get(key)) or "").strip().lower()
+    value = payload.get(key, row.get(key))
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return default
 
 
 def _mean(values) -> float:

@@ -1,5 +1,5 @@
 name = "cred_v_main"
-description = "CRED-V verifier-centric selective verification across five representative benchmarks."
+description = "CRED-V task verifier promotion across five representative benchmarks."
 benchmark_configs = [
   "configs/core/shared/benchmarks/math500/test.toml",
   "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
@@ -7,16 +7,16 @@ benchmark_configs = [
   "configs/core/shared/benchmarks/strategyqa/dev.toml",
   "configs/core/shared/benchmarks/mmlu-pro/test.toml",
 ]
-protocol = "configs/families/cred_v/protocols/cred_v_selective_verify_v1.toml"
+protocol = "configs/families/cred_v/protocols/cred_v_task_verify_v3.toml"
 control_catalog = "configs/families/single_agent/methods/common.toml"
 control_methods = ["cot_1", "sc_3", "sc_5"]
-cred_methods = ["cred_v_vote_5", "cred_v_selective_verify_v1"]
-method_order = ["cot_1", "sc_3", "sc_5", "cred_v_vote_5", "cred_v_selective_verify_v1"]
+cred_methods = ["cred_v_vote_5", "cred_v_task_verify_v3"]
+method_order = ["cot_1", "sc_3", "sc_5", "cred_v_vote_5", "cred_v_task_verify_v3"]
 global_seed = 42
 control_prompt_version = "single_agent_free_text_v1"
 cred_output_protocol = "json_object_answer_v3"
 cred_stage_a_output_protocol = "free_text_answer_v1"
-cred_debate_output_protocol = "json_object_answer_v3"
+cred_verification_output_protocol = "json_object_answer_v3"
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 
 [phases.count20]

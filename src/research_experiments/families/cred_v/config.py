@@ -14,34 +14,30 @@ from research_experiments.family_runtime.method_catalog import MethodConfig, loa
 from research_experiments.family_runtime.output_protocols import validate_output_protocol
 
 CRED_V_VOTE_5 = "cred_v_vote_5"
-CRED_V_SELECTIVE_VERIFY_V1 = "cred_v_selective_verify_v1"
-CRED_METHODS = frozenset({CRED_V_VOTE_5, CRED_V_SELECTIVE_VERIFY_V1})
-CRED_DEBATE_METHODS = frozenset({CRED_V_SELECTIVE_VERIFY_V1})
+CRED_V_TASK_VERIFY_V3 = "cred_v_task_verify_v3"
+CRED_METHODS = frozenset({CRED_V_VOTE_5, CRED_V_TASK_VERIFY_V3})
+CRED_VERIFY_METHODS = frozenset({CRED_V_TASK_VERIFY_V3})
 CRED_VOTE_METHODS = frozenset({CRED_V_VOTE_5})
 
 
 @dataclass(frozen=True)
-class CredMadProtocolConfig:
+class CredVProtocolConfig:
     stage_a_agent_count: int
-    max_refutations: int
+    max_verifications: int
     stage_a_temperature: float
-    debate_temperature: float
-    judge_temperature: float
+    verifier_temperature: float
     top_p: float
     strong_majority_count: int
-    min_evidence_quality: float
-    risk_trigger_count: int
     weak_majority_count: int
-    locked_override_margin: float
     concrete_evidence_min_chars: int
     stage_a_max_tokens: int
-    refutation_max_tokens: int
-    defense_max_tokens: int
-    judge_max_tokens: int
+    verifier_max_tokens: int
+    promotion_confidence_min: float
+    promotion_score_margin: float
 
 
 @dataclass(frozen=True)
-class CredMadExperimentConfig:
+class CredVExperimentConfig:
     name: str
     description: str
     benchmark_configs: list[Path]
@@ -54,32 +50,28 @@ class CredMadExperimentConfig:
     control_prompt_version: str
     cred_output_protocol: str
     cred_stage_a_output_protocol: str
-    cred_debate_output_protocol: str
+    cred_verification_output_protocol: str
     max_concurrent_requests: int
     requests_per_minute_limit: int | None
     primary_model_ref: str
     raw: dict[str, Any]
 
 
-def load_protocol_config(path: str | Path) -> CredMadProtocolConfig:
+def load_protocol_config(path: str | Path) -> CredVProtocolConfig:
     payload = load_toml(path)
-    return CredMadProtocolConfig(
+    return CredVProtocolConfig(
         stage_a_agent_count=int(payload.get("stage_a_agent_count", 5)),
-        max_refutations=int(payload.get("max_refutations", 1)),
+        max_verifications=int(payload.get("max_verifications", 1)),
         stage_a_temperature=float(payload.get("stage_a_temperature", 0.7)),
-        debate_temperature=float(payload.get("debate_temperature", 0.3)),
-        judge_temperature=float(payload.get("judge_temperature", 0.0)),
+        verifier_temperature=float(payload.get("verifier_temperature", 0.0)),
         top_p=float(payload.get("top_p", 1.0)),
         strong_majority_count=int(payload.get("strong_majority_count", 4)),
-        min_evidence_quality=float(payload.get("min_evidence_quality", 0.45)),
-        risk_trigger_count=int(payload.get("risk_trigger_count", 3)),
         weak_majority_count=int(payload.get("weak_majority_count", 3)),
-        locked_override_margin=float(payload.get("locked_override_margin", 1.25)),
         concrete_evidence_min_chars=int(payload.get("concrete_evidence_min_chars", 12)),
         stage_a_max_tokens=int(payload.get("stage_a_max_tokens", 640)),
-        refutation_max_tokens=int(payload.get("refutation_max_tokens", 512)),
-        defense_max_tokens=int(payload.get("defense_max_tokens", 448)),
-        judge_max_tokens=int(payload.get("judge_max_tokens", 512)),
+        verifier_max_tokens=int(payload.get("verifier_max_tokens", 1024)),
+        promotion_confidence_min=float(payload.get("promotion_confidence_min", 0.72)),
+        promotion_score_margin=float(payload.get("promotion_score_margin", 0.15)),
     )
 
 
@@ -87,7 +79,7 @@ def load_control_catalog(path: str | Path) -> dict[str, MethodConfig]:
     return load_method_catalog(path)
 
 
-def load_experiment_config(path: str | Path) -> CredMadExperimentConfig:
+def load_experiment_config(path: str | Path) -> CredVExperimentConfig:
     payload = load_toml(path)
     runtime = apply_runtime_defaults(payload)
     control_methods = [str(item) for item in payload.get("control_methods", [])]
@@ -107,14 +99,14 @@ def load_experiment_config(path: str | Path) -> CredMadExperimentConfig:
     cred_stage_a_output_protocol = validate_output_protocol(
         str(payload.get("cred_stage_a_output_protocol", payload.get("stage_a_output_protocol", FREE_TEXT_ANSWER_PROTOCOL_V1)))
     )
-    cred_debate_output_protocol = validate_output_protocol(
-        str(payload.get("cred_debate_output_protocol", payload.get("debate_output_protocol", JSON_OBJECT_ANSWER_PROTOCOL_V3)))
+    cred_verification_output_protocol = validate_output_protocol(
+        str(payload.get("cred_verification_output_protocol", JSON_OBJECT_ANSWER_PROTOCOL_V3))
     )
     if cred_stage_a_output_protocol != FREE_TEXT_ANSWER_PROTOCOL_V1:
         raise ValueError("cred_v cred_stage_a_output_protocol must be free_text_answer_v1.")
-    if cred_debate_output_protocol != JSON_OBJECT_ANSWER_PROTOCOL_V3:
-        raise ValueError("cred_v cred_debate_output_protocol must be json_object_answer_v3.")
-    return CredMadExperimentConfig(
+    if cred_verification_output_protocol != JSON_OBJECT_ANSWER_PROTOCOL_V3:
+        raise ValueError("cred_v cred_verification_output_protocol must be json_object_answer_v3.")
+    return CredVExperimentConfig(
         name=str(payload["name"]),
         description=str(payload["description"]),
         benchmark_configs=[Path(item) for item in payload["benchmark_configs"]],
@@ -127,7 +119,7 @@ def load_experiment_config(path: str | Path) -> CredMadExperimentConfig:
         control_prompt_version=control_prompt_version,
         cred_output_protocol=cred_output_protocol,
         cred_stage_a_output_protocol=cred_stage_a_output_protocol,
-        cred_debate_output_protocol=cred_debate_output_protocol,
+        cred_verification_output_protocol=cred_verification_output_protocol,
         max_concurrent_requests=runtime["max_concurrent_requests"],
         requests_per_minute_limit=runtime["requests_per_minute_limit"],
         primary_model_ref=str(payload["primary_model_ref"]),
@@ -135,9 +127,9 @@ def load_experiment_config(path: str | Path) -> CredMadExperimentConfig:
     )
 
 
-def inspect_methods(experiment: CredMadExperimentConfig) -> list[str]:
+def inspect_methods(experiment: CredVExperimentConfig) -> list[str]:
     return [*experiment.control_methods, *experiment.cred_methods]
 
 
-def inspect_benchmarks(experiment: CredMadExperimentConfig) -> list[str]:
+def inspect_benchmarks(experiment: CredVExperimentConfig) -> list[str]:
     return [benchmark.slug for benchmark in load_benchmarks(experiment)]
