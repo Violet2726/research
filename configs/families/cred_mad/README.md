@@ -1,8 +1,9 @@
 # cred_mad
 
 CRED-MAD is the Contractual Refutation Evidence Debate family. The current
-configuration is the v5 shrink: debate is triggered only for weak/split initial
-votes, with one refutation target and strict verified override gating.
+configuration is the v6 shrink: Stage A is aligned to strong free-text
+self-consistency, and debate is triggered only for weak/split initial votes,
+with one refutation target and strict verified override gating.
 
 Use `cred_v` for the verifier-centric SOTA mainline.
 

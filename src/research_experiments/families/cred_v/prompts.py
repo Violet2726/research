@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from research_experiments.core.controls.control_prompts import FREE_TEXT_V1_PROMPT_VERSION, build_cot_messages
 from research_experiments.core.data.datasets import DatasetSample
+from research_experiments.family_runtime.free_text_protocol import FREE_TEXT_ANSWER_PROTOCOL_V1
 from research_experiments.family_runtime.json_object_protocol import build_json_object_answer_instruction
 
-CRED_PROMPT_VERSION = "cred_v_selective_verify_v1"
+CRED_PROMPT_VERSION = "cred_v_sc_aligned_selective_verify_v2"
 
 AGENT_ROLES = (
     "cot_builder",
@@ -26,7 +28,17 @@ _ROLE_AUDIT_LENS = {
 }
 
 
-def build_stage_a_messages(sample: DatasetSample, *, agent_id: int, agent_role: str) -> list[dict[str, str]]:
+def build_stage_a_messages(
+    sample: DatasetSample,
+    *,
+    agent_id: int,
+    agent_role: str,
+    output_protocol: str | None = None,
+) -> list[dict[str, str]]:
+    if output_protocol == FREE_TEXT_ANSWER_PROTOCOL_V1:
+        del agent_role
+        return build_cot_messages(sample, agent_id, FREE_TEXT_V1_PROMPT_VERSION)
+
     user_prompt = (
         f"You are CRED-V agent_{agent_id}.\n"
         "Primary contract: solve independently, audit once, then commit a compact answer card.\n"
@@ -230,7 +242,7 @@ def _format_packet(row: dict[str, Any]) -> str:
     return (
         f"{row.get('agent_role') or row.get('role') or 'agent'}: answer=`{answer}`, "
         f"confidence={row.get('confidence_value') if row.get('confidence_value') is not None else payload.get('confidence', 'unknown')}, "
-        f"evidence=`{_clip(payload.get('key_evidence') or row.get('key_evidence') or 'n/a', 180)}`, "
+        f"evidence=`{_clip(payload.get('key_evidence') or row.get('key_evidence') or payload.get('reasoning') or 'n/a', 220)}`, "
         f"risk_level={payload.get('risk_level') or row.get('risk_level') or 'unknown'}, "
         f"risk_summary=`{_clip(payload.get('risk_summary') or row.get('failure_risk') or 'n/a', 120)}`"
     )

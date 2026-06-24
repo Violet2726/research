@@ -38,6 +38,8 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "control_prompt_version": experiment.control_prompt_version,
         "cred_prompt_version": CRED_PROMPT_VERSION,
         "cred_output_protocol": experiment.cred_output_protocol,
+        "cred_stage_a_output_protocol": experiment.cred_stage_a_output_protocol,
+        "cred_debate_output_protocol": experiment.cred_debate_output_protocol,
         "global_seed": experiment.global_seed,
         "max_concurrent_requests": experiment.max_concurrent_requests,
         "requests_per_minute_limit": experiment.requests_per_minute_limit,

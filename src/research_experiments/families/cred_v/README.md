@@ -1,12 +1,12 @@
 # cred_v
 
-`cred_v` is the verifier-centric successor line for CRED. It reuses the CRED
-answer-card runtime but treats interaction as selective verification rather than
-as open-ended multi-agent debate.
+`cred_v` is the verifier-centric successor line for CRED. It uses strong
+free-text CoT candidates for Stage A and JSON verification certificates for
+selective refutation, rather than open-ended multi-agent debate.
 
 Initial methods:
 
-- `cred_v_vote_5`: five independent compact answer cards with family voting.
+- `cred_v_vote_5`: five SC-aligned strong CoT candidates with family voting.
 - `cred_v_selective_verify_v1`: runs a verifier queue only for split votes, then
   allows overrides only when refutation and judge evidence support the challenger.
 

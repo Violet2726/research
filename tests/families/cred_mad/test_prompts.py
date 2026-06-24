@@ -43,3 +43,17 @@ def test_hotpot_prompt_asks_for_complete_judgeable_span() -> None:
 
     assert "complete judgeable text span" in content
     assert "essential type or unit words" in content
+
+
+def test_stage_a_free_text_mode_uses_control_style_cot_prompt() -> None:
+    messages = build_stage_a_messages(
+        _sample(dataset="gpqa_diamond"),
+        agent_id=1,
+        agent_role="cot_builder",
+        output_protocol="free_text_answer_v1",
+    )
+    content = messages[1]["content"]
+
+    assert "Reasoning method: CoT" in content
+    assert "REASONING:" in content
+    assert "FINAL_ANSWER:" in content

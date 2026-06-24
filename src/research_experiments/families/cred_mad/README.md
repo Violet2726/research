@@ -1,22 +1,23 @@
 # cred_mad
 
-`cred_mad` implements CRED-MAD v5: a shrunken Contractual Refutation Evidence
+`cred_mad` implements CRED-MAD v6: a shrunken Contractual Refutation Evidence
 Debate line kept for mechanism validation.
 
 The framework separates three effects that are usually entangled in MAD:
 
-- initial ensemble gain from five independent contract-bearing agents;
+- initial ensemble gain from five SC-aligned strong CoT candidates;
 - router gain from debating only weak/split Stage A votes;
 - debate gain from targeted refutation, defense, and survival-score aggregation.
 
-Current CRED runs use `json_object_answer_v3`: one compact JSON answer card
-containing reasoning, answer, confidence, key evidence, and risk fields. CRED
-turns use provider JSON-object response formatting and explicit completion caps.
-Router risk and evidence quality are diagnostics in v5; they no longer trigger
-debate by themselves.
+Current CRED runs split generation from verification. Stage A uses
+`free_text_answer_v1` and the same strong CoT prompt family as `sc_5`, so the
+candidate pool is not weakened by the verifier protocol. Refutation, defense,
+and judge turns use `json_object_answer_v3` as compact verification
+certificates. Router risk and evidence quality are diagnostics; they no longer
+trigger debate by themselves.
 
-Prompt version `cred_mad_selective_verify_v5` makes every Stage A agent produce a
-short answer card. The main debate method is lock-only survival aggregation
+Prompt version `cred_mad_sc_aligned_selective_verify_v6` aligns Stage A with
+self-consistency and keeps structure only for verifier turns. The main debate method is lock-only survival aggregation
 (`cred_refute_queue_v1_lock`) with one refutation target and a stricter verified
 override gate.
 

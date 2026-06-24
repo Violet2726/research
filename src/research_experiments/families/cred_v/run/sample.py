@@ -240,16 +240,21 @@ def _run_cred_sample(
                 role="initial",
                 agent_role=agent_role,
                 visible_peer_count=0,
-                messages=build_stage_a_messages(sample, agent_id=index, agent_role=agent_role),
+                messages=build_stage_a_messages(
+                    sample,
+                    agent_id=index,
+                    agent_role=agent_role,
+                    output_protocol=experiment.cred_stage_a_output_protocol,
+                ),
                 backbone=backbone,
                 provider=provider,
                 cache=cache,
                 throttle=throttle,
                 temperature=protocol.stage_a_temperature,
                 top_p=protocol.top_p,
-                seed=experiment.global_seed + index,
-                output_protocol=experiment.cred_output_protocol,
-                max_tokens=protocol.stage_a_max_tokens,
+                seed=experiment.global_seed + index - 1,
+                output_protocol=experiment.cred_stage_a_output_protocol,
+                max_tokens=_positive_token_cap(protocol.stage_a_max_tokens),
             )
         )
 
@@ -293,8 +298,8 @@ def _run_cred_sample(
                 temperature=protocol.debate_temperature,
                 top_p=protocol.top_p,
                 seed=experiment.global_seed + 100 + refutation_index,
-                output_protocol=experiment.cred_output_protocol,
-                max_tokens=protocol.refutation_max_tokens,
+                output_protocol=experiment.cred_debate_output_protocol,
+                max_tokens=_positive_token_cap(protocol.refutation_max_tokens),
             )
             refutation_rows.append(refutation_row)
             debate_rows.append(_debate_message_row(run_id, benchmark_slug, split_name, sample, refutation_row, "refutation"))
@@ -323,8 +328,8 @@ def _run_cred_sample(
                 temperature=protocol.debate_temperature,
                 top_p=protocol.top_p,
                 seed=experiment.global_seed + 200 + refutation_index,
-                output_protocol=experiment.cred_output_protocol,
-                max_tokens=protocol.defense_max_tokens,
+                output_protocol=experiment.cred_debate_output_protocol,
+                max_tokens=_positive_token_cap(protocol.defense_max_tokens),
             )
             defense_rows.append(defense_row)
             debate_rows.append(_debate_message_row(run_id, benchmark_slug, split_name, sample, defense_row, "defense"))
@@ -355,8 +360,8 @@ def _run_cred_sample(
                 temperature=protocol.judge_temperature,
                 top_p=protocol.top_p,
                 seed=experiment.global_seed + 300,
-                output_protocol=experiment.cred_output_protocol,
-                max_tokens=protocol.judge_max_tokens,
+                output_protocol=experiment.cred_debate_output_protocol,
+                max_tokens=_positive_token_cap(protocol.judge_max_tokens),
             )
             debate_rows.append(_debate_message_row(run_id, benchmark_slug, split_name, sample, judge_row, "judge"))
 
@@ -819,6 +824,12 @@ def _debate_message_row(
 
 def _sum_field(rows: list[dict[str, Any]], field: str) -> float:
     return round(sum(float(row.get(field) or 0.0) for row in rows), 6)
+
+
+def _positive_token_cap(value: int | None) -> int | None:
+    if value is None or int(value) <= 0:
+        return None
+    return int(value)
 
 
 def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, model_name: str, method_name: str, aggregate_kind: str) -> dict[str, Any]:

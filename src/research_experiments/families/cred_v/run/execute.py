@@ -97,6 +97,8 @@ def run_experiment(
             "control_prompt_version": experiment.control_prompt_version,
             "cred_prompt_version": CRED_PROMPT_VERSION,
             "cred_output_protocol": experiment.cred_output_protocol,
+            "cred_stage_a_output_protocol": experiment.cred_stage_a_output_protocol,
+            "cred_debate_output_protocol": experiment.cred_debate_output_protocol,
             "control_output_protocol": "free_text_answer_v1",
             "artifact_version": ARTIFACT_VERSION,
             "global_seed": experiment.global_seed,

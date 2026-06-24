@@ -275,6 +275,8 @@ def _render_markdown(
             ("实验名", str(manifest.get("experiment"))),
             ("Phase", str(manifest.get("phase"))),
             ("CRED Output Protocol", str(manifest.get("cred_output_protocol"))),
+            ("CRED Stage A Protocol", str(manifest.get("cred_stage_a_output_protocol") or manifest.get("cred_output_protocol"))),
+            ("CRED Debate Protocol", str(manifest.get("cred_debate_output_protocol") or manifest.get("cred_output_protocol"))),
             ("Backbone", backbone_name),
             ("运行目录", run_dir.as_posix()),
         ],

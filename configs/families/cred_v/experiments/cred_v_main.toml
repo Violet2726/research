@@ -15,6 +15,8 @@ method_order = ["cot_1", "sc_3", "sc_5", "cred_v_vote_5", "cred_v_selective_veri
 global_seed = 42
 control_prompt_version = "single_agent_free_text_v1"
 cred_output_protocol = "json_object_answer_v3"
+cred_stage_a_output_protocol = "free_text_answer_v1"
+cred_debate_output_protocol = "json_object_answer_v3"
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 
 [phases.count20]
@@ -22,4 +24,3 @@ split_overrides = { math500 = "count20_seed42", hotpotqa = "count20_seed42", gpq
 
 [phases.count100]
 split_overrides = { math500 = "count100_seed42", hotpotqa = "count100_seed42", gpqa_diamond = "count100_seed42", strategyqa = "count100_seed42", mmlu_pro = "count100_seed42" }
-

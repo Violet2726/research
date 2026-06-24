@@ -8,6 +8,7 @@ from typing import Any
 
 from research_experiments.core.controls.control_prompts import FREE_TEXT_V1_PROMPT_VERSION
 from research_experiments.family_runtime.config_helpers import apply_runtime_defaults, load_benchmarks, load_toml
+from research_experiments.family_runtime.free_text_protocol import FREE_TEXT_ANSWER_PROTOCOL_V1
 from research_experiments.family_runtime.json_object_protocol import JSON_OBJECT_ANSWER_PROTOCOL_V3
 from research_experiments.family_runtime.method_catalog import MethodConfig, load_method_catalog
 from research_experiments.family_runtime.output_protocols import validate_output_protocol
@@ -54,6 +55,8 @@ class CredMadExperimentConfig:
     global_seed: int
     control_prompt_version: str
     cred_output_protocol: str
+    cred_stage_a_output_protocol: str
+    cred_debate_output_protocol: str
     max_concurrent_requests: int
     requests_per_minute_limit: int | None
     primary_model_ref: str
@@ -103,8 +106,16 @@ def load_experiment_config(path: str | Path) -> CredMadExperimentConfig:
     if control_prompt_version != FREE_TEXT_V1_PROMPT_VERSION:
         raise ValueError(f"cred_mad control_prompt_version must be {FREE_TEXT_V1_PROMPT_VERSION}.")
     cred_output_protocol = validate_output_protocol(str(payload.get("cred_output_protocol", JSON_OBJECT_ANSWER_PROTOCOL_V3)))
-    if cred_output_protocol != JSON_OBJECT_ANSWER_PROTOCOL_V3:
-        raise ValueError("cred_mad cred_output_protocol must be json_object_answer_v3.")
+    cred_stage_a_output_protocol = validate_output_protocol(
+        str(payload.get("cred_stage_a_output_protocol", payload.get("stage_a_output_protocol", FREE_TEXT_ANSWER_PROTOCOL_V1)))
+    )
+    cred_debate_output_protocol = validate_output_protocol(
+        str(payload.get("cred_debate_output_protocol", payload.get("debate_output_protocol", JSON_OBJECT_ANSWER_PROTOCOL_V3)))
+    )
+    if cred_stage_a_output_protocol != FREE_TEXT_ANSWER_PROTOCOL_V1:
+        raise ValueError("cred_mad cred_stage_a_output_protocol must be free_text_answer_v1.")
+    if cred_debate_output_protocol != JSON_OBJECT_ANSWER_PROTOCOL_V3:
+        raise ValueError("cred_mad cred_debate_output_protocol must be json_object_answer_v3.")
     return CredMadExperimentConfig(
         name=str(payload["name"]),
         description=str(payload["description"]),
@@ -117,6 +128,8 @@ def load_experiment_config(path: str | Path) -> CredMadExperimentConfig:
         global_seed=int(payload["global_seed"]),
         control_prompt_version=control_prompt_version,
         cred_output_protocol=cred_output_protocol,
+        cred_stage_a_output_protocol=cred_stage_a_output_protocol,
+        cred_debate_output_protocol=cred_debate_output_protocol,
         max_concurrent_requests=runtime["max_concurrent_requests"],
         requests_per_minute_limit=runtime["requests_per_minute_limit"],
         primary_model_ref=str(payload["primary_model_ref"]),
