@@ -3,11 +3,59 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
 _NON_ANSWERS = {"", "unknown", "n/a", "none"}
+_MATH_DATASETS = {"gsm8k", "math500", "competition_math"}
+_SPAN_DATASETS = {"hotpotqa"}
+_HETERO_DATASETS = {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro", "strategyqa"}
+_HOTPOT_BANNED_EXTRA_TOKENS = {
+    "and",
+    "or",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+}
+_HOTPOT_ALLOWED_EXTRA_TOKENS = {
+    "captain",
+    "center",
+    "centre",
+    "city",
+    "club",
+    "college",
+    "company",
+    "county",
+    "country",
+    "episode",
+    "episodes",
+    "excellence",
+    "fc",
+    "film",
+    "football",
+    "inc",
+    "language",
+    "ltd",
+    "of",
+    "organization",
+    "organisation",
+    "province",
+    "river",
+    "school",
+    "state",
+    "student",
+    "students",
+    "team",
+    "the",
+    "title",
+    "university",
+}
 
 
 @dataclass(frozen=True)
@@ -160,6 +208,104 @@ def aggregate_task_verification(
     )
 
 
+def aggregate_safe_verification(
+    *,
+    dataset: str,
+    question: str,
+    context: str,
+    stage_rows: list[dict[str, Any]],
+    verifier_rows: list[dict[str, Any]],
+    hetero_verifier_rows: list[dict[str, Any]],
+    stage_winner: str,
+    verification_modes: tuple[str, ...] | list[str],
+    allow_same_model_promotion: bool,
+    concrete_evidence_min_chars: int,
+    strong_majority_count: int,
+) -> CredAggregateDecision:
+    del question
+    stage_support = dict(aggregate_stage_a_vote(stage_rows).support)
+    if not stage_rows or not stage_winner:
+        return CredAggregateDecision(
+            stage_winner,
+            stage_support,
+            "cred_verify_safe_empty_fallback",
+            False,
+            "stage_a",
+        )
+
+    modes = {str(mode) for mode in verification_modes}
+    challengers = _safe_challenger_rows(dataset, stage_rows, stage_winner)
+    if "deterministic_repair" in modes:
+        for challenger in challengers:
+            candidate = _row_answer(challenger)
+            if _deterministic_repair_allows(dataset, stage_winner, candidate, context):
+                return _safe_promoted_decision(
+                    dataset=dataset,
+                    stage_support=stage_support,
+                    stage_rows=stage_rows,
+                    stage_winner=stage_winner,
+                    winner=candidate,
+                    resolver="cred_verify_safe_deterministic_repair",
+                    source="deterministic_repair",
+                )
+
+    if "tool_verified" in modes:
+        for challenger in challengers:
+            candidate = _row_answer(challenger)
+            if _tool_verification_allows(dataset, stage_winner, candidate, context):
+                return _safe_promoted_decision(
+                    dataset=dataset,
+                    stage_support=stage_support,
+                    stage_rows=stage_rows,
+                    stage_winner=stage_winner,
+                    winner=candidate,
+                    resolver="cred_verify_safe_tool_verified",
+                    source="tool_verified",
+                )
+
+    hetero_rows = list(hetero_verifier_rows)
+    if allow_same_model_promotion:
+        hetero_rows.extend(verifier_rows)
+    if "hetero_verified" in modes and dataset in _HETERO_DATASETS:
+        leader_family = answer_family_key(dataset, stage_winner)
+        leader_count = _stage_family_count(dataset, stage_rows, leader_family)
+        if leader_count < int(strong_majority_count):
+            eligible: list[tuple[float, str, dict[str, Any]]] = []
+            for row in hetero_rows:
+                candidate = _row_answer(row)
+                candidate_family = answer_family_key(dataset, candidate)
+                if not _is_candidate(candidate) or candidate_family == leader_family:
+                    continue
+                if not _stage_has_family(dataset, stage_rows, candidate_family):
+                    continue
+                if not _row_bool(row, "promote"):
+                    continue
+                if _row_bool(row, "leader_pass") or not _row_bool(row, "challenger_pass"):
+                    continue
+                if not _has_concrete_evidence(row, concrete_evidence_min_chars):
+                    continue
+                eligible.append((_row_confidence(row), candidate, row))
+            if eligible:
+                _, winner, _ = max(eligible, key=lambda item: (item[0], item[1]))
+                return _safe_promoted_decision(
+                    dataset=dataset,
+                    stage_support=stage_support,
+                    stage_rows=stage_rows,
+                    stage_winner=stage_winner,
+                    winner=winner,
+                    resolver="cred_verify_safe_hetero_promoted",
+                    source="hetero_verifier",
+                )
+
+    return CredAggregateDecision(
+        stage_winner,
+        _verification_support(stage_support, [*verifier_rows, *hetero_verifier_rows], stage_winner),
+        "cred_verify_safe_rejected",
+        False,
+        "stage_a",
+    )
+
+
 def select_verification_targets(
     *,
     dataset: str,
@@ -201,6 +347,164 @@ def evidence_quality(row: dict[str, Any]) -> float:
     if _is_candidate(_row_answer(row)) and _row_answer(row).lower() in cleaned.lower():
         score += 0.2
     return min(1.0, round(score, 6))
+
+
+def _safe_promoted_decision(
+    *,
+    dataset: str,
+    stage_support: dict[str, float],
+    stage_rows: list[dict[str, Any]],
+    stage_winner: str,
+    winner: str,
+    resolver: str,
+    source: str,
+) -> CredAggregateDecision:
+    support = dict(stage_support)
+    support.setdefault(stage_winner, 0.0)
+    support[winner] = max(
+        float(support.get(winner, 0.0)),
+        float(_stage_family_count(dataset, stage_rows, answer_family_key(dataset, winner))) + 0.5,
+    )
+    return CredAggregateDecision(
+        winner,
+        {answer: round(float(value), 6) for answer, value in support.items()},
+        resolver,
+        answer_family_key(dataset, winner) != answer_family_key(dataset, stage_winner),
+        source,
+    )
+
+
+def _safe_challenger_rows(dataset: str, stage_rows: list[dict[str, Any]], stage_winner: str) -> list[dict[str, Any]]:
+    leading_family = answer_family_key(dataset, stage_winner)
+    grouped, ordered_families = _stage_candidate_groups(dataset, stage_rows)
+    challengers = [
+        max(grouped[family], key=lambda row: (_row_confidence(row), evidence_quality(row), -len(_row_answer(row))))
+        for family in ordered_families
+        if family != leading_family
+    ]
+    challengers.sort(key=lambda row: (_row_confidence(row), evidence_quality(row)), reverse=True)
+    return challengers
+
+
+def _deterministic_repair_allows(dataset: str, leader: str, challenger: str, context: str) -> bool:
+    if dataset in _MATH_DATASETS:
+        return _canonical_math_text(leader) == _canonical_math_text(challenger) and str(leader).strip() != str(challenger).strip()
+    if dataset in _SPAN_DATASETS:
+        return _hotpot_span_repair_allows(leader, challenger, context)
+    return False
+
+
+def _tool_verification_allows(dataset: str, leader: str, challenger: str, context: str) -> bool:
+    if dataset in _MATH_DATASETS:
+        return _math_equivalent(leader, challenger) and str(leader).strip() != str(challenger).strip()
+    if dataset in _SPAN_DATASETS:
+        return _hotpot_span_repair_allows(leader, challenger, context)
+    return False
+
+
+def _canonical_math_text(value: str) -> str:
+    text = str(value or "").strip().lower()
+    replacements = {
+        "\\left": "",
+        "\\right": "",
+        "\\,": "",
+        "$": "",
+        "`": "",
+        "∞": "inf",
+        "\\infty": "inf",
+        "infinity": "inf",
+        "+inf": "inf",
+        "+oo": "inf",
+        "oo": "inf",
+    }
+    for source, target in replacements.items():
+        text = text.replace(source, target)
+    text = re.sub(r"\\boxed\{([^{}]+)\}", r"\1", text)
+    text = re.sub(r"\s+", "", text)
+    text = text.replace("{", "").replace("}", "")
+    return text
+
+
+def _math_equivalent(left: str, right: str) -> bool:
+    if _canonical_math_text(left) == _canonical_math_text(right):
+        return True
+    try:
+        import sympy as sp
+        from sympy.parsing.sympy_parser import (
+            convert_xor,
+            implicit_multiplication_application,
+            parse_expr,
+            standard_transformations,
+        )
+    except Exception:
+        return False
+    transformations = standard_transformations + (implicit_multiplication_application, convert_xor)
+    try:
+        left_expr = parse_expr(_sympy_math_text(left), transformations=transformations, evaluate=True)
+        right_expr = parse_expr(_sympy_math_text(right), transformations=transformations, evaluate=True)
+        return bool(sp.simplify(left_expr - right_expr) == 0)
+    except Exception:
+        return False
+
+
+def _sympy_math_text(value: str) -> str:
+    text = _canonical_math_text(value)
+    text = text.replace("inf", "oo")
+    text = text.replace("\\pi", "pi")
+    text = text.replace("π", "pi")
+    text = re.sub(r"\\sqrt\{([^{}]+)\}", r"sqrt(\1)", text)
+    text = re.sub(r"\\frac\{([^{}]+)\}\{([^{}]+)\}", r"(\1)/(\2)", text)
+    return text
+
+
+def _hotpot_span_repair_allows(leader: str, challenger: str, context: str) -> bool:
+    leader_tokens = _span_tokens(leader)
+    challenger_tokens = _span_tokens(challenger)
+    if not leader_tokens or not challenger_tokens:
+        return False
+    if _unsafe_span_answer(challenger):
+        return False
+    if not _context_supports_answer(context, challenger):
+        return False
+    span_index = _subsequence_index(challenger_tokens, leader_tokens)
+    if span_index < 0:
+        return False
+    extra = challenger_tokens[:span_index] + challenger_tokens[span_index + len(leader_tokens) :]
+    if not extra or len(extra) > 3:
+        return False
+    if any(token in _HOTPOT_BANNED_EXTRA_TOKENS for token in extra):
+        return False
+    return all(token in _HOTPOT_ALLOWED_EXTRA_TOKENS for token in extra)
+
+
+def _context_supports_answer(context: str, answer: str) -> bool:
+    context_norm = _normalized_span(context)
+    answer_norm = _normalized_span(answer)
+    return bool(answer_norm and answer_norm in context_norm)
+
+
+def _unsafe_span_answer(answer: str) -> bool:
+    normalized = _normalized_span(answer)
+    return any(phrase in normalized for phrase in ("not mentioned", "unknown", "not in context", "cannot determine"))
+
+
+def _span_tokens(value: str) -> list[str]:
+    return _normalized_span(value).split()
+
+
+def _normalized_span(value: str) -> str:
+    text = unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode("ascii")
+    text = re.sub(r"[^a-zA-Z0-9]+", " ", text.lower()).strip()
+    return re.sub(r"\s+", " ", text)
+
+
+def _subsequence_index(items: list[str], needle: list[str]) -> int:
+    if not needle or len(needle) > len(items):
+        return -1
+    for index in range(0, len(items) - len(needle) + 1):
+        if items[index : index + len(needle)] == needle:
+            return index
+    return -1
 
 
 def _verification_support(stage_support: dict[str, float], verifier_rows: list[dict[str, Any]], stage_winner: str) -> dict[str, float]:
@@ -273,6 +577,10 @@ def _representative_answer(dataset: str, rows: list[dict[str, Any]]) -> str:
 
 def _stage_has_family(dataset: str, rows: list[dict[str, Any]], family: str) -> bool:
     return any(answer_family_key(dataset, _row_answer(row)) == family for row in rows)
+
+
+def _stage_family_count(dataset: str, rows: list[dict[str, Any]], family: str) -> int:
+    return sum(1 for row in rows if answer_family_key(dataset, _row_answer(row)) == family)
 
 
 def _row_confidence(row: dict[str, Any]) -> float:

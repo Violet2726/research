@@ -29,6 +29,7 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
     protocol = load_protocol_config(experiment.protocol)
     controls = load_control_catalog(experiment.control_catalog)
     resolved_model = resolve_model(model_override or experiment.primary_model_ref)
+    resolved_verifier_models = [resolve_model(model_ref) for model_ref in experiment.verifier_model_refs]
     return {
         "name": experiment.name,
         "description": experiment.description,
@@ -49,6 +50,8 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "workspace_defaults": workspace_defaults("cred_v"),
         "primary_model_ref": experiment.primary_model_ref,
         "resolved_model": asdict(resolved_model),
+        "verifier_model_refs": experiment.verifier_model_refs,
+        "resolved_verifier_models": [asdict(model) for model in resolved_verifier_models],
         "phases": experiment.raw["phases"],
     }
 

@@ -1,15 +1,18 @@
 # cred_v
 
 `cred_v` is the verifier-centric successor line for CRED. It uses strong
-free-text CoT candidates for Stage A and JSON verification certificates for
-task-specific challenger promotion, rather than open-ended multi-agent debate.
+free-text CoT candidates for Stage A and treats challenger promotion as a
+selective verification problem rather than open-ended multi-agent debate.
 
 Initial methods:
 
 - `cred_v_vote_5`: five SC-aligned strong CoT candidates with family voting.
 - `cred_v_task_verify_v3`: runs one task verifier for split votes, then promotes
   a challenger only when the verifier certificate passes score, confidence, and
-  concrete-evidence gates.
+  concrete-evidence gates. This is retained as a legacy self-verifier baseline.
+- `cred_verify_safe_v1`: promotes challengers only through deterministic repairs,
+  rule/tool verification, or a verifier model variant such as `mimo-v2.5-pro`.
+  Same-model verifier promotion is disabled by default.
 
 Run the screening phase:
 

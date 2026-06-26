@@ -9,7 +9,7 @@ from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.family_runtime.free_text_protocol import FREE_TEXT_ANSWER_PROTOCOL_V1
 from research_experiments.family_runtime.json_object_protocol import build_json_object_answer_instruction
 
-CRED_PROMPT_VERSION = "cred_v_task_verify_v3"
+CRED_PROMPT_VERSION = "cred_verify_safe_v1"
 
 AGENT_ROLES = (
     "cot_builder",
@@ -105,6 +105,55 @@ def build_task_verifier_messages(
     ]
 
 
+def build_safe_hetero_verifier_messages(
+    sample: DatasetSample,
+    *,
+    leading_answer: str,
+    target_row: dict[str, Any],
+    stage_rows: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    challenger_answer = _row_answer(target_row)
+    user_prompt = (
+        "You are the CRED-V independent verifier. Produce a verification certificate for one leader/challenger pair.\n"
+        f"{_safe_verifier_workflow(sample.dataset)}\n"
+        f"{_dataset_instruction(sample)}\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+    )
+    if sample.prompt_context:
+        user_prompt += f"Context:\n{sample.prompt_context}\n\n"
+    user_prompt += (
+        f"Leader answer: `{leading_answer or 'unknown'}`.\n"
+        f"Challenger answer: `{challenger_answer or 'unknown'}`.\n"
+        f"Challenger packet: {_format_packet(target_row)}\n"
+        "Stage A board:\n"
+        f"{_format_board(stage_rows)}\n"
+        "Certificate fields: leader_pass is true when the leader satisfies the decisive check. "
+        "challenger_pass is true when the challenger satisfies that same check. "
+        "promote is true when challenger_pass is true and leader_pass is false. "
+        "answer is the answer that passes the certificate. "
+        "leader_failure names the concrete failed check for the leader. "
+        "challenger_support names the concrete support for the challenger. "
+        "key_evidence is the decisive external clue, equation, context span, or option contrast. "
+        "confidence is confidence in this certificate, not confidence in Stage A popularity.\n"
+        + build_json_object_answer_instruction(
+            sample.dataset,
+            extra_json_keys=[
+                "promote",
+                "leader_pass",
+                "challenger_pass",
+                "verification_type",
+                "leader_failure",
+                "challenger_support",
+                "verdict",
+            ],
+        )
+    )
+    return [
+        {"role": "system", "content": "You are an independent verifier in a controlled CRED-V experiment. Return one JSON answer object."},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
 def _strong_solver_workflow(dataset: str) -> str:
     return "\n".join(
         [
@@ -126,6 +175,19 @@ def _task_verifier_workflow(dataset: str) -> str:
             f"- {_dataset_verifier_focus(dataset)}",
             "- Score each answer by how well it passes that check.",
             "- Select the answer with the stronger verified fit.",
+        ]
+    )
+
+
+def _safe_verifier_workflow(dataset: str) -> str:
+    return "\n".join(
+        [
+            "Independent verifier workflow:",
+            "- Identify the requested answer slot.",
+            "- Run one decisive check against the leader and the challenger.",
+            f"- {_dataset_verifier_focus(dataset)}",
+            "- Mark leader_pass and challenger_pass from the same check.",
+            "- Select the answer that is independently verified by the certificate.",
         ]
     )
 

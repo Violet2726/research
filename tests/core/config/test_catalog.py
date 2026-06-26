@@ -37,3 +37,11 @@ def test_resolve_xiaomimimo_model_ref() -> None:
     assert resolved.reasoning_effort == "none"
     assert resolved.supports_response_format is True
 
+
+def test_resolve_xiaomimimo_pro_model_ref() -> None:
+    resolved = resolve_model_ref("xiaomimimo/mimo-v2.5-pro")
+    assert resolved.provider == "xiaomimimo"
+    assert resolved.model_id == "mimo-v2.5-pro"
+    assert resolved.reasoning_effort == "none"
+    assert resolved.supports_response_format is True
+

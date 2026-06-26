@@ -11,6 +11,7 @@ from research_experiments.core.data.datasets import DatasetSample, load_split_id
 from research_experiments.core.data.evaluation import normalize_prediction, score_prediction
 from research_experiments.core.execution.runner_common import iter_indexed_batch
 from research_experiments.families.cred_v.algorithms import (
+    aggregate_safe_verification,
     aggregate_stage_a_vote,
     aggregate_task_verification,
     build_router_decision,
@@ -18,12 +19,15 @@ from research_experiments.families.cred_v.algorithms import (
     select_verification_targets,
 )
 from research_experiments.families.cred_v.config import (
+    CRED_COMM_METHODS,
+    CRED_SAFE_VERIFY_METHODS,
     CRED_VERIFY_METHODS,
     CredVExperimentConfig,
     CredVProtocolConfig,
 )
 from research_experiments.families.cred_v.prompts import (
     AGENT_ROLES,
+    build_safe_hetero_verifier_messages,
     build_stage_a_messages,
     build_task_verifier_messages,
 )
@@ -98,6 +102,15 @@ class DebateMessageRecord:
 
 
 @dataclass(frozen=True)
+class CredVerifierRuntime:
+    model_ref: str
+    backbone: Any
+    provider: Any
+    cache: Any
+    throttle: Any
+
+
+@dataclass(frozen=True)
 class CredPredictionRecord:
     run_id: str
     dataset: str
@@ -145,6 +158,11 @@ class CredPredictionRecord:
     resolver: str
     survival_support: dict[str, float]
     verification_support: dict[str, float]
+    oracle_candidate_correct: bool
+    wrong_majority_some_correct: bool
+    target_correct: bool | None
+    safe_repair_applied: bool
+    hetero_agreement_applied: bool
     protocol_failures_per_question: int
     reason_missing_turns_per_question: int
 
@@ -161,6 +179,7 @@ def run_cred_batch(
     provider,
     cache,
     throttle,
+    verifier_runtimes: list[CredVerifierRuntime] | None = None,
 ) -> Iterator[tuple[int, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]]:
     worker = partial(
         _run_cred_sample,
@@ -173,6 +192,7 @@ def run_cred_batch(
         provider=provider,
         cache=cache,
         throttle=throttle,
+        verifier_runtimes=verifier_runtimes or [],
     )
     for sample_index, result in iter_indexed_batch(
         samples,
@@ -225,6 +245,7 @@ def _run_cred_sample(
     provider,
     cache,
     throttle,
+    verifier_runtimes: list[CredVerifierRuntime],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     stage_rows: list[dict[str, Any]] = []
     for index, agent_role in enumerate(AGENT_ROLES[: protocol.stage_a_agent_count], start=1):
@@ -262,15 +283,18 @@ def _run_cred_sample(
     vote_decision = aggregate_stage_a_vote(stage_rows)
     router = build_router_decision(stage_rows, protocol=protocol)
     verification_rows: list[dict[str, Any]] = []
+    safe_verifier_rows: list[dict[str, Any]] = []
     debate_rows: list[dict[str, Any]] = []
+    targets: list[dict[str, Any]] = []
 
-    if router.triggered and CRED_VERIFY_METHODS & set(experiment.cred_methods):
+    if router.triggered and CRED_COMM_METHODS & set(experiment.cred_methods):
         targets = select_verification_targets(
             dataset=benchmark_slug,
             rows=stage_rows,
             leading_answer=vote_decision.final_answer,
             max_verifications=protocol.max_verifications,
         )
+    if router.triggered and CRED_VERIFY_METHODS & set(experiment.cred_methods):
         for verification_index, target in enumerate(targets, start=1):
             verifier_row = _execute_turn(
                 run_id=run_id,
@@ -303,14 +327,62 @@ def _run_cred_sample(
             verification_rows.append(verifier_row)
             debate_rows.append(_debate_message_row(run_id, benchmark_slug, split_name, sample, verifier_row, "task_verification"))
 
-    all_turns = [*stage_rows, *verification_rows]
+    if (
+        router.triggered
+        and CRED_SAFE_VERIFY_METHODS & set(experiment.cred_methods)
+        and "hetero_verified" in set(protocol.verification_modes)
+        and verifier_runtimes
+    ):
+        safe_runtimes = [
+            runtime
+            for runtime in verifier_runtimes
+            if protocol.allow_same_model_promotion or str(runtime.backbone.name) != str(backbone.name)
+        ]
+        call_count = min(int(protocol.max_verification_calls), len(targets))
+        call_count = min(call_count, len(safe_runtimes))
+        for verification_index in range(1, call_count + 1):
+            target = targets[verification_index - 1]
+            runtime = safe_runtimes[(verification_index - 1) % len(safe_runtimes)]
+            verifier_row = _execute_turn(
+                run_id=run_id,
+                dataset=benchmark_slug,
+                split_name=split_name,
+                sample=sample,
+                method_name="cred_safe_hetero_verifier",
+                method_type="verification",
+                round_index=1,
+                agent_id=400 + verification_index,
+                role="verification",
+                agent_role=f"safe_hetero_verifier:{runtime.model_ref}",
+                visible_peer_count=len(stage_rows),
+                messages=build_safe_hetero_verifier_messages(
+                    sample,
+                    leading_answer=vote_decision.final_answer,
+                    target_row=target,
+                    stage_rows=stage_rows,
+                ),
+                backbone=runtime.backbone,
+                provider=runtime.provider,
+                cache=runtime.cache,
+                throttle=runtime.throttle,
+                temperature=protocol.verifier_temperature,
+                top_p=protocol.top_p,
+                seed=experiment.global_seed + 400 + verification_index,
+                output_protocol=experiment.cred_verification_output_protocol,
+                max_tokens=_positive_token_cap(protocol.verifier_max_tokens),
+            )
+            safe_verifier_rows.append(verifier_row)
+            debate_rows.append(_debate_message_row(run_id, benchmark_slug, split_name, sample, verifier_row, "safe_hetero_verification"))
+
+    all_turns = [*stage_rows, *verification_rows, *safe_verifier_rows]
     router_row = _router_row(
         run_id=run_id,
         dataset=benchmark_slug,
         split_name=split_name,
         sample=sample,
         router=router,
-        verification_count=len(verification_rows),
+        self_verification_count=len(verification_rows),
+        hetero_verification_count=len(safe_verifier_rows),
     )
     prediction_rows: list[dict[str, Any]] = []
     for method_name in experiment.cred_methods:
@@ -329,6 +401,22 @@ def _run_cred_sample(
             )
             debate_turns = list(verification_rows)
             method_turns = [*stage_rows, *debate_turns]
+        elif method_name in CRED_SAFE_VERIFY_METHODS:
+            decision = aggregate_safe_verification(
+                dataset=benchmark_slug,
+                question=sample.question,
+                context=sample.prompt_context,
+                stage_rows=stage_rows,
+                verifier_rows=verification_rows,
+                hetero_verifier_rows=safe_verifier_rows,
+                stage_winner=vote_decision.final_answer,
+                verification_modes=protocol.verification_modes,
+                allow_same_model_promotion=protocol.allow_same_model_promotion,
+                concrete_evidence_min_chars=protocol.concrete_evidence_min_chars,
+                strong_majority_count=protocol.strong_majority_count,
+            )
+            debate_turns = list(safe_verifier_rows)
+            method_turns = [*stage_rows, *debate_turns]
         prediction_rows.append(
             _prediction_row(
                 run_id=run_id,
@@ -343,6 +431,7 @@ def _run_cred_sample(
                 stage_rows=stage_rows,
                 debate_rows=debate_turns,
                 method_turns=method_turns,
+                targets=targets,
             )
         )
     return all_turns, debate_rows, [router_row], prediction_rows
@@ -463,6 +552,7 @@ def _prediction_row(
     stage_rows: list[dict[str, Any]],
     debate_rows: list[dict[str, Any]],
     method_turns: list[dict[str, Any]],
+    targets: list[dict[str, Any]],
 ) -> dict[str, Any]:
     prediction = decision.final_answer
     score = score_prediction(dataset, prediction, sample.reference_answer)
@@ -475,6 +565,22 @@ def _prediction_row(
     latency = _sum_field(method_turns, "latency_ms")
     corrected = initial_score < 1.0 and score == 1.0
     harmed = initial_score == 1.0 and score < 1.0
+    oracle_candidate_correct = any(
+        score_prediction(dataset, str(row.get("normalized_answer") or row.get("prediction") or ""), sample.reference_answer) == 1.0
+        for row in stage_rows
+    )
+    target_correct = (
+        None
+        if not targets
+        else any(
+            score_prediction(dataset, str(row.get("normalized_answer") or row.get("prediction") or ""), sample.reference_answer) == 1.0
+            for row in targets
+        )
+    )
+    safe_repair_applied = str(decision.resolver).startswith("cred_verify_safe_deterministic") or str(decision.resolver).startswith(
+        "cred_verify_safe_tool"
+    )
+    hetero_agreement_applied = str(decision.resolver) == "cred_verify_safe_hetero_promoted"
     row = asdict(
         CredPredictionRecord(
             run_id=run_id,
@@ -523,6 +629,11 @@ def _prediction_row(
             resolver=decision.resolver,
             survival_support={key: round(float(value), 6) for key, value in decision.support.items()},
             verification_support={key: round(float(value), 6) for key, value in decision.support.items()},
+            oracle_candidate_correct=oracle_candidate_correct,
+            wrong_majority_some_correct=initial_score < 1.0 and oracle_candidate_correct,
+            target_correct=target_correct,
+            safe_repair_applied=safe_repair_applied,
+            hetero_agreement_applied=hetero_agreement_applied,
             protocol_failures_per_question=sum(1 for row in method_turns if row.get("protocol_parse_status") == "failed"),
             reason_missing_turns_per_question=sum(1 for row in method_turns if not row.get("reason_present")),
         )
@@ -598,6 +709,11 @@ def build_control_prediction_row(
         "resolver": "no_comm_control",
         "survival_support": {},
         "verification_support": {},
+        "oracle_candidate_correct": final_score == 1.0,
+        "wrong_majority_some_correct": False,
+        "target_correct": None,
+        "safe_repair_applied": False,
+        "hetero_agreement_applied": False,
         "protocol_failures_per_question": sum(1 for row in turn_rows if row.get("protocol_parse_status") == "failed"),
         "reason_missing_turns_per_question": sum(1 for row in turn_rows if not row.get("reason_present")),
         "vote_counts": vote_counts,
@@ -641,6 +757,11 @@ def build_debate_diagnostics(
             "harmed_by_debate": row.get("harmed_by_debate"),
             "corrected_by_verification": row.get("corrected_by_verification"),
             "harmed_by_verification": row.get("harmed_by_verification"),
+            "oracle_candidate_correct": row.get("oracle_candidate_correct"),
+            "wrong_majority_some_correct": row.get("wrong_majority_some_correct"),
+            "target_correct": row.get("target_correct"),
+            "safe_repair_applied": row.get("safe_repair_applied"),
+            "hetero_agreement_applied": row.get("hetero_agreement_applied"),
             "initial_vote_prediction": row.get("initial_vote_prediction"),
             "prediction": row.get("prediction"),
             "debate_tokens": row.get("debate_total_tokens_per_question"),
@@ -670,6 +791,8 @@ def build_router_eval(router_rows: list[dict[str, Any]]) -> dict[str, Any]:
                 "avg_risk_count": safe_mean(float(row.get("risk_count") or 0.0) for row in rows),
                 "avg_evidence_quality": safe_mean(float(row.get("evidence_quality_mean") or 0.0) for row in rows),
                 "refutation_calls_mean": safe_mean(float(row.get("refutation_count") or 0.0) for row in rows),
+                "self_verification_calls_mean": safe_mean(float(row.get("self_verification_count") or 0.0) for row in rows),
+                "hetero_verification_calls_mean": safe_mean(float(row.get("hetero_verification_count") or 0.0) for row in rows),
             }
         )
     if router_rows:
@@ -681,6 +804,8 @@ def build_router_eval(router_rows: list[dict[str, Any]]) -> dict[str, Any]:
                 "avg_risk_count": safe_mean(float(row.get("risk_count") or 0.0) for row in router_rows),
                 "avg_evidence_quality": safe_mean(float(row.get("evidence_quality_mean") or 0.0) for row in router_rows),
                 "refutation_calls_mean": safe_mean(float(row.get("refutation_count") or 0.0) for row in router_rows),
+                "self_verification_calls_mean": safe_mean(float(row.get("self_verification_count") or 0.0) for row in router_rows),
+                "hetero_verification_calls_mean": safe_mean(float(row.get("hetero_verification_count") or 0.0) for row in router_rows),
             }
         )
     return {"sample_rows": router_rows, "summary_rows": summary_rows}
@@ -695,6 +820,8 @@ def estimate_work(experiment: CredVExperimentConfig, phase_name: str, benchmarks
         total_calls += sample_count * protocol.stage_a_agent_count
         if CRED_VERIFY_METHODS & set(experiment.cred_methods):
             total_calls += sample_count * protocol.max_verifications
+        if CRED_SAFE_VERIFY_METHODS & set(experiment.cred_methods) and experiment.verifier_model_refs:
+            total_calls += sample_count * protocol.max_verification_calls
         total_predictions += sample_count * len(experiment.cred_methods)
         for method_name in experiment.control_methods:
             total_calls += sample_count * controls[method_name].budget_calls
@@ -717,8 +844,10 @@ def _router_row(
     split_name: str,
     sample: DatasetSample,
     router,
-    verification_count: int,
+    self_verification_count: int,
+    hetero_verification_count: int,
 ) -> dict[str, Any]:
+    verification_count = int(self_verification_count) + int(hetero_verification_count)
     return {
         "run_id": run_id,
         "dataset": dataset,
@@ -732,6 +861,8 @@ def _router_row(
         "risk_count": router.risk_count,
         "evidence_quality_mean": router.evidence_quality_mean,
         "verification_count": verification_count,
+        "self_verification_count": self_verification_count,
+        "hetero_verification_count": hetero_verification_count,
         "refutation_count": verification_count,
         "defense_count": 0,
         "judge_used": False,
@@ -781,6 +912,11 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
     corrected_count = sum(1 for row in rows if row.get("corrected_by_debate"))
     harmed_count = sum(1 for row in rows if row.get("harmed_by_debate"))
     triggered_count = sum(1 for row in rows if row.get("triggered"))
+    oracle_accuracy = safe_mean(1.0 if row.get("oracle_candidate_correct") else 0.0 for row in rows)
+    target_rows = [row for row in rows if row.get("wrong_majority_some_correct") and row.get("target_correct") is not None]
+    promotion_events = corrected_count + harmed_count
+    safe_repair_count = sum(1 for row in rows if row.get("safe_repair_applied"))
+    hetero_agreement_count = sum(1 for row in rows if row.get("hetero_agreement_applied"))
     return {
         "dataset": dataset,
         "aggregate_kind": aggregate_kind,
@@ -791,6 +927,9 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
         "prediction_rows": question_count,
         "accuracy_mean": accuracy,
         "initial_vote_accuracy_mean": initial_accuracy,
+        "oracle_accuracy_mean": oracle_accuracy,
+        "oracle_gap": round(oracle_accuracy - initial_accuracy, 6),
+        "target_precision_on_wrong_majority": safe_mean(1.0 if row.get("target_correct") else 0.0 for row in target_rows),
         "debate_gain_over_initial_vote": round(accuracy - initial_accuracy, 6),
         "verification_gain_over_initial_vote": round(accuracy - initial_accuracy, 6),
         "prompt_tokens_mean": safe_mean(float(row["prompt_tokens_per_question"]) for row in rows),
@@ -809,6 +948,10 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
         "harmed_count": harmed_count,
         "verified_corrected_count": corrected_count,
         "verified_harmed_count": harmed_count,
+        "promotion_precision": safe_ratio(corrected_count, promotion_events),
+        "harm_per_correction": round((harmed_count / corrected_count) if corrected_count else float(harmed_count), 6),
+        "safe_repair_count": safe_repair_count,
+        "hetero_agreement_count": hetero_agreement_count,
         "corrected_rate": safe_ratio(corrected_count, question_count),
         "harmed_rate": safe_ratio(harmed_count, question_count),
         "flip_rate": safe_mean(1.0 if row.get("vote_flipped") else 0.0 for row in rows),
@@ -847,6 +990,10 @@ def _build_micro_rows(prediction_rows: list[dict[str, Any]]) -> list[dict[str, A
 def _macro_from_rows(rows: list[dict[str, Any]], *, dataset: str, model_name: str, method_name: str, aggregate_kind: str) -> dict[str, Any]:
     accuracy = safe_mean(float(row["accuracy_mean"]) for row in rows)
     total_tokens = safe_mean(float(row["total_tokens_mean"]) for row in rows)
+    initial_accuracy = safe_mean(float(row["initial_vote_accuracy_mean"]) for row in rows)
+    oracle_accuracy = safe_mean(float(row.get("oracle_accuracy_mean") or 0.0) for row in rows)
+    corrected_count = sum(int(row["corrected_count"]) for row in rows)
+    harmed_count = sum(int(row["harmed_count"]) for row in rows)
     return {
         "dataset": dataset,
         "aggregate_kind": aggregate_kind,
@@ -856,9 +1003,12 @@ def _macro_from_rows(rows: list[dict[str, Any]], *, dataset: str, model_name: st
         "question_count": sum(int(row["question_count"]) for row in rows),
         "prediction_rows": sum(int(row["prediction_rows"]) for row in rows),
         "accuracy_mean": accuracy,
-        "initial_vote_accuracy_mean": safe_mean(float(row["initial_vote_accuracy_mean"]) for row in rows),
-        "debate_gain_over_initial_vote": round(accuracy - safe_mean(float(row["initial_vote_accuracy_mean"]) for row in rows), 6),
-        "verification_gain_over_initial_vote": round(accuracy - safe_mean(float(row["initial_vote_accuracy_mean"]) for row in rows), 6),
+        "initial_vote_accuracy_mean": initial_accuracy,
+        "oracle_accuracy_mean": oracle_accuracy,
+        "oracle_gap": round(oracle_accuracy - initial_accuracy, 6),
+        "target_precision_on_wrong_majority": safe_mean(float(row.get("target_precision_on_wrong_majority") or 0.0) for row in rows),
+        "debate_gain_over_initial_vote": round(accuracy - initial_accuracy, 6),
+        "verification_gain_over_initial_vote": round(accuracy - initial_accuracy, 6),
         "prompt_tokens_mean": safe_mean(float(row["prompt_tokens_mean"]) for row in rows),
         "completion_tokens_mean": safe_mean(float(row["completion_tokens_mean"]) for row in rows),
         "total_tokens_mean": total_tokens,
@@ -871,10 +1021,14 @@ def _macro_from_rows(rows: list[dict[str, Any]], *, dataset: str, model_name: st
         "debate_rounds": safe_mean(float(row["debate_rounds"]) for row in rows),
         "agent_count": safe_mean(float(row["agent_count"]) for row in rows),
         "trigger_rate": safe_mean(float(row.get("trigger_rate") or 0.0) for row in rows),
-        "corrected_count": sum(int(row["corrected_count"]) for row in rows),
-        "harmed_count": sum(int(row["harmed_count"]) for row in rows),
-        "verified_corrected_count": sum(int(row["corrected_count"]) for row in rows),
-        "verified_harmed_count": sum(int(row["harmed_count"]) for row in rows),
+        "corrected_count": corrected_count,
+        "harmed_count": harmed_count,
+        "verified_corrected_count": corrected_count,
+        "verified_harmed_count": harmed_count,
+        "promotion_precision": safe_ratio(corrected_count, corrected_count + harmed_count),
+        "harm_per_correction": round((harmed_count / corrected_count) if corrected_count else float(harmed_count), 6),
+        "safe_repair_count": sum(int(row.get("safe_repair_count") or 0) for row in rows),
+        "hetero_agreement_count": sum(int(row.get("hetero_agreement_count") or 0) for row in rows),
         "corrected_rate": safe_mean(float(row["corrected_rate"]) for row in rows),
         "harmed_rate": safe_mean(float(row["harmed_rate"]) for row in rows),
         "flip_rate": safe_mean(float(row["flip_rate"]) for row in rows),

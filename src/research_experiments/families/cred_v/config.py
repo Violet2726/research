@@ -15,8 +15,11 @@ from research_experiments.family_runtime.output_protocols import validate_output
 
 CRED_V_VOTE_5 = "cred_v_vote_5"
 CRED_V_TASK_VERIFY_V3 = "cred_v_task_verify_v3"
-CRED_METHODS = frozenset({CRED_V_VOTE_5, CRED_V_TASK_VERIFY_V3})
+CRED_VERIFY_SAFE_V1 = "cred_verify_safe_v1"
+CRED_METHODS = frozenset({CRED_V_VOTE_5, CRED_V_TASK_VERIFY_V3, CRED_VERIFY_SAFE_V1})
 CRED_VERIFY_METHODS = frozenset({CRED_V_TASK_VERIFY_V3})
+CRED_SAFE_VERIFY_METHODS = frozenset({CRED_VERIFY_SAFE_V1})
+CRED_COMM_METHODS = CRED_VERIFY_METHODS | CRED_SAFE_VERIFY_METHODS
 CRED_VOTE_METHODS = frozenset({CRED_V_VOTE_5})
 
 
@@ -24,6 +27,9 @@ CRED_VOTE_METHODS = frozenset({CRED_V_VOTE_5})
 class CredVProtocolConfig:
     stage_a_agent_count: int
     max_verifications: int
+    max_verification_calls: int
+    verification_modes: tuple[str, ...]
+    allow_same_model_promotion: bool
     stage_a_temperature: float
     verifier_temperature: float
     top_p: float
@@ -54,14 +60,25 @@ class CredVExperimentConfig:
     max_concurrent_requests: int
     requests_per_minute_limit: int | None
     primary_model_ref: str
+    verifier_model_refs: list[str]
     raw: dict[str, Any]
 
 
 def load_protocol_config(path: str | Path) -> CredVProtocolConfig:
     payload = load_toml(path)
+    max_verifications = int(payload.get("max_verifications", payload.get("max_verification_calls", 1)))
     return CredVProtocolConfig(
         stage_a_agent_count=int(payload.get("stage_a_agent_count", 5)),
-        max_verifications=int(payload.get("max_verifications", 1)),
+        max_verifications=max_verifications,
+        max_verification_calls=int(payload.get("max_verification_calls", max_verifications)),
+        verification_modes=tuple(
+            str(item)
+            for item in payload.get(
+                "verification_modes",
+                ["deterministic_repair", "tool_verified", "hetero_verified"],
+            )
+        ),
+        allow_same_model_promotion=_parse_bool(payload.get("allow_same_model_promotion", False)),
         stage_a_temperature=float(payload.get("stage_a_temperature", 0.7)),
         verifier_temperature=float(payload.get("verifier_temperature", 0.0)),
         top_p=float(payload.get("top_p", 1.0)),
@@ -123,6 +140,7 @@ def load_experiment_config(path: str | Path) -> CredVExperimentConfig:
         max_concurrent_requests=runtime["max_concurrent_requests"],
         requests_per_minute_limit=runtime["requests_per_minute_limit"],
         primary_model_ref=str(payload["primary_model_ref"]),
+        verifier_model_refs=[str(item) for item in payload.get("verifier_model_refs", [])],
         raw=payload,
     )
 
@@ -133,3 +151,9 @@ def inspect_methods(experiment: CredVExperimentConfig) -> list[str]:
 
 def inspect_benchmarks(experiment: CredVExperimentConfig) -> list[str]:
     return [benchmark.slug for benchmark in load_benchmarks(experiment)]
+
+
+def _parse_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}

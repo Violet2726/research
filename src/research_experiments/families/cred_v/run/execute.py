@@ -24,6 +24,7 @@ from research_experiments.families.cred_v.config import (
 from research_experiments.families.cred_v.prompts import CRED_PROMPT_VERSION
 from research_experiments.families.cred_v.run.report import render_report, summarize_run
 from research_experiments.families.cred_v.run.sample import (
+    CredVerifierRuntime,
     _execute_turn,
     append_outputs,
     build_control_prediction_row,
@@ -36,7 +37,7 @@ from research_experiments.families.cred_v.run.sample import (
     run_cred_batch,
 )
 from research_experiments.families.cred_v.run.validate import validate_run
-from research_experiments.family_runtime.config_helpers import load_benchmarks, phase_metadata
+from research_experiments.family_runtime.config_helpers import load_benchmarks, phase_metadata, resolve_model
 from research_experiments.family_runtime.layout import prepare_registered_run_layout
 from research_experiments.family_runtime.manifest import finalize_family_manifest
 from research_experiments.family_runtime.output_protocols import build_shared_output_protocol_diagnostics
@@ -61,6 +62,20 @@ def run_experiment(
     controls = load_control_catalog(experiment.control_catalog)
     _validate_control_methods(experiment, controls)
     provider = OpenAICompatibleProvider(backbone)
+    verifier_backbones = [(model_ref, resolve_model(model_ref)) for model_ref in experiment.verifier_model_refs]
+    verifier_providers = [
+        (
+            model_ref,
+            verifier_backbone,
+            OpenAICompatibleProvider(verifier_backbone),
+            RequestThrottle.for_model(
+                verifier_backbone,
+                max_concurrent_requests=experiment.max_concurrent_requests,
+                requests_per_minute=experiment.requests_per_minute_limit,
+            ),
+        )
+        for model_ref, verifier_backbone in verifier_backbones
+    ]
     cache_router = RequestCacheRouter(cache_root)
     throttle = RequestThrottle.for_model(
         backbone,
@@ -89,6 +104,8 @@ def run_experiment(
             "phase_name": phase_name,
             "primary_model_ref": experiment.primary_model_ref,
             "resolved_model": asdict(backbone),
+            "verifier_model_refs": experiment.verifier_model_refs,
+            "resolved_verifier_models": [asdict(item[1]) for item in verifier_backbones],
             "experiment": experiment.name,
             "description": experiment.description,
             "phase": phase_name,
@@ -138,6 +155,20 @@ def run_experiment(
                     request_model=backbone.model_id,
                     dataset=benchmark.slug,
                 )
+                verifier_runtimes = [
+                    CredVerifierRuntime(
+                        model_ref=model_ref,
+                        backbone=verifier_backbone,
+                        provider=verifier_provider,
+                        throttle=verifier_throttle,
+                        cache=cache_router.for_request_target(
+                            provider=verifier_backbone.provider,
+                            request_model=verifier_backbone.model_id,
+                            dataset=benchmark.slug,
+                        ),
+                    )
+                    for model_ref, verifier_backbone, verifier_provider, verifier_throttle in verifier_providers
+                ]
                 split_name = resolve_split_name(experiment, phase_name, benchmark.slug)
                 samples = load_selected_samples(benchmark, split_name)
                 append_outputs(
@@ -152,6 +183,7 @@ def run_experiment(
                         provider=provider,
                         cache=cache,
                         throttle=throttle,
+                        verifier_runtimes=verifier_runtimes,
                     ),
                     dataset_slug=benchmark.slug,
                     progress=progress,
@@ -236,6 +268,8 @@ def run_experiment(
     finally:
         progress.close()
         provider.close()
+        for _, _, verifier_provider, _ in verifier_providers:
+            verifier_provider.close()
         cache_router.close()
 
 

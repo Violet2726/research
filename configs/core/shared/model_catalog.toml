@@ -23,6 +23,12 @@ reasoning_effort = "none"
 supports_response_format = true
 response_format = "json_object"
 
+[models."xiaomimimo/mimo-v2.5-pro"]
+tags = ["text", "reasoning", "general_qa", "provider_xiaomimimo", "cred_v_verifier"]
+reasoning_effort = "none"
+supports_response_format = true
+response_format = "json_object"
+
 [models."local_ollama/qwen2.5:3b-instruct"]
 tags = ["text", "reasoning", "general_qa", "provider_local_ollama", "local_gpu_4gb"]
 supports_response_format = true
