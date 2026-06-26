@@ -4,7 +4,7 @@ experiment_note = """
 Purpose: establish a focused baseline for MAD mechanism innovation research.
 Benchmarks: math500 (math reasoning), hotpotqa (multi-hop QA), gpqa_diamond (hard science), strategyqa (strategic reasoning), mmlu-pro (knowledge).
 Methods: cot_1, sc_3, sc_5, mad_3a_r1, mad_3a_r2, and mad_5a_r1.
-Phases: count20, count100, and count300.
+Phases: count20, count100, count300, and count500.
 """
 benchmark_configs = [
   "configs/core/shared/benchmarks/math500/test.toml",
@@ -49,4 +49,8 @@ setups = ["mad_3a_r1", "mad_3a_r2", "mad_5a_r1"]
 
 [phases.count300]
 split_overrides = { math500 = "count300_seed42", hotpotqa = "count300_seed42", gpqa_diamond = "full198_seed42", strategyqa = "full229_seed42", mmlu_pro = "count300_seed42" }
+setups = ["mad_3a_r1", "mad_3a_r2", "mad_5a_r1"]
+
+[phases.count500]
+split_overrides = { math500 = "count500_seed42", hotpotqa = "count500_seed42", gpqa_diamond = "full198_seed42", strategyqa = "full229_seed42", mmlu_pro = "count500_seed42" }
 setups = ["mad_3a_r1", "mad_3a_r2", "mad_5a_r1"]
