@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from research_experiments.core.controls.control_prompts import FREE_TEXT_V1_PROMPT_VERSION, build_cot_messages
+from research_experiments.core.prompts.dataset_contracts import dataset_instruction_for_sample
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.family_runtime.free_text_protocol import FREE_TEXT_ANSWER_PROTOCOL_V1
+from research_experiments.family_runtime.free_text_protocol import build_free_text_answer_instruction, build_free_text_system_prompt
 from research_experiments.family_runtime.json_object_protocol import build_json_object_answer_instruction
 
-CRED_PROMPT_VERSION = "cred_acs_v1"
+CRED_PROMPT_VERSION = "cred_rfs_v1"
 
 AGENT_ROLES = (
     "cot_builder",
@@ -36,8 +37,30 @@ def build_stage_a_messages(
     output_protocol: str | None = None,
 ) -> list[dict[str, str]]:
     if output_protocol == FREE_TEXT_ANSWER_PROTOCOL_V1:
-        del agent_role
-        return build_cot_messages(sample, agent_id, FREE_TEXT_V1_PROMPT_VERSION)
+        user_prompt = (
+            f"You are CRED-RFS agent_{agent_id}.\n"
+            "Reasoning contract: solve independently with your assigned lens, then commit the final answer.\n"
+            f"Assigned lens: {agent_role} - {_ROLE_AUDIT_LENS[agent_role]}\n"
+            f"{_strong_solver_workflow(sample.dataset)}\n"
+            f"{dataset_instruction_for_sample(sample, hotpot_style='shortest_span_copy')}\n"
+            f"Question:\n{sample.question.strip()}\n\n"
+        )
+        if sample.prompt_context:
+            user_prompt += f"Context:\n{sample.prompt_context}\n\n"
+        user_prompt += build_free_text_answer_instruction(sample.dataset)
+        return [
+            {
+                "role": "system",
+                "content": build_free_text_system_prompt(
+                    "You are an expert reasoning agent in a controlled CRED-RFS experiment.",
+                    extra_rules=[
+                        "Use the assigned lens to decide how to reason.",
+                        "The assigned lens guides the solution, but the final answer must follow the task instruction.",
+                    ],
+                ),
+            },
+            {"role": "user", "content": user_prompt},
+        ]
 
     user_prompt = (
         f"You are CRED-V agent_{agent_id}.\n"
@@ -62,6 +85,49 @@ def build_stage_a_messages(
     )
     return [
         {"role": "system", "content": "You are an expert reasoning agent in a controlled CRED-V experiment. Return a JSON answer object."},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_rfs_extra_solver_messages(
+    sample: DatasetSample,
+    *,
+    variant_index: int,
+    leading_answer: str,
+    stage_rows: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    lens = (
+        "Build a fresh derivation from the problem statement before looking at the vote board."
+        if variant_index % 2 == 1
+        else "Check the strongest plausible alternative answer, then commit the answer that survives."
+    )
+    user_prompt = (
+        f"You are CRED-RFS adaptive solver_{variant_index}.\n"
+        "Purpose: add one independent free-reasoning candidate for a weak-split sample.\n"
+        f"Adaptive lens: {lens}\n"
+        f"{_strong_solver_workflow(sample.dataset)}\n"
+        f"{dataset_instruction_for_sample(sample, hotpot_style='shortest_span_copy')}\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+    )
+    if sample.prompt_context:
+        user_prompt += f"Context:\n{sample.prompt_context}\n\n"
+    user_prompt += (
+        f"Current vote leader: `{leading_answer or 'unknown'}`.\n"
+        "Stage A board for awareness, not authority:\n"
+        f"{_format_board(stage_rows)}\n"
+        + build_free_text_answer_instruction(sample.dataset)
+    )
+    return [
+        {
+            "role": "system",
+            "content": build_free_text_system_prompt(
+                "You are an expert adaptive reasoning solver in a controlled CRED-RFS experiment.",
+                extra_rules=[
+                    "Treat the vote board as context for checking, not as a decision rule.",
+                    "Commit the answer supported by your own reasoning.",
+                ],
+            ),
+        },
         {"role": "user", "content": user_prompt},
     ]
 

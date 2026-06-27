@@ -1,24 +1,20 @@
 # cred_v
 
-`cred_v` is now the CRED-ACS line: adaptive candidate search with verifiable
-aggregation. Stage A uses five structured role contracts, then the router sends
-only risky samples to `mimo-v2.5-pro` as a candidate generator. The pro model is
-not allowed to act as a one-shot judge.
+`cred_v` is now the CRED-RFS line: reasoning-first selective compute.
+Stage A uses five free-text role-guided solvers, then only weak-split samples
+receive adaptive extra candidates. `mimo-v2.5-pro` is used as a candidate
+generator for multiple-choice shuffle checks, never as a one-shot judge.
 
-Initial methods:
+Main methods:
 
-- `cred_v_vote_5`: five SC-aligned strong CoT candidates with family voting.
-- `cred_v_task_verify_v3`: runs one task verifier for split votes, then promotes
-  a challenger only when the verifier certificate passes score, confidence, and
-  concrete-evidence gates. This is retained as a legacy self-verifier baseline.
-- `cred_verify_safe_v1`: promotes challengers only through deterministic repairs,
-  rule/tool verification, or a verifier model variant such as `mimo-v2.5-pro`.
-  Same-model verifier promotion is disabled by default. This is retained as a
-  legacy safety baseline.
-- `cred_acs_v1`: expands candidates with math repair, Hotpot span extraction,
-  multiple-choice option shuffling, or StrategyQA dual-polarity checks. Final
-  promotion requires deterministic repair or at least two independent expansion
-  supports with a positive aggregation margin.
+- `cred_rfs_vote_5`: five free-text role-guided candidates with family voting.
+- `cred_rfs_adaptive_sc_v1`: weak-split selective compute with extra free-text
+  solvers, conservative MC shuffle support, deterministic repair, and strong
+  majority locking.
+
+Legacy methods are retained in `configs/families/cred_v/experiments/cred_v_legacy.toml`
+for failure analysis only: `cred_v_vote_5`, `cred_v_task_verify_v3`,
+`cred_verify_safe_v1`, and `cred_acs_v1`.
 
 Run the screening phase:
 

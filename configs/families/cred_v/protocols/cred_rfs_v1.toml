@@ -1,0 +1,36 @@
+stage_a_agent_count = 5
+stage_a_prompt_mode = "reasoning_first_roles_v1"
+
+# Legacy verifier controls remain loadable, but are not active in cred_v_main.
+max_verifications = 1
+max_verification_calls = 1
+verification_modes = ["deterministic_repair", "tool_verified", "hetero_verified"]
+allow_same_model_promotion = false
+
+# CRED-RFS v1: free reasoning candidates first, selective expansion second.
+expansion_modes = ["mc_choice_shuffle"]
+disabled_expansion_modes = ["strategyqa_dual_polarity", "hotpot_span_extract"]
+expansion_model_refs = ["xiaomimimo/mimo-v2.5-pro"]
+max_expansion_calls = 3
+adaptive_extra_solver_calls = 2
+max_total_solver_calls = 7
+promotion_min_independent_support = 2
+promotion_margin_min = 1.25
+mc_shuffle_min_agreement = 2
+require_stage_a_challenger_support = true
+allow_single_verifier_promotion = false
+false_consensus_probe = false
+max_trigger_rate = 0.30
+trigger_buckets = ["weak_split", "format_risk", "deterministic_repair_only"]
+
+stage_a_temperature = 0.7
+verifier_temperature = 0.0
+top_p = 1.0
+strong_majority_count = 4
+leader_lock_count = 4
+weak_majority_count = 3
+concrete_evidence_min_chars = 12
+stage_a_max_tokens = 0
+verifier_max_tokens = 1024
+promotion_confidence_min = 0.72
+promotion_score_margin = 0.15

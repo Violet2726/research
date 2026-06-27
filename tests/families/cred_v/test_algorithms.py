@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from research_experiments.families.cred_v.algorithms import (
     aggregate_adaptive_candidate_search,
+    aggregate_reasoning_first_selection,
     aggregate_safe_verification,
     aggregate_stage_a_vote,
     aggregate_task_verification,
@@ -495,6 +496,140 @@ def test_acs_ignores_failed_expansion_rows() -> None:
 
     assert decision.final_answer == "A"
     assert decision.changed is False
+
+
+def test_rfs_strong_majority_lock_blocks_expansion_flip() -> None:
+    stage_rows = [
+        _row("mmlu_pro", "A", confidence=0.80),
+        _row("mmlu_pro", "A", confidence=0.79),
+        _row("mmlu_pro", "A", confidence=0.78),
+        _row("mmlu_pro", "A", confidence=0.77),
+        _row("mmlu_pro", "B", confidence=0.95),
+    ]
+    expansion_rows = [
+        _row("mmlu_pro", "B", confidence=0.95, method_name="cred_rfs_expansion", expansion_mode="mc_choice_shuffle"),
+        _row("mmlu_pro", "B", confidence=0.94, method_name="cred_rfs_expansion", expansion_mode="mc_choice_shuffle"),
+        _row("mmlu_pro", "B", confidence=0.93, method_name="cred_rfs_expansion", expansion_mode="mc_choice_shuffle"),
+    ]
+
+    decision = aggregate_reasoning_first_selection(
+        dataset="mmlu_pro",
+        question="Which option is best?",
+        context="",
+        stage_rows=stage_rows,
+        expansion_rows=expansion_rows,
+        stage_winner="A",
+        expansion_modes=("mc_choice_shuffle",),
+        promotion_min_independent_support=2,
+        promotion_margin_min=1.25,
+        leader_lock_count=4,
+        mc_shuffle_min_agreement=2,
+        require_stage_a_challenger_support=True,
+    )
+
+    assert decision.final_answer == "A"
+    assert decision.changed is False
+    assert decision.resolver == "cred_rfs_strong_majority_locked"
+
+
+def test_rfs_blocks_challenger_without_stage_a_support() -> None:
+    stage_rows = [
+        _row("mmlu_pro", "A", confidence=0.70),
+        _row("mmlu_pro", "A", confidence=0.69),
+        _row("mmlu_pro", "A", confidence=0.68),
+        _row("mmlu_pro", "B", confidence=0.67),
+        _row("mmlu_pro", "B", confidence=0.66),
+    ]
+    expansion_rows = [
+        _row("mmlu_pro", "C", confidence=0.95, method_name="cred_rfs_expansion", expansion_mode="mc_choice_shuffle"),
+        _row("mmlu_pro", "C", confidence=0.94, method_name="cred_rfs_expansion", expansion_mode="mc_choice_shuffle"),
+        _row("mmlu_pro", "C", confidence=0.93, method_name="cred_rfs_expansion", expansion_mode="mc_choice_shuffle"),
+    ]
+
+    decision = aggregate_reasoning_first_selection(
+        dataset="mmlu_pro",
+        question="Which option is best?",
+        context="",
+        stage_rows=stage_rows,
+        expansion_rows=expansion_rows,
+        stage_winner="A",
+        expansion_modes=("mc_choice_shuffle",),
+        promotion_min_independent_support=2,
+        promotion_margin_min=1.25,
+        leader_lock_count=4,
+        mc_shuffle_min_agreement=2,
+        require_stage_a_challenger_support=True,
+    )
+
+    assert decision.final_answer == "A"
+    assert decision.changed is False
+
+
+def test_rfs_promotes_mc_with_stage_support_and_shuffle_agreement() -> None:
+    stage_rows = [
+        _row("mmlu_pro", "A", confidence=0.70),
+        _row("mmlu_pro", "A", confidence=0.69),
+        _row("mmlu_pro", "A", confidence=0.68),
+        _row("mmlu_pro", "B", confidence=0.90),
+        _row("mmlu_pro", "B", confidence=0.89),
+    ]
+    expansion_rows = [
+        _row("mmlu_pro", "B", confidence=0.95, method_name="cred_rfs_expansion", expansion_mode="mc_choice_shuffle"),
+        _row("mmlu_pro", "B", confidence=0.94, method_name="cred_rfs_expansion", expansion_mode="mc_choice_shuffle"),
+        _row("mmlu_pro", "B", confidence=0.93, method_name="cred_rfs_expansion", expansion_mode="mc_choice_shuffle"),
+    ]
+
+    decision = aggregate_reasoning_first_selection(
+        dataset="mmlu_pro",
+        question="Which option is best?",
+        context="",
+        stage_rows=stage_rows,
+        expansion_rows=expansion_rows,
+        stage_winner="A",
+        expansion_modes=("mc_choice_shuffle",),
+        promotion_min_independent_support=2,
+        promotion_margin_min=1.25,
+        leader_lock_count=4,
+        mc_shuffle_min_agreement=2,
+        require_stage_a_challenger_support=True,
+    )
+
+    assert decision.final_answer == "B"
+    assert decision.changed is True
+    assert decision.resolver == "cred_rfs_candidate_promoted"
+
+
+def test_rfs_strategyqa_promotion_disabled() -> None:
+    stage_rows = [
+        _row("strategyqa", "yes", confidence=0.70),
+        _row("strategyqa", "yes", confidence=0.69),
+        _row("strategyqa", "yes", confidence=0.68),
+        _row("strategyqa", "no", confidence=0.90),
+        _row("strategyqa", "no", confidence=0.89),
+    ]
+    expansion_rows = [
+        _row("strategyqa", "no", confidence=0.95, method_name="cred_rfs_expansion", expansion_mode="rfs_extra_solver"),
+        _row("strategyqa", "no", confidence=0.94, method_name="cred_rfs_expansion", expansion_mode="rfs_extra_solver"),
+    ]
+
+    decision = aggregate_reasoning_first_selection(
+        dataset="strategyqa",
+        question="Is the statement true?",
+        context="",
+        stage_rows=stage_rows,
+        expansion_rows=expansion_rows,
+        stage_winner="yes",
+        expansion_modes=(),
+        promotion_min_independent_support=2,
+        promotion_margin_min=1.25,
+        leader_lock_count=4,
+        mc_shuffle_min_agreement=2,
+        require_stage_a_challenger_support=True,
+    )
+
+    assert decision.final_answer == "yes"
+    assert decision.changed is False
+    assert decision.resolver == "cred_rfs_strategyqa_promotion_disabled"
 
 
 def _row(

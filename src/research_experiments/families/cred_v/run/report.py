@@ -59,7 +59,7 @@ def render_report(
     write_json(comparison_path, comparison)
     paper_summary_path = root / "exports" / "paper_summary.csv"
     _write_paper_summary(paper_summary_path, metrics.get("summary", []))
-    base_markdown = _render_markdown(
+    base_markdown = _render_rfs_markdown(
         manifest,
         metrics,
         router_eval,
@@ -75,7 +75,7 @@ def render_report(
         publish_dir=publish_dir,
         manifest=manifest,
         base_markdown=base_markdown,
-        figure_specs=_build_figure_specs(metrics, display_name=display_name),
+        figure_specs=_build_rfs_figure_specs(metrics, display_name=display_name),
     )
     payload["cred_comparison"] = str(comparison_path)
     payload["paper_summary"] = str(paper_summary_path)
@@ -143,6 +143,67 @@ def _build_figure_specs(metrics: dict[str, Any], *, display_name: str = "CRED-V"
     ]
 
 
+def _build_rfs_figure_specs(metrics: dict[str, Any], *, display_name: str = "CRED-V") -> list[dict[str, Any]]:
+    summary_rows = [row for row in metrics.get("summary", []) if row.get("dataset") != "overall_micro"]
+    overall_rows = [row for row in summary_rows if row.get("dataset") == "overall"]
+    cred_rows = [row for row in overall_rows if str(row.get("method_name") or "").startswith("cred_")]
+    return [
+        build_frontier_figure_spec(
+            summary_rows,
+            title=f"{display_name} 成本-性能前沿",
+            caption="CRED-RFS 与 no-comm 控制组在 overall macro 口径下的准确率与平均 token。",
+            score_field="accuracy_mean",
+            primary_metric="准确率",
+            method_label_field="method_name",
+        ),
+        build_efficiency_rank_figure_spec(
+            summary_rows,
+            title=f"{display_name} 效率排序",
+            caption="overall macro 下每千 token 准确率排序。",
+            efficiency_field="accuracy_per_1k_tokens",
+            primary_metric="每千 token 准确率",
+            method_label_field="method_name",
+        ),
+        build_score_by_dataset_figure_spec(
+            [row for row in summary_rows if row.get("dataset") != "overall"],
+            title=f"{display_name} 跨数据集准确率",
+            caption="各方法在每个 benchmark 上的准确率。",
+            score_field="accuracy_mean",
+            primary_metric="准确率",
+            method_label_field="method_name",
+        ),
+        build_grouped_bar_figure_spec(
+            figure_id="cred_v_mechanism_diagnostics",
+            title=f"{display_name} RFS 机制诊断",
+            caption="CRED-RFS 方法的触发率、纠正率、伤害率、promotion precision 与选择增益。",
+            primary_metric="比率或差值",
+            data=[
+                {
+                    "label": row["method_name"],
+                    "short_label": row["method_name"],
+                    "trigger_rate": float(row.get("trigger_rate") or 0.0),
+                    "corrected_rate": float(row.get("corrected_rate") or 0.0),
+                    "harmed_rate": float(row.get("harmed_rate") or 0.0),
+                    "promotion_precision": float(row.get("promotion_precision") or 0.0),
+                    "selection_gain": float(row.get("debate_gain_over_initial_vote") or row.get("verification_gain_over_initial_vote") or 0.0),
+                }
+                for row in cred_rows
+            ],
+            series=[
+                ("trigger_rate", "触发率"),
+                ("corrected_rate", "纠正率"),
+                ("harmed_rate", "伤害率"),
+                ("promotion_precision", "promotion precision"),
+                ("selection_gain", "选择增益"),
+            ],
+            x_label="比率或差值",
+            source_kind="metrics.summary",
+            dataset_scope="overall",
+            note="CRED-RFS 的核心验收是弱分裂子集上的纠正多于伤害，并在 paired comparison 中相对 sc_5 取得正向显著性。",
+        ),
+    ]
+
+
 def _build_comparison_payload(manifest: dict[str, Any], metrics: dict[str, Any]) -> dict[str, Any]:
     method_order = list(manifest.get("method_order") or [])
     dataset_order = list(manifest.get("dataset_order") or [])
@@ -155,6 +216,7 @@ def _build_comparison_payload(manifest: dict[str, Any], metrics: dict[str, Any])
         "overall_macro_rows": _ordered_rows(summary_rows, dataset="overall", method_order=method_order),
         "overall_micro_rows": _ordered_rows(summary_rows, dataset="overall_micro", method_order=method_order),
         "per_dataset_rows": {dataset: _ordered_rows(summary_rows, dataset=dataset, method_order=method_order) for dataset in dataset_order},
+        "paired_comparisons": list(metrics.get("paired_comparisons", [])),
     }
 
 
@@ -315,6 +377,183 @@ def _render_markdown(
     )
 
 
+def _render_rfs_markdown(
+    manifest: dict[str, Any],
+    metrics: dict[str, Any],
+    router_eval: dict[str, Any],
+    verification_diagnostics: dict[str, Any],
+    output_protocol_diagnostics: dict[str, Any],
+    comparison: dict[str, Any],
+    run_dir: Path,
+    *,
+    display_name: str = "CRED-V",
+) -> str:
+    del verification_diagnostics
+    backbone_name = resolve_manifest_model_name(manifest)
+    overall_rows = comparison["overall_macro_rows"]
+    cred_rows = [row for row in overall_rows if str(row.get("method_name") or "").startswith("cred_")]
+    paired_rows = [
+        row
+        for row in comparison.get("paired_comparisons", [])
+        if row.get("dataset") == "overall" and str(row.get("method_name") or "").startswith("cred_")
+    ]
+    best = max(overall_rows, key=lambda row: float(row.get("accuracy_mean") or 0.0)) if overall_rows else None
+    abstract = [
+        f"{display_name} 当前主线采用 CRED-RFS：先生成自由推理候选，再对弱分裂样本做选择性算力扩展，最后用保守门控聚合。",
+        "本报告把 candidate gain、selection loss、repair gain 和 adaptive compute gain 分开统计，避免把普通投票收益误写成验证收益。",
+    ]
+    if best is not None:
+        abstract.append(f"本 run overall macro 最优方法为 `{best['method_name']}`，准确率 {format_float(best.get('accuracy_mean'))}。")
+
+    sections = [
+        {
+            "title": "理论假设",
+            "bullets": [
+                "Stage A 必须保持自由推理；结构化 JSON 只用于旁路候选或报告，不压缩主求解过程。",
+                "强多数默认锁定，只有数学等价或 HotpotQA context span 这类确定性修复可以覆盖。",
+                "弱分裂样本追加自由推理候选；MC 任务可追加 choice shuffle 候选，但单个 pro 候选没有翻票权。",
+                "主结论必须同时观察 accuracy、selection loss、promotion precision、harm_per_correction、token 和 paired significance。",
+            ],
+        },
+        {
+            "title": "总体主表",
+            "table": {
+                "headers": ["方法", "类型", "准确率", "vs cot_1", "vs best no-comm", "初始 vote", "选择增益", "触发率", "总 token", "每千 token 准确率"],
+                "rows": [
+                    [
+                        f"`{row['method_name']}`",
+                        str(row["method_type"]),
+                        format_float(row.get("accuracy_mean")),
+                        _signed_float(row.get("accuracy_delta_vs_cot_1")),
+                        _signed_float(row.get("accuracy_delta_vs_best_no_comm")),
+                        format_float(row.get("initial_vote_accuracy_mean")),
+                        _signed_float(row.get("debate_gain_over_initial_vote") or row.get("verification_gain_over_initial_vote")),
+                        format_float(row.get("trigger_rate")),
+                        format_float(row.get("total_tokens_mean"), 2),
+                        format_float(row.get("accuracy_per_1k_tokens"), 6),
+                    ]
+                    for row in overall_rows
+                ],
+            },
+        },
+        {
+            "title": "RFS 机制诊断",
+            "table": {
+                "headers": [
+                    "method",
+                    "corrected_rate",
+                    "harmed_rate",
+                    "promotion_precision",
+                    "harm_per_correction",
+                    "candidate_pool_oracle",
+                    "selection_loss",
+                    "adaptive_trigger_rate",
+                    "math_repair",
+                    "hotpot_repair",
+                    "shuffle_agreement",
+                    "single_pro_blocked",
+                    "strong_locked",
+                    "adaptive_tokens",
+                    "calls",
+                ],
+                "rows": [
+                    [
+                        f"`{row['method_name']}`",
+                        format_float(row.get("corrected_rate")),
+                        format_float(row.get("harmed_rate")),
+                        format_float(row.get("promotion_precision")),
+                        format_float(row.get("harm_per_correction"), 2),
+                        format_float(row.get("candidate_pool_oracle_accuracy")),
+                        format_float(row.get("selection_loss")),
+                        format_float(row.get("adaptive_trigger_rate") or row.get("expansion_trigger_rate")),
+                        str(row.get("math_repair_count") or 0),
+                        str(row.get("hotpot_span_repair_count") or 0),
+                        str(row.get("choice_shuffle_agreement_count") or 0),
+                        str(row.get("single_pro_promotion_blocked_count") or 0),
+                        str(row.get("strong_majority_locked_count") or 0),
+                        format_float(row.get("communication_tokens_mean"), 2),
+                        format_float(row.get("calls_per_question_mean"), 2),
+                    ]
+                    for row in cred_rows
+                ],
+            },
+        },
+        {
+            "title": "Paired 显著性",
+            "table": {
+                "headers": ["method", "reference", "delta", "wins", "losses", "ties", "McNemar p", "bootstrap CI", "positive"],
+                "rows": [
+                    [
+                        f"`{row['method_name']}`",
+                        f"`{row['reference_method']}`",
+                        _signed_float(row.get("accuracy_delta")),
+                        str(row.get("wins") or 0),
+                        str(row.get("losses") or 0),
+                        str(row.get("ties") or 0),
+                        format_float(row.get("mcnemar_p"), 6),
+                        f"[{_signed_float(row.get('bootstrap_ci_low'))}, {_signed_float(row.get('bootstrap_ci_high'))}]",
+                        "yes" if row.get("bootstrap_significant_positive") else "no",
+                    ]
+                    for row in paired_rows
+                ],
+            },
+        },
+        {
+            "title": "Router 诊断",
+            "table": {
+                "headers": ["数据集", "题数", "触发率", "平均风险数", "平均证据质量", "平均扩展调用"],
+                "rows": [
+                    [
+                        str(row.get("dataset")),
+                        str(row.get("question_count")),
+                        format_float(row.get("trigger_rate")),
+                        format_float(row.get("avg_risk_count")),
+                        format_float(row.get("avg_evidence_quality")),
+                        format_float(row.get("expansion_calls_mean")),
+                    ]
+                    for row in router_eval.get("summary_rows", [])
+                ],
+            },
+        },
+        {
+            "title": "输出协议诊断",
+            "table": {
+                "headers": ["方法/阶段", "协议失败率", "reason 缺失率"],
+                "rows": [
+                    [
+                        f"`{row['method_name']}`",
+                        format_float(row.get("protocol_failure_rate")),
+                        format_float(row.get("reason_missing_rate")),
+                    ]
+                    for row in output_protocol_diagnostics.get("rows", [])
+                    if row.get("dataset") == "overall"
+                ],
+            },
+        },
+        render_run_reproducibility_section(
+            run_dir=run_dir,
+            artifact_items=[
+                "关键产物：`metrics.json`、`router_eval.json`、`debate_diagnostics.json`、`cred_comparison.json`、`paper_summary.csv`。",
+                f"summary 行数：`{len(SummaryTableView.from_metrics_payload(metrics).rows)}`。",
+            ],
+        ),
+    ]
+    return render_family_scientific_report(
+        title=f"{display_name} 科研报告",
+        abstract=abstract,
+        overview_items=[
+            ("实验名", str(manifest.get("experiment"))),
+            ("Phase", str(manifest.get("phase"))),
+            ("CRED Output Protocol", str(manifest.get("cred_output_protocol"))),
+            ("CRED Stage A Protocol", str(manifest.get("cred_stage_a_output_protocol") or manifest.get("cred_output_protocol"))),
+            ("CRED Verification Protocol", str(manifest.get("cred_verification_output_protocol") or manifest.get("cred_output_protocol"))),
+            ("Backbone", backbone_name),
+            ("运行目录", run_dir.as_posix()),
+        ],
+        sections=sections,
+    )
+
+
 def _write_paper_summary(path: Path, summary_rows: list[dict[str, Any]]) -> None:
     fieldnames = [
         "dataset",
@@ -330,6 +569,7 @@ def _write_paper_summary(path: Path, summary_rows: list[dict[str, Any]]) -> None
         "oracle_accuracy_mean",
         "oracle_gap",
         "candidate_pool_oracle_accuracy",
+        "selection_loss",
         "expansion_oracle_accuracy",
         "expansion_oracle_gain",
         "target_precision_on_wrong_majority",
@@ -338,6 +578,7 @@ def _write_paper_summary(path: Path, summary_rows: list[dict[str, Any]]) -> None
         "debate_gain_over_initial_vote",
         "trigger_rate",
         "expansion_trigger_rate",
+        "adaptive_trigger_rate",
         "false_consensus_trigger_count",
         "corrected_rate",
         "harmed_rate",
@@ -350,6 +591,7 @@ def _write_paper_summary(path: Path, summary_rows: list[dict[str, Any]]) -> None
         "validator_pass_count",
         "choice_shuffle_agreement_count",
         "single_pro_promotion_blocked_count",
+        "strong_majority_locked_count",
         "communication_tokens_mean",
         "total_tokens_mean",
         "calls_per_question_mean",

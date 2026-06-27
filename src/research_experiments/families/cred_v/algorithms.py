@@ -14,6 +14,8 @@ _SPAN_DATASETS = {"hotpotqa"}
 _HETERO_DATASETS = {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro", "strategyqa"}
 _MC_DATASETS = {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro"}
 _ACS_EXPANSION_METHOD = "cred_acs_expansion"
+_RFS_EXPANSION_METHOD = "cred_rfs_expansion"
+_EXPANSION_METHODS = {_ACS_EXPANSION_METHOD, _RFS_EXPANSION_METHOD}
 _HOTPOT_BANNED_EXTRA_TOKENS = {
     "and",
     "or",
@@ -107,11 +109,12 @@ def build_router_decision(rows: list[dict[str, Any]], *, protocol) -> CredRouter
     leading_count = len(grouped.get(leading_family, [])) if leading_answer else 0
     risk_count = sum(1 for row in rows if _row_risk_level(row) in {"medium", "high"})
     evidence_mean = _mean(evidence_quality(row) for row in rows)
+    strong_majority_count = int(getattr(protocol, "leader_lock_count", getattr(protocol, "strong_majority_count", 4)))
     reasons: list[str] = []
     if not leading_answer:
         reasons.append("no_valid_stage_a_answer")
         bucket = "format_risk"
-    elif leading_count < int(protocol.strong_majority_count):
+    elif leading_count < strong_majority_count:
         reasons.append("weak_split_no_strong_majority")
         bucket = "weak_split"
     elif _format_repair_risk(dataset, rows, leading_family, leading_answer):
@@ -128,17 +131,18 @@ def build_router_decision(rows: list[dict[str, Any]], *, protocol) -> CredRouter
         leading_count=leading_count,
         risk_count=risk_count,
         evidence_mean=evidence_mean,
-        strong_majority_count=int(protocol.strong_majority_count),
+        strong_majority_count=strong_majority_count,
     ):
         reasons.append("false_consensus_probe")
         bucket = "false_consensus_probe"
     else:
         bucket = "clean_skip"
-    clean_skip = bucket == "clean_skip"
+    enabled_buckets = _enabled_trigger_buckets(protocol)
+    triggered = bucket != "clean_skip" and bucket in enabled_buckets
     return CredRouterDecision(
-        triggered=not clean_skip,
-        reasons=tuple(reasons if not clean_skip else ("strong_majority_skip",)),
-        trigger_bucket=bucket,
+        triggered=triggered,
+        reasons=tuple(reasons if triggered else ("strong_majority_skip",)),
+        trigger_bucket=bucket if triggered else "clean_skip",
         leading_answer=leading_answer,
         vote_counts=vote_counts,
         risk_count=risk_count,
@@ -418,6 +422,110 @@ def aggregate_adaptive_candidate_search(
     )
 
 
+def aggregate_reasoning_first_selection(
+    *,
+    dataset: str,
+    question: str,
+    context: str,
+    stage_rows: list[dict[str, Any]],
+    expansion_rows: list[dict[str, Any]],
+    stage_winner: str,
+    expansion_modes: tuple[str, ...] | list[str],
+    promotion_min_independent_support: int,
+    promotion_margin_min: float,
+    leader_lock_count: int,
+    mc_shuffle_min_agreement: int,
+    require_stage_a_challenger_support: bool,
+) -> CredAggregateDecision:
+    del question
+    stage_decision = aggregate_stage_a_vote(stage_rows)
+    stage_support = dict(stage_decision.support)
+    if not stage_rows or not stage_winner:
+        return CredAggregateDecision(
+            stage_winner,
+            stage_support,
+            "cred_rfs_empty_fallback",
+            False,
+            "stage_a",
+        )
+
+    candidate_rows = [*stage_rows, *_valid_expansion_rows(expansion_rows)]
+    for candidate in _safe_challenger_rows(dataset, candidate_rows, stage_winner):
+        challenger = _row_answer(candidate)
+        if _deterministic_repair_allows(dataset, stage_winner, challenger, context):
+            resolver = "cred_rfs_math_repair" if dataset in _MATH_DATASETS else "cred_rfs_hotpot_span_repair"
+            return _safe_promoted_decision(
+                dataset=dataset,
+                stage_support=stage_support,
+                stage_rows=candidate_rows,
+                stage_winner=stage_winner,
+                winner=challenger,
+                resolver=resolver,
+                source="deterministic_repair",
+            )
+
+    leader_family = answer_family_key(dataset, stage_winner)
+    leader_count = _stage_family_count(dataset, stage_rows, leader_family)
+    modes = {str(mode) for mode in expansion_modes}
+    scored = _rfs_family_scores(dataset, stage_rows=stage_rows, expansion_rows=expansion_rows)
+    support = _acs_answer_support(dataset, scored)
+
+    if leader_count >= int(leader_lock_count):
+        return CredAggregateDecision(
+            stage_winner,
+            support,
+            "cred_rfs_strong_majority_locked",
+            False,
+            "stage_a",
+        )
+
+    if dataset == "strategyqa":
+        return CredAggregateDecision(
+            stage_winner,
+            support,
+            "cred_rfs_strategyqa_promotion_disabled",
+            False,
+            "stage_a",
+        )
+
+    leader_score = scored.get(leader_family, (0.0, stage_winner))[0]
+    eligible: list[tuple[float, float, str, str]] = []
+    for family, (score, representative) in scored.items():
+        if family == leader_family or not _is_candidate(representative):
+            continue
+        if require_stage_a_challenger_support and not _stage_has_family(dataset, stage_rows, family):
+            continue
+        expansion_support = _expansion_family_count(dataset, expansion_rows, family)
+        if expansion_support < int(promotion_min_independent_support):
+            continue
+        if dataset in _MC_DATASETS and "mc_choice_shuffle" in modes:
+            if _mc_shuffle_family_count(dataset, expansion_rows, family) < int(mc_shuffle_min_agreement):
+                continue
+        margin = score - leader_score
+        if margin < float(promotion_margin_min):
+            continue
+        eligible.append((margin, score, family, representative))
+
+    if not eligible:
+        resolver = "cred_rfs_single_pro_blocked" if _has_single_blocked_expansion(dataset, expansion_rows, leader_family) else "cred_rfs_rejected"
+        return CredAggregateDecision(
+            stage_winner,
+            support,
+            resolver,
+            False,
+            "stage_a",
+        )
+
+    _, _, _, winner = max(eligible, key=lambda item: (item[0], item[1], item[3]))
+    return CredAggregateDecision(
+        winner,
+        support,
+        "cred_rfs_candidate_promoted",
+        answer_family_key(dataset, winner) != leader_family,
+        "reasoning_first_selection",
+    )
+
+
 def select_verification_targets(
     *,
     dataset: str,
@@ -443,8 +551,12 @@ def select_verification_targets(
     return candidates[: int(max_verifications)]
 
 
-def expansion_mode_for_dataset(dataset: str, expansion_modes: tuple[str, ...] | list[str]) -> str:
-    modes = {str(mode) for mode in expansion_modes}
+def expansion_mode_for_dataset(
+    dataset: str,
+    expansion_modes: tuple[str, ...] | list[str],
+    disabled_expansion_modes: tuple[str, ...] | list[str] = (),
+) -> str:
+    modes = {str(mode) for mode in expansion_modes} - {str(mode) for mode in disabled_expansion_modes}
     if dataset in _MATH_DATASETS and "math_symbolic_repair" in modes:
         return "math_symbolic_repair"
     if dataset in _SPAN_DATASETS and "hotpot_span_extract" in modes:
@@ -557,12 +669,19 @@ def _valid_expansion_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         row
         for row in rows
-        if row.get("method_name") == _ACS_EXPANSION_METHOD
+        if row.get("method_name") in _EXPANSION_METHODS
         and row.get("request_status") == "ok"
         and row.get("output_status") == "ok"
         and row.get("protocol_parse_status") != "failed"
         and _is_candidate(_row_answer(row))
     ]
+
+
+def _enabled_trigger_buckets(protocol) -> set[str]:
+    raw = getattr(protocol, "trigger_buckets", None)
+    if raw is None:
+        return {"weak_split", "format_risk", "deterministic_repair_only", "false_consensus_probe"}
+    return {str(item) for item in raw}
 
 
 def _acs_family_scores(
@@ -595,6 +714,36 @@ def _acs_family_scores(
     return {family: (round(score, 6), representatives.get(family, "")) for family, score in support.items()}
 
 
+def _rfs_family_scores(
+    dataset: str,
+    *,
+    stage_rows: list[dict[str, Any]],
+    expansion_rows: list[dict[str, Any]],
+) -> dict[str, tuple[float, str]]:
+    support: dict[str, float] = defaultdict(float)
+    representatives: dict[str, str] = {}
+    rep_score: dict[str, tuple[float, float]] = {}
+    for row in stage_rows:
+        answer = _row_answer(row)
+        if not _is_candidate(answer):
+            continue
+        family = answer_family_key(dataset, answer)
+        support[family] += 1.0
+        score = (_row_confidence(row), evidence_quality(row))
+        if family not in rep_score or score > rep_score[family]:
+            representatives[family] = answer
+            rep_score[family] = score
+    for row in _valid_expansion_rows(expansion_rows):
+        answer = _row_answer(row)
+        family = answer_family_key(dataset, answer)
+        support[family] += 1.0
+        score = (_row_confidence(row), evidence_quality(row))
+        if family not in rep_score or score > rep_score[family]:
+            representatives[family] = answer
+            rep_score[family] = score
+    return {family: (round(score, 6), representatives.get(family, "")) for family, score in support.items()}
+
+
 def _acs_answer_support(dataset: str, scored: dict[str, tuple[float, str]]) -> dict[str, float]:
     del dataset
     support: dict[str, float] = {}
@@ -615,6 +764,16 @@ def _expansion_validation_bonus(row: dict[str, Any]) -> float:
 
 def _expansion_family_count(dataset: str, rows: list[dict[str, Any]], family: str) -> int:
     return sum(1 for row in _valid_expansion_rows(rows) if answer_family_key(dataset, _row_answer(row)) == family)
+
+
+def _mc_shuffle_family_count(dataset: str, rows: list[dict[str, Any]], family: str) -> int:
+    return sum(
+        1
+        for row in _valid_expansion_rows(rows)
+        if row.get("expansion_mode") == "mc_choice_shuffle"
+        and row.get("expansion_validation_pass") is True
+        and answer_family_key(dataset, _row_answer(row)) == family
+    )
 
 
 def _has_single_blocked_expansion(dataset: str, rows: list[dict[str, Any]], leader_family: str) -> bool:

@@ -17,33 +17,54 @@ CRED_V_VOTE_5 = "cred_v_vote_5"
 CRED_V_TASK_VERIFY_V3 = "cred_v_task_verify_v3"
 CRED_VERIFY_SAFE_V1 = "cred_verify_safe_v1"
 CRED_ACS_V1 = "cred_acs_v1"
-CRED_METHODS = frozenset({CRED_V_VOTE_5, CRED_V_TASK_VERIFY_V3, CRED_VERIFY_SAFE_V1, CRED_ACS_V1})
+CRED_RFS_VOTE_5 = "cred_rfs_vote_5"
+CRED_RFS_ADAPTIVE_SC_V1 = "cred_rfs_adaptive_sc_v1"
+CRED_METHODS = frozenset(
+    {
+        CRED_V_VOTE_5,
+        CRED_V_TASK_VERIFY_V3,
+        CRED_VERIFY_SAFE_V1,
+        CRED_ACS_V1,
+        CRED_RFS_VOTE_5,
+        CRED_RFS_ADAPTIVE_SC_V1,
+    }
+)
 CRED_VERIFY_METHODS = frozenset({CRED_V_TASK_VERIFY_V3})
 CRED_SAFE_VERIFY_METHODS = frozenset({CRED_VERIFY_SAFE_V1})
 CRED_ACS_METHODS = frozenset({CRED_ACS_V1})
-CRED_COMM_METHODS = CRED_VERIFY_METHODS | CRED_SAFE_VERIFY_METHODS | CRED_ACS_METHODS
-CRED_VOTE_METHODS = frozenset({CRED_V_VOTE_5})
+CRED_RFS_ADAPTIVE_METHODS = frozenset({CRED_RFS_ADAPTIVE_SC_V1})
+CRED_RFS_METHODS = frozenset({CRED_RFS_VOTE_5, CRED_RFS_ADAPTIVE_SC_V1})
+CRED_COMM_METHODS = CRED_VERIFY_METHODS | CRED_SAFE_VERIFY_METHODS | CRED_ACS_METHODS | CRED_RFS_ADAPTIVE_METHODS
+CRED_VOTE_METHODS = frozenset({CRED_V_VOTE_5, CRED_RFS_VOTE_5})
 
 
 @dataclass(frozen=True)
 class CredVProtocolConfig:
     stage_a_agent_count: int
+    stage_a_prompt_mode: str
     max_verifications: int
     max_verification_calls: int
     verification_modes: tuple[str, ...]
     expansion_modes: tuple[str, ...]
     expansion_model_refs: tuple[str, ...]
+    disabled_expansion_modes: tuple[str, ...]
     max_expansion_calls: int
+    adaptive_extra_solver_calls: int
+    max_total_solver_calls: int
     promotion_min_independent_support: int
     promotion_margin_min: float
+    mc_shuffle_min_agreement: int
+    require_stage_a_challenger_support: bool
     allow_single_verifier_promotion: bool
     false_consensus_probe: bool
     max_trigger_rate: float
+    trigger_buckets: tuple[str, ...]
     allow_same_model_promotion: bool
     stage_a_temperature: float
     verifier_temperature: float
     top_p: float
     strong_majority_count: int
+    leader_lock_count: int
     weak_majority_count: int
     concrete_evidence_min_chars: int
     stage_a_max_tokens: int
@@ -79,6 +100,7 @@ def load_protocol_config(path: str | Path) -> CredVProtocolConfig:
     max_verifications = int(payload.get("max_verifications", payload.get("max_verification_calls", 1)))
     return CredVProtocolConfig(
         stage_a_agent_count=int(payload.get("stage_a_agent_count", 5)),
+        stage_a_prompt_mode=str(payload.get("stage_a_prompt_mode", "legacy_json_roles_v1")),
         max_verifications=max_verifications,
         max_verification_calls=int(payload.get("max_verification_calls", max_verifications)),
         verification_modes=tuple(
@@ -96,17 +118,30 @@ def load_protocol_config(path: str | Path) -> CredVProtocolConfig:
             )
         ),
         expansion_model_refs=tuple(str(item) for item in payload.get("expansion_model_refs", [])),
+        disabled_expansion_modes=tuple(str(item) for item in payload.get("disabled_expansion_modes", [])),
         max_expansion_calls=int(payload.get("max_expansion_calls", 0)),
+        adaptive_extra_solver_calls=int(payload.get("adaptive_extra_solver_calls", 0)),
+        max_total_solver_calls=int(payload.get("max_total_solver_calls", 0)),
         promotion_min_independent_support=int(payload.get("promotion_min_independent_support", 2)),
         promotion_margin_min=float(payload.get("promotion_margin_min", payload.get("promotion_score_margin", 1.0))),
+        mc_shuffle_min_agreement=int(payload.get("mc_shuffle_min_agreement", payload.get("promotion_min_independent_support", 2))),
+        require_stage_a_challenger_support=_parse_bool(payload.get("require_stage_a_challenger_support", False)),
         allow_single_verifier_promotion=_parse_bool(payload.get("allow_single_verifier_promotion", False)),
         false_consensus_probe=_parse_bool(payload.get("false_consensus_probe", False)),
         max_trigger_rate=float(payload.get("max_trigger_rate", 1.0)),
+        trigger_buckets=tuple(
+            str(item)
+            for item in payload.get(
+                "trigger_buckets",
+                ["weak_split", "format_risk", "deterministic_repair_only", "false_consensus_probe"],
+            )
+        ),
         allow_same_model_promotion=_parse_bool(payload.get("allow_same_model_promotion", False)),
         stage_a_temperature=float(payload.get("stage_a_temperature", 0.7)),
         verifier_temperature=float(payload.get("verifier_temperature", 0.0)),
         top_p=float(payload.get("top_p", 1.0)),
         strong_majority_count=int(payload.get("strong_majority_count", 4)),
+        leader_lock_count=int(payload.get("leader_lock_count", payload.get("strong_majority_count", 4))),
         weak_majority_count=int(payload.get("weak_majority_count", 3)),
         concrete_evidence_min_chars=int(payload.get("concrete_evidence_min_chars", 12)),
         stage_a_max_tokens=int(payload.get("stage_a_max_tokens", 640)),
