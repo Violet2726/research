@@ -9,7 +9,7 @@ from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.family_runtime.free_text_protocol import FREE_TEXT_ANSWER_PROTOCOL_V1
 from research_experiments.family_runtime.json_object_protocol import build_json_object_answer_instruction
 
-CRED_PROMPT_VERSION = "cred_verify_safe_v1"
+CRED_PROMPT_VERSION = "cred_acs_v1"
 
 AGENT_ROLES = (
     "cot_builder",
@@ -154,6 +154,122 @@ def build_safe_hetero_verifier_messages(
     ]
 
 
+def build_math_symbolic_repair_messages(
+    sample: DatasetSample,
+    *,
+    leading_answer: str,
+    stage_rows: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    user_prompt = (
+        "You are a CRED-ACS math candidate generator. Solve the problem independently and return the clean final expression.\n"
+        "Workflow:\n"
+        "- Recompute the core relation symbolically or numerically.\n"
+        "- Normalize only notation that preserves mathematical meaning.\n"
+        "- Use the exact requested answer form.\n"
+        f"{_dataset_instruction(sample)}\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+        f"Current vote leader: `{leading_answer or 'unknown'}`.\n"
+        "Stage A board:\n"
+        f"{_format_board(stage_rows)}\n"
+        "Return your independently derived candidate. key_evidence is the decisive equation or equivalence check. "
+        "answer_type is expression.\n"
+        + build_json_object_answer_instruction(sample.dataset, extra_json_keys=["answer_type", "expansion_mode"])
+    )
+    return [
+        {"role": "system", "content": "You generate one math candidate for CRED-ACS. Return one JSON answer object."},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_hotpot_span_extractor_messages(
+    sample: DatasetSample,
+    *,
+    leading_answer: str,
+    stage_rows: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    user_prompt = (
+        "You are a CRED-ACS span candidate generator. Extract the complete answer span from the provided context.\n"
+        "Workflow:\n"
+        "- Locate the sentence or sentences that answer the requested slot.\n"
+        "- Copy the complete judgeable span, including essential title, type, unit, or role words.\n"
+        "- Use only the provided context as evidence.\n"
+        f"{_dataset_instruction(sample)}\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+    )
+    if sample.prompt_context:
+        user_prompt += f"Context:\n{sample.prompt_context}\n\n"
+    user_prompt += (
+        f"Current vote leader: `{leading_answer or 'unknown'}`.\n"
+        "Stage A board:\n"
+        f"{_format_board(stage_rows)}\n"
+        "Return the extracted candidate span. key_evidence is the exact context phrase that supports it. "
+        "answer_type is span.\n"
+        + build_json_object_answer_instruction(sample.dataset, extra_json_keys=["answer_type", "expansion_mode"])
+    )
+    return [
+        {"role": "system", "content": "You generate one context-supported span candidate for CRED-ACS. Return one JSON answer object."},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_choice_shuffle_solver_messages(
+    sample: DatasetSample,
+    *,
+    shuffled_options: list[str],
+    shuffle_label: str,
+) -> list[dict[str, str]]:
+    user_prompt = (
+        "You are a CRED-ACS multiple-choice candidate generator. Solve the question using this shuffled option order.\n"
+        "Workflow:\n"
+        "- Identify the decisive concept or factual clue.\n"
+        "- Compare the visible shuffled options.\n"
+        "- Commit to the best shuffled option letter.\n"
+        'Choose the single best option. The JSON answer field is exactly the shuffled option letter, such as "A" or "B".\n'
+        f"Question:\n{sample.question.strip()}\n\n"
+        f"Shuffled option set {shuffle_label}:\n{_format_options(shuffled_options)}\n\n"
+        "Return the shuffled option letter as answer. key_evidence is the decisive option contrast. "
+        "answer_type is option.\n"
+        + build_json_object_answer_instruction(sample.dataset, extra_json_keys=["answer_type", "expansion_mode", "shuffle_label"])
+    )
+    return [
+        {"role": "system", "content": "You generate one shuffled multiple-choice candidate for CRED-ACS. Return one JSON answer object."},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_strategyqa_dual_polarity_messages(
+    sample: DatasetSample,
+    *,
+    variant_index: int,
+    leading_answer: str,
+    stage_rows: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    lens = (
+        "Resolve the direct factual subclaims and map them to yes/no."
+        if variant_index % 2 == 0
+        else "Check the opposite answer by asking what fact would have to be true, then map the surviving facts to yes/no."
+    )
+    user_prompt = (
+        "You are a CRED-ACS yes/no candidate generator.\n"
+        "Workflow:\n"
+        f"- {lens}\n"
+        "- Separate the factual subclaim from the yes/no mapping.\n"
+        '- Commit to exactly "yes" or "no".\n'
+        f"{_dataset_instruction(sample)}\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+        f"Current vote leader: `{leading_answer or 'unknown'}`.\n"
+        "Stage A board:\n"
+        f"{_format_board(stage_rows)}\n"
+        "Return the independently generated yes/no candidate. key_evidence is the decisive fact-to-answer mapping. "
+        "answer_type is yes_no.\n"
+        + build_json_object_answer_instruction(sample.dataset, extra_json_keys=["answer_type", "expansion_mode", "polarity_variant"])
+    )
+    return [
+        {"role": "system", "content": "You generate one yes/no candidate for CRED-ACS. Return one JSON answer object."},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
 def _strong_solver_workflow(dataset: str) -> str:
     return "\n".join(
         [
@@ -244,6 +360,10 @@ def _format_board(rows: list[dict[str, Any]]) -> str:
     if not rows:
         return "- none\n"
     return "\n".join(f"- {_format_packet(row)}" for row in rows) + "\n"
+
+
+def _format_options(options: list[str]) -> str:
+    return "\n".join(f"{chr(ord('A') + index)}. {option}" for index, option in enumerate(options))
 
 
 def _format_packet(row: dict[str, Any]) -> str:

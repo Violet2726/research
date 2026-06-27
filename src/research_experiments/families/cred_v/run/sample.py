@@ -11,14 +11,19 @@ from research_experiments.core.data.datasets import DatasetSample, load_split_id
 from research_experiments.core.data.evaluation import normalize_prediction, score_prediction
 from research_experiments.core.execution.runner_common import iter_indexed_batch
 from research_experiments.families.cred_v.algorithms import (
+    aggregate_adaptive_candidate_search,
     aggregate_safe_verification,
     aggregate_stage_a_vote,
     aggregate_task_verification,
     build_router_decision,
+    choice_permutation,
     evidence_quality,
+    expansion_mode_for_dataset,
+    map_shuffled_choice_answer,
     select_verification_targets,
 )
 from research_experiments.families.cred_v.config import (
+    CRED_ACS_METHODS,
     CRED_COMM_METHODS,
     CRED_SAFE_VERIFY_METHODS,
     CRED_VERIFY_METHODS,
@@ -27,8 +32,12 @@ from research_experiments.families.cred_v.config import (
 )
 from research_experiments.families.cred_v.prompts import (
     AGENT_ROLES,
+    build_choice_shuffle_solver_messages,
+    build_hotpot_span_extractor_messages,
+    build_math_symbolic_repair_messages,
     build_safe_hetero_verifier_messages,
     build_stage_a_messages,
+    build_strategyqa_dual_polarity_messages,
     build_task_verifier_messages,
 )
 from research_experiments.family_runtime.common import resolve_phase_split_name, safe_mean, safe_ratio
@@ -163,6 +172,16 @@ class CredPredictionRecord:
     target_correct: bool | None
     safe_repair_applied: bool
     hetero_agreement_applied: bool
+    expansion_call_count: int
+    expansion_mode: str
+    false_consensus_triggered: bool
+    candidate_pool_oracle_correct: bool
+    expansion_oracle_correct: bool
+    expansion_validation_pass_count: int
+    math_repair_applied: bool
+    hotpot_span_repair_applied: bool
+    choice_shuffle_agreement_count: int
+    single_pro_promotion_blocked: bool
     protocol_failures_per_question: int
     reason_missing_turns_per_question: int
 
@@ -282,19 +301,21 @@ def _run_cred_sample(
 
     vote_decision = aggregate_stage_a_vote(stage_rows)
     router = build_router_decision(stage_rows, protocol=protocol)
+    method_set = set(experiment.cred_methods)
     verification_rows: list[dict[str, Any]] = []
     safe_verifier_rows: list[dict[str, Any]] = []
+    expansion_rows: list[dict[str, Any]] = []
     debate_rows: list[dict[str, Any]] = []
     targets: list[dict[str, Any]] = []
 
-    if router.triggered and CRED_COMM_METHODS & set(experiment.cred_methods):
+    if router.triggered and CRED_COMM_METHODS & method_set:
         targets = select_verification_targets(
             dataset=benchmark_slug,
             rows=stage_rows,
             leading_answer=vote_decision.final_answer,
             max_verifications=protocol.max_verifications,
         )
-    if router.triggered and CRED_VERIFY_METHODS & set(experiment.cred_methods):
+    if router.triggered and CRED_VERIFY_METHODS & method_set:
         for verification_index, target in enumerate(targets, start=1):
             verifier_row = _execute_turn(
                 run_id=run_id,
@@ -329,7 +350,7 @@ def _run_cred_sample(
 
     if (
         router.triggered
-        and CRED_SAFE_VERIFY_METHODS & set(experiment.cred_methods)
+        and CRED_SAFE_VERIFY_METHODS & method_set
         and "hetero_verified" in set(protocol.verification_modes)
         and verifier_runtimes
     ):
@@ -374,7 +395,24 @@ def _run_cred_sample(
             safe_verifier_rows.append(verifier_row)
             debate_rows.append(_debate_message_row(run_id, benchmark_slug, split_name, sample, verifier_row, "safe_hetero_verification"))
 
-    all_turns = [*stage_rows, *verification_rows, *safe_verifier_rows]
+    if router.triggered and CRED_ACS_METHODS & method_set and verifier_runtimes and int(protocol.max_expansion_calls) > 0:
+        expansion_rows.extend(
+            _run_acs_expansions(
+                run_id=run_id,
+                benchmark_slug=benchmark_slug,
+                split_name=split_name,
+                sample=sample,
+                experiment=experiment,
+                protocol=protocol,
+                stage_rows=stage_rows,
+                vote_decision=vote_decision,
+                verifier_runtimes=verifier_runtimes,
+            )
+        )
+        for row in expansion_rows:
+            debate_rows.append(_debate_message_row(run_id, benchmark_slug, split_name, sample, row, "acs_expansion"))
+
+    all_turns = [*stage_rows, *verification_rows, *safe_verifier_rows, *expansion_rows]
     router_row = _router_row(
         run_id=run_id,
         dataset=benchmark_slug,
@@ -383,6 +421,7 @@ def _run_cred_sample(
         router=router,
         self_verification_count=len(verification_rows),
         hetero_verification_count=len(safe_verifier_rows),
+        expansion_count=len(expansion_rows),
     )
     prediction_rows: list[dict[str, Any]] = []
     for method_name in experiment.cred_methods:
@@ -417,6 +456,21 @@ def _run_cred_sample(
             )
             debate_turns = list(safe_verifier_rows)
             method_turns = [*stage_rows, *debate_turns]
+        elif method_name in CRED_ACS_METHODS:
+            decision = aggregate_adaptive_candidate_search(
+                dataset=benchmark_slug,
+                question=sample.question,
+                context=sample.prompt_context,
+                stage_rows=stage_rows,
+                expansion_rows=expansion_rows,
+                stage_winner=vote_decision.final_answer,
+                expansion_modes=protocol.expansion_modes,
+                promotion_min_independent_support=protocol.promotion_min_independent_support,
+                promotion_margin_min=protocol.promotion_margin_min,
+                strong_majority_count=protocol.strong_majority_count,
+            )
+            debate_turns = list(expansion_rows)
+            method_turns = [*stage_rows, *debate_turns]
         prediction_rows.append(
             _prediction_row(
                 run_id=run_id,
@@ -432,9 +486,106 @@ def _run_cred_sample(
                 debate_rows=debate_turns,
                 method_turns=method_turns,
                 targets=targets,
+                expansion_rows=expansion_rows,
             )
         )
     return all_turns, debate_rows, [router_row], prediction_rows
+
+
+def _run_acs_expansions(
+    *,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    sample: DatasetSample,
+    experiment: CredVExperimentConfig,
+    protocol: CredVProtocolConfig,
+    stage_rows: list[dict[str, Any]],
+    vote_decision,
+    verifier_runtimes: list[CredVerifierRuntime],
+) -> list[dict[str, Any]]:
+    mode = expansion_mode_for_dataset(benchmark_slug, protocol.expansion_modes)
+    if not mode:
+        return []
+    allowed_refs = set(protocol.expansion_model_refs) or set(experiment.verifier_model_refs)
+    runtimes = [runtime for runtime in verifier_runtimes if not allowed_refs or runtime.model_ref in allowed_refs]
+    if not runtimes:
+        return []
+    max_calls = int(protocol.max_expansion_calls)
+    if mode in {"math_symbolic_repair", "hotpot_span_extract"}:
+        max_calls = min(max_calls, 1)
+    elif mode == "strategyqa_dual_polarity":
+        max_calls = min(max_calls, 3)
+    elif mode == "mc_choice_shuffle":
+        max_calls = min(max_calls, 3)
+        if not _multiple_choice_options(sample):
+            return []
+    rows: list[dict[str, Any]] = []
+    for index in range(1, max_calls + 1):
+        runtime = runtimes[(index - 1) % len(runtimes)]
+        permutation: list[int] = []
+        shuffled_options: list[str] = []
+        if mode == "math_symbolic_repair":
+            messages = build_math_symbolic_repair_messages(
+                sample,
+                leading_answer=vote_decision.final_answer,
+                stage_rows=stage_rows,
+            )
+        elif mode == "hotpot_span_extract":
+            messages = build_hotpot_span_extractor_messages(
+                sample,
+                leading_answer=vote_decision.final_answer,
+                stage_rows=stage_rows,
+            )
+        elif mode == "strategyqa_dual_polarity":
+            messages = build_strategyqa_dual_polarity_messages(
+                sample,
+                variant_index=index,
+                leading_answer=vote_decision.final_answer,
+                stage_rows=stage_rows,
+            )
+        else:
+            options = _multiple_choice_options(sample)
+            permutation = choice_permutation(len(options), index)
+            shuffled_options = [options[position] for position in permutation]
+            messages = build_choice_shuffle_solver_messages(
+                sample,
+                shuffled_options=shuffled_options,
+                shuffle_label=f"shuffle_{index}",
+            )
+        row = _execute_turn(
+            run_id=run_id,
+            dataset=benchmark_slug,
+            split_name=split_name,
+            sample=sample,
+            method_name="cred_acs_expansion",
+            method_type="expansion",
+            round_index=1,
+            agent_id=600 + index,
+            role="expansion",
+            agent_role=f"acs:{mode}:{runtime.model_ref}",
+            visible_peer_count=len(stage_rows),
+            messages=messages,
+            backbone=runtime.backbone,
+            provider=runtime.provider,
+            cache=runtime.cache,
+            throttle=runtime.throttle,
+            temperature=protocol.verifier_temperature,
+            top_p=protocol.top_p,
+            seed=experiment.global_seed + 600 + index,
+            output_protocol=experiment.cred_verification_output_protocol,
+            max_tokens=_positive_token_cap(protocol.verifier_max_tokens),
+        )
+        _annotate_expansion_row(
+            row,
+            sample=sample,
+            mode=mode,
+            expansion_index=index,
+            permutation=permutation,
+            shuffled_options=shuffled_options,
+        )
+        rows.append(row)
+    return rows
 
 
 def _execute_turn(
@@ -538,6 +689,74 @@ def _execute_turn(
     return row
 
 
+def _annotate_expansion_row(
+    row: dict[str, Any],
+    *,
+    sample: DatasetSample,
+    mode: str,
+    expansion_index: int,
+    permutation: list[int],
+    shuffled_options: list[str],
+) -> None:
+    row["expansion_mode"] = mode
+    row["expansion_index"] = expansion_index
+    row["expansion_shuffle_permutation"] = permutation
+    row["expansion_shuffled_options"] = shuffled_options
+    row["raw_shuffled_answer"] = ""
+    if mode == "mc_choice_shuffle":
+        raw_answer = str(row.get("normalized_answer") or row.get("prediction") or "")
+        mapped = map_shuffled_choice_answer(raw_answer, permutation)
+        row["raw_shuffled_answer"] = raw_answer
+        if mapped:
+            row["prediction"] = mapped
+            row["normalized_answer"] = mapped
+            if isinstance(row.get("validated_output"), dict):
+                row["validated_output"]["answer"] = mapped
+                row["validated_output"]["final_answer"] = mapped
+                row["validated_output"]["raw_shuffled_answer"] = raw_answer
+                row["validated_output"]["shuffle_permutation"] = permutation
+    row["expansion_validation_pass"] = _expansion_validation_pass(row, sample=sample, mode=mode)
+    row["evidence_quality"] = evidence_quality(row)
+
+
+def _expansion_validation_pass(row: dict[str, Any], *, sample: DatasetSample, mode: str) -> bool:
+    if row.get("request_status") != "ok" or row.get("output_status") != "ok" or row.get("protocol_parse_status") == "failed":
+        return False
+    answer = str(row.get("normalized_answer") or row.get("prediction") or "").strip()
+    if not answer or answer.lower() in {"unknown", "n/a", "none"}:
+        return False
+    if mode == "mc_choice_shuffle":
+        options = _multiple_choice_options(sample)
+        return bool(options) and answer in {chr(ord("A") + index) for index in range(len(options))}
+    if mode == "strategyqa_dual_polarity":
+        return answer.lower() in {"yes", "no"}
+    if mode == "hotpot_span_extract":
+        return _context_supports_answer_text(sample.prompt_context, answer)
+    return True
+
+
+def _multiple_choice_options(sample: DatasetSample) -> list[str]:
+    raw_options = sample.metadata.get("options") or sample.metadata.get("choices") or []
+    if not isinstance(raw_options, list):
+        return []
+    return [str(option).strip() for option in raw_options if str(option).strip()]
+
+
+def _context_supports_answer_text(context: str, answer: str) -> bool:
+    context_norm = _normalize_span_text(context)
+    answer_norm = _normalize_span_text(answer)
+    return bool(answer_norm and answer_norm in context_norm)
+
+
+def _normalize_span_text(value: str) -> str:
+    import re
+    import unicodedata
+
+    text = unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode("ascii")
+    text = re.sub(r"[^a-zA-Z0-9]+", " ", text.lower()).strip()
+    return re.sub(r"\s+", " ", text)
+
+
 def _prediction_row(
     *,
     run_id: str,
@@ -553,6 +772,7 @@ def _prediction_row(
     debate_rows: list[dict[str, Any]],
     method_turns: list[dict[str, Any]],
     targets: list[dict[str, Any]],
+    expansion_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
     prediction = decision.final_answer
     score = score_prediction(dataset, prediction, sample.reference_answer)
@@ -569,6 +789,12 @@ def _prediction_row(
         score_prediction(dataset, str(row.get("normalized_answer") or row.get("prediction") or ""), sample.reference_answer) == 1.0
         for row in stage_rows
     )
+    expansion_oracle_correct = any(
+        score_prediction(dataset, str(row.get("normalized_answer") or row.get("prediction") or ""), sample.reference_answer) == 1.0
+        for row in expansion_rows
+        if row.get("request_status") == "ok" and row.get("output_status") == "ok"
+    )
+    candidate_pool_oracle_correct = oracle_candidate_correct or expansion_oracle_correct
     target_correct = (
         None
         if not targets
@@ -581,6 +807,12 @@ def _prediction_row(
         "cred_verify_safe_tool"
     )
     hetero_agreement_applied = str(decision.resolver) == "cred_verify_safe_hetero_promoted"
+    math_repair_applied = str(decision.resolver) == "cred_acs_math_repair"
+    hotpot_span_repair_applied = str(decision.resolver) == "cred_acs_hotpot_span_repair"
+    single_pro_blocked = str(decision.resolver) == "cred_acs_single_pro_blocked"
+    expansion_mode = str(next((row.get("expansion_mode") for row in expansion_rows if row.get("expansion_mode")), ""))
+    expansion_validation_pass_count = sum(1 for row in expansion_rows if row.get("expansion_validation_pass") is True)
+    choice_shuffle_agreement_count = _choice_shuffle_agreement_count(dataset, expansion_rows)
     row = asdict(
         CredPredictionRecord(
             run_id=run_id,
@@ -634,12 +866,35 @@ def _prediction_row(
             target_correct=target_correct,
             safe_repair_applied=safe_repair_applied,
             hetero_agreement_applied=hetero_agreement_applied,
+            expansion_call_count=len(expansion_rows),
+            expansion_mode=expansion_mode,
+            false_consensus_triggered="false_consensus_probe" in set(router.reasons),
+            candidate_pool_oracle_correct=candidate_pool_oracle_correct,
+            expansion_oracle_correct=expansion_oracle_correct,
+            expansion_validation_pass_count=expansion_validation_pass_count,
+            math_repair_applied=math_repair_applied,
+            hotpot_span_repair_applied=hotpot_span_repair_applied,
+            choice_shuffle_agreement_count=choice_shuffle_agreement_count,
+            single_pro_promotion_blocked=single_pro_blocked,
             protocol_failures_per_question=sum(1 for row in method_turns if row.get("protocol_parse_status") == "failed"),
             reason_missing_turns_per_question=sum(1 for row in method_turns if not row.get("reason_present")),
         )
     )
     row["vote_counts"] = row["initial_vote_counts"]
     return row
+
+
+def _choice_shuffle_agreement_count(dataset: str, expansion_rows: list[dict[str, Any]]) -> int:
+    if dataset not in {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro"}:
+        return 0
+    counts: dict[str, int] = {}
+    for row in expansion_rows:
+        if row.get("expansion_mode") != "mc_choice_shuffle" or row.get("expansion_validation_pass") is not True:
+            continue
+        answer = str(row.get("normalized_answer") or row.get("prediction") or "").strip()
+        if answer:
+            counts[answer] = counts.get(answer, 0) + 1
+    return max(counts.values(), default=0)
 
 
 def build_control_prediction_row(
@@ -714,6 +969,16 @@ def build_control_prediction_row(
         "target_correct": None,
         "safe_repair_applied": False,
         "hetero_agreement_applied": False,
+        "expansion_call_count": 0,
+        "expansion_mode": "",
+        "false_consensus_triggered": False,
+        "candidate_pool_oracle_correct": final_score == 1.0,
+        "expansion_oracle_correct": False,
+        "expansion_validation_pass_count": 0,
+        "math_repair_applied": False,
+        "hotpot_span_repair_applied": False,
+        "choice_shuffle_agreement_count": 0,
+        "single_pro_promotion_blocked": False,
         "protocol_failures_per_question": sum(1 for row in turn_rows if row.get("protocol_parse_status") == "failed"),
         "reason_missing_turns_per_question": sum(1 for row in turn_rows if not row.get("reason_present")),
         "vote_counts": vote_counts,
@@ -762,6 +1027,13 @@ def build_debate_diagnostics(
             "target_correct": row.get("target_correct"),
             "safe_repair_applied": row.get("safe_repair_applied"),
             "hetero_agreement_applied": row.get("hetero_agreement_applied"),
+            "expansion_call_count": row.get("expansion_call_count"),
+            "expansion_mode": row.get("expansion_mode"),
+            "candidate_pool_oracle_correct": row.get("candidate_pool_oracle_correct"),
+            "expansion_oracle_correct": row.get("expansion_oracle_correct"),
+            "math_repair_applied": row.get("math_repair_applied"),
+            "hotpot_span_repair_applied": row.get("hotpot_span_repair_applied"),
+            "single_pro_promotion_blocked": row.get("single_pro_promotion_blocked"),
             "initial_vote_prediction": row.get("initial_vote_prediction"),
             "prediction": row.get("prediction"),
             "debate_tokens": row.get("debate_total_tokens_per_question"),
@@ -793,6 +1065,10 @@ def build_router_eval(router_rows: list[dict[str, Any]]) -> dict[str, Any]:
                 "refutation_calls_mean": safe_mean(float(row.get("refutation_count") or 0.0) for row in rows),
                 "self_verification_calls_mean": safe_mean(float(row.get("self_verification_count") or 0.0) for row in rows),
                 "hetero_verification_calls_mean": safe_mean(float(row.get("hetero_verification_count") or 0.0) for row in rows),
+                "expansion_calls_mean": safe_mean(float(row.get("expansion_count") or 0.0) for row in rows),
+                "false_consensus_trigger_count": sum(1 for row in rows if row.get("trigger_bucket") == "false_consensus_probe"),
+                "weak_split_trigger_count": sum(1 for row in rows if row.get("trigger_bucket") == "weak_split"),
+                "clean_skip_count": sum(1 for row in rows if row.get("trigger_bucket") == "clean_skip"),
             }
         )
     if router_rows:
@@ -806,6 +1082,10 @@ def build_router_eval(router_rows: list[dict[str, Any]]) -> dict[str, Any]:
                 "refutation_calls_mean": safe_mean(float(row.get("refutation_count") or 0.0) for row in router_rows),
                 "self_verification_calls_mean": safe_mean(float(row.get("self_verification_count") or 0.0) for row in router_rows),
                 "hetero_verification_calls_mean": safe_mean(float(row.get("hetero_verification_count") or 0.0) for row in router_rows),
+                "expansion_calls_mean": safe_mean(float(row.get("expansion_count") or 0.0) for row in router_rows),
+                "false_consensus_trigger_count": sum(1 for row in router_rows if row.get("trigger_bucket") == "false_consensus_probe"),
+                "weak_split_trigger_count": sum(1 for row in router_rows if row.get("trigger_bucket") == "weak_split"),
+                "clean_skip_count": sum(1 for row in router_rows if row.get("trigger_bucket") == "clean_skip"),
             }
         )
     return {"sample_rows": router_rows, "summary_rows": summary_rows}
@@ -822,6 +1102,8 @@ def estimate_work(experiment: CredVExperimentConfig, phase_name: str, benchmarks
             total_calls += sample_count * protocol.max_verifications
         if CRED_SAFE_VERIFY_METHODS & set(experiment.cred_methods) and experiment.verifier_model_refs:
             total_calls += sample_count * protocol.max_verification_calls
+        if CRED_ACS_METHODS & set(experiment.cred_methods) and experiment.verifier_model_refs:
+            total_calls += sample_count * protocol.max_expansion_calls
         total_predictions += sample_count * len(experiment.cred_methods)
         for method_name in experiment.control_methods:
             total_calls += sample_count * controls[method_name].budget_calls
@@ -846,6 +1128,7 @@ def _router_row(
     router,
     self_verification_count: int,
     hetero_verification_count: int,
+    expansion_count: int,
 ) -> dict[str, Any]:
     verification_count = int(self_verification_count) + int(hetero_verification_count)
     return {
@@ -853,16 +1136,19 @@ def _router_row(
         "dataset": dataset,
         "split": split_name,
         "sample_id": sample.sample_id,
-        "policy_name": "cred_v_task_router_v3",
+        "policy_name": "cred_acs_router_v1",
         "triggered": router.triggered,
+        "trigger_bucket": router.trigger_bucket,
         "trigger_reasons": list(router.reasons),
         "leading_answer": router.leading_answer,
         "vote_counts": router.vote_counts,
         "risk_count": router.risk_count,
         "evidence_quality_mean": router.evidence_quality_mean,
+        "leading_count": router.leading_count,
         "verification_count": verification_count,
         "self_verification_count": self_verification_count,
         "hetero_verification_count": hetero_verification_count,
+        "expansion_count": expansion_count,
         "refutation_count": verification_count,
         "defense_count": 0,
         "judge_used": False,
@@ -913,10 +1199,18 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
     harmed_count = sum(1 for row in rows if row.get("harmed_by_debate"))
     triggered_count = sum(1 for row in rows if row.get("triggered"))
     oracle_accuracy = safe_mean(1.0 if row.get("oracle_candidate_correct") else 0.0 for row in rows)
+    candidate_pool_oracle_accuracy = safe_mean(1.0 if row.get("candidate_pool_oracle_correct") else 0.0 for row in rows)
+    expansion_oracle_accuracy = safe_mean(1.0 if row.get("expansion_oracle_correct") else 0.0 for row in rows)
     target_rows = [row for row in rows if row.get("wrong_majority_some_correct") and row.get("target_correct") is not None]
+    candidate_pool_target_rows = [row for row in rows if _initial_vote_score(row) < 1.0 and row.get("candidate_pool_oracle_correct")]
     promotion_events = corrected_count + harmed_count
     safe_repair_count = sum(1 for row in rows if row.get("safe_repair_applied"))
     hetero_agreement_count = sum(1 for row in rows if row.get("hetero_agreement_applied"))
+    math_repair_count = sum(1 for row in rows if row.get("math_repair_applied"))
+    hotpot_span_repair_count = sum(1 for row in rows if row.get("hotpot_span_repair_applied"))
+    single_pro_blocked_count = sum(1 for row in rows if row.get("single_pro_promotion_blocked"))
+    validator_pass_count = sum(int(row.get("expansion_validation_pass_count") or 0) for row in rows)
+    choice_shuffle_agreement_count = sum(int(row.get("choice_shuffle_agreement_count") or 0) for row in rows)
     return {
         "dataset": dataset,
         "aggregate_kind": aggregate_kind,
@@ -929,7 +1223,11 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
         "initial_vote_accuracy_mean": initial_accuracy,
         "oracle_accuracy_mean": oracle_accuracy,
         "oracle_gap": round(oracle_accuracy - initial_accuracy, 6),
+        "candidate_pool_oracle_accuracy": candidate_pool_oracle_accuracy,
+        "expansion_oracle_accuracy": expansion_oracle_accuracy,
+        "expansion_oracle_gain": round(candidate_pool_oracle_accuracy - oracle_accuracy, 6),
         "target_precision_on_wrong_majority": safe_mean(1.0 if row.get("target_correct") else 0.0 for row in target_rows),
+        "promotion_recall_on_wrong_majority": safe_ratio(corrected_count, len(candidate_pool_target_rows)),
         "debate_gain_over_initial_vote": round(accuracy - initial_accuracy, 6),
         "verification_gain_over_initial_vote": round(accuracy - initial_accuracy, 6),
         "prompt_tokens_mean": safe_mean(float(row["prompt_tokens_per_question"]) for row in rows),
@@ -944,6 +1242,8 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
         "debate_rounds": safe_mean(float(row["debate_rounds"]) for row in rows),
         "agent_count": safe_mean(float(row["agent_count"]) for row in rows),
         "trigger_rate": safe_ratio(triggered_count, question_count),
+        "expansion_trigger_rate": safe_mean(1.0 if int(row.get("expansion_call_count") or 0) > 0 else 0.0 for row in rows),
+        "false_consensus_trigger_count": sum(1 for row in rows if row.get("false_consensus_triggered")),
         "corrected_count": corrected_count,
         "harmed_count": harmed_count,
         "verified_corrected_count": corrected_count,
@@ -952,6 +1252,11 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
         "harm_per_correction": round((harmed_count / corrected_count) if corrected_count else float(harmed_count), 6),
         "safe_repair_count": safe_repair_count,
         "hetero_agreement_count": hetero_agreement_count,
+        "math_repair_count": math_repair_count,
+        "hotpot_span_repair_count": hotpot_span_repair_count,
+        "validator_pass_count": validator_pass_count,
+        "choice_shuffle_agreement_count": choice_shuffle_agreement_count,
+        "single_pro_promotion_blocked_count": single_pro_blocked_count,
         "corrected_rate": safe_ratio(corrected_count, question_count),
         "harmed_rate": safe_ratio(harmed_count, question_count),
         "flip_rate": safe_mean(1.0 if row.get("vote_flipped") else 0.0 for row in rows),
@@ -992,6 +1297,8 @@ def _macro_from_rows(rows: list[dict[str, Any]], *, dataset: str, model_name: st
     total_tokens = safe_mean(float(row["total_tokens_mean"]) for row in rows)
     initial_accuracy = safe_mean(float(row["initial_vote_accuracy_mean"]) for row in rows)
     oracle_accuracy = safe_mean(float(row.get("oracle_accuracy_mean") or 0.0) for row in rows)
+    candidate_pool_oracle_accuracy = safe_mean(float(row.get("candidate_pool_oracle_accuracy") or 0.0) for row in rows)
+    expansion_oracle_accuracy = safe_mean(float(row.get("expansion_oracle_accuracy") or 0.0) for row in rows)
     corrected_count = sum(int(row["corrected_count"]) for row in rows)
     harmed_count = sum(int(row["harmed_count"]) for row in rows)
     return {
@@ -1006,7 +1313,11 @@ def _macro_from_rows(rows: list[dict[str, Any]], *, dataset: str, model_name: st
         "initial_vote_accuracy_mean": initial_accuracy,
         "oracle_accuracy_mean": oracle_accuracy,
         "oracle_gap": round(oracle_accuracy - initial_accuracy, 6),
+        "candidate_pool_oracle_accuracy": candidate_pool_oracle_accuracy,
+        "expansion_oracle_accuracy": expansion_oracle_accuracy,
+        "expansion_oracle_gain": round(candidate_pool_oracle_accuracy - oracle_accuracy, 6),
         "target_precision_on_wrong_majority": safe_mean(float(row.get("target_precision_on_wrong_majority") or 0.0) for row in rows),
+        "promotion_recall_on_wrong_majority": safe_mean(float(row.get("promotion_recall_on_wrong_majority") or 0.0) for row in rows),
         "debate_gain_over_initial_vote": round(accuracy - initial_accuracy, 6),
         "verification_gain_over_initial_vote": round(accuracy - initial_accuracy, 6),
         "prompt_tokens_mean": safe_mean(float(row["prompt_tokens_mean"]) for row in rows),
@@ -1021,6 +1332,8 @@ def _macro_from_rows(rows: list[dict[str, Any]], *, dataset: str, model_name: st
         "debate_rounds": safe_mean(float(row["debate_rounds"]) for row in rows),
         "agent_count": safe_mean(float(row["agent_count"]) for row in rows),
         "trigger_rate": safe_mean(float(row.get("trigger_rate") or 0.0) for row in rows),
+        "expansion_trigger_rate": safe_mean(float(row.get("expansion_trigger_rate") or 0.0) for row in rows),
+        "false_consensus_trigger_count": sum(int(row.get("false_consensus_trigger_count") or 0) for row in rows),
         "corrected_count": corrected_count,
         "harmed_count": harmed_count,
         "verified_corrected_count": corrected_count,
@@ -1029,6 +1342,11 @@ def _macro_from_rows(rows: list[dict[str, Any]], *, dataset: str, model_name: st
         "harm_per_correction": round((harmed_count / corrected_count) if corrected_count else float(harmed_count), 6),
         "safe_repair_count": sum(int(row.get("safe_repair_count") or 0) for row in rows),
         "hetero_agreement_count": sum(int(row.get("hetero_agreement_count") or 0) for row in rows),
+        "math_repair_count": sum(int(row.get("math_repair_count") or 0) for row in rows),
+        "hotpot_span_repair_count": sum(int(row.get("hotpot_span_repair_count") or 0) for row in rows),
+        "validator_pass_count": sum(int(row.get("validator_pass_count") or 0) for row in rows),
+        "choice_shuffle_agreement_count": sum(int(row.get("choice_shuffle_agreement_count") or 0) for row in rows),
+        "single_pro_promotion_blocked_count": sum(int(row.get("single_pro_promotion_blocked_count") or 0) for row in rows),
         "corrected_rate": safe_mean(float(row["corrected_rate"]) for row in rows),
         "harmed_rate": safe_mean(float(row["harmed_rate"]) for row in rows),
         "flip_rate": safe_mean(float(row["flip_rate"]) for row in rows),

@@ -1,0 +1,28 @@
+stage_a_agent_count = 5
+
+# Legacy verifier controls retained for comparison methods.
+max_verifications = 1
+max_verification_calls = 1
+verification_modes = ["deterministic_repair", "tool_verified", "hetero_verified"]
+allow_same_model_promotion = false
+
+# CRED-ACS v1: adaptive candidate search, not verifier promotion.
+expansion_modes = ["math_symbolic_repair", "hotpot_span_extract", "mc_choice_shuffle", "strategyqa_dual_polarity"]
+expansion_model_refs = ["xiaomimimo/mimo-v2.5-pro"]
+max_expansion_calls = 3
+promotion_min_independent_support = 2
+promotion_margin_min = 1.0
+allow_single_verifier_promotion = false
+false_consensus_probe = true
+max_trigger_rate = 0.30
+
+stage_a_temperature = 0.7
+verifier_temperature = 0.0
+top_p = 1.0
+strong_majority_count = 4
+weak_majority_count = 3
+concrete_evidence_min_chars = 12
+stage_a_max_tokens = 0
+verifier_max_tokens = 1024
+promotion_confidence_min = 0.72
+promotion_score_margin = 0.15

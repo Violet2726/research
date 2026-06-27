@@ -1,8 +1,9 @@
 # cred_v
 
-`cred_v` is the verifier-centric successor line for CRED. It uses strong
-free-text CoT candidates for Stage A and treats challenger promotion as a
-selective verification problem rather than open-ended multi-agent debate.
+`cred_v` is now the CRED-ACS line: adaptive candidate search with verifiable
+aggregation. Stage A uses five structured role contracts, then the router sends
+only risky samples to `mimo-v2.5-pro` as a candidate generator. The pro model is
+not allowed to act as a one-shot judge.
 
 Initial methods:
 
@@ -12,7 +13,12 @@ Initial methods:
   concrete-evidence gates. This is retained as a legacy self-verifier baseline.
 - `cred_verify_safe_v1`: promotes challengers only through deterministic repairs,
   rule/tool verification, or a verifier model variant such as `mimo-v2.5-pro`.
-  Same-model verifier promotion is disabled by default.
+  Same-model verifier promotion is disabled by default. This is retained as a
+  legacy safety baseline.
+- `cred_acs_v1`: expands candidates with math repair, Hotpot span extraction,
+  multiple-choice option shuffling, or StrategyQA dual-polarity checks. Final
+  promotion requires deterministic repair or at least two independent expansion
+  supports with a positive aggregation margin.
 
 Run the screening phase:
 

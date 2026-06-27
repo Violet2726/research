@@ -16,10 +16,12 @@ from research_experiments.family_runtime.output_protocols import validate_output
 CRED_V_VOTE_5 = "cred_v_vote_5"
 CRED_V_TASK_VERIFY_V3 = "cred_v_task_verify_v3"
 CRED_VERIFY_SAFE_V1 = "cred_verify_safe_v1"
-CRED_METHODS = frozenset({CRED_V_VOTE_5, CRED_V_TASK_VERIFY_V3, CRED_VERIFY_SAFE_V1})
+CRED_ACS_V1 = "cred_acs_v1"
+CRED_METHODS = frozenset({CRED_V_VOTE_5, CRED_V_TASK_VERIFY_V3, CRED_VERIFY_SAFE_V1, CRED_ACS_V1})
 CRED_VERIFY_METHODS = frozenset({CRED_V_TASK_VERIFY_V3})
 CRED_SAFE_VERIFY_METHODS = frozenset({CRED_VERIFY_SAFE_V1})
-CRED_COMM_METHODS = CRED_VERIFY_METHODS | CRED_SAFE_VERIFY_METHODS
+CRED_ACS_METHODS = frozenset({CRED_ACS_V1})
+CRED_COMM_METHODS = CRED_VERIFY_METHODS | CRED_SAFE_VERIFY_METHODS | CRED_ACS_METHODS
 CRED_VOTE_METHODS = frozenset({CRED_V_VOTE_5})
 
 
@@ -29,6 +31,14 @@ class CredVProtocolConfig:
     max_verifications: int
     max_verification_calls: int
     verification_modes: tuple[str, ...]
+    expansion_modes: tuple[str, ...]
+    expansion_model_refs: tuple[str, ...]
+    max_expansion_calls: int
+    promotion_min_independent_support: int
+    promotion_margin_min: float
+    allow_single_verifier_promotion: bool
+    false_consensus_probe: bool
+    max_trigger_rate: float
     allow_same_model_promotion: bool
     stage_a_temperature: float
     verifier_temperature: float
@@ -78,6 +88,20 @@ def load_protocol_config(path: str | Path) -> CredVProtocolConfig:
                 ["deterministic_repair", "tool_verified", "hetero_verified"],
             )
         ),
+        expansion_modes=tuple(
+            str(item)
+            for item in payload.get(
+                "expansion_modes",
+                ["math_symbolic_repair", "hotpot_span_extract", "mc_choice_shuffle", "strategyqa_dual_polarity"],
+            )
+        ),
+        expansion_model_refs=tuple(str(item) for item in payload.get("expansion_model_refs", [])),
+        max_expansion_calls=int(payload.get("max_expansion_calls", 0)),
+        promotion_min_independent_support=int(payload.get("promotion_min_independent_support", 2)),
+        promotion_margin_min=float(payload.get("promotion_margin_min", payload.get("promotion_score_margin", 1.0))),
+        allow_single_verifier_promotion=_parse_bool(payload.get("allow_single_verifier_promotion", False)),
+        false_consensus_probe=_parse_bool(payload.get("false_consensus_probe", False)),
+        max_trigger_rate=float(payload.get("max_trigger_rate", 1.0)),
         allow_same_model_promotion=_parse_bool(payload.get("allow_same_model_promotion", False)),
         stage_a_temperature=float(payload.get("stage_a_temperature", 0.7)),
         verifier_temperature=float(payload.get("verifier_temperature", 0.0)),
@@ -119,8 +143,8 @@ def load_experiment_config(path: str | Path) -> CredVExperimentConfig:
     cred_verification_output_protocol = validate_output_protocol(
         str(payload.get("cred_verification_output_protocol", JSON_OBJECT_ANSWER_PROTOCOL_V3))
     )
-    if cred_stage_a_output_protocol != FREE_TEXT_ANSWER_PROTOCOL_V1:
-        raise ValueError("cred_v cred_stage_a_output_protocol must be free_text_answer_v1.")
+    if cred_stage_a_output_protocol not in {FREE_TEXT_ANSWER_PROTOCOL_V1, JSON_OBJECT_ANSWER_PROTOCOL_V3}:
+        raise ValueError("cred_v cred_stage_a_output_protocol must be free_text_answer_v1 or json_object_answer_v3.")
     if cred_verification_output_protocol != JSON_OBJECT_ANSWER_PROTOCOL_V3:
         raise ValueError("cred_v cred_verification_output_protocol must be json_object_answer_v3.")
     return CredVExperimentConfig(

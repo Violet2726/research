@@ -104,7 +104,7 @@ def _method_coverage_check(manifest: dict[str, Any], prediction_rows: list[dict[
 
 def _router_check(manifest: dict[str, Any], router_rows: list[dict[str, Any]]) -> dict[str, Any]:
     cred_methods = list(manifest.get("cred_methods") or [])
-    required = bool({"cred_v_task_verify_v3", "cred_verify_safe_v1"} & set(cred_methods))
+    required = bool({"cred_v_task_verify_v3", "cred_verify_safe_v1", "cred_acs_v1"} & set(cred_methods))
     return {
         "passed": (not required) or bool(router_rows),
         "required": required,
