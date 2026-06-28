@@ -12,7 +12,7 @@ from research_experiments.family_runtime.free_text_protocol import FREE_TEXT_ANS
 from research_experiments.family_runtime.free_text_protocol import build_free_text_answer_instruction, build_free_text_system_prompt
 from research_experiments.family_runtime.json_object_protocol import build_json_object_answer_instruction
 
-CRED_PROMPT_VERSION = "cred_rfs_v2"
+CRED_PROMPT_VERSION = "cred_rfs_v3"
 
 AGENT_ROLES = (
     "cot_builder",

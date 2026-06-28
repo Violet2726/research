@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from research_experiments.families.cred_v.run.sample import build_paired_comparisons
+from research_experiments.families.cred_v.run.sample import build_metrics, build_paired_comparisons
 
 
 def test_paired_comparison_reports_mcnemar_and_bootstrap_ci() -> None:
@@ -31,10 +31,114 @@ def test_paired_comparison_reports_mcnemar_and_bootstrap_ci() -> None:
     assert dataset_row["bootstrap_ci_low"] <= dataset_row["accuracy_delta"] <= dataset_row["bootstrap_ci_high"]
 
 
+def test_vote_anchor_summary_does_not_inherit_safe_select_expansion_counts() -> None:
+    rows = [
+        _summary_prediction("gpqa_diamond", "1", "sc_5", 1.0),
+        _summary_prediction("gpqa_diamond", "1", "cred_rfs_vote_5_anchor", 1.0),
+        _summary_prediction(
+            "gpqa_diamond",
+            "1",
+            "cred_rfs_safe_select_v3",
+            1.0,
+            pairwise_duel_count=3,
+            pairwise_duel_win_count=3,
+            gpqa_unanimous_duel_count=3,
+            method_expansion_call_count=3,
+        ),
+    ]
+
+    metrics = build_metrics(
+        rows,
+        dataset_order=["gpqa_diamond"],
+        method_order=["sc_5", "cred_rfs_vote_5_anchor", "cred_rfs_safe_select_v3"],
+        control_names=["sc_5"],
+    )
+    summary = metrics["summary"]
+    anchor = next(row for row in summary if row["dataset"] == "overall_micro" and row["method_name"] == "cred_rfs_vote_5_anchor")
+    safe = next(row for row in summary if row["dataset"] == "overall_micro" and row["method_name"] == "cred_rfs_safe_select_v3")
+
+    assert anchor["pairwise_duel_count"] == 0
+    assert anchor["minority_probe_count"] == 0
+    assert anchor["method_expansion_call_count"] == 0
+    assert safe["pairwise_duel_count"] == 3
+    assert safe["gpqa_unanimous_duel_count"] == 3
+    assert safe["method_expansion_call_count"] == 3
+
+
 def _prediction(dataset: str, sample_id: str, method_name: str, score: float) -> dict:
     return {
         "dataset": dataset,
         "sample_id": sample_id,
         "method_name": method_name,
         "score": score,
+    }
+
+
+def _summary_prediction(
+    dataset: str,
+    sample_id: str,
+    method_name: str,
+    score: float,
+    *,
+    pairwise_duel_count: int = 0,
+    pairwise_duel_win_count: int = 0,
+    gpqa_unanimous_duel_count: int = 0,
+    method_expansion_call_count: int = 0,
+) -> dict:
+    return {
+        "dataset": dataset,
+        "sample_id": sample_id,
+        "method_name": method_name,
+        "method_type": "control" if method_name == "sc_5" else "mad",
+        "model_name": "xiaomimimo/mimo-v2.5",
+        "score": score,
+        "initial_vote_score": score,
+        "total_tokens_per_question": 100.0,
+        "prompt_tokens_per_question": 60.0,
+        "completion_tokens_per_question": 40.0,
+        "latency_ms_per_question": 1.0,
+        "debate_total_tokens_per_question": 0.0,
+        "debate_prompt_tokens_per_question": 0.0,
+        "debate_completion_tokens_per_question": 0.0,
+        "debate_latency_ms_per_question": 0.0,
+        "calls_per_question": 5 + method_expansion_call_count,
+        "debate_rounds": 0,
+        "agent_count": 5,
+        "initial_consensus": False,
+        "final_consensus": True,
+        "vote_flipped": False,
+        "corrected_by_debate": False,
+        "harmed_by_debate": False,
+        "triggered": method_expansion_call_count > 0,
+        "oracle_candidate_correct": score == 1.0,
+        "stage_candidate_oracle_correct": score == 1.0,
+        "candidate_pool_oracle_correct": score == 1.0,
+        "expansion_oracle_correct": False,
+        "wrong_majority_some_correct": False,
+        "target_correct": None,
+        "safe_repair_applied": False,
+        "hetero_agreement_applied": False,
+        "expansion_call_count": method_expansion_call_count,
+        "method_expansion_call_count": method_expansion_call_count,
+        "false_consensus_triggered": False,
+        "math_repair_applied": False,
+        "hotpot_span_repair_applied": False,
+        "choice_shuffle_agreement_count": 0,
+        "single_pro_promotion_blocked": False,
+        "strong_majority_locked": False,
+        "pairwise_duel_count": pairwise_duel_count,
+        "pairwise_duel_win_count": pairwise_duel_win_count,
+        "safe_selector_corrected": False,
+        "safe_selector_harmed": False,
+        "gpqa_unanimous_duel_count": gpqa_unanimous_duel_count,
+        "blocked_2of3_pairwise_count": 0,
+        "blocked_mmlu_pairwise_count": 0,
+        "blocked_strategyqa_probe_count": 0,
+        "minority_probe_count": 0,
+        "non_answer_candidate_blocked": False,
+        "false_consensus_recovered": False,
+        "protocol_failures_per_question": 0,
+        "reason_missing_turns_per_question": 0,
+        "resolver": "no_comm_control" if method_name == "sc_5" else "cred_rfs_v3_rejected",
+        "router_reasons": [],
     }

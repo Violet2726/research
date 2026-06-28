@@ -101,7 +101,9 @@ def answer_family_key(dataset: str, answer: str) -> str:
 
 def build_router_decision(rows: list[dict[str, Any]], *, protocol) -> CredRouterDecision:
     dataset = _dataset_from_rows(rows)
-    pairwise_mode = "mc_blind_pairwise_duel" in {str(mode) for mode in getattr(protocol, "selection_modes", ())}
+    pairwise_mode = bool(
+        {"mc_blind_pairwise_duel", "gpqa_unanimous_pairwise_duel"} & {str(mode) for mode in getattr(protocol, "selection_modes", ())}
+    )
     grouped, _ = _stage_candidate_groups(dataset, rows)
     stage_decision = aggregate_stage_a_vote(rows)
     leading_answer = stage_decision.final_answer
@@ -659,6 +661,137 @@ def aggregate_pairwise_selection(
     )
 
 
+def aggregate_safe_select_v3(
+    *,
+    dataset: str,
+    question: str,
+    context: str,
+    stage_rows: list[dict[str, Any]],
+    selection_rows: list[dict[str, Any]],
+    stage_winner: str,
+    selection_modes: tuple[str, ...] | list[str],
+    leader_lock_count: int,
+    pairwise_duel_replicates: int,
+    pairwise_promotion_min_wins: int,
+    pairwise_allowed_datasets: tuple[str, ...] | list[str],
+    pairwise_option_count_max: int,
+    option_count: int,
+    require_stage_a_challenger_support: bool,
+    allow_strong_majority_pairwise_promotion: bool,
+) -> CredAggregateDecision:
+    del question
+    stage_decision = aggregate_stage_a_vote(stage_rows)
+    stage_support = dict(stage_decision.support)
+    if not stage_rows or not stage_winner:
+        return CredAggregateDecision(
+            stage_winner,
+            stage_support,
+            "cred_rfs_v3_empty_fallback",
+            False,
+            "stage_a",
+        )
+
+    modes = {str(mode) for mode in selection_modes}
+    leader_family = answer_family_key(dataset, stage_winner)
+    leader_count = _stage_family_count(dataset, stage_rows, leader_family)
+
+    if {"deterministic_repair", "hotpot_context_span_repair"} & modes:
+        for candidate in _safe_challenger_rows(dataset, stage_rows, stage_winner):
+            challenger = _row_answer(candidate)
+            if _deterministic_repair_allows(dataset, stage_winner, challenger, context):
+                resolver = "cred_rfs_v3_math_repair" if dataset in _MATH_DATASETS else "cred_rfs_v3_hotpot_span_repair"
+                return _safe_promoted_decision(
+                    dataset=dataset,
+                    stage_support=stage_support,
+                    stage_rows=stage_rows,
+                    stage_winner=stage_winner,
+                    winner=challenger,
+                    resolver=resolver,
+                    source="deterministic_repair",
+                )
+
+    support = _pairwise_support(dataset, stage_support, selection_rows)
+    if dataset in _SPAN_DATASETS and _has_non_answer_challenger(dataset, stage_rows, leader_family):
+        return CredAggregateDecision(
+            stage_winner,
+            support,
+            "cred_rfs_v3_non_answer_blocked",
+            False,
+            "stage_a",
+        )
+
+    if leader_count >= int(leader_lock_count) and not allow_strong_majority_pairwise_promotion:
+        return CredAggregateDecision(
+            stage_winner,
+            support,
+            "cred_rfs_v3_strong_majority_locked",
+            False,
+            "stage_a",
+        )
+
+    if "gpqa_unanimous_pairwise_duel" not in modes:
+        return CredAggregateDecision(
+            stage_winner,
+            support,
+            "cred_rfs_v3_pairwise_disabled",
+            False,
+            "stage_a",
+        )
+
+    allowed_datasets = {str(item) for item in pairwise_allowed_datasets}
+    if dataset not in allowed_datasets:
+        return CredAggregateDecision(
+            stage_winner,
+            support,
+            "cred_rfs_v3_pairwise_dataset_blocked",
+            False,
+            "stage_a",
+        )
+
+    if int(pairwise_option_count_max) > 0 and int(option_count) > int(pairwise_option_count_max):
+        return CredAggregateDecision(
+            stage_winner,
+            support,
+            "cred_rfs_v3_pairwise_option_count_blocked",
+            False,
+            "stage_a",
+        )
+
+    pairwise_eligible = _pairwise_duel_promotions(
+        dataset=dataset,
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        leader_family=leader_family,
+        require_stage_a_challenger_support=require_stage_a_challenger_support,
+        min_wins=max(int(pairwise_promotion_min_wins), int(pairwise_duel_replicates)),
+        mode_names=("gpqa_unanimous_pairwise_duel",),
+    )
+    unanimous_pairwise = [
+        item
+        for item in pairwise_eligible
+        if item[0] >= int(pairwise_duel_replicates) and item[1] >= int(pairwise_duel_replicates) and int(pairwise_duel_replicates) > 0
+    ]
+    if unanimous_pairwise:
+        wins, total, _, winner = max(unanimous_pairwise, key=lambda item: (item[0], item[1], item[3]))
+        support[winner] = round(max(float(support.get(winner, 0.0)), float(wins)), 6)
+        return CredAggregateDecision(
+            winner,
+            support,
+            "cred_rfs_v3_gpqa_unanimous_pairwise_promoted",
+            answer_family_key(dataset, winner) != leader_family,
+            "gpqa_unanimous_pairwise_duel",
+        )
+
+    resolver = "cred_rfs_v3_pairwise_rejected" if _has_pairwise_candidate_blocked(dataset, selection_rows, leader_family) else "cred_rfs_v3_rejected"
+    return CredAggregateDecision(
+        stage_winner,
+        support,
+        resolver,
+        False,
+        "stage_a",
+    )
+
+
 def select_verification_targets(
     *,
     dataset: str,
@@ -938,9 +1071,11 @@ def _pairwise_duel_promotions(
     leader_family: str,
     require_stage_a_challenger_support: bool,
     min_wins: int,
+    mode_names: tuple[str, ...] | list[str] = ("mc_blind_pairwise_duel",),
 ) -> list[tuple[int, int, int, str]]:
     if dataset not in _MC_DATASETS:
         return []
+    allowed_modes = {str(mode) for mode in mode_names}
     totals: dict[str, int] = defaultdict(int)
     wins: dict[str, int] = defaultdict(int)
     representatives: dict[str, str] = {}
@@ -950,7 +1085,7 @@ def _pairwise_duel_promotions(
         if _is_candidate(_row_answer(row))
     }
     for row in selection_rows:
-        if row.get("expansion_mode") != "mc_blind_pairwise_duel" or row.get("pairwise_validation_pass") is not True:
+        if row.get("expansion_mode") not in allowed_modes or row.get("pairwise_validation_pass") is not True:
             continue
         challenger_family = str(row.get("pairwise_challenger_family") or "")
         if not challenger_family or challenger_family == leader_family:
@@ -1008,7 +1143,7 @@ def _pairwise_support(dataset: str, stage_support: dict[str, float], selection_r
     support = {answer: float(value) for answer, value in stage_support.items()}
     for row in selection_rows:
         mode = str(row.get("expansion_mode") or "")
-        if mode == "mc_blind_pairwise_duel":
+        if mode in {"mc_blind_pairwise_duel", "gpqa_unanimous_pairwise_duel"}:
             if row.get("pairwise_validation_pass") is not True:
                 continue
             winner = str(row.get("pairwise_winner_answer") or "")
@@ -1025,7 +1160,7 @@ def _has_pairwise_candidate_blocked(dataset: str, selection_rows: list[dict[str,
     if dataset not in _MC_DATASETS:
         return False
     return any(
-        row.get("expansion_mode") == "mc_blind_pairwise_duel"
+        row.get("expansion_mode") in {"mc_blind_pairwise_duel", "gpqa_unanimous_pairwise_duel"}
         and row.get("pairwise_validation_pass") is True
         and str(row.get("pairwise_challenger_family") or "") != leader_family
         for row in selection_rows

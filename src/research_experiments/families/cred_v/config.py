@@ -21,6 +21,7 @@ CRED_RFS_VOTE_5 = "cred_rfs_vote_5"
 CRED_RFS_ADAPTIVE_SC_V1 = "cred_rfs_adaptive_sc_v1"
 CRED_RFS_VOTE_5_ANCHOR = "cred_rfs_vote_5_anchor"
 CRED_RFS_PAIRWISE_SELECT_V2 = "cred_rfs_pairwise_select_v2"
+CRED_RFS_SAFE_SELECT_V3 = "cred_rfs_safe_select_v3"
 CRED_METHODS = frozenset(
     {
         CRED_V_VOTE_5,
@@ -31,14 +32,18 @@ CRED_METHODS = frozenset(
         CRED_RFS_ADAPTIVE_SC_V1,
         CRED_RFS_VOTE_5_ANCHOR,
         CRED_RFS_PAIRWISE_SELECT_V2,
+        CRED_RFS_SAFE_SELECT_V3,
     }
 )
 CRED_VERIFY_METHODS = frozenset({CRED_V_TASK_VERIFY_V3})
 CRED_SAFE_VERIFY_METHODS = frozenset({CRED_VERIFY_SAFE_V1})
 CRED_ACS_METHODS = frozenset({CRED_ACS_V1})
 CRED_RFS_ADAPTIVE_METHODS = frozenset({CRED_RFS_ADAPTIVE_SC_V1})
-CRED_RFS_PAIRWISE_METHODS = frozenset({CRED_RFS_PAIRWISE_SELECT_V2})
-CRED_RFS_METHODS = frozenset({CRED_RFS_VOTE_5, CRED_RFS_ADAPTIVE_SC_V1, CRED_RFS_VOTE_5_ANCHOR, CRED_RFS_PAIRWISE_SELECT_V2})
+CRED_RFS_PAIRWISE_METHODS = frozenset({CRED_RFS_PAIRWISE_SELECT_V2, CRED_RFS_SAFE_SELECT_V3})
+CRED_RFS_SAFE_SELECT_METHODS = frozenset({CRED_RFS_SAFE_SELECT_V3})
+CRED_RFS_METHODS = frozenset(
+    {CRED_RFS_VOTE_5, CRED_RFS_ADAPTIVE_SC_V1, CRED_RFS_VOTE_5_ANCHOR, CRED_RFS_PAIRWISE_SELECT_V2, CRED_RFS_SAFE_SELECT_V3}
+)
 CRED_COMM_METHODS = CRED_VERIFY_METHODS | CRED_SAFE_VERIFY_METHODS | CRED_ACS_METHODS | CRED_RFS_ADAPTIVE_METHODS | CRED_RFS_PAIRWISE_METHODS
 CRED_VOTE_METHODS = frozenset({CRED_V_VOTE_5, CRED_RFS_VOTE_5, CRED_RFS_VOTE_5_ANCHOR})
 
@@ -54,6 +59,7 @@ class CredVProtocolConfig:
     expansion_modes: tuple[str, ...]
     expansion_model_refs: tuple[str, ...]
     disabled_expansion_modes: tuple[str, ...]
+    disabled_selection_modes: tuple[str, ...]
     max_expansion_calls: int
     adaptive_extra_solver_calls: int
     max_total_solver_calls: int
@@ -62,9 +68,12 @@ class CredVProtocolConfig:
     mc_shuffle_min_agreement: int
     pairwise_duel_replicates: int
     pairwise_promotion_min_wins: int
+    pairwise_allowed_datasets: tuple[str, ...]
+    pairwise_option_count_max: int
     require_stage_a_challenger_support: bool
     new_candidate_policy: str
     allow_single_verifier_promotion: bool
+    allow_strong_majority_pairwise_promotion: bool
     false_consensus_probe: bool
     max_trigger_rate: float
     trigger_buckets: tuple[str, ...]
@@ -135,6 +144,7 @@ def load_protocol_config(path: str | Path) -> CredVProtocolConfig:
         ),
         expansion_model_refs=tuple(str(item) for item in payload.get("expansion_model_refs", [])),
         disabled_expansion_modes=tuple(str(item) for item in payload.get("disabled_expansion_modes", [])),
+        disabled_selection_modes=tuple(str(item) for item in payload.get("disabled_selection_modes", [])),
         max_expansion_calls=int(payload.get("max_expansion_calls", 0)),
         adaptive_extra_solver_calls=int(payload.get("adaptive_extra_solver_calls", 0)),
         max_total_solver_calls=int(payload.get("max_total_solver_calls", 0)),
@@ -143,9 +153,12 @@ def load_protocol_config(path: str | Path) -> CredVProtocolConfig:
         mc_shuffle_min_agreement=int(payload.get("mc_shuffle_min_agreement", payload.get("promotion_min_independent_support", 2))),
         pairwise_duel_replicates=int(payload.get("pairwise_duel_replicates", 3)),
         pairwise_promotion_min_wins=int(payload.get("pairwise_promotion_min_wins", 2)),
+        pairwise_allowed_datasets=tuple(str(item) for item in payload.get("pairwise_allowed_datasets", [])),
+        pairwise_option_count_max=int(payload.get("pairwise_option_count_max", 0)),
         require_stage_a_challenger_support=_parse_bool(payload.get("require_stage_a_challenger_support", False)),
         new_candidate_policy=str(payload.get("new_candidate_policy", "allow")),
         allow_single_verifier_promotion=_parse_bool(payload.get("allow_single_verifier_promotion", False)),
+        allow_strong_majority_pairwise_promotion=_parse_bool(payload.get("allow_strong_majority_pairwise_promotion", False)),
         false_consensus_probe=_parse_bool(payload.get("false_consensus_probe", False)),
         max_trigger_rate=float(payload.get("max_trigger_rate", 1.0)),
         trigger_buckets=tuple(

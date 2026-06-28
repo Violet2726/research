@@ -7,6 +7,7 @@ from research_experiments.families.cred_v.algorithms import (
     aggregate_pairwise_selection,
     aggregate_reasoning_first_selection,
     aggregate_safe_verification,
+    aggregate_safe_select_v3,
     aggregate_stage_a_vote,
     aggregate_task_verification,
     build_router_decision,
@@ -502,6 +503,46 @@ def test_rfs_v2_router_keeps_clean_anchor_skip_and_probes_high_value_minority() 
     assert probed.trigger_bucket == "minority_probe"
 
 
+def test_rfs_v3_router_uses_weak_split_select_without_minority_probe() -> None:
+    protocol = SimpleNamespace(
+        strong_majority_count=4,
+        leader_lock_count=4,
+        trigger_buckets=("weak_split_select", "deterministic_repair_only"),
+        false_consensus_probe=False,
+        selection_modes=("gpqa_unanimous_pairwise_duel",),
+    )
+    split = build_router_decision(
+        [
+            _row("gpqa_diamond", "A", confidence=0.80),
+            _row("gpqa_diamond", "A", confidence=0.79),
+            _row("gpqa_diamond", "A", confidence=0.78),
+            _row("gpqa_diamond", "B", confidence=0.95),
+            _row("gpqa_diamond", "B", confidence=0.94),
+        ],
+        protocol=protocol,
+    )
+    locked = build_router_decision(
+        [
+            _row("gpqa_diamond", "A", confidence=0.80),
+            _row("gpqa_diamond", "A", confidence=0.79),
+            _row("gpqa_diamond", "A", confidence=0.78),
+            _row("gpqa_diamond", "A", confidence=0.77),
+            _row(
+                "gpqa_diamond",
+                "B",
+                confidence=0.99,
+                payload={"key_evidence": "option B has a decisive mechanistic clue that option A lacks"},
+            ),
+        ],
+        protocol=protocol,
+    )
+
+    assert split.triggered is True
+    assert split.trigger_bucket == "weak_split_select"
+    assert locked.triggered is False
+    assert locked.trigger_bucket == "clean_anchor_skip"
+
+
 def test_acs_ignores_failed_expansion_rows() -> None:
     stage_rows = [
         _row("mmlu_pro", "A", confidence=0.70),
@@ -864,6 +905,231 @@ def test_rfs_v2_hotpot_blocks_non_answer_candidate() -> None:
     assert decision.resolver == "cred_rfs_v2_non_answer_blocked"
 
 
+def test_rfs_v3_gpqa_unanimous_duel_promotes_stage_supported_challenger() -> None:
+    stage_rows = [
+        _row("gpqa_diamond", "A", confidence=0.70),
+        _row("gpqa_diamond", "A", confidence=0.69),
+        _row("gpqa_diamond", "A", confidence=0.68),
+        _row("gpqa_diamond", "B", confidence=0.90),
+        _row("gpqa_diamond", "B", confidence=0.89),
+    ]
+    selection_rows = [
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="gpqa_unanimous_pairwise_duel"),
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="gpqa_unanimous_pairwise_duel"),
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="gpqa_unanimous_pairwise_duel"),
+    ]
+
+    decision = aggregate_safe_select_v3(
+        dataset="gpqa_diamond",
+        question="Which option is best?",
+        context="",
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        stage_winner="A",
+        selection_modes=("gpqa_unanimous_pairwise_duel",),
+        leader_lock_count=4,
+        pairwise_duel_replicates=3,
+        pairwise_promotion_min_wins=3,
+        pairwise_allowed_datasets=("gpqa_diamond",),
+        pairwise_option_count_max=4,
+        option_count=4,
+        require_stage_a_challenger_support=True,
+        allow_strong_majority_pairwise_promotion=False,
+    )
+
+    assert decision.final_answer == "B"
+    assert decision.changed is True
+    assert decision.resolver == "cred_rfs_v3_gpqa_unanimous_pairwise_promoted"
+
+
+def test_rfs_v3_gpqa_two_of_three_duel_does_not_promote() -> None:
+    stage_rows = [
+        _row("gpqa_diamond", "A", confidence=0.70),
+        _row("gpqa_diamond", "A", confidence=0.69),
+        _row("gpqa_diamond", "A", confidence=0.68),
+        _row("gpqa_diamond", "B", confidence=0.90),
+        _row("gpqa_diamond", "B", confidence=0.89),
+    ]
+    selection_rows = [
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="gpqa_unanimous_pairwise_duel"),
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="gpqa_unanimous_pairwise_duel"),
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="A", mode="gpqa_unanimous_pairwise_duel"),
+    ]
+
+    decision = aggregate_safe_select_v3(
+        dataset="gpqa_diamond",
+        question="Which option is best?",
+        context="",
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        stage_winner="A",
+        selection_modes=("gpqa_unanimous_pairwise_duel",),
+        leader_lock_count=4,
+        pairwise_duel_replicates=3,
+        pairwise_promotion_min_wins=3,
+        pairwise_allowed_datasets=("gpqa_diamond",),
+        pairwise_option_count_max=4,
+        option_count=4,
+        require_stage_a_challenger_support=True,
+        allow_strong_majority_pairwise_promotion=False,
+    )
+
+    assert decision.final_answer == "A"
+    assert decision.changed is False
+    assert decision.resolver == "cred_rfs_v3_pairwise_rejected"
+
+
+def test_rfs_v3_mmlu_unanimous_duel_is_blocked() -> None:
+    stage_rows = [
+        _row("mmlu_pro", "A", confidence=0.70),
+        _row("mmlu_pro", "A", confidence=0.69),
+        _row("mmlu_pro", "A", confidence=0.68),
+        _row("mmlu_pro", "B", confidence=0.90),
+        _row("mmlu_pro", "B", confidence=0.89),
+    ]
+    selection_rows = [
+        _duel_row("mmlu_pro", leader="A", challenger="B", winner="B", mode="gpqa_unanimous_pairwise_duel"),
+        _duel_row("mmlu_pro", leader="A", challenger="B", winner="B", mode="gpqa_unanimous_pairwise_duel"),
+        _duel_row("mmlu_pro", leader="A", challenger="B", winner="B", mode="gpqa_unanimous_pairwise_duel"),
+    ]
+
+    decision = aggregate_safe_select_v3(
+        dataset="mmlu_pro",
+        question="Which option is best?",
+        context="",
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        stage_winner="A",
+        selection_modes=("gpqa_unanimous_pairwise_duel",),
+        leader_lock_count=4,
+        pairwise_duel_replicates=3,
+        pairwise_promotion_min_wins=3,
+        pairwise_allowed_datasets=("gpqa_diamond",),
+        pairwise_option_count_max=4,
+        option_count=4,
+        require_stage_a_challenger_support=True,
+        allow_strong_majority_pairwise_promotion=False,
+    )
+
+    assert decision.final_answer == "A"
+    assert decision.changed is False
+    assert decision.resolver == "cred_rfs_v3_pairwise_dataset_blocked"
+
+
+def test_rfs_v3_strategyqa_minority_probe_is_disabled() -> None:
+    stage_rows = [
+        _row("strategyqa", "yes", confidence=0.80),
+        _row("strategyqa", "yes", confidence=0.79),
+        _row("strategyqa", "yes", confidence=0.78),
+        _row("strategyqa", "no", confidence=0.95),
+        _row("strategyqa", "no", confidence=0.94),
+    ]
+    selection_rows = [
+        _row("strategyqa", "no", method_name="cred_rfs_expansion", expansion_mode="strategyqa_minority_resample"),
+        _row("strategyqa", "no", method_name="cred_rfs_expansion", expansion_mode="strategyqa_minority_resample"),
+    ]
+
+    decision = aggregate_safe_select_v3(
+        dataset="strategyqa",
+        question="Is the statement true?",
+        context="",
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        stage_winner="yes",
+        selection_modes=("deterministic_repair",),
+        leader_lock_count=4,
+        pairwise_duel_replicates=3,
+        pairwise_promotion_min_wins=3,
+        pairwise_allowed_datasets=("gpqa_diamond",),
+        pairwise_option_count_max=4,
+        option_count=0,
+        require_stage_a_challenger_support=True,
+        allow_strong_majority_pairwise_promotion=False,
+    )
+
+    assert decision.final_answer == "yes"
+    assert decision.changed is False
+    assert decision.resolver == "cred_rfs_v3_pairwise_disabled"
+
+
+def test_rfs_v3_strong_majority_not_overridden_by_unanimous_duel() -> None:
+    stage_rows = [
+        _row("gpqa_diamond", "A", confidence=0.80),
+        _row("gpqa_diamond", "A", confidence=0.79),
+        _row("gpqa_diamond", "A", confidence=0.78),
+        _row("gpqa_diamond", "A", confidence=0.77),
+        _row("gpqa_diamond", "B", confidence=0.95),
+    ]
+    selection_rows = [
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="gpqa_unanimous_pairwise_duel"),
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="gpqa_unanimous_pairwise_duel"),
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="gpqa_unanimous_pairwise_duel"),
+    ]
+
+    decision = aggregate_safe_select_v3(
+        dataset="gpqa_diamond",
+        question="Which option is best?",
+        context="",
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        stage_winner="A",
+        selection_modes=("gpqa_unanimous_pairwise_duel",),
+        leader_lock_count=4,
+        pairwise_duel_replicates=3,
+        pairwise_promotion_min_wins=3,
+        pairwise_allowed_datasets=("gpqa_diamond",),
+        pairwise_option_count_max=4,
+        option_count=4,
+        require_stage_a_challenger_support=True,
+        allow_strong_majority_pairwise_promotion=False,
+    )
+
+    assert decision.final_answer == "A"
+    assert decision.changed is False
+    assert decision.resolver == "cred_rfs_v3_strong_majority_locked"
+
+
+def test_rfs_v3_protocol_failure_duel_does_not_count_as_unanimous() -> None:
+    stage_rows = [
+        _row("gpqa_diamond", "A", confidence=0.70),
+        _row("gpqa_diamond", "A", confidence=0.69),
+        _row("gpqa_diamond", "A", confidence=0.68),
+        _row("gpqa_diamond", "B", confidence=0.90),
+        _row("gpqa_diamond", "B", confidence=0.89),
+    ]
+    failed = _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="gpqa_unanimous_pairwise_duel")
+    failed["protocol_parse_status"] = "failed"
+    failed["pairwise_validation_pass"] = False
+    failed["expansion_validation_pass"] = False
+    selection_rows = [
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="gpqa_unanimous_pairwise_duel"),
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="gpqa_unanimous_pairwise_duel"),
+        failed,
+    ]
+
+    decision = aggregate_safe_select_v3(
+        dataset="gpqa_diamond",
+        question="Which option is best?",
+        context="",
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        stage_winner="A",
+        selection_modes=("gpqa_unanimous_pairwise_duel",),
+        leader_lock_count=4,
+        pairwise_duel_replicates=3,
+        pairwise_promotion_min_wins=3,
+        pairwise_allowed_datasets=("gpqa_diamond",),
+        pairwise_option_count_max=4,
+        option_count=4,
+        require_stage_a_challenger_support=True,
+        allow_strong_majority_pairwise_promotion=False,
+    )
+
+    assert decision.final_answer == "A"
+    assert decision.changed is False
+    assert decision.resolver == "cred_rfs_v3_pairwise_rejected"
+
+
 def _row(
     dataset: str,
     answer: str,
@@ -900,8 +1166,16 @@ def _row(
     }
 
 
-def _duel_row(dataset: str, *, leader: str, challenger: str, winner: str, request_status: str = "ok") -> dict:
-    row = _row(dataset, winner, method_name="cred_rfs_expansion", expansion_mode="mc_blind_pairwise_duel", request_status=request_status)
+def _duel_row(
+    dataset: str,
+    *,
+    leader: str,
+    challenger: str,
+    winner: str,
+    request_status: str = "ok",
+    mode: str = "mc_blind_pairwise_duel",
+) -> dict:
+    row = _row(dataset, winner, method_name="cred_rfs_expansion", expansion_mode=mode, request_status=request_status)
     row["pairwise_leader_answer"] = leader
     row["pairwise_challenger_answer"] = challenger
     row["pairwise_winner_answer"] = winner
