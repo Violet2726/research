@@ -836,6 +836,145 @@ def aggregate_shadow_select_v4(
     )
 
 
+def aggregate_evidence_repair_v5(
+    *,
+    dataset: str,
+    question: str,
+    context: str,
+    stage_rows: list[dict[str, Any]],
+    selection_rows: list[dict[str, Any]],
+    stage_winner: str,
+    selection_modes: tuple[str, ...] | list[str],
+    leader_lock_count: int,
+    pairwise_duel_replicates: int,
+    pairwise_promotion_min_wins: int,
+    pairwise_allowed_datasets: tuple[str, ...] | list[str],
+    pairwise_option_count_max: int,
+    option_count: int,
+    require_stage_a_challenger_support: bool,
+    allow_strong_majority_pairwise_promotion: bool,
+) -> CredAggregateDecision:
+    del question
+    stage_decision = aggregate_stage_a_vote(stage_rows)
+    stage_support = dict(stage_decision.support)
+    if not stage_rows or not stage_winner:
+        return CredAggregateDecision(
+            stage_winner,
+            stage_support,
+            "cred_rfs_v5_empty_fallback",
+            False,
+            "stage_a",
+        )
+
+    modes = {str(mode) for mode in selection_modes}
+    leader_family = answer_family_key(dataset, stage_winner)
+    leader_count = _stage_family_count(dataset, stage_rows, leader_family)
+
+    for candidate in _safe_challenger_rows(dataset, stage_rows, stage_winner):
+        challenger = _row_answer(candidate)
+        if _math_equivalence_repair_v2_allows(dataset, stage_winner, challenger, modes):
+            return _safe_promoted_decision(
+                dataset=dataset,
+                stage_support=stage_support,
+                stage_rows=stage_rows,
+                stage_winner=stage_winner,
+                winner=challenger,
+                resolver="cred_rfs_v5_math_equivalence_repair_v2",
+                source="math_equivalence_repair_v2",
+            )
+        if _hotpot_context_span_repair_v2_allows(dataset, stage_winner, challenger, context, modes):
+            return _safe_promoted_decision(
+                dataset=dataset,
+                stage_support=stage_support,
+                stage_rows=stage_rows,
+                stage_winner=stage_winner,
+                winner=challenger,
+                resolver="cred_rfs_v5_hotpot_context_span_repair_v2",
+                source="hotpot_context_span_repair_v2",
+            )
+
+    support = _pairwise_support(dataset, stage_support, selection_rows)
+    if dataset in _SPAN_DATASETS and _has_non_answer_challenger(dataset, stage_rows, leader_family):
+        return CredAggregateDecision(
+            stage_winner,
+            support,
+            "cred_rfs_v5_non_answer_blocked",
+            False,
+            "stage_a",
+        )
+
+    if leader_count >= int(leader_lock_count) and not allow_strong_majority_pairwise_promotion:
+        return CredAggregateDecision(
+            stage_winner,
+            support,
+            "cred_rfs_v5_strong_majority_locked",
+            False,
+            "stage_a",
+        )
+
+    if "gpqa_unanimous_pairwise_duel" not in modes:
+        return CredAggregateDecision(
+            stage_winner,
+            support,
+            "cred_rfs_v5_pairwise_disabled",
+            False,
+            "stage_a",
+        )
+
+    allowed_datasets = {str(item) for item in pairwise_allowed_datasets}
+    if dataset not in allowed_datasets:
+        return CredAggregateDecision(
+            stage_winner,
+            support,
+            "cred_rfs_v5_pairwise_dataset_blocked",
+            False,
+            "stage_a",
+        )
+
+    if int(pairwise_option_count_max) > 0 and int(option_count) > int(pairwise_option_count_max):
+        return CredAggregateDecision(
+            stage_winner,
+            support,
+            "cred_rfs_v5_pairwise_option_count_blocked",
+            False,
+            "stage_a",
+        )
+
+    pairwise_eligible = _pairwise_duel_promotions(
+        dataset=dataset,
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        leader_family=leader_family,
+        require_stage_a_challenger_support=require_stage_a_challenger_support,
+        min_wins=max(int(pairwise_promotion_min_wins), int(pairwise_duel_replicates)),
+        mode_names=("gpqa_unanimous_pairwise_duel",),
+    )
+    unanimous_pairwise = [
+        item
+        for item in pairwise_eligible
+        if item[0] >= int(pairwise_duel_replicates) and item[1] >= int(pairwise_duel_replicates) and int(pairwise_duel_replicates) > 0
+    ]
+    if unanimous_pairwise:
+        wins, total, _, winner = max(unanimous_pairwise, key=lambda item: (item[0], item[1], item[3]))
+        support[winner] = round(max(float(support.get(winner, 0.0)), float(wins)), 6)
+        return CredAggregateDecision(
+            winner,
+            support,
+            "cred_rfs_v5_gpqa_unanimous_pairwise_promoted",
+            answer_family_key(dataset, winner) != leader_family,
+            "gpqa_unanimous_pairwise_duel",
+        )
+
+    resolver = "cred_rfs_v5_pairwise_rejected" if _has_pairwise_candidate_blocked(dataset, selection_rows, leader_family) else "cred_rfs_v5_rejected"
+    return CredAggregateDecision(
+        stage_winner,
+        support,
+        resolver,
+        False,
+        "stage_a",
+    )
+
+
 def select_verification_targets(
     *,
     dataset: str,
@@ -1290,6 +1429,26 @@ def _deterministic_repair_allows(dataset: str, leader: str, challenger: str, con
     return False
 
 
+def _math_equivalence_repair_v2_allows(dataset: str, leader: str, challenger: str, modes: set[str]) -> bool:
+    if dataset not in _MATH_DATASETS or "math_equivalence_repair_v2" not in modes:
+        return False
+    if str(leader).strip() == str(challenger).strip():
+        return False
+    leader_interval = _canonical_interval_text(leader)
+    challenger_interval = _canonical_interval_text(challenger)
+    if leader_interval and challenger_interval:
+        return leader_interval == challenger_interval
+    if _canonical_unit_text(leader) == _canonical_unit_text(challenger):
+        return True
+    return _math_equivalent(leader, challenger)
+
+
+def _hotpot_context_span_repair_v2_allows(dataset: str, leader: str, challenger: str, context: str, modes: set[str]) -> bool:
+    if dataset not in _SPAN_DATASETS or "hotpot_context_span_repair_v2" not in modes:
+        return False
+    return _hotpot_span_repair_allows(leader, challenger, context)
+
+
 def _tool_verification_allows(dataset: str, leader: str, challenger: str, context: str) -> bool:
     if dataset in _MATH_DATASETS:
         return _math_equivalent(leader, challenger) and str(leader).strip() != str(challenger).strip()
@@ -1335,6 +1494,10 @@ def _canonical_math_text(value: str) -> str:
 def _math_equivalent(left: str, right: str) -> bool:
     if _canonical_math_text(left) == _canonical_math_text(right):
         return True
+    left_interval = _canonical_interval_text(left)
+    right_interval = _canonical_interval_text(right)
+    if left_interval and right_interval:
+        return left_interval == right_interval
     try:
         import sympy as sp
         from sympy.parsing.sympy_parser import (
@@ -1361,6 +1524,36 @@ def _sympy_math_text(value: str) -> str:
     text = text.replace("π", "pi")
     text = re.sub(r"\\sqrt\{([^{}]+)\}", r"sqrt(\1)", text)
     text = re.sub(r"\\frac\{([^{}]+)\}\{([^{}]+)\}", r"(\1)/(\2)", text)
+    return text
+
+
+def _canonical_interval_text(value: str) -> str:
+    text = _canonical_math_text(value)
+    compact = re.sub(r"\s+", "", text)
+    match = re.fullmatch(r"([\(\[])([^,]+),([^,\)\]]+)([\)\]])", compact)
+    if match:
+        left, lower, upper, right = match.groups()
+        return f"{left}{_canonical_interval_endpoint(lower)},{_canonical_interval_endpoint(upper)}{right}"
+    chain = re.fullmatch(r"([^<>=]+)(<=|<)[a-z]+(<=|<)([^<>=]+)", compact)
+    if chain:
+        lower, left_op, right_op, upper = chain.groups()
+        left = "[" if left_op == "<=" else "("
+        right = "]" if right_op == "<=" else ")"
+        return f"{left}{_canonical_interval_endpoint(lower)},{_canonical_interval_endpoint(upper)}{right}"
+    return ""
+
+
+def _canonical_interval_endpoint(value: str) -> str:
+    endpoint = _canonical_math_text(value)
+    endpoint = endpoint.replace("+inf", "inf").replace("+oo", "inf").replace("oo", "inf")
+    endpoint = endpoint.replace("-infinity", "-inf").replace("-oo", "-inf")
+    return endpoint
+
+
+def _canonical_unit_text(value: str) -> str:
+    text = _canonical_math_text(value)
+    text = re.sub(r"(?<=\d)\s+(?=[a-zA-Z%]+(?:\b|[-/]))", "", text)
+    text = re.sub(r"\s*([*/^])\s*", r"\1", text)
     return text
 
 

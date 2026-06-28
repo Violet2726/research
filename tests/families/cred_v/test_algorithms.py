@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from research_experiments.families.cred_v.algorithms import (
     aggregate_adaptive_candidate_search,
+    aggregate_evidence_repair_v5,
     aggregate_pairwise_selection,
     aggregate_reasoning_first_selection,
     aggregate_safe_verification,
@@ -1168,6 +1169,156 @@ def test_rfs_v4_shadow_wrapper_does_not_promote_two_of_three_pairwise() -> None:
     assert decision.final_answer == "A"
     assert decision.changed is False
     assert decision.resolver == "cred_rfs_v4_shadow_no_promotion"
+
+
+def test_rfs_v5_math_equivalence_repair_accepts_interval_forms() -> None:
+    stage_rows = [
+        _row("math500", "(2,infinity)", confidence=0.70),
+        _row("math500", "(2,infinity)", confidence=0.69),
+        _row("math500", "(2,infinity)", confidence=0.68),
+        _row("math500", "2 < x < \\infty", confidence=0.90),
+        _row("math500", "2 < x < \\infty", confidence=0.89),
+    ]
+
+    decision = aggregate_evidence_repair_v5(
+        dataset="math500",
+        question="Solve the interval.",
+        context="",
+        stage_rows=stage_rows,
+        selection_rows=[],
+        stage_winner="(2,infinity)",
+        selection_modes=("math_equivalence_repair_v2",),
+        leader_lock_count=4,
+        pairwise_duel_replicates=3,
+        pairwise_promotion_min_wins=3,
+        pairwise_allowed_datasets=("gpqa_diamond",),
+        pairwise_option_count_max=4,
+        option_count=0,
+        require_stage_a_challenger_support=True,
+        allow_strong_majority_pairwise_promotion=False,
+    )
+
+    assert decision.final_answer == "2 < x < \\infty"
+    assert decision.changed is True
+    assert decision.resolver == "cred_rfs_v5_math_equivalence_repair_v2"
+
+
+def test_rfs_v5_math_equivalence_repair_rejects_non_equivalent_interval() -> None:
+    stage_rows = [
+        _row("math500", "(2,\\infty)", confidence=0.70),
+        _row("math500", "(2,\\infty)", confidence=0.69),
+        _row("math500", "(2,\\infty)", confidence=0.68),
+        _row("math500", "[2,\\infty)", confidence=0.90),
+        _row("math500", "[2,\\infty)", confidence=0.89),
+    ]
+
+    decision = aggregate_evidence_repair_v5(
+        dataset="math500",
+        question="Solve the interval.",
+        context="",
+        stage_rows=stage_rows,
+        selection_rows=[],
+        stage_winner="(2,\\infty)",
+        selection_modes=("math_equivalence_repair_v2",),
+        leader_lock_count=4,
+        pairwise_duel_replicates=3,
+        pairwise_promotion_min_wins=3,
+        pairwise_allowed_datasets=("gpqa_diamond",),
+        pairwise_option_count_max=4,
+        option_count=0,
+        require_stage_a_challenger_support=True,
+        allow_strong_majority_pairwise_promotion=False,
+    )
+
+    assert decision.final_answer == "(2,\\infty)"
+    assert decision.changed is False
+
+
+def test_rfs_v5_hotpot_context_span_repair_promotes_supported_complete_span() -> None:
+    stage_rows = [
+        _row("hotpotqa", "John Underhill", confidence=0.72),
+        _row("hotpotqa", "John Underhill", confidence=0.71),
+        _row("hotpotqa", "John Underhill", confidence=0.70),
+        _row("hotpotqa", "Captain John Underhill", confidence=0.88),
+    ]
+
+    decision = aggregate_evidence_repair_v5(
+        dataset="hotpotqa",
+        question="Who led the expedition?",
+        context="The expedition was led by Captain John Underhill before the colony changed command.",
+        stage_rows=stage_rows,
+        selection_rows=[],
+        stage_winner="John Underhill",
+        selection_modes=("hotpot_context_span_repair_v2",),
+        leader_lock_count=4,
+        pairwise_duel_replicates=3,
+        pairwise_promotion_min_wins=3,
+        pairwise_allowed_datasets=("gpqa_diamond",),
+        pairwise_option_count_max=4,
+        option_count=0,
+        require_stage_a_challenger_support=True,
+        allow_strong_majority_pairwise_promotion=False,
+    )
+
+    assert decision.final_answer == "Captain John Underhill"
+    assert decision.changed is True
+    assert decision.resolver == "cred_rfs_v5_hotpot_context_span_repair_v2"
+
+
+def test_rfs_v5_gpqa_unanimous_duel_still_promotes_but_mmlu_does_not() -> None:
+    stage_rows = [
+        _row("gpqa_diamond", "A", confidence=0.70),
+        _row("gpqa_diamond", "A", confidence=0.69),
+        _row("gpqa_diamond", "A", confidence=0.68),
+        _row("gpqa_diamond", "B", confidence=0.90),
+        _row("gpqa_diamond", "B", confidence=0.89),
+    ]
+    selection_rows = [
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="gpqa_unanimous_pairwise_duel"),
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="gpqa_unanimous_pairwise_duel"),
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="gpqa_unanimous_pairwise_duel"),
+    ]
+
+    promoted = aggregate_evidence_repair_v5(
+        dataset="gpqa_diamond",
+        question="Which option is best?",
+        context="",
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        stage_winner="A",
+        selection_modes=("gpqa_unanimous_pairwise_duel",),
+        leader_lock_count=4,
+        pairwise_duel_replicates=3,
+        pairwise_promotion_min_wins=3,
+        pairwise_allowed_datasets=("gpqa_diamond",),
+        pairwise_option_count_max=4,
+        option_count=4,
+        require_stage_a_challenger_support=True,
+        allow_strong_majority_pairwise_promotion=False,
+    )
+    mmlu_blocked = aggregate_evidence_repair_v5(
+        dataset="mmlu_pro",
+        question="Which option is best?",
+        context="",
+        stage_rows=[{**row, "dataset": "mmlu_pro"} for row in stage_rows],
+        selection_rows=[{**row, "dataset": "mmlu_pro"} for row in selection_rows],
+        stage_winner="A",
+        selection_modes=("gpqa_unanimous_pairwise_duel",),
+        leader_lock_count=4,
+        pairwise_duel_replicates=3,
+        pairwise_promotion_min_wins=3,
+        pairwise_allowed_datasets=("gpqa_diamond",),
+        pairwise_option_count_max=4,
+        option_count=4,
+        require_stage_a_challenger_support=True,
+        allow_strong_majority_pairwise_promotion=False,
+    )
+
+    assert promoted.final_answer == "B"
+    assert promoted.resolver == "cred_rfs_v5_gpqa_unanimous_pairwise_promoted"
+    assert mmlu_blocked.final_answer == "A"
+    assert mmlu_blocked.changed is False
+    assert mmlu_blocked.resolver == "cred_rfs_v5_pairwise_dataset_blocked"
 
 
 def _row(

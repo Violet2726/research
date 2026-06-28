@@ -14,6 +14,7 @@ from research_experiments.core.data.evaluation import normalize_prediction, scor
 from research_experiments.core.execution.runner_common import iter_indexed_batch
 from research_experiments.families.cred_v.algorithms import (
     aggregate_adaptive_candidate_search,
+    aggregate_evidence_repair_v5,
     aggregate_pairwise_selection,
     aggregate_reasoning_first_selection,
     aggregate_safe_verification,
@@ -33,6 +34,7 @@ from research_experiments.families.cred_v.config import (
     CRED_ACS_METHODS,
     CRED_COMM_METHODS,
     CRED_RFS_ADAPTIVE_METHODS,
+    CRED_RFS_EVIDENCE_REPAIR_METHODS,
     CRED_RFS_PAIRWISE_METHODS,
     CRED_RFS_PAIRWISE_SELECT_V2,
     CRED_RFS_SAFE_SELECT_METHODS,
@@ -583,6 +585,29 @@ def _run_cred_sample(
             debate_turns = list(expansion_rows)
             method_turns = [*stage_rows, *debate_turns]
             method_expansion_rows = list(expansion_rows)
+            method_targets = list(targets)
+        elif method_name in CRED_RFS_EVIDENCE_REPAIR_METHODS:
+            actual_selection_rows = _safe_select_actual_rows(expansion_rows)
+            decision = aggregate_evidence_repair_v5(
+                dataset=benchmark_slug,
+                question=sample.question,
+                context=sample.prompt_context,
+                stage_rows=stage_rows,
+                selection_rows=actual_selection_rows,
+                stage_winner=vote_decision.final_answer,
+                selection_modes=protocol.selection_modes,
+                leader_lock_count=protocol.leader_lock_count,
+                pairwise_duel_replicates=protocol.pairwise_duel_replicates,
+                pairwise_promotion_min_wins=protocol.pairwise_promotion_min_wins,
+                pairwise_allowed_datasets=protocol.pairwise_allowed_datasets,
+                pairwise_option_count_max=protocol.pairwise_option_count_max,
+                option_count=len(_multiple_choice_options(sample)),
+                require_stage_a_challenger_support=protocol.require_stage_a_challenger_support,
+                allow_strong_majority_pairwise_promotion=protocol.allow_strong_majority_pairwise_promotion,
+            )
+            debate_turns = list(actual_selection_rows)
+            method_turns = [*stage_rows, *debate_turns]
+            method_expansion_rows = list(actual_selection_rows)
             method_targets = list(targets)
         elif method_name in CRED_RFS_SAFE_SELECT_METHODS:
             actual_selection_rows = _safe_select_actual_rows(expansion_rows)
@@ -1507,18 +1532,21 @@ def _prediction_row(
         "cred_rfs_math_repair",
         "cred_rfs_v2_math_repair",
         "cred_rfs_v3_math_repair",
+        "cred_rfs_v5_math_equivalence_repair_v2",
     }
     hotpot_span_repair_applied = str(decision.resolver) in {
         "cred_acs_hotpot_span_repair",
         "cred_rfs_hotpot_span_repair",
         "cred_rfs_v2_hotpot_span_repair",
         "cred_rfs_v3_hotpot_span_repair",
+        "cred_rfs_v5_hotpot_context_span_repair_v2",
     }
     single_pro_blocked = str(decision.resolver) in {"cred_acs_single_pro_blocked", "cred_rfs_single_pro_blocked"}
     strong_majority_locked = str(decision.resolver) in {
         "cred_rfs_strong_majority_locked",
         "cred_rfs_v2_strong_majority_locked",
         "cred_rfs_v3_strong_majority_locked",
+        "cred_rfs_v5_strong_majority_locked",
     }
     expansion_mode = str(next((row.get("expansion_mode") for row in expansion_rows if row.get("expansion_mode")), ""))
     expansion_validation_pass_count = sum(1 for row in expansion_rows if row.get("expansion_validation_pass") is True)
@@ -1534,18 +1562,21 @@ def _prediction_row(
     gpqa_unanimous_valid_rows = [row for row in gpqa_unanimous_rows if row.get("pairwise_validation_pass") is True]
     gpqa_unanimous_win_count = sum(1 for row in gpqa_unanimous_valid_rows if str(row.get("pairwise_winner_family") or "") != leader_family)
     resolver = str(decision.resolver)
-    safe_selector_corrected = resolver.startswith("cred_rfs_v3_") and corrected
-    safe_selector_harmed = resolver.startswith("cred_rfs_v3_") and harmed
+    safe_selector_corrected = resolver.startswith(("cred_rfs_v3_", "cred_rfs_v5_")) and corrected
+    safe_selector_harmed = resolver.startswith(("cred_rfs_v3_", "cred_rfs_v5_")) and harmed
     blocked_2of3_pairwise_count = int(
-        resolver == "cred_rfs_v3_pairwise_rejected"
+        resolver in {"cred_rfs_v3_pairwise_rejected", "cred_rfs_v5_pairwise_rejected"}
         and len(gpqa_unanimous_valid_rows) == 3
         and gpqa_unanimous_win_count == 2
     )
-    blocked_mmlu_pairwise_count = int(resolver == "cred_rfs_v3_pairwise_dataset_blocked" and dataset in {"mmlu", "mmlu_abstract_algebra", "mmlu_pro"})
+    blocked_mmlu_pairwise_count = int(
+        resolver in {"cred_rfs_v3_pairwise_dataset_blocked", "cred_rfs_v5_pairwise_dataset_blocked"}
+        and dataset in {"mmlu", "mmlu_abstract_algebra", "mmlu_pro"}
+    )
     blocked_strategyqa_probe_count = int(
         dataset == "strategyqa"
         and router.trigger_bucket == "weak_split_select"
-        and resolver.startswith(("cred_rfs_v3_", "cred_rfs_v4_"))
+        and resolver.startswith(("cred_rfs_v3_", "cred_rfs_v4_", "cred_rfs_v5_"))
         and not any(row.get("expansion_mode") in {"strategyqa_minority_resample", "strategyqa_resample_shadow"} for row in expansion_rows)
     )
     shadow = _shadow_counterfactual(
@@ -1653,7 +1684,7 @@ def _prediction_row(
             duel_invalid_count=duel_invalid_count,
             duel_retry_recoverable_count=duel_retry_recoverable_count,
             minority_probe_count=minority_probe_count,
-            non_answer_candidate_blocked=resolver in {"cred_rfs_v2_non_answer_blocked", "cred_rfs_v3_non_answer_blocked"},
+            non_answer_candidate_blocked=resolver in {"cred_rfs_v2_non_answer_blocked", "cred_rfs_v3_non_answer_blocked", "cred_rfs_v5_non_answer_blocked"},
             false_consensus_recovered=false_consensus_recovered,
             protocol_failures_per_question=sum(1 for row in method_turns if row.get("protocol_parse_status") == "failed"),
             reason_missing_turns_per_question=sum(1 for row in method_turns if not row.get("reason_present")),
@@ -1897,6 +1928,7 @@ def build_metrics(
         dataset_rows.append(_summarize_prediction_rows(rows, dataset=dataset, model_name=model_name, method_name=method_name, aggregate_kind="dataset"))
     summary = [*dataset_rows, *_build_macro_rows(dataset_rows), *_build_micro_rows(prediction_rows)]
     _attach_comparison_fields(summary, control_names=control_names)
+    _attach_v5_incremental_fields(summary, prediction_rows)
     summary.sort(key=lambda row: _summary_sort_key(row, dataset_order, method_order))
     paired = build_paired_comparisons(
         prediction_rows,
@@ -1905,6 +1937,64 @@ def build_metrics(
         reference_method="sc_5",
     )
     return {"summary": summary, "paired_comparisons": paired}
+
+
+def _attach_v5_incremental_fields(summary_rows: list[dict[str, Any]], prediction_rows: list[dict[str, Any]]) -> None:
+    v5_method = "cred_rfs_evidence_repair_v5"
+    v3_method = "cred_rfs_safe_select_v3"
+    for row in summary_rows:
+        row["math_equivalence_repair_v2_count"] = int(row.get("math_repair_count") or 0) if row.get("method_name") == v5_method else 0
+        row["hotpot_span_repair_v2_count"] = int(row.get("hotpot_span_repair_count") or 0) if row.get("method_name") == v5_method else 0
+        row["v5_incremental_corrected_vs_v3"] = 0
+        row["v5_incremental_harmed_vs_v3"] = 0
+        row["v5_actual_gain_vs_v3"] = 0.0
+
+    by_key: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for row in prediction_rows:
+        key = (
+            str(row.get("dataset") or ""),
+            str(row.get("model_name") or ""),
+            str(row.get("sample_id") or ""),
+            str(row.get("method_name") or ""),
+        )
+        by_key[key] = row
+
+    for summary_row in summary_rows:
+        if summary_row.get("method_name") != v5_method:
+            continue
+        dataset = str(summary_row.get("dataset") or "")
+        model_name = str(summary_row.get("model_name") or "")
+        scoped = [
+            row
+            for row in prediction_rows
+            if row.get("method_name") == v5_method
+            and str(row.get("model_name") or "") == model_name
+            and (dataset in {"overall", "overall_micro"} or str(row.get("dataset") or "") == dataset)
+        ]
+        deltas: list[float] = []
+        corrected = 0
+        harmed = 0
+        for row in scoped:
+            ref = by_key.get(
+                (
+                    str(row.get("dataset") or ""),
+                    str(row.get("model_name") or ""),
+                    str(row.get("sample_id") or ""),
+                    v3_method,
+                )
+            )
+            if ref is None:
+                continue
+            v5_score = float(row.get("score") or 0.0)
+            v3_score = float(ref.get("score") or 0.0)
+            deltas.append(v5_score - v3_score)
+            if v3_score < 1.0 and v5_score == 1.0:
+                corrected += 1
+            elif v3_score == 1.0 and v5_score < 1.0:
+                harmed += 1
+        summary_row["v5_incremental_corrected_vs_v3"] = corrected
+        summary_row["v5_incremental_harmed_vs_v3"] = harmed
+        summary_row["v5_actual_gain_vs_v3"] = round(sum(deltas) / len(deltas), 6) if deltas else 0.0
 
 
 def build_paired_comparisons(

@@ -96,6 +96,29 @@ def test_cred_v_rfs_v4_shadow_config_loads_shadow_modes() -> None:
     assert protocol.shadow_harm_per_correction_max == 0.20
 
 
+def test_cred_v_rfs_v5_evidence_repair_config_loads_without_negative_shadow_branches() -> None:
+    experiment = load_experiment_config("configs/families/cred_v/experiments/cred_v_rfs_v5_evidence_repair.toml")
+    protocol = load_protocol_config(experiment.protocol)
+
+    assert experiment.cred_methods == ["cred_rfs_vote_5_anchor", "cred_rfs_safe_select_v3", "cred_rfs_evidence_repair_v5"]
+    assert protocol.stage_a_prompt_mode == "sc5_anchor_free_text_v1"
+    assert protocol.selection_modes == (
+        "deterministic_repair",
+        "math_equivalence_repair_v2",
+        "hotpot_context_span_repair_v2",
+        "gpqa_unanimous_pairwise_duel",
+    )
+    assert protocol.expansion_modes == ("gpqa_unanimous_pairwise_duel",)
+    assert protocol.shadow_selection_modes == ()
+    assert "mmlu_unanimous_pairwise_shadow" in protocol.disabled_selection_modes
+    assert "gpqa_2of3_retry_shadow" in protocol.disabled_selection_modes
+    assert "strategyqa_minority_resample" in protocol.disabled_selection_modes
+    assert protocol.pairwise_allowed_datasets == ("gpqa_diamond",)
+    assert protocol.pairwise_promotion_min_wins == 3
+    assert protocol.require_stage_a_challenger_support is True
+    assert protocol.allow_strong_majority_pairwise_promotion is False
+
+
 def test_cred_v_rfs_v1_ablation_config_retains_role_guided_stage_a() -> None:
     experiment = load_experiment_config("configs/families/cred_v/experiments/cred_v_rfs_v1_ablation.toml")
     protocol = load_protocol_config(experiment.protocol)

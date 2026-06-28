@@ -113,6 +113,43 @@ def test_shadow_counterfactual_metrics_are_reported_separately_from_actual_accur
     assert shadow["duel_retry_recoverable_count"] == 1
 
 
+def test_v5_incremental_metrics_are_reported_against_v3() -> None:
+    rows = [
+        _summary_prediction("math500", "1", "sc_5", 0.0),
+        _summary_prediction("math500", "1", "cred_rfs_safe_select_v3", 0.0),
+        _summary_prediction(
+            "math500",
+            "1",
+            "cred_rfs_evidence_repair_v5",
+            1.0,
+            math_repair_applied=True,
+            resolver="cred_rfs_v5_math_equivalence_repair_v2",
+        ),
+        _summary_prediction("math500", "2", "sc_5", 1.0),
+        _summary_prediction("math500", "2", "cred_rfs_safe_select_v3", 1.0),
+        _summary_prediction(
+            "math500",
+            "2",
+            "cred_rfs_evidence_repair_v5",
+            0.0,
+            resolver="cred_rfs_v5_pairwise_rejected",
+        ),
+    ]
+
+    metrics = build_metrics(
+        rows,
+        dataset_order=["math500"],
+        method_order=["sc_5", "cred_rfs_safe_select_v3", "cred_rfs_evidence_repair_v5"],
+        control_names=["sc_5"],
+    )
+    v5 = next(row for row in metrics["summary"] if row["dataset"] == "overall_micro" and row["method_name"] == "cred_rfs_evidence_repair_v5")
+
+    assert v5["math_equivalence_repair_v2_count"] == 1
+    assert v5["v5_incremental_corrected_vs_v3"] == 1
+    assert v5["v5_incremental_harmed_vs_v3"] == 1
+    assert v5["v5_actual_gain_vs_v3"] == 0.0
+
+
 def _prediction(dataset: str, sample_id: str, method_name: str, score: float) -> dict:
     return {
         "dataset": dataset,
@@ -138,6 +175,9 @@ def _summary_prediction(
     shadow_net_gain: int = 0,
     duel_invalid_count: int = 0,
     duel_retry_recoverable_count: int = 0,
+    math_repair_applied: bool = False,
+    hotpot_span_repair_applied: bool = False,
+    resolver: str | None = None,
 ) -> dict:
     return {
         "dataset": dataset,
@@ -175,8 +215,8 @@ def _summary_prediction(
         "expansion_call_count": method_expansion_call_count,
         "method_expansion_call_count": method_expansion_call_count,
         "false_consensus_triggered": False,
-        "math_repair_applied": False,
-        "hotpot_span_repair_applied": False,
+        "math_repair_applied": math_repair_applied,
+        "hotpot_span_repair_applied": hotpot_span_repair_applied,
         "choice_shuffle_agreement_count": 0,
         "single_pro_promotion_blocked": False,
         "strong_majority_locked": False,
@@ -199,6 +239,6 @@ def _summary_prediction(
         "false_consensus_recovered": False,
         "protocol_failures_per_question": 0,
         "reason_missing_turns_per_question": 0,
-        "resolver": "no_comm_control" if method_name == "sc_5" else "cred_rfs_v3_rejected",
+        "resolver": resolver or ("no_comm_control" if method_name == "sc_5" else "cred_rfs_v3_rejected"),
         "router_reasons": [],
     }

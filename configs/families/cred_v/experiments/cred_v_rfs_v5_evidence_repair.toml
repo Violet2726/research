@@ -1,5 +1,5 @@
-name = "cred_v_rfs_v4_shadow"
-description = "Negative legacy CRED-RFS v4 shadow selector; v3 remains actual, shadow rows are retained for failure analysis only."
+name = "cred_v_rfs_v5_evidence_repair"
+description = "CRED-RFS v5 evidence repair experiment; v3 stable baseline plus deterministic math/span repair v2."
 benchmark_configs = [
   "configs/core/shared/benchmarks/math500/test.toml",
   "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
@@ -7,11 +7,11 @@ benchmark_configs = [
   "configs/core/shared/benchmarks/strategyqa/dev.toml",
   "configs/core/shared/benchmarks/mmlu-pro/test.toml",
 ]
-protocol = "configs/families/cred_v/protocols/cred_rfs_v4_shadow.toml"
+protocol = "configs/families/cred_v/protocols/cred_rfs_v5_evidence_repair.toml"
 control_catalog = "configs/families/single_agent/methods/common.toml"
 control_methods = ["cot_1", "sc_3", "sc_5"]
-cred_methods = ["cred_rfs_vote_5_anchor", "cred_rfs_safe_select_v3", "cred_rfs_shadow_select_v4"]
-method_order = ["cot_1", "sc_3", "sc_5", "cred_rfs_vote_5_anchor", "cred_rfs_safe_select_v3", "cred_rfs_shadow_select_v4"]
+cred_methods = ["cred_rfs_vote_5_anchor", "cred_rfs_safe_select_v3", "cred_rfs_evidence_repair_v5"]
+method_order = ["cot_1", "sc_3", "sc_5", "cred_rfs_vote_5_anchor", "cred_rfs_safe_select_v3", "cred_rfs_evidence_repair_v5"]
 global_seed = 42
 control_prompt_version = "single_agent_free_text_v1"
 cred_output_protocol = "free_text_answer_v1"
