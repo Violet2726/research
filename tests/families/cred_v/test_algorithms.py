@@ -8,6 +8,7 @@ from research_experiments.families.cred_v.algorithms import (
     aggregate_reasoning_first_selection,
     aggregate_safe_verification,
     aggregate_safe_select_v3,
+    aggregate_shadow_select_v4,
     aggregate_stage_a_vote,
     aggregate_task_verification,
     build_router_decision,
@@ -1128,6 +1129,45 @@ def test_rfs_v3_protocol_failure_duel_does_not_count_as_unanimous() -> None:
     assert decision.final_answer == "A"
     assert decision.changed is False
     assert decision.resolver == "cred_rfs_v3_pairwise_rejected"
+
+
+def test_rfs_v4_shadow_wrapper_does_not_promote_two_of_three_pairwise() -> None:
+    stage_rows = [
+        _row("gpqa_diamond", "A", confidence=0.70),
+        _row("gpqa_diamond", "A", confidence=0.69),
+        _row("gpqa_diamond", "A", confidence=0.68),
+        _row("gpqa_diamond", "B", confidence=0.90),
+        _row("gpqa_diamond", "B", confidence=0.89),
+    ]
+    selection_rows = [
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="gpqa_unanimous_pairwise_duel"),
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="gpqa_unanimous_pairwise_duel"),
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="A", mode="gpqa_unanimous_pairwise_duel"),
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="gpqa_2of3_retry_shadow"),
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="gpqa_2of3_retry_shadow"),
+    ]
+
+    decision = aggregate_shadow_select_v4(
+        dataset="gpqa_diamond",
+        question="Which option is best?",
+        context="",
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        stage_winner="A",
+        selection_modes=("gpqa_unanimous_pairwise_duel",),
+        leader_lock_count=4,
+        pairwise_duel_replicates=3,
+        pairwise_promotion_min_wins=3,
+        pairwise_allowed_datasets=("gpqa_diamond",),
+        pairwise_option_count_max=4,
+        option_count=4,
+        require_stage_a_challenger_support=True,
+        allow_strong_majority_pairwise_promotion=False,
+    )
+
+    assert decision.final_answer == "A"
+    assert decision.changed is False
+    assert decision.resolver == "cred_rfs_v4_shadow_no_promotion"
 
 
 def _row(

@@ -65,6 +65,54 @@ def test_vote_anchor_summary_does_not_inherit_safe_select_expansion_counts() -> 
     assert safe["method_expansion_call_count"] == 3
 
 
+def test_shadow_counterfactual_metrics_are_reported_separately_from_actual_accuracy() -> None:
+    rows = [
+        _summary_prediction("gpqa_diamond", "1", "sc_5", 0.0),
+        _summary_prediction(
+            "gpqa_diamond",
+            "1",
+            "cred_rfs_shadow_select_v4",
+            0.0,
+            pairwise_duel_count=5,
+            method_expansion_call_count=5,
+            shadow_counterfactual_corrected=True,
+            shadow_gate_passed=True,
+            shadow_net_gain=1,
+        ),
+        _summary_prediction("gpqa_diamond", "2", "sc_5", 1.0),
+        _summary_prediction(
+            "gpqa_diamond",
+            "2",
+            "cred_rfs_shadow_select_v4",
+            1.0,
+            pairwise_duel_count=5,
+            method_expansion_call_count=5,
+            shadow_counterfactual_harmed=True,
+            shadow_gate_passed=True,
+            shadow_net_gain=-1,
+            duel_invalid_count=1,
+            duel_retry_recoverable_count=1,
+        ),
+    ]
+
+    metrics = build_metrics(
+        rows,
+        dataset_order=["gpqa_diamond"],
+        method_order=["sc_5", "cred_rfs_shadow_select_v4"],
+        control_names=["sc_5"],
+    )
+    shadow = next(row for row in metrics["summary"] if row["dataset"] == "overall_micro" and row["method_name"] == "cred_rfs_shadow_select_v4")
+
+    assert shadow["accuracy_mean"] == 0.5
+    assert shadow["shadow_counterfactual_corrected_count"] == 1
+    assert shadow["shadow_counterfactual_harmed_count"] == 1
+    assert shadow["shadow_precision"] == 0.5
+    assert shadow["shadow_net_gain"] == 0
+    assert shadow["shadow_gate_passed_count"] == 2
+    assert shadow["duel_invalid_count"] == 1
+    assert shadow["duel_retry_recoverable_count"] == 1
+
+
 def _prediction(dataset: str, sample_id: str, method_name: str, score: float) -> dict:
     return {
         "dataset": dataset,
@@ -84,6 +132,12 @@ def _summary_prediction(
     pairwise_duel_win_count: int = 0,
     gpqa_unanimous_duel_count: int = 0,
     method_expansion_call_count: int = 0,
+    shadow_counterfactual_corrected: bool = False,
+    shadow_counterfactual_harmed: bool = False,
+    shadow_gate_passed: bool = False,
+    shadow_net_gain: int = 0,
+    duel_invalid_count: int = 0,
+    duel_retry_recoverable_count: int = 0,
 ) -> dict:
     return {
         "dataset": dataset,
@@ -134,6 +188,12 @@ def _summary_prediction(
         "blocked_2of3_pairwise_count": 0,
         "blocked_mmlu_pairwise_count": 0,
         "blocked_strategyqa_probe_count": 0,
+        "shadow_counterfactual_corrected": shadow_counterfactual_corrected,
+        "shadow_counterfactual_harmed": shadow_counterfactual_harmed,
+        "shadow_gate_passed": shadow_gate_passed,
+        "shadow_net_gain": shadow_net_gain,
+        "duel_invalid_count": duel_invalid_count,
+        "duel_retry_recoverable_count": duel_retry_recoverable_count,
         "minority_probe_count": 0,
         "non_answer_candidate_blocked": False,
         "false_consensus_recovered": False,

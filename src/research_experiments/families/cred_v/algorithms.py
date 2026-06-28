@@ -792,6 +792,50 @@ def aggregate_safe_select_v3(
     )
 
 
+def aggregate_shadow_select_v4(
+    *,
+    dataset: str,
+    question: str,
+    context: str,
+    stage_rows: list[dict[str, Any]],
+    selection_rows: list[dict[str, Any]],
+    stage_winner: str,
+    selection_modes: tuple[str, ...] | list[str],
+    leader_lock_count: int,
+    pairwise_duel_replicates: int,
+    pairwise_promotion_min_wins: int,
+    pairwise_allowed_datasets: tuple[str, ...] | list[str],
+    pairwise_option_count_max: int,
+    option_count: int,
+    require_stage_a_challenger_support: bool,
+    allow_strong_majority_pairwise_promotion: bool,
+) -> CredAggregateDecision:
+    actual = aggregate_safe_select_v3(
+        dataset=dataset,
+        question=question,
+        context=context,
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        stage_winner=stage_winner,
+        selection_modes=selection_modes,
+        leader_lock_count=leader_lock_count,
+        pairwise_duel_replicates=pairwise_duel_replicates,
+        pairwise_promotion_min_wins=pairwise_promotion_min_wins,
+        pairwise_allowed_datasets=pairwise_allowed_datasets,
+        pairwise_option_count_max=pairwise_option_count_max,
+        option_count=option_count,
+        require_stage_a_challenger_support=require_stage_a_challenger_support,
+        allow_strong_majority_pairwise_promotion=allow_strong_majority_pairwise_promotion,
+    )
+    return CredAggregateDecision(
+        actual.final_answer,
+        actual.support,
+        "cred_rfs_v4_shadow_no_promotion",
+        actual.changed,
+        "shadow_calibration",
+    )
+
+
 def select_verification_targets(
     *,
     dataset: str,

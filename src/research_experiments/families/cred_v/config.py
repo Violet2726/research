@@ -22,6 +22,7 @@ CRED_RFS_ADAPTIVE_SC_V1 = "cred_rfs_adaptive_sc_v1"
 CRED_RFS_VOTE_5_ANCHOR = "cred_rfs_vote_5_anchor"
 CRED_RFS_PAIRWISE_SELECT_V2 = "cred_rfs_pairwise_select_v2"
 CRED_RFS_SAFE_SELECT_V3 = "cred_rfs_safe_select_v3"
+CRED_RFS_SHADOW_SELECT_V4 = "cred_rfs_shadow_select_v4"
 CRED_METHODS = frozenset(
     {
         CRED_V_VOTE_5,
@@ -33,16 +34,25 @@ CRED_METHODS = frozenset(
         CRED_RFS_VOTE_5_ANCHOR,
         CRED_RFS_PAIRWISE_SELECT_V2,
         CRED_RFS_SAFE_SELECT_V3,
+        CRED_RFS_SHADOW_SELECT_V4,
     }
 )
 CRED_VERIFY_METHODS = frozenset({CRED_V_TASK_VERIFY_V3})
 CRED_SAFE_VERIFY_METHODS = frozenset({CRED_VERIFY_SAFE_V1})
 CRED_ACS_METHODS = frozenset({CRED_ACS_V1})
 CRED_RFS_ADAPTIVE_METHODS = frozenset({CRED_RFS_ADAPTIVE_SC_V1})
-CRED_RFS_PAIRWISE_METHODS = frozenset({CRED_RFS_PAIRWISE_SELECT_V2, CRED_RFS_SAFE_SELECT_V3})
+CRED_RFS_PAIRWISE_METHODS = frozenset({CRED_RFS_PAIRWISE_SELECT_V2, CRED_RFS_SAFE_SELECT_V3, CRED_RFS_SHADOW_SELECT_V4})
 CRED_RFS_SAFE_SELECT_METHODS = frozenset({CRED_RFS_SAFE_SELECT_V3})
+CRED_RFS_SHADOW_SELECT_METHODS = frozenset({CRED_RFS_SHADOW_SELECT_V4})
 CRED_RFS_METHODS = frozenset(
-    {CRED_RFS_VOTE_5, CRED_RFS_ADAPTIVE_SC_V1, CRED_RFS_VOTE_5_ANCHOR, CRED_RFS_PAIRWISE_SELECT_V2, CRED_RFS_SAFE_SELECT_V3}
+    {
+        CRED_RFS_VOTE_5,
+        CRED_RFS_ADAPTIVE_SC_V1,
+        CRED_RFS_VOTE_5_ANCHOR,
+        CRED_RFS_PAIRWISE_SELECT_V2,
+        CRED_RFS_SAFE_SELECT_V3,
+        CRED_RFS_SHADOW_SELECT_V4,
+    }
 )
 CRED_COMM_METHODS = CRED_VERIFY_METHODS | CRED_SAFE_VERIFY_METHODS | CRED_ACS_METHODS | CRED_RFS_ADAPTIVE_METHODS | CRED_RFS_PAIRWISE_METHODS
 CRED_VOTE_METHODS = frozenset({CRED_V_VOTE_5, CRED_RFS_VOTE_5, CRED_RFS_VOTE_5_ANCHOR})
@@ -60,6 +70,13 @@ class CredVProtocolConfig:
     expansion_model_refs: tuple[str, ...]
     disabled_expansion_modes: tuple[str, ...]
     disabled_selection_modes: tuple[str, ...]
+    shadow_selection_modes: tuple[str, ...]
+    shadow_pairwise_allowed_datasets: tuple[str, ...]
+    shadow_pairwise_retry_replicates: int
+    shadow_gate_min_valid_duels: int
+    shadow_gate_min_wins: int
+    shadow_precision_threshold: float
+    shadow_harm_per_correction_max: float
     max_expansion_calls: int
     adaptive_extra_solver_calls: int
     max_total_solver_calls: int
@@ -145,6 +162,13 @@ def load_protocol_config(path: str | Path) -> CredVProtocolConfig:
         expansion_model_refs=tuple(str(item) for item in payload.get("expansion_model_refs", [])),
         disabled_expansion_modes=tuple(str(item) for item in payload.get("disabled_expansion_modes", [])),
         disabled_selection_modes=tuple(str(item) for item in payload.get("disabled_selection_modes", [])),
+        shadow_selection_modes=tuple(str(item) for item in payload.get("shadow_selection_modes", [])),
+        shadow_pairwise_allowed_datasets=tuple(str(item) for item in payload.get("shadow_pairwise_allowed_datasets", [])),
+        shadow_pairwise_retry_replicates=int(payload.get("shadow_pairwise_retry_replicates", 0)),
+        shadow_gate_min_valid_duels=int(payload.get("shadow_gate_min_valid_duels", 5)),
+        shadow_gate_min_wins=int(payload.get("shadow_gate_min_wins", 4)),
+        shadow_precision_threshold=float(payload.get("shadow_precision_threshold", 0.85)),
+        shadow_harm_per_correction_max=float(payload.get("shadow_harm_per_correction_max", 0.20)),
         max_expansion_calls=int(payload.get("max_expansion_calls", 0)),
         adaptive_extra_solver_calls=int(payload.get("adaptive_extra_solver_calls", 0)),
         max_total_solver_calls=int(payload.get("max_total_solver_calls", 0)),

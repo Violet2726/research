@@ -73,6 +73,29 @@ def test_cred_v_rfs_v2_ablation_config_retains_pairwise_failure_baseline() -> No
     assert protocol.false_consensus_probe is True
 
 
+def test_cred_v_rfs_v4_shadow_config_loads_shadow_modes() -> None:
+    experiment = load_experiment_config("configs/families/cred_v/experiments/cred_v_rfs_v4_shadow.toml")
+    protocol = load_protocol_config(experiment.protocol)
+
+    assert experiment.cred_methods == ["cred_rfs_vote_5_anchor", "cred_rfs_safe_select_v3", "cred_rfs_shadow_select_v4"]
+    assert protocol.selection_modes == (
+        "deterministic_repair",
+        "gpqa_unanimous_pairwise_duel",
+        "hotpot_context_span_repair",
+    )
+    assert protocol.shadow_selection_modes == (
+        "gpqa_2of3_retry_shadow",
+        "mmlu_unanimous_pairwise_shadow",
+        "strategyqa_resample_shadow",
+    )
+    assert protocol.shadow_pairwise_allowed_datasets == ("gpqa_diamond", "mmlu_pro")
+    assert protocol.shadow_pairwise_retry_replicates == 2
+    assert protocol.shadow_gate_min_valid_duels == 5
+    assert protocol.shadow_gate_min_wins == 4
+    assert protocol.shadow_precision_threshold == 0.85
+    assert protocol.shadow_harm_per_correction_max == 0.20
+
+
 def test_cred_v_rfs_v1_ablation_config_retains_role_guided_stage_a() -> None:
     experiment = load_experiment_config("configs/families/cred_v/experiments/cred_v_rfs_v1_ablation.toml")
     protocol = load_protocol_config(experiment.protocol)

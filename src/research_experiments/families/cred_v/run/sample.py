@@ -18,6 +18,7 @@ from research_experiments.families.cred_v.algorithms import (
     aggregate_reasoning_first_selection,
     aggregate_safe_verification,
     aggregate_safe_select_v3,
+    aggregate_shadow_select_v4,
     aggregate_stage_a_vote,
     aggregate_task_verification,
     answer_family_key,
@@ -35,6 +36,7 @@ from research_experiments.families.cred_v.config import (
     CRED_RFS_PAIRWISE_METHODS,
     CRED_RFS_PAIRWISE_SELECT_V2,
     CRED_RFS_SAFE_SELECT_METHODS,
+    CRED_RFS_SHADOW_SELECT_METHODS,
     CRED_SAFE_VERIFY_METHODS,
     CRED_VERIFY_METHODS,
     CredVExperimentConfig,
@@ -58,6 +60,13 @@ from research_experiments.family_runtime.output_protocols import (
     FREE_TEXT_ANSWER_PROTOCOL_V1,
     execute_output_protocol_turn,
 )
+
+_PAIRWISE_DUEL_MODES = {
+    "mc_blind_pairwise_duel",
+    "gpqa_unanimous_pairwise_duel",
+    "gpqa_2of3_retry_shadow",
+    "mmlu_unanimous_pairwise_shadow",
+}
 
 
 @dataclass(frozen=True)
@@ -206,6 +215,14 @@ class CredPredictionRecord:
     blocked_2of3_pairwise_count: int
     blocked_mmlu_pairwise_count: int
     blocked_strategyqa_probe_count: int
+    shadow_counterfactual_answer: str
+    shadow_counterfactual_resolver: str
+    shadow_counterfactual_corrected: bool
+    shadow_counterfactual_harmed: bool
+    shadow_gate_passed: bool
+    shadow_net_gain: int
+    duel_invalid_count: int
+    duel_retry_recoverable_count: int
     minority_probe_count: int
     non_answer_candidate_blocked: bool
     false_consensus_recovered: bool
@@ -568,7 +585,30 @@ def _run_cred_sample(
             method_expansion_rows = list(expansion_rows)
             method_targets = list(targets)
         elif method_name in CRED_RFS_SAFE_SELECT_METHODS:
+            actual_selection_rows = _safe_select_actual_rows(expansion_rows)
             decision = aggregate_safe_select_v3(
+                dataset=benchmark_slug,
+                question=sample.question,
+                context=sample.prompt_context,
+                stage_rows=stage_rows,
+                selection_rows=actual_selection_rows,
+                stage_winner=vote_decision.final_answer,
+                selection_modes=protocol.selection_modes,
+                leader_lock_count=protocol.leader_lock_count,
+                pairwise_duel_replicates=protocol.pairwise_duel_replicates,
+                pairwise_promotion_min_wins=protocol.pairwise_promotion_min_wins,
+                pairwise_allowed_datasets=protocol.pairwise_allowed_datasets,
+                pairwise_option_count_max=protocol.pairwise_option_count_max,
+                option_count=len(_multiple_choice_options(sample)),
+                require_stage_a_challenger_support=protocol.require_stage_a_challenger_support,
+                allow_strong_majority_pairwise_promotion=protocol.allow_strong_majority_pairwise_promotion,
+            )
+            debate_turns = list(actual_selection_rows)
+            method_turns = [*stage_rows, *debate_turns]
+            method_expansion_rows = list(actual_selection_rows)
+            method_targets = list(targets)
+        elif method_name in CRED_RFS_SHADOW_SELECT_METHODS:
+            decision = aggregate_shadow_select_v4(
                 dataset=benchmark_slug,
                 question=sample.question,
                 context=sample.prompt_context,
@@ -623,6 +663,7 @@ def _run_cred_sample(
                 method_turns=method_turns,
                 targets=method_targets,
                 expansion_rows=method_expansion_rows,
+                protocol=protocol,
             )
         )
     return all_turns, debate_rows, [router_row], prediction_rows
@@ -861,6 +902,7 @@ def _run_rfs_pairwise_selection(
     targets: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     modes = set(protocol.selection_modes)
+    shadow_modes = set(protocol.shadow_selection_modes)
     if router_bucket == "deterministic_repair_only":
         return []
 
@@ -872,13 +914,14 @@ def _run_rfs_pairwise_selection(
     if not challenger_answer:
         return rows
 
-    if "gpqa_unanimous_pairwise_duel" in modes:
+    if (
+        "gpqa_unanimous_pairwise_duel" in modes
+        and benchmark_slug in {str(item) for item in protocol.pairwise_allowed_datasets}
+        and router_bucket == "weak_split_select"
+    ):
         options = _multiple_choice_options(sample)
-        allowed_datasets = {str(item) for item in protocol.pairwise_allowed_datasets}
         if (
-            benchmark_slug not in allowed_datasets
-            or router_bucket != "weak_split_select"
-            or not options
+            not options
             or (
                 int(protocol.pairwise_option_count_max) > 0
                 and len(options) > int(protocol.pairwise_option_count_max)
@@ -886,48 +929,82 @@ def _run_rfs_pairwise_selection(
             or not verifier_runtimes
         ):
             return rows
-        allowed_refs = set(protocol.expansion_model_refs) or set(experiment.verifier_model_refs)
-        runtimes = [runtime for runtime in verifier_runtimes if not allowed_refs or runtime.model_ref in allowed_refs]
+        runtimes = _selection_runtimes(experiment, protocol, verifier_runtimes)
         if not runtimes:
             return rows
-        for index in range(1, max(0, int(protocol.pairwise_duel_replicates)) + 1):
-            runtime = runtimes[(index - 1) % len(runtimes)]
-            row = _execute_turn(
+        rows.extend(
+            _run_pairwise_duel_rows(
                 run_id=run_id,
-                dataset=benchmark_slug,
+                benchmark_slug=benchmark_slug,
                 split_name=split_name,
                 sample=sample,
-                method_name="cred_rfs_expansion",
-                method_type="selection",
-                round_index=1,
-                agent_id=900 + index,
-                role="selection",
-                agent_role=f"rfs:gpqa_unanimous_pairwise_duel:{runtime.model_ref}",
-                visible_peer_count=0,
-                messages=build_mc_blind_pairwise_duel_messages(
-                    sample,
-                    leader_answer=vote_decision.final_answer,
-                    challenger_answer=challenger_answer,
-                    variant_index=index,
-                ),
-                backbone=runtime.backbone,
-                provider=runtime.provider,
-                cache=runtime.cache,
-                throttle=runtime.throttle,
-                temperature=protocol.verifier_temperature,
-                top_p=protocol.top_p,
-                seed=experiment.global_seed + 900 + index,
-                output_protocol=experiment.cred_verification_output_protocol,
-                max_tokens=_positive_token_cap(protocol.verifier_max_tokens),
-            )
-            _annotate_pairwise_duel_row(
-                row,
-                leader_answer=vote_decision.final_answer,
+                experiment=experiment,
+                protocol=protocol,
+                vote_decision=vote_decision,
                 challenger_answer=challenger_answer,
-                variant_index=index,
+                runtimes=runtimes,
+                count=max(0, int(protocol.pairwise_duel_replicates)),
+                start_index=1,
+                agent_id_base=900,
+                seed_base=900,
                 mode="gpqa_unanimous_pairwise_duel",
             )
-            rows.append(row)
+        )
+        if (
+            "gpqa_2of3_retry_shadow" in shadow_modes
+            and _valid_pairwise_duel_count(rows, mode="gpqa_unanimous_pairwise_duel") == int(protocol.pairwise_duel_replicates)
+            and _challenger_pairwise_win_count(rows, mode="gpqa_unanimous_pairwise_duel") == 2
+        ):
+            rows.extend(
+                _run_pairwise_duel_rows(
+                    run_id=run_id,
+                    benchmark_slug=benchmark_slug,
+                    split_name=split_name,
+                    sample=sample,
+                    experiment=experiment,
+                    protocol=protocol,
+                    vote_decision=vote_decision,
+                    challenger_answer=challenger_answer,
+                    runtimes=runtimes,
+                    count=max(0, int(protocol.shadow_pairwise_retry_replicates)),
+                    start_index=int(protocol.pairwise_duel_replicates) + 1,
+                    agent_id_base=1000,
+                    seed_base=1000,
+                    mode="gpqa_2of3_retry_shadow",
+                )
+            )
+        return rows
+
+    if (
+        benchmark_slug in {"mmlu", "mmlu_abstract_algebra", "mmlu_pro"}
+        and benchmark_slug in {str(item) for item in protocol.shadow_pairwise_allowed_datasets}
+        and "mmlu_unanimous_pairwise_shadow" in shadow_modes
+        and router_bucket == "weak_split_select"
+    ):
+        options = _multiple_choice_options(sample)
+        if not options or not verifier_runtimes:
+            return rows
+        runtimes = _selection_runtimes(experiment, protocol, verifier_runtimes)
+        if not runtimes:
+            return rows
+        rows.extend(
+            _run_pairwise_duel_rows(
+                run_id=run_id,
+                benchmark_slug=benchmark_slug,
+                split_name=split_name,
+                sample=sample,
+                experiment=experiment,
+                protocol=protocol,
+                vote_decision=vote_decision,
+                challenger_answer=challenger_answer,
+                runtimes=runtimes,
+                count=max(0, int(protocol.pairwise_duel_replicates)),
+                start_index=1,
+                agent_id_base=1100,
+                seed_base=1100,
+                mode="mmlu_unanimous_pairwise_shadow",
+            )
+        )
         return rows
 
     if (
@@ -1021,6 +1098,116 @@ def _run_rfs_pairwise_selection(
                 shuffled_options=[],
             )
             rows.append(row)
+        return rows
+
+    if benchmark_slug == "strategyqa" and "strategyqa_resample_shadow" in shadow_modes and router_bucket == "weak_split_select":
+        for index in range(1, max(0, int(protocol.adaptive_extra_solver_calls)) + 1):
+            row = _execute_turn(
+                run_id=run_id,
+                dataset=benchmark_slug,
+                split_name=split_name,
+                sample=sample,
+                method_name="cred_rfs_expansion",
+                method_type="selection",
+                round_index=1,
+                agent_id=1200 + index,
+                role="selection",
+                agent_role=f"rfs:strategyqa_resample_shadow:{index}",
+                visible_peer_count=0,
+                messages=build_strategyqa_minority_resample_messages(
+                    sample,
+                    variant_index=index,
+                    leading_answer=vote_decision.final_answer,
+                    challenger_answer=challenger_answer,
+                ),
+                backbone=backbone,
+                provider=provider,
+                cache=cache,
+                throttle=throttle,
+                temperature=protocol.stage_a_temperature,
+                top_p=protocol.top_p,
+                seed=experiment.global_seed + 1200 + index,
+                output_protocol=experiment.cred_output_protocol,
+                max_tokens=_positive_token_cap(protocol.stage_a_max_tokens),
+            )
+            _annotate_expansion_row(
+                row,
+                sample=sample,
+                mode="strategyqa_resample_shadow",
+                expansion_index=index,
+                permutation=[],
+                shuffled_options=[],
+            )
+            rows.append(row)
+    return rows
+
+
+def _selection_runtimes(
+    experiment: CredVExperimentConfig,
+    protocol: CredVProtocolConfig,
+    verifier_runtimes: list[CredVerifierRuntime],
+) -> list[CredVerifierRuntime]:
+    allowed_refs = set(protocol.expansion_model_refs) or set(experiment.verifier_model_refs)
+    return [runtime for runtime in verifier_runtimes if not allowed_refs or runtime.model_ref in allowed_refs]
+
+
+def _run_pairwise_duel_rows(
+    *,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    sample: DatasetSample,
+    experiment: CredVExperimentConfig,
+    protocol: CredVProtocolConfig,
+    vote_decision,
+    challenger_answer: str,
+    runtimes: list[CredVerifierRuntime],
+    count: int,
+    start_index: int,
+    agent_id_base: int,
+    seed_base: int,
+    mode: str,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for offset in range(0, int(count)):
+        index = int(start_index) + offset
+        runtime = runtimes[offset % len(runtimes)]
+        row = _execute_turn(
+            run_id=run_id,
+            dataset=benchmark_slug,
+            split_name=split_name,
+            sample=sample,
+            method_name="cred_rfs_expansion",
+            method_type="selection",
+            round_index=1,
+            agent_id=int(agent_id_base) + index,
+            role="selection",
+            agent_role=f"rfs:{mode}:{runtime.model_ref}",
+            visible_peer_count=0,
+            messages=build_mc_blind_pairwise_duel_messages(
+                sample,
+                leader_answer=vote_decision.final_answer,
+                challenger_answer=challenger_answer,
+                variant_index=index,
+            ),
+            backbone=runtime.backbone,
+            provider=runtime.provider,
+            cache=runtime.cache,
+            throttle=runtime.throttle,
+            temperature=protocol.verifier_temperature,
+            top_p=protocol.top_p,
+            seed=experiment.global_seed + int(seed_base) + index,
+            output_protocol=experiment.cred_verification_output_protocol,
+            max_tokens=_positive_token_cap(protocol.verifier_max_tokens),
+        )
+        _annotate_pairwise_duel_row(
+            row,
+            leader_answer=vote_decision.final_answer,
+            challenger_answer=challenger_answer,
+            variant_index=index,
+            mode=mode,
+        )
+        rows.append(row)
     return rows
 
 
@@ -1132,6 +1319,24 @@ def _unusable_format_warning(payload: dict[str, Any]) -> bool:
     return warning in {"answer_contains_reasoning_leak", "answer_too_long_for_final_slot"}
 
 
+def _safe_select_actual_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [row for row in rows if row.get("expansion_mode") == "gpqa_unanimous_pairwise_duel"]
+
+
+def _valid_pairwise_duel_count(rows: list[dict[str, Any]], *, mode: str) -> int:
+    return sum(1 for row in rows if row.get("expansion_mode") == mode and row.get("pairwise_validation_pass") is True)
+
+
+def _challenger_pairwise_win_count(rows: list[dict[str, Any]], *, mode: str) -> int:
+    return sum(
+        1
+        for row in rows
+        if row.get("expansion_mode") == mode
+        and row.get("pairwise_validation_pass") is True
+        and str(row.get("pairwise_winner_family") or "") == str(row.get("pairwise_challenger_family") or "")
+    )
+
+
 def _annotate_expansion_row(
     row: dict[str, Any],
     *,
@@ -1216,7 +1421,7 @@ def _expansion_validation_pass(row: dict[str, Any], *, sample: DatasetSample, mo
     if mode == "mc_choice_shuffle":
         options = _multiple_choice_options(sample)
         return bool(options) and answer in {chr(ord("A") + index) for index in range(len(options))}
-    if mode in {"strategyqa_dual_polarity", "strategyqa_minority_resample"}:
+    if mode in {"strategyqa_dual_polarity", "strategyqa_minority_resample", "strategyqa_resample_shadow"}:
         return answer.lower() in {"yes", "no"}
     if mode == "hotpot_span_extract":
         return _context_supports_answer_text(sample.prompt_context, answer)
@@ -1261,6 +1466,7 @@ def _prediction_row(
     method_turns: list[dict[str, Any]],
     targets: list[dict[str, Any]],
     expansion_rows: list[dict[str, Any]],
+    protocol: CredVProtocolConfig,
 ) -> dict[str, Any]:
     prediction = decision.final_answer
     score = score_prediction(dataset, prediction, sample.reference_answer)
@@ -1317,11 +1523,7 @@ def _prediction_row(
     expansion_mode = str(next((row.get("expansion_mode") for row in expansion_rows if row.get("expansion_mode")), ""))
     expansion_validation_pass_count = sum(1 for row in expansion_rows if row.get("expansion_validation_pass") is True)
     choice_shuffle_agreement_count = _choice_shuffle_agreement_count(dataset, expansion_rows)
-    pairwise_rows = [
-        row
-        for row in expansion_rows
-        if row.get("expansion_mode") in {"mc_blind_pairwise_duel", "gpqa_unanimous_pairwise_duel"}
-    ]
+    pairwise_rows = [row for row in expansion_rows if row.get("expansion_mode") in _PAIRWISE_DUEL_MODES]
     gpqa_unanimous_rows = [row for row in expansion_rows if row.get("expansion_mode") == "gpqa_unanimous_pairwise_duel"]
     leader_family = answer_family_key(dataset, stage_decision.final_answer)
     pairwise_duel_win_count = sum(
@@ -1340,7 +1542,24 @@ def _prediction_row(
         and gpqa_unanimous_win_count == 2
     )
     blocked_mmlu_pairwise_count = int(resolver == "cred_rfs_v3_pairwise_dataset_blocked" and dataset in {"mmlu", "mmlu_abstract_algebra", "mmlu_pro"})
-    blocked_strategyqa_probe_count = int(resolver.startswith("cred_rfs_v3_") and dataset == "strategyqa" and len(expansion_rows) == 0)
+    blocked_strategyqa_probe_count = int(
+        dataset == "strategyqa"
+        and router.trigger_bucket == "weak_split_select"
+        and resolver.startswith(("cred_rfs_v3_", "cred_rfs_v4_"))
+        and not any(row.get("expansion_mode") in {"strategyqa_minority_resample", "strategyqa_resample_shadow"} for row in expansion_rows)
+    )
+    shadow = _shadow_counterfactual(
+        dataset=dataset,
+        stage_winner=stage_decision.final_answer,
+        expansion_rows=expansion_rows,
+        protocol=protocol,
+    )
+    shadow_answer = str(shadow.get("answer") or "")
+    shadow_score = score_prediction(dataset, shadow_answer, sample.reference_answer) if shadow_answer else 0.0
+    shadow_corrected = bool(shadow_answer and initial_score < 1.0 and shadow_score == 1.0)
+    shadow_harmed = bool(shadow_answer and initial_score == 1.0 and shadow_score < 1.0)
+    duel_invalid_count = sum(1 for row in pairwise_rows if row.get("pairwise_validation_pass") is not True)
+    duel_retry_recoverable_count = int(duel_invalid_count > 0 and dataset in {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro"})
     minority_probe_count = sum(1 for row in expansion_rows if row.get("expansion_mode") == "strategyqa_minority_resample")
     false_consensus_recovered = corrected and (
         "false_consensus_probe" in set(router.reasons)
@@ -1425,6 +1644,14 @@ def _prediction_row(
             blocked_2of3_pairwise_count=blocked_2of3_pairwise_count,
             blocked_mmlu_pairwise_count=blocked_mmlu_pairwise_count,
             blocked_strategyqa_probe_count=blocked_strategyqa_probe_count,
+            shadow_counterfactual_answer=shadow_answer,
+            shadow_counterfactual_resolver=str(shadow.get("resolver") or ""),
+            shadow_counterfactual_corrected=shadow_corrected,
+            shadow_counterfactual_harmed=shadow_harmed,
+            shadow_gate_passed=bool(shadow.get("gate_passed")),
+            shadow_net_gain=(1 if shadow_corrected else 0) - (1 if shadow_harmed else 0),
+            duel_invalid_count=duel_invalid_count,
+            duel_retry_recoverable_count=duel_retry_recoverable_count,
             minority_probe_count=minority_probe_count,
             non_answer_candidate_blocked=resolver in {"cred_rfs_v2_non_answer_blocked", "cred_rfs_v3_non_answer_blocked"},
             false_consensus_recovered=false_consensus_recovered,
@@ -1449,8 +1676,98 @@ def _choice_shuffle_agreement_count(dataset: str, expansion_rows: list[dict[str,
     return max(counts.values(), default=0)
 
 
+def _shadow_counterfactual(
+    *,
+    dataset: str,
+    stage_winner: str,
+    expansion_rows: list[dict[str, Any]],
+    protocol: CredVProtocolConfig,
+) -> dict[str, Any]:
+    leader_family = answer_family_key(dataset, stage_winner)
+    if dataset == "gpqa_diamond":
+        candidate = _pairwise_shadow_candidate(
+            dataset=dataset,
+            expansion_rows=expansion_rows,
+            leader_family=leader_family,
+            mode_names=("gpqa_unanimous_pairwise_duel", "gpqa_2of3_retry_shadow"),
+            min_valid=int(protocol.shadow_gate_min_valid_duels),
+            min_wins=int(protocol.shadow_gate_min_wins),
+            resolver="cred_rfs_v4_gpqa_4of5_shadow_gate",
+        )
+        if candidate:
+            return candidate
+    if dataset in {"mmlu", "mmlu_abstract_algebra", "mmlu_pro"}:
+        candidate = _pairwise_shadow_candidate(
+            dataset=dataset,
+            expansion_rows=expansion_rows,
+            leader_family=leader_family,
+            mode_names=("mmlu_unanimous_pairwise_shadow",),
+            min_valid=int(protocol.pairwise_duel_replicates),
+            min_wins=int(protocol.pairwise_duel_replicates),
+            resolver="cred_rfs_v4_mmlu_unanimous_shadow",
+        )
+        if candidate:
+            return candidate
+    if dataset == "strategyqa":
+        counts: dict[str, tuple[int, str]] = {}
+        for row in expansion_rows:
+            if row.get("expansion_mode") != "strategyqa_resample_shadow" or row.get("expansion_validation_pass") is not True:
+                continue
+            answer = str(row.get("normalized_answer") or row.get("prediction") or "").strip()
+            family = answer_family_key(dataset, answer)
+            if not answer or family == leader_family:
+                continue
+            count, representative = counts.get(family, (0, answer))
+            counts[family] = (count + 1, representative)
+        eligible = [(count, answer) for count, answer in counts.values() if count >= 2]
+        if eligible:
+            _, answer = max(eligible, key=lambda item: (item[0], item[1]))
+            return {
+                "answer": answer,
+                "resolver": "cred_rfs_v4_strategyqa_resample_shadow",
+                "gate_passed": True,
+            }
+    return {"answer": "", "resolver": "", "gate_passed": False}
+
+
+def _pairwise_shadow_candidate(
+    *,
+    dataset: str,
+    expansion_rows: list[dict[str, Any]],
+    leader_family: str,
+    mode_names: tuple[str, ...],
+    min_valid: int,
+    min_wins: int,
+    resolver: str,
+) -> dict[str, Any]:
+    modes = set(mode_names)
+    totals: dict[str, int] = {}
+    wins: dict[str, int] = {}
+    representatives: dict[str, str] = {}
+    for row in expansion_rows:
+        if row.get("expansion_mode") not in modes or row.get("pairwise_validation_pass") is not True:
+            continue
+        family = str(row.get("pairwise_challenger_family") or "")
+        answer = str(row.get("pairwise_challenger_answer") or "")
+        if not family or family == leader_family or not answer:
+            continue
+        totals[family] = totals.get(family, 0) + 1
+        representatives.setdefault(family, answer)
+        if str(row.get("pairwise_winner_family") or "") == family:
+            wins[family] = wins.get(family, 0) + 1
+    eligible = [
+        (wins.get(family, 0), total, representatives.get(family, ""))
+        for family, total in totals.items()
+        if total >= int(min_valid) and wins.get(family, 0) >= int(min_wins)
+    ]
+    if not eligible:
+        return {}
+    _, _, answer = max(eligible, key=lambda item: (item[0], item[1], item[2]))
+    return {"answer": answer, "resolver": resolver, "gate_passed": True}
+
+
 def _candidate_answer_for_scoring(row: dict[str, Any]) -> str:
-    if row.get("expansion_mode") in {"mc_blind_pairwise_duel", "gpqa_unanimous_pairwise_duel"} and row.get("pairwise_validation_pass") is True:
+    if row.get("expansion_mode") in _PAIRWISE_DUEL_MODES and row.get("pairwise_validation_pass") is True:
         return str(row.get("pairwise_winner_answer") or "")
     return str(row.get("normalized_answer") or row.get("prediction") or "")
 
@@ -1548,6 +1865,14 @@ def build_control_prediction_row(
         "blocked_2of3_pairwise_count": 0,
         "blocked_mmlu_pairwise_count": 0,
         "blocked_strategyqa_probe_count": 0,
+        "shadow_counterfactual_answer": "",
+        "shadow_counterfactual_resolver": "",
+        "shadow_counterfactual_corrected": False,
+        "shadow_counterfactual_harmed": False,
+        "shadow_gate_passed": False,
+        "shadow_net_gain": 0,
+        "duel_invalid_count": 0,
+        "duel_retry_recoverable_count": 0,
         "minority_probe_count": 0,
         "non_answer_candidate_blocked": False,
         "false_consensus_recovered": False,
@@ -1683,6 +2008,14 @@ def build_debate_diagnostics(
             "blocked_mmlu_pairwise_count": row.get("blocked_mmlu_pairwise_count"),
             "blocked_strategyqa_probe_count": row.get("blocked_strategyqa_probe_count"),
             "method_expansion_call_count": row.get("method_expansion_call_count"),
+            "shadow_counterfactual_answer": row.get("shadow_counterfactual_answer"),
+            "shadow_counterfactual_resolver": row.get("shadow_counterfactual_resolver"),
+            "shadow_counterfactual_corrected": row.get("shadow_counterfactual_corrected"),
+            "shadow_counterfactual_harmed": row.get("shadow_counterfactual_harmed"),
+            "shadow_gate_passed": row.get("shadow_gate_passed"),
+            "shadow_net_gain": row.get("shadow_net_gain"),
+            "duel_invalid_count": row.get("duel_invalid_count"),
+            "duel_retry_recoverable_count": row.get("duel_retry_recoverable_count"),
             "initial_vote_prediction": row.get("initial_vote_prediction"),
             "prediction": row.get("prediction"),
             "debate_tokens": row.get("debate_total_tokens_per_question"),
@@ -1767,13 +2100,22 @@ def estimate_work(experiment: CredVExperimentConfig, phase_name: str, benchmarks
         if CRED_RFS_PAIRWISE_METHODS & set(experiment.cred_methods):
             pairwise_calls = 0
             selection_modes = set(protocol.selection_modes) - set(protocol.disabled_selection_modes)
+            shadow_modes = set(protocol.shadow_selection_modes)
             if experiment.verifier_model_refs:
                 if "gpqa_unanimous_pairwise_duel" in selection_modes:
                     allowed_datasets = set(protocol.pairwise_allowed_datasets)
                     pairwise_calls = int(protocol.pairwise_duel_replicates) if benchmark.slug in allowed_datasets else 0
+                    if "gpqa_2of3_retry_shadow" in shadow_modes and benchmark.slug in allowed_datasets:
+                        pairwise_calls += int(protocol.shadow_pairwise_retry_replicates)
+                if "mmlu_unanimous_pairwise_shadow" in shadow_modes and benchmark.slug in set(protocol.shadow_pairwise_allowed_datasets):
+                    pairwise_calls = max(pairwise_calls, int(protocol.pairwise_duel_replicates))
                 elif "mc_blind_pairwise_duel" in selection_modes:
                     pairwise_calls = int(protocol.pairwise_duel_replicates)
-            strategy_calls = int(protocol.adaptive_extra_solver_calls) if "strategyqa_minority_resample" in selection_modes else 0
+            strategy_calls = (
+                int(protocol.adaptive_extra_solver_calls)
+                if "strategyqa_minority_resample" in selection_modes or ("strategyqa_resample_shadow" in shadow_modes and benchmark.slug == "strategyqa")
+                else 0
+            )
             total_calls += sample_count * max(pairwise_calls, strategy_calls)
         total_predictions += sample_count * len(experiment.cred_methods)
         for method_name in experiment.control_methods:
@@ -1893,6 +2235,12 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
     blocked_mmlu_pairwise_count = sum(int(row.get("blocked_mmlu_pairwise_count") or 0) for row in rows)
     blocked_strategyqa_probe_count = sum(int(row.get("blocked_strategyqa_probe_count") or 0) for row in rows)
     method_expansion_call_count = sum(int(row.get("method_expansion_call_count", row.get("expansion_call_count")) or 0) for row in rows)
+    shadow_counterfactual_corrected_count = sum(1 for row in rows if row.get("shadow_counterfactual_corrected"))
+    shadow_counterfactual_harmed_count = sum(1 for row in rows if row.get("shadow_counterfactual_harmed"))
+    shadow_gate_passed_count = sum(1 for row in rows if row.get("shadow_gate_passed"))
+    shadow_net_gain = sum(int(row.get("shadow_net_gain") or 0) for row in rows)
+    duel_invalid_count = sum(int(row.get("duel_invalid_count") or 0) for row in rows)
+    duel_retry_recoverable_count = sum(int(row.get("duel_retry_recoverable_count") or 0) for row in rows)
     minority_probe_count = sum(int(row.get("minority_probe_count") or 0) for row in rows)
     pairwise_corrected = sum(1 for row in rows if str(row.get("resolver") or "").startswith("cred_rfs_v2_pairwise") and row.get("corrected_by_debate"))
     pairwise_harmed = sum(1 for row in rows if str(row.get("resolver") or "").startswith("cred_rfs_v2_pairwise") and row.get("harmed_by_debate"))
@@ -1919,6 +2267,7 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
         "target_precision_on_wrong_majority": safe_mean(1.0 if row.get("target_correct") else 0.0 for row in target_rows),
         "promotion_recall_on_wrong_majority": safe_ratio(corrected_count, len(candidate_pool_target_rows)),
         "selection_recall_on_pool_correct": safe_ratio(corrected_count, len(candidate_pool_target_rows)),
+        "actual_gain": round(accuracy - initial_accuracy, 6),
         "debate_gain_over_initial_vote": round(accuracy - initial_accuracy, 6),
         "verification_gain_over_initial_vote": round(accuracy - initial_accuracy, 6),
         "prompt_tokens_mean": safe_mean(float(row["prompt_tokens_per_question"]) for row in rows),
@@ -1958,6 +2307,18 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
         "blocked_mmlu_pairwise_count": blocked_mmlu_pairwise_count,
         "blocked_strategyqa_probe_count": blocked_strategyqa_probe_count,
         "method_expansion_call_count": method_expansion_call_count,
+        "shadow_counterfactual_corrected_count": shadow_counterfactual_corrected_count,
+        "shadow_counterfactual_harmed_count": shadow_counterfactual_harmed_count,
+        "shadow_precision": safe_ratio(
+            shadow_counterfactual_corrected_count,
+            shadow_counterfactual_corrected_count + shadow_counterfactual_harmed_count,
+        ),
+        "shadow_net_gain": shadow_net_gain,
+        "shadow_possible_gain": safe_ratio(shadow_net_gain, question_count),
+        "shadow_gate_passed_count": shadow_gate_passed_count,
+        "shadow_gate_passed": shadow_gate_passed_count,
+        "duel_invalid_count": duel_invalid_count,
+        "duel_retry_recoverable_count": duel_retry_recoverable_count,
         "minority_probe_count": minority_probe_count,
         "minority_probe_precision": safe_ratio(minority_corrected, minority_corrected + minority_harmed),
         "false_consensus_recovered_count": sum(1 for row in rows if row.get("false_consensus_recovered")),
@@ -2053,6 +2414,7 @@ def _macro_from_rows(rows: list[dict[str, Any]], *, dataset: str, model_name: st
         "target_precision_on_wrong_majority": safe_mean(float(row.get("target_precision_on_wrong_majority") or 0.0) for row in rows),
         "promotion_recall_on_wrong_majority": safe_mean(float(row.get("promotion_recall_on_wrong_majority") or 0.0) for row in rows),
         "selection_recall_on_pool_correct": safe_mean(float(row.get("selection_recall_on_pool_correct") or 0.0) for row in rows),
+        "actual_gain": round(accuracy - initial_accuracy, 6),
         "debate_gain_over_initial_vote": round(accuracy - initial_accuracy, 6),
         "verification_gain_over_initial_vote": round(accuracy - initial_accuracy, 6),
         "prompt_tokens_mean": safe_mean(float(row["prompt_tokens_mean"]) for row in rows),
@@ -2092,6 +2454,15 @@ def _macro_from_rows(rows: list[dict[str, Any]], *, dataset: str, model_name: st
         "blocked_mmlu_pairwise_count": sum(int(row.get("blocked_mmlu_pairwise_count") or 0) for row in rows),
         "blocked_strategyqa_probe_count": sum(int(row.get("blocked_strategyqa_probe_count") or 0) for row in rows),
         "method_expansion_call_count": sum(int(row.get("method_expansion_call_count") or 0) for row in rows),
+        "shadow_counterfactual_corrected_count": sum(int(row.get("shadow_counterfactual_corrected_count") or 0) for row in rows),
+        "shadow_counterfactual_harmed_count": sum(int(row.get("shadow_counterfactual_harmed_count") or 0) for row in rows),
+        "shadow_precision": safe_mean(float(row.get("shadow_precision") or 0.0) for row in rows),
+        "shadow_net_gain": sum(int(row.get("shadow_net_gain") or 0) for row in rows),
+        "shadow_possible_gain": safe_mean(float(row.get("shadow_possible_gain") or 0.0) for row in rows),
+        "shadow_gate_passed_count": sum(int(row.get("shadow_gate_passed_count", row.get("shadow_gate_passed")) or 0) for row in rows),
+        "shadow_gate_passed": sum(int(row.get("shadow_gate_passed", row.get("shadow_gate_passed_count")) or 0) for row in rows),
+        "duel_invalid_count": sum(int(row.get("duel_invalid_count") or 0) for row in rows),
+        "duel_retry_recoverable_count": sum(int(row.get("duel_retry_recoverable_count") or 0) for row in rows),
         "minority_probe_count": sum(int(row.get("minority_probe_count") or 0) for row in rows),
         "minority_probe_precision": safe_mean(float(row.get("minority_probe_precision") or 0.0) for row in rows),
         "false_consensus_recovered_count": sum(int(row.get("false_consensus_recovered_count") or 0) for row in rows),
