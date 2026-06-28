@@ -101,6 +101,7 @@ def answer_family_key(dataset: str, answer: str) -> str:
 
 def build_router_decision(rows: list[dict[str, Any]], *, protocol) -> CredRouterDecision:
     dataset = _dataset_from_rows(rows)
+    pairwise_mode = "mc_blind_pairwise_duel" in {str(mode) for mode in getattr(protocol, "selection_modes", ())}
     grouped, _ = _stage_candidate_groups(dataset, rows)
     stage_decision = aggregate_stage_a_vote(rows)
     leading_answer = stage_decision.final_answer
@@ -116,7 +117,7 @@ def build_router_decision(rows: list[dict[str, Any]], *, protocol) -> CredRouter
         bucket = "format_risk"
     elif leading_count < strong_majority_count:
         reasons.append("weak_split_no_strong_majority")
-        bucket = "weak_split"
+        bucket = "weak_split_select" if pairwise_mode else "weak_split"
     elif _format_repair_risk(dataset, rows, leading_family, leading_answer):
         reasons.append("deterministic_repair_candidate")
         bucket = "deterministic_repair_only"
@@ -132,17 +133,19 @@ def build_router_decision(rows: list[dict[str, Any]], *, protocol) -> CredRouter
         risk_count=risk_count,
         evidence_mean=evidence_mean,
         strong_majority_count=strong_majority_count,
+        pairwise_mode=pairwise_mode,
     ):
-        reasons.append("false_consensus_probe")
-        bucket = "false_consensus_probe"
+        bucket = "minority_probe" if pairwise_mode else "false_consensus_probe"
+        reasons.append(bucket)
     else:
-        bucket = "clean_skip"
+        bucket = "clean_anchor_skip" if pairwise_mode else "clean_skip"
     enabled_buckets = _enabled_trigger_buckets(protocol)
-    triggered = bucket != "clean_skip" and bucket in enabled_buckets
+    clean_bucket = "clean_anchor_skip" if pairwise_mode else "clean_skip"
+    triggered = bucket != clean_bucket and bucket in enabled_buckets
     return CredRouterDecision(
         triggered=triggered,
         reasons=tuple(reasons if triggered else ("strong_majority_skip",)),
-        trigger_bucket=bucket if triggered else "clean_skip",
+        trigger_bucket=bucket if triggered else clean_bucket,
         leading_answer=leading_answer,
         vote_counts=vote_counts,
         risk_count=risk_count,
@@ -526,6 +529,136 @@ def aggregate_reasoning_first_selection(
     )
 
 
+def aggregate_pairwise_selection(
+    *,
+    dataset: str,
+    question: str,
+    context: str,
+    stage_rows: list[dict[str, Any]],
+    selection_rows: list[dict[str, Any]],
+    stage_winner: str,
+    selection_modes: tuple[str, ...] | list[str],
+    leader_lock_count: int,
+    pairwise_duel_replicates: int,
+    pairwise_promotion_min_wins: int,
+    require_stage_a_challenger_support: bool,
+) -> CredAggregateDecision:
+    del question
+    stage_decision = aggregate_stage_a_vote(stage_rows)
+    stage_support = dict(stage_decision.support)
+    if not stage_rows or not stage_winner:
+        return CredAggregateDecision(
+            stage_winner,
+            stage_support,
+            "cred_rfs_v2_empty_fallback",
+            False,
+            "stage_a",
+        )
+
+    modes = {str(mode) for mode in selection_modes}
+    leader_family = answer_family_key(dataset, stage_winner)
+    leader_count = _stage_family_count(dataset, stage_rows, leader_family)
+
+    if {"deterministic_repair", "hotpot_context_span_repair"} & modes:
+        for candidate in _safe_challenger_rows(dataset, stage_rows, stage_winner):
+            challenger = _row_answer(candidate)
+            if _deterministic_repair_allows(dataset, stage_winner, challenger, context):
+                resolver = "cred_rfs_v2_math_repair" if dataset in _MATH_DATASETS else "cred_rfs_v2_hotpot_span_repair"
+                return _safe_promoted_decision(
+                    dataset=dataset,
+                    stage_support=stage_support,
+                    stage_rows=stage_rows,
+                    stage_winner=stage_winner,
+                    winner=challenger,
+                    resolver=resolver,
+                    source="deterministic_repair",
+                )
+
+    if dataset in _SPAN_DATASETS and _has_non_answer_challenger(dataset, stage_rows, leader_family):
+        return CredAggregateDecision(
+            stage_winner,
+            _pairwise_support(dataset, stage_support, selection_rows),
+            "cred_rfs_v2_non_answer_blocked",
+            False,
+            "stage_a",
+        )
+
+    pairwise_eligible = _pairwise_duel_promotions(
+        dataset=dataset,
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        leader_family=leader_family,
+        require_stage_a_challenger_support=require_stage_a_challenger_support,
+        min_wins=int(pairwise_promotion_min_wins),
+    )
+    strategy_eligible = _strategyqa_minority_promotions(
+        dataset=dataset,
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        leader_family=leader_family,
+        require_stage_a_challenger_support=require_stage_a_challenger_support,
+    )
+    support = _pairwise_support(dataset, stage_support, selection_rows)
+
+    if dataset == "strategyqa" and "strategyqa_minority_resample" in modes and strategy_eligible:
+        _, stage_count, probe_count, winner = max(strategy_eligible, key=lambda item: (item[0], item[1], item[2], item[3]))
+        support[winner] = round(max(float(support.get(winner, 0.0)), float(stage_count + probe_count)), 6)
+        return CredAggregateDecision(
+            winner,
+            support,
+            "cred_rfs_v2_strategyqa_minority_promoted",
+            answer_family_key(dataset, winner) != leader_family,
+            "strategyqa_minority_resample",
+        )
+
+    unanimous_pairwise = [
+        item for item in pairwise_eligible if item[0] >= int(pairwise_duel_replicates) and int(pairwise_duel_replicates) > 0
+    ]
+    if leader_count >= int(leader_lock_count):
+        if dataset in _MC_DATASETS and "mc_blind_pairwise_duel" in modes and unanimous_pairwise:
+            wins, total, _, winner = max(unanimous_pairwise, key=lambda item: (item[0], item[1], item[3]))
+            support[winner] = round(max(float(support.get(winner, 0.0)), float(wins)), 6)
+            return CredAggregateDecision(
+                winner,
+                support,
+                "cred_rfs_v2_pairwise_unanimous_promoted",
+                answer_family_key(dataset, winner) != leader_family,
+                "mc_blind_pairwise_duel",
+            )
+        return CredAggregateDecision(
+            stage_winner,
+            support,
+            "cred_rfs_v2_strong_majority_locked",
+            False,
+            "stage_a",
+        )
+
+    if dataset in _MC_DATASETS and "mc_blind_pairwise_duel" in modes and pairwise_eligible:
+        wins, total, _, winner = max(pairwise_eligible, key=lambda item: (item[0], item[1], item[3]))
+        support[winner] = round(max(float(support.get(winner, 0.0)), float(wins)), 6)
+        return CredAggregateDecision(
+            winner,
+            support,
+            "cred_rfs_v2_pairwise_promoted",
+            answer_family_key(dataset, winner) != leader_family,
+            "mc_blind_pairwise_duel",
+        )
+
+    if _has_pairwise_candidate_blocked(dataset, selection_rows, leader_family):
+        resolver = "cred_rfs_v2_pairwise_rejected"
+    elif _has_strategyqa_probe_blocked(dataset, selection_rows, leader_family):
+        resolver = "cred_rfs_v2_strategyqa_minority_rejected"
+    else:
+        resolver = "cred_rfs_v2_rejected"
+    return CredAggregateDecision(
+        stage_winner,
+        support,
+        resolver,
+        False,
+        "stage_a",
+    )
+
+
 def select_verification_targets(
     *,
     dataset: str,
@@ -647,6 +780,7 @@ def _false_consensus_probe_needed(
     risk_count: int,
     evidence_mean: float,
     strong_majority_count: int,
+    pairwise_mode: bool = False,
 ) -> bool:
     if leading_count < strong_majority_count:
         return False
@@ -658,6 +792,10 @@ def _false_consensus_probe_needed(
     minority_conf = max((_row_confidence(row) for row in minority_rows), default=0.0)
     minority_evidence = max((evidence_quality(row) for row in minority_rows), default=0.0)
     leader_evidence = _mean(evidence_quality(row) for row in leader_rows)
+    if pairwise_mode and minority_rows and dataset in (_MC_DATASETS | _MATH_DATASETS | {"strategyqa"}):
+        if leading_count != strong_majority_count:
+            return False
+        return minority_conf >= leader_conf + 0.10 or minority_evidence >= leader_evidence + 0.15 or risk_count >= 2
     if minority_rows and minority_conf >= leader_conf + 0.10 and minority_evidence >= leader_evidence:
         return True
     if minority_rows and risk_count >= 2:
@@ -680,7 +818,14 @@ def _valid_expansion_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _enabled_trigger_buckets(protocol) -> set[str]:
     raw = getattr(protocol, "trigger_buckets", None)
     if raw is None:
-        return {"weak_split", "format_risk", "deterministic_repair_only", "false_consensus_probe"}
+        return {
+            "weak_split",
+            "weak_split_select",
+            "format_risk",
+            "deterministic_repair_only",
+            "false_consensus_probe",
+            "minority_probe",
+        }
     return {str(item) for item in raw}
 
 
@@ -783,6 +928,142 @@ def _has_single_blocked_expansion(dataset: str, rows: list[dict[str, Any]], lead
         if answer_family_key(dataset, _row_answer(row)) != leader_family
     }
     return any(_expansion_family_count(dataset, rows, family) == 1 for family in families)
+
+
+def _pairwise_duel_promotions(
+    *,
+    dataset: str,
+    stage_rows: list[dict[str, Any]],
+    selection_rows: list[dict[str, Any]],
+    leader_family: str,
+    require_stage_a_challenger_support: bool,
+    min_wins: int,
+) -> list[tuple[int, int, int, str]]:
+    if dataset not in _MC_DATASETS:
+        return []
+    totals: dict[str, int] = defaultdict(int)
+    wins: dict[str, int] = defaultdict(int)
+    representatives: dict[str, str] = {}
+    stage_counts: dict[str, int] = {
+        answer_family_key(dataset, _row_answer(row)): _stage_family_count(dataset, stage_rows, answer_family_key(dataset, _row_answer(row)))
+        for row in stage_rows
+        if _is_candidate(_row_answer(row))
+    }
+    for row in selection_rows:
+        if row.get("expansion_mode") != "mc_blind_pairwise_duel" or row.get("pairwise_validation_pass") is not True:
+            continue
+        challenger_family = str(row.get("pairwise_challenger_family") or "")
+        if not challenger_family or challenger_family == leader_family:
+            continue
+        challenger_answer = str(row.get("pairwise_challenger_answer") or "")
+        if not _is_candidate(challenger_answer):
+            continue
+        if require_stage_a_challenger_support and not _stage_has_family(dataset, stage_rows, challenger_family):
+            continue
+        totals[challenger_family] += 1
+        representatives.setdefault(challenger_family, challenger_answer)
+        if str(row.get("pairwise_winner_family") or "") == challenger_family:
+            wins[challenger_family] += 1
+    eligible: list[tuple[int, int, int, str]] = []
+    for family, total in totals.items():
+        win_count = wins.get(family, 0)
+        if win_count < int(min_wins):
+            continue
+        eligible.append((win_count, total, stage_counts.get(family, 0), representatives.get(family, "")))
+    return eligible
+
+
+def _strategyqa_minority_promotions(
+    *,
+    dataset: str,
+    stage_rows: list[dict[str, Any]],
+    selection_rows: list[dict[str, Any]],
+    leader_family: str,
+    require_stage_a_challenger_support: bool,
+) -> list[tuple[int, int, int, str]]:
+    if dataset != "strategyqa":
+        return []
+    probe_counts: dict[str, int] = defaultdict(int)
+    representatives: dict[str, str] = {}
+    for row in selection_rows:
+        if row.get("expansion_mode") != "strategyqa_minority_resample" or row.get("expansion_validation_pass") is not True:
+            continue
+        answer = _row_answer(row)
+        family = answer_family_key(dataset, answer)
+        if family == leader_family or not _is_candidate(answer):
+            continue
+        if require_stage_a_challenger_support and not _stage_has_family(dataset, stage_rows, family):
+            continue
+        probe_counts[family] += 1
+        representatives.setdefault(family, answer)
+    eligible: list[tuple[int, int, int, str]] = []
+    for family, probe_count in probe_counts.items():
+        stage_count = _stage_family_count(dataset, stage_rows, family)
+        if probe_count >= 2 and stage_count + probe_count >= 3:
+            eligible.append((stage_count + probe_count, stage_count, probe_count, representatives.get(family, "")))
+    return eligible
+
+
+def _pairwise_support(dataset: str, stage_support: dict[str, float], selection_rows: list[dict[str, Any]]) -> dict[str, float]:
+    support = {answer: float(value) for answer, value in stage_support.items()}
+    for row in selection_rows:
+        mode = str(row.get("expansion_mode") or "")
+        if mode == "mc_blind_pairwise_duel":
+            if row.get("pairwise_validation_pass") is not True:
+                continue
+            winner = str(row.get("pairwise_winner_answer") or "")
+            if _is_candidate(winner):
+                support[winner] = support.get(winner, 0.0) + 0.25
+        elif mode == "strategyqa_minority_resample" and row.get("expansion_validation_pass") is True:
+            answer = _row_answer(row)
+            if _is_candidate(answer):
+                support[answer] = support.get(answer, 0.0) + 1.0
+    return {answer: round(value, 6) for answer, value in support.items()}
+
+
+def _has_pairwise_candidate_blocked(dataset: str, selection_rows: list[dict[str, Any]], leader_family: str) -> bool:
+    if dataset not in _MC_DATASETS:
+        return False
+    return any(
+        row.get("expansion_mode") == "mc_blind_pairwise_duel"
+        and row.get("pairwise_validation_pass") is True
+        and str(row.get("pairwise_challenger_family") or "") != leader_family
+        for row in selection_rows
+    )
+
+
+def _has_strategyqa_probe_blocked(dataset: str, selection_rows: list[dict[str, Any]], leader_family: str) -> bool:
+    if dataset != "strategyqa":
+        return False
+    return any(
+        row.get("expansion_mode") == "strategyqa_minority_resample"
+        and row.get("expansion_validation_pass") is True
+        and answer_family_key(dataset, _row_answer(row)) != leader_family
+        for row in selection_rows
+    )
+
+
+def _has_non_answer_challenger(dataset: str, rows: list[dict[str, Any]], leader_family: str) -> bool:
+    return any(
+        _non_answer_family(dataset, _row_answer(row)) and answer_family_key(dataset, _row_answer(row)) != leader_family
+        for row in rows
+    )
+
+
+def _non_answer_family(dataset: str, answer: str) -> bool:
+    if dataset not in _SPAN_DATASETS:
+        return False
+    normalized = _normalized_span(answer)
+    phrases = (
+        "not specified",
+        "not stated",
+        "not provided",
+        "not mentioned",
+        "not in context",
+        "cannot determine",
+        "unknown",
+    )
+    return any(phrase in normalized for phrase in phrases)
 
 
 def _safe_promoted_decision(
@@ -987,6 +1268,9 @@ def _verification_support(stage_support: dict[str, float], verifier_rows: list[d
 
 
 def _row_answer(row: dict[str, Any]) -> str:
+    payload = row.get("validated_output") if isinstance(row.get("validated_output"), dict) else {}
+    if str(payload.get("format_warning") or row.get("format_warning") or "") in {"answer_contains_reasoning_leak", "answer_too_long_for_final_slot"}:
+        return ""
     return str(row.get("normalized_answer") or row.get("prediction") or "").strip()
 
 

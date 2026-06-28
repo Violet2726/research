@@ -19,6 +19,8 @@ CRED_VERIFY_SAFE_V1 = "cred_verify_safe_v1"
 CRED_ACS_V1 = "cred_acs_v1"
 CRED_RFS_VOTE_5 = "cred_rfs_vote_5"
 CRED_RFS_ADAPTIVE_SC_V1 = "cred_rfs_adaptive_sc_v1"
+CRED_RFS_VOTE_5_ANCHOR = "cred_rfs_vote_5_anchor"
+CRED_RFS_PAIRWISE_SELECT_V2 = "cred_rfs_pairwise_select_v2"
 CRED_METHODS = frozenset(
     {
         CRED_V_VOTE_5,
@@ -27,15 +29,18 @@ CRED_METHODS = frozenset(
         CRED_ACS_V1,
         CRED_RFS_VOTE_5,
         CRED_RFS_ADAPTIVE_SC_V1,
+        CRED_RFS_VOTE_5_ANCHOR,
+        CRED_RFS_PAIRWISE_SELECT_V2,
     }
 )
 CRED_VERIFY_METHODS = frozenset({CRED_V_TASK_VERIFY_V3})
 CRED_SAFE_VERIFY_METHODS = frozenset({CRED_VERIFY_SAFE_V1})
 CRED_ACS_METHODS = frozenset({CRED_ACS_V1})
 CRED_RFS_ADAPTIVE_METHODS = frozenset({CRED_RFS_ADAPTIVE_SC_V1})
-CRED_RFS_METHODS = frozenset({CRED_RFS_VOTE_5, CRED_RFS_ADAPTIVE_SC_V1})
-CRED_COMM_METHODS = CRED_VERIFY_METHODS | CRED_SAFE_VERIFY_METHODS | CRED_ACS_METHODS | CRED_RFS_ADAPTIVE_METHODS
-CRED_VOTE_METHODS = frozenset({CRED_V_VOTE_5, CRED_RFS_VOTE_5})
+CRED_RFS_PAIRWISE_METHODS = frozenset({CRED_RFS_PAIRWISE_SELECT_V2})
+CRED_RFS_METHODS = frozenset({CRED_RFS_VOTE_5, CRED_RFS_ADAPTIVE_SC_V1, CRED_RFS_VOTE_5_ANCHOR, CRED_RFS_PAIRWISE_SELECT_V2})
+CRED_COMM_METHODS = CRED_VERIFY_METHODS | CRED_SAFE_VERIFY_METHODS | CRED_ACS_METHODS | CRED_RFS_ADAPTIVE_METHODS | CRED_RFS_PAIRWISE_METHODS
+CRED_VOTE_METHODS = frozenset({CRED_V_VOTE_5, CRED_RFS_VOTE_5, CRED_RFS_VOTE_5_ANCHOR})
 
 
 @dataclass(frozen=True)
@@ -45,6 +50,7 @@ class CredVProtocolConfig:
     max_verifications: int
     max_verification_calls: int
     verification_modes: tuple[str, ...]
+    selection_modes: tuple[str, ...]
     expansion_modes: tuple[str, ...]
     expansion_model_refs: tuple[str, ...]
     disabled_expansion_modes: tuple[str, ...]
@@ -54,7 +60,10 @@ class CredVProtocolConfig:
     promotion_min_independent_support: int
     promotion_margin_min: float
     mc_shuffle_min_agreement: int
+    pairwise_duel_replicates: int
+    pairwise_promotion_min_wins: int
     require_stage_a_challenger_support: bool
+    new_candidate_policy: str
     allow_single_verifier_promotion: bool
     false_consensus_probe: bool
     max_trigger_rate: float
@@ -110,6 +119,13 @@ def load_protocol_config(path: str | Path) -> CredVProtocolConfig:
                 ["deterministic_repair", "tool_verified", "hetero_verified"],
             )
         ),
+        selection_modes=tuple(
+            str(item)
+            for item in payload.get(
+                "selection_modes",
+                [],
+            )
+        ),
         expansion_modes=tuple(
             str(item)
             for item in payload.get(
@@ -125,7 +141,10 @@ def load_protocol_config(path: str | Path) -> CredVProtocolConfig:
         promotion_min_independent_support=int(payload.get("promotion_min_independent_support", 2)),
         promotion_margin_min=float(payload.get("promotion_margin_min", payload.get("promotion_score_margin", 1.0))),
         mc_shuffle_min_agreement=int(payload.get("mc_shuffle_min_agreement", payload.get("promotion_min_independent_support", 2))),
+        pairwise_duel_replicates=int(payload.get("pairwise_duel_replicates", 3)),
+        pairwise_promotion_min_wins=int(payload.get("pairwise_promotion_min_wins", 2)),
         require_stage_a_challenger_support=_parse_bool(payload.get("require_stage_a_challenger_support", False)),
+        new_candidate_policy=str(payload.get("new_candidate_policy", "allow")),
         allow_single_verifier_promotion=_parse_bool(payload.get("allow_single_verifier_promotion", False)),
         false_consensus_probe=_parse_bool(payload.get("false_consensus_probe", False)),
         max_trigger_rate=float(payload.get("max_trigger_rate", 1.0)),

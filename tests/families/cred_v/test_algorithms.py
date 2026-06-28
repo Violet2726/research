@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from research_experiments.families.cred_v.algorithms import (
     aggregate_adaptive_candidate_search,
+    aggregate_pairwise_selection,
     aggregate_reasoning_first_selection,
     aggregate_safe_verification,
     aggregate_stage_a_vote,
@@ -461,6 +462,46 @@ def test_router_clean_skip_and_false_consensus_probe() -> None:
     assert probed.trigger_bucket == "false_consensus_probe"
 
 
+def test_rfs_v2_router_keeps_clean_anchor_skip_and_probes_high_value_minority() -> None:
+    protocol = SimpleNamespace(
+        strong_majority_count=4,
+        leader_lock_count=4,
+        trigger_buckets=("weak_split_select", "deterministic_repair_only", "minority_probe"),
+        false_consensus_probe=True,
+        selection_modes=("mc_blind_pairwise_duel",),
+    )
+    clean = build_router_decision(
+        [
+            _row("mmlu_pro", "A", confidence=0.80),
+            _row("mmlu_pro", "A", confidence=0.79),
+            _row("mmlu_pro", "A", confidence=0.78),
+            _row("mmlu_pro", "A", confidence=0.77),
+            _row("mmlu_pro", "B", confidence=0.76),
+        ],
+        protocol=protocol,
+    )
+    probed = build_router_decision(
+        [
+            _row("mmlu_pro", "A", confidence=0.80),
+            _row("mmlu_pro", "A", confidence=0.79),
+            _row("mmlu_pro", "A", confidence=0.78),
+            _row("mmlu_pro", "A", confidence=0.77),
+            _row(
+                "mmlu_pro",
+                "B",
+                confidence=0.95,
+                payload={"key_evidence": "option B has a decisive mechanistic clue that option A lacks"},
+            ),
+        ],
+        protocol=protocol,
+    )
+
+    assert clean.triggered is False
+    assert clean.trigger_bucket == "clean_anchor_skip"
+    assert probed.triggered is True
+    assert probed.trigger_bucket == "minority_probe"
+
+
 def test_acs_ignores_failed_expansion_rows() -> None:
     stage_rows = [
         _row("mmlu_pro", "A", confidence=0.70),
@@ -632,6 +673,197 @@ def test_rfs_strategyqa_promotion_disabled() -> None:
     assert decision.resolver == "cred_rfs_strategyqa_promotion_disabled"
 
 
+def test_rfs_v2_pairwise_duel_promotes_stage_supported_challenger_with_two_wins() -> None:
+    stage_rows = [
+        _row("mmlu_pro", "A", confidence=0.70),
+        _row("mmlu_pro", "A", confidence=0.69),
+        _row("mmlu_pro", "A", confidence=0.68),
+        _row("mmlu_pro", "B", confidence=0.90),
+        _row("mmlu_pro", "B", confidence=0.89),
+    ]
+    selection_rows = [
+        _duel_row("mmlu_pro", leader="A", challenger="B", winner="B"),
+        _duel_row("mmlu_pro", leader="A", challenger="B", winner="B"),
+        _duel_row("mmlu_pro", leader="A", challenger="B", winner="A"),
+    ]
+
+    decision = aggregate_pairwise_selection(
+        dataset="mmlu_pro",
+        question="Which option is best?",
+        context="",
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        stage_winner="A",
+        selection_modes=("mc_blind_pairwise_duel",),
+        leader_lock_count=4,
+        pairwise_duel_replicates=3,
+        pairwise_promotion_min_wins=2,
+        require_stage_a_challenger_support=True,
+    )
+
+    assert decision.final_answer == "B"
+    assert decision.changed is True
+    assert decision.resolver == "cred_rfs_v2_pairwise_promoted"
+
+
+def test_rfs_v2_pairwise_duel_rejects_one_win() -> None:
+    stage_rows = [
+        _row("mmlu_pro", "A", confidence=0.70),
+        _row("mmlu_pro", "A", confidence=0.69),
+        _row("mmlu_pro", "A", confidence=0.68),
+        _row("mmlu_pro", "B", confidence=0.90),
+        _row("mmlu_pro", "B", confidence=0.89),
+    ]
+    selection_rows = [
+        _duel_row("mmlu_pro", leader="A", challenger="B", winner="B"),
+        _duel_row("mmlu_pro", leader="A", challenger="B", winner="A"),
+        _duel_row("mmlu_pro", leader="A", challenger="B", winner="A"),
+    ]
+
+    decision = aggregate_pairwise_selection(
+        dataset="mmlu_pro",
+        question="Which option is best?",
+        context="",
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        stage_winner="A",
+        selection_modes=("mc_blind_pairwise_duel",),
+        leader_lock_count=4,
+        pairwise_duel_replicates=3,
+        pairwise_promotion_min_wins=2,
+        require_stage_a_challenger_support=True,
+    )
+
+    assert decision.final_answer == "A"
+    assert decision.changed is False
+    assert decision.resolver == "cred_rfs_v2_pairwise_rejected"
+
+
+def test_rfs_v2_pairwise_blocks_challenger_without_stage_support() -> None:
+    stage_rows = [
+        _row("mmlu_pro", "A", confidence=0.70),
+        _row("mmlu_pro", "A", confidence=0.69),
+        _row("mmlu_pro", "A", confidence=0.68),
+        _row("mmlu_pro", "B", confidence=0.67),
+        _row("mmlu_pro", "B", confidence=0.66),
+    ]
+    selection_rows = [
+        _duel_row("mmlu_pro", leader="A", challenger="C", winner="C"),
+        _duel_row("mmlu_pro", leader="A", challenger="C", winner="C"),
+        _duel_row("mmlu_pro", leader="A", challenger="C", winner="C"),
+    ]
+
+    decision = aggregate_pairwise_selection(
+        dataset="mmlu_pro",
+        question="Which option is best?",
+        context="",
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        stage_winner="A",
+        selection_modes=("mc_blind_pairwise_duel",),
+        leader_lock_count=4,
+        pairwise_duel_replicates=3,
+        pairwise_promotion_min_wins=2,
+        require_stage_a_challenger_support=True,
+    )
+
+    assert decision.final_answer == "A"
+    assert decision.changed is False
+
+
+def test_rfs_v2_strong_majority_requires_unanimous_pairwise_probe() -> None:
+    stage_rows = [
+        _row("mmlu_pro", "A", confidence=0.80),
+        _row("mmlu_pro", "A", confidence=0.79),
+        _row("mmlu_pro", "A", confidence=0.78),
+        _row("mmlu_pro", "A", confidence=0.77),
+        _row("mmlu_pro", "B", confidence=0.95),
+    ]
+    selection_rows = [
+        _duel_row("mmlu_pro", leader="A", challenger="B", winner="B"),
+        _duel_row("mmlu_pro", leader="A", challenger="B", winner="B"),
+        _duel_row("mmlu_pro", leader="A", challenger="B", winner="A"),
+    ]
+
+    decision = aggregate_pairwise_selection(
+        dataset="mmlu_pro",
+        question="Which option is best?",
+        context="",
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        stage_winner="A",
+        selection_modes=("mc_blind_pairwise_duel",),
+        leader_lock_count=4,
+        pairwise_duel_replicates=3,
+        pairwise_promotion_min_wins=2,
+        require_stage_a_challenger_support=True,
+    )
+
+    assert decision.final_answer == "A"
+    assert decision.changed is False
+    assert decision.resolver == "cred_rfs_v2_strong_majority_locked"
+
+
+def test_rfs_v2_strategyqa_minority_probe_requires_two_extra_votes() -> None:
+    stage_rows = [
+        _row("strategyqa", "yes", confidence=0.80),
+        _row("strategyqa", "yes", confidence=0.79),
+        _row("strategyqa", "yes", confidence=0.78),
+        _row("strategyqa", "yes", confidence=0.77),
+        _row("strategyqa", "no", confidence=0.95),
+    ]
+    selection_rows = [
+        _row("strategyqa", "no", method_name="cred_rfs_expansion", expansion_mode="strategyqa_minority_resample"),
+        _row("strategyqa", "no", method_name="cred_rfs_expansion", expansion_mode="strategyqa_minority_resample"),
+    ]
+
+    decision = aggregate_pairwise_selection(
+        dataset="strategyqa",
+        question="Is the statement true?",
+        context="",
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        stage_winner="yes",
+        selection_modes=("strategyqa_minority_resample",),
+        leader_lock_count=4,
+        pairwise_duel_replicates=3,
+        pairwise_promotion_min_wins=2,
+        require_stage_a_challenger_support=True,
+    )
+
+    assert decision.final_answer == "no"
+    assert decision.changed is True
+    assert decision.resolver == "cred_rfs_v2_strategyqa_minority_promoted"
+
+
+def test_rfs_v2_hotpot_blocks_non_answer_candidate() -> None:
+    stage_rows = [
+        _row("hotpotqa", "Paris", confidence=0.80),
+        _row("hotpotqa", "Paris", confidence=0.79),
+        _row("hotpotqa", "Paris", confidence=0.78),
+        _row("hotpotqa", "not stated in context", confidence=0.77),
+        _row("hotpotqa", "Paris", confidence=0.76),
+    ]
+
+    decision = aggregate_pairwise_selection(
+        dataset="hotpotqa",
+        question="What city?",
+        context="Paris is stated in the context.",
+        stage_rows=stage_rows,
+        selection_rows=[],
+        stage_winner="Paris",
+        selection_modes=("hotpot_context_span_repair",),
+        leader_lock_count=4,
+        pairwise_duel_replicates=3,
+        pairwise_promotion_min_wins=2,
+        require_stage_a_challenger_support=True,
+    )
+
+    assert decision.final_answer == "Paris"
+    assert decision.changed is False
+    assert decision.resolver == "cred_rfs_v2_non_answer_blocked"
+
+
 def _row(
     dataset: str,
     answer: str,
@@ -666,3 +898,16 @@ def _row(
         "expansion_validation_pass": request_status == "ok",
         "validated_output": validated_output,
     }
+
+
+def _duel_row(dataset: str, *, leader: str, challenger: str, winner: str, request_status: str = "ok") -> dict:
+    row = _row(dataset, winner, method_name="cred_rfs_expansion", expansion_mode="mc_blind_pairwise_duel", request_status=request_status)
+    row["pairwise_leader_answer"] = leader
+    row["pairwise_challenger_answer"] = challenger
+    row["pairwise_winner_answer"] = winner
+    row["pairwise_leader_family"] = f"mc:{leader}"
+    row["pairwise_challenger_family"] = f"mc:{challenger}"
+    row["pairwise_winner_family"] = f"mc:{winner}"
+    row["pairwise_validation_pass"] = request_status == "ok"
+    row["expansion_validation_pass"] = request_status == "ok"
+    return row

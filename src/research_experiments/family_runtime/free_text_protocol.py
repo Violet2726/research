@@ -227,6 +227,9 @@ def _strip_code_fences(text: str) -> str:
 
 
 def _task_format_warning(dataset: str, final_answer: str) -> str | None:
+    leak_warning = _reasoning_leak_warning(final_answer)
+    if leak_warning is not None:
+        return leak_warning
     if task_format_ok(dataset, final_answer):
         return None
     if dataset in _MULTIPLE_CHOICE_DATASETS:
@@ -234,3 +237,15 @@ def _task_format_warning(dataset: str, final_answer: str) -> str | None:
     if dataset in _MATH_DATASETS:
         return "math_answer_contains_non_ascii_math_markup"
     return "answer_outside_expected_slot"
+
+
+def _reasoning_leak_warning(final_answer: str) -> str | None:
+    answer = str(final_answer or "").strip()
+    lowered = answer.lower()
+    if any(marker in lowered for marker in ("</think>", "<think>", "reasoning:", "final_answer:", "final answer:", "therefore ", "because ")):
+        return "answer_contains_reasoning_leak"
+    if "\n" in answer or "\r" in answer:
+        return "answer_contains_reasoning_leak"
+    if len(answer) > 160:
+        return "answer_too_long_for_final_slot"
+    return None

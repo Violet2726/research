@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
-from research_experiments.core.prompts.dataset_contracts import dataset_instruction_for_sample
 from research_experiments.core.data.datasets import DatasetSample
+from research_experiments.core.controls.control_prompts import FREE_TEXT_V1_PROMPT_VERSION, build_cot_messages
+from research_experiments.core.prompts.dataset_contracts import dataset_instruction_for_sample
 from research_experiments.family_runtime.free_text_protocol import FREE_TEXT_ANSWER_PROTOCOL_V1
 from research_experiments.family_runtime.free_text_protocol import build_free_text_answer_instruction, build_free_text_system_prompt
 from research_experiments.family_runtime.json_object_protocol import build_json_object_answer_instruction
 
-CRED_PROMPT_VERSION = "cred_rfs_v1"
+CRED_PROMPT_VERSION = "cred_rfs_v2"
 
 AGENT_ROLES = (
     "cot_builder",
@@ -34,9 +36,13 @@ def build_stage_a_messages(
     *,
     agent_id: int,
     agent_role: str,
+    prompt_mode: str = "reasoning_first_roles_v1",
     output_protocol: str | None = None,
 ) -> list[dict[str, str]]:
     if output_protocol == FREE_TEXT_ANSWER_PROTOCOL_V1:
+        if prompt_mode == "sc5_anchor_free_text_v1":
+            del agent_role
+            return build_cot_messages(sample, agent_id, FREE_TEXT_V1_PROMPT_VERSION)
         user_prompt = (
             f"You are CRED-RFS agent_{agent_id}.\n"
             "Reasoning contract: solve independently with your assigned lens, then commit the final answer.\n"
@@ -85,6 +91,91 @@ def build_stage_a_messages(
     )
     return [
         {"role": "system", "content": "You are an expert reasoning agent in a controlled CRED-V experiment. Return a JSON answer object."},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_mc_blind_pairwise_duel_messages(
+    sample: DatasetSample,
+    *,
+    leader_answer: str,
+    challenger_answer: str,
+    variant_index: int,
+) -> list[dict[str, str]]:
+    options = _option_map(sample)
+    leader_text = options.get(str(leader_answer).strip().upper(), str(leader_answer).strip())
+    challenger_text = options.get(str(challenger_answer).strip().upper(), str(challenger_answer).strip())
+    if variant_index % 2 == 0:
+        first_label, first_text, second_label, second_text = "X", leader_text, "Y", challenger_text
+    else:
+        first_label, first_text, second_label, second_text = "X", challenger_text, "Y", leader_text
+    example = {
+        "reasoning": "slot identified; decisive comparison made; selected side fits",
+        "answer": "X",
+        "confidence": 0.0,
+        "key_evidence": "one decisive clue",
+        "risk_level": "none",
+        "risk_summary": "short remaining uncertainty",
+        "selected_side": "X",
+        "duel_variant": variant_index,
+    }
+    user_prompt = (
+        "You are a CRED-RFS blind pairwise selector for a multiple-choice task.\n"
+        "Compare two anonymized candidate options by solving the question, not by trusting vote counts or original option letters.\n"
+        "Return selected_side as exactly X or Y. Use the same X or Y value in answer.\n"
+        f"{dataset_instruction_for_sample(sample, multiple_choice_scope='visible')}\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+        f"Candidate {first_label}: {first_text}\n"
+        f"Candidate {second_label}: {second_text}\n\n"
+        "Choose the candidate that best answers the question. key_evidence is the decisive concept or factual clue. "
+        "Do not use vote counts as evidence.\n"
+        "Return one compact JSON answer card with these fields:\n"
+        f"{json.dumps(example, ensure_ascii=False)}\n"
+        "Field guide:\n"
+        "- reasoning: three compact verification clauses.\n"
+        "- answer: exactly X or Y, matching selected_side.\n"
+        "- confidence: a number from 0.0 to 1.0.\n"
+        "- key_evidence: one concrete option clue or concept contrast.\n"
+        '- risk_level: one of "none", "low", "medium", "high".\n'
+        "- risk_summary: one short phrase.\n"
+        "- selected_side: exactly X or Y.\n"
+        "- duel_variant: the provided integer variant id.\n"
+    )
+    return [
+        {"role": "system", "content": "You are a blind pairwise selector in a controlled CRED-RFS experiment. Return one JSON answer object."},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_strategyqa_minority_resample_messages(
+    sample: DatasetSample,
+    *,
+    variant_index: int,
+    leading_answer: str,
+    challenger_answer: str,
+) -> list[dict[str, str]]:
+    lens = (
+        "Solve from scratch, then check whether the minority answer explains the facts better."
+        if variant_index % 2 == 1
+        else "Resolve the factual subclaims first, then map them to yes or no."
+    )
+    user_prompt = (
+        f"You are CRED-RFS StrategyQA minority probe_{variant_index}.\n"
+        f"Probe lens: {lens}\n"
+        f"{dataset_instruction_for_sample(sample)}\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+        f"Current majority answer: `{leading_answer}`.\n"
+        f"Minority answer under probe: `{challenger_answer}`.\n"
+        + build_free_text_answer_instruction(sample.dataset)
+    )
+    return [
+        {
+            "role": "system",
+            "content": build_free_text_system_prompt(
+                "You are an expert yes/no reasoner in a controlled CRED-RFS experiment.",
+                extra_rules=["Commit exactly yes or no after resolving the factual subclaims."],
+            ),
+        },
         {"role": "user", "content": user_prompt},
     ]
 
@@ -430,6 +521,13 @@ def _format_board(rows: list[dict[str, Any]]) -> str:
 
 def _format_options(options: list[str]) -> str:
     return "\n".join(f"{chr(ord('A') + index)}. {option}" for index, option in enumerate(options))
+
+
+def _option_map(sample: DatasetSample) -> dict[str, str]:
+    raw_options = sample.metadata.get("options") or sample.metadata.get("choices") or []
+    if not isinstance(raw_options, list):
+        return {}
+    return {chr(ord("A") + index): str(option).strip() for index, option in enumerate(raw_options) if str(option).strip()}
 
 
 def _format_packet(row: dict[str, Any]) -> str:

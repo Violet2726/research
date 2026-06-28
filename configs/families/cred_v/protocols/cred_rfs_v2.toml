@@ -1,0 +1,40 @@
+stage_a_agent_count = 5
+stage_a_prompt_mode = "sc5_anchor_free_text_v1"
+
+# Legacy verifier controls remain loadable, but are not active in cred_v_main.
+max_verifications = 1
+max_verification_calls = 1
+verification_modes = ["deterministic_repair", "tool_verified", "hetero_verified"]
+allow_same_model_promotion = false
+
+# CRED-RFS v2: SC anchor plus blind pairwise selector.
+selection_modes = ["deterministic_repair", "mc_blind_pairwise_duel", "strategyqa_minority_resample", "hotpot_context_span_repair"]
+expansion_modes = ["mc_blind_pairwise_duel", "strategyqa_minority_resample"]
+disabled_expansion_modes = ["strategyqa_dual_polarity", "hotpot_span_extract", "rfs_extra_solver", "mc_choice_shuffle"]
+expansion_model_refs = ["xiaomimimo/mimo-v2.5-pro"]
+max_expansion_calls = 3
+adaptive_extra_solver_calls = 2
+max_total_solver_calls = 7
+promotion_min_independent_support = 2
+promotion_margin_min = 1.25
+mc_shuffle_min_agreement = 2
+pairwise_duel_replicates = 3
+pairwise_promotion_min_wins = 2
+require_stage_a_challenger_support = true
+new_candidate_policy = "block_unless_unanimous_probe"
+allow_single_verifier_promotion = false
+false_consensus_probe = true
+max_trigger_rate = 0.25
+trigger_buckets = ["weak_split_select", "deterministic_repair_only", "minority_probe"]
+
+stage_a_temperature = 0.7
+verifier_temperature = 0.0
+top_p = 1.0
+strong_majority_count = 4
+leader_lock_count = 4
+weak_majority_count = 3
+concrete_evidence_min_chars = 12
+stage_a_max_tokens = 0
+verifier_max_tokens = 1024
+promotion_confidence_min = 0.72
+promotion_score_margin = 0.15
