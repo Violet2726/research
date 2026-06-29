@@ -1,5 +1,5 @@
-name = "cred_v_main"
-description = "CRED-RFS Repair-Only v6 SC-anchored deterministic-repair mainline."
+name = "cred_v_rfs_v7_shadow_evidence_select"
+description = "CRED-RFS v7 shadow evidence selector; final predictions equal v6 while cross-view selector signals are logged for pre-registered calibration."
 benchmark_configs = [
   "configs/core/shared/benchmarks/math500/test.toml",
   "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
@@ -7,11 +7,11 @@ benchmark_configs = [
   "configs/core/shared/benchmarks/strategyqa/dev.toml",
   "configs/core/shared/benchmarks/mmlu-pro/test.toml",
 ]
-protocol = "configs/families/cred_v/protocols/cred_rfs_v6_repair_only.toml"
+protocol = "configs/families/cred_v/protocols/cred_rfs_v7_shadow_evidence_select.toml"
 control_catalog = "configs/families/single_agent/methods/common.toml"
 control_methods = ["cot_1", "sc_3", "sc_5"]
-cred_methods = ["cred_rfs_vote_5_anchor", "cred_rfs_repair_only_v6"]
-method_order = ["cot_1", "sc_3", "sc_5", "cred_rfs_vote_5_anchor", "cred_rfs_repair_only_v6"]
+cred_methods = ["cred_rfs_vote_5_anchor", "cred_rfs_repair_only_v6", "cred_rfs_shadow_evidence_select_v7"]
+method_order = ["cot_1", "sc_3", "sc_5", "cred_rfs_vote_5_anchor", "cred_rfs_repair_only_v6", "cred_rfs_shadow_evidence_select_v7"]
 global_seed = 42
 control_prompt_version = "single_agent_free_text_v1"
 cred_output_protocol = "free_text_answer_v1"

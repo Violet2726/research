@@ -24,6 +24,8 @@ CRED_RFS_PAIRWISE_SELECT_V2 = "cred_rfs_pairwise_select_v2"
 CRED_RFS_SAFE_SELECT_V3 = "cred_rfs_safe_select_v3"
 CRED_RFS_SHADOW_SELECT_V4 = "cred_rfs_shadow_select_v4"
 CRED_RFS_EVIDENCE_REPAIR_V5 = "cred_rfs_evidence_repair_v5"
+CRED_RFS_REPAIR_ONLY_V6 = "cred_rfs_repair_only_v6"
+CRED_RFS_SHADOW_EVIDENCE_SELECT_V7 = "cred_rfs_shadow_evidence_select_v7"
 CRED_METHODS = frozenset(
     {
         CRED_V_VOTE_5,
@@ -37,6 +39,8 @@ CRED_METHODS = frozenset(
         CRED_RFS_SAFE_SELECT_V3,
         CRED_RFS_SHADOW_SELECT_V4,
         CRED_RFS_EVIDENCE_REPAIR_V5,
+        CRED_RFS_REPAIR_ONLY_V6,
+        CRED_RFS_SHADOW_EVIDENCE_SELECT_V7,
     }
 )
 CRED_VERIFY_METHODS = frozenset({CRED_V_TASK_VERIFY_V3})
@@ -44,11 +48,19 @@ CRED_SAFE_VERIFY_METHODS = frozenset({CRED_VERIFY_SAFE_V1})
 CRED_ACS_METHODS = frozenset({CRED_ACS_V1})
 CRED_RFS_ADAPTIVE_METHODS = frozenset({CRED_RFS_ADAPTIVE_SC_V1})
 CRED_RFS_PAIRWISE_METHODS = frozenset(
-    {CRED_RFS_PAIRWISE_SELECT_V2, CRED_RFS_SAFE_SELECT_V3, CRED_RFS_SHADOW_SELECT_V4, CRED_RFS_EVIDENCE_REPAIR_V5}
+    {
+        CRED_RFS_PAIRWISE_SELECT_V2,
+        CRED_RFS_SAFE_SELECT_V3,
+        CRED_RFS_SHADOW_SELECT_V4,
+        CRED_RFS_EVIDENCE_REPAIR_V5,
+        CRED_RFS_SHADOW_EVIDENCE_SELECT_V7,
+    }
 )
 CRED_RFS_SAFE_SELECT_METHODS = frozenset({CRED_RFS_SAFE_SELECT_V3})
 CRED_RFS_SHADOW_SELECT_METHODS = frozenset({CRED_RFS_SHADOW_SELECT_V4})
 CRED_RFS_EVIDENCE_REPAIR_METHODS = frozenset({CRED_RFS_EVIDENCE_REPAIR_V5})
+CRED_RFS_REPAIR_ONLY_METHODS = frozenset({CRED_RFS_REPAIR_ONLY_V6})
+CRED_RFS_SHADOW_EVIDENCE_METHODS = frozenset({CRED_RFS_SHADOW_EVIDENCE_SELECT_V7})
 CRED_RFS_METHODS = frozenset(
     {
         CRED_RFS_VOTE_5,
@@ -58,6 +70,8 @@ CRED_RFS_METHODS = frozenset(
         CRED_RFS_SAFE_SELECT_V3,
         CRED_RFS_SHADOW_SELECT_V4,
         CRED_RFS_EVIDENCE_REPAIR_V5,
+        CRED_RFS_REPAIR_ONLY_V6,
+        CRED_RFS_SHADOW_EVIDENCE_SELECT_V7,
     }
 )
 CRED_COMM_METHODS = CRED_VERIFY_METHODS | CRED_SAFE_VERIFY_METHODS | CRED_ACS_METHODS | CRED_RFS_ADAPTIVE_METHODS | CRED_RFS_PAIRWISE_METHODS
@@ -97,6 +111,7 @@ class CredVProtocolConfig:
     new_candidate_policy: str
     allow_single_verifier_promotion: bool
     allow_strong_majority_pairwise_promotion: bool
+    allow_semantic_promotion: bool
     false_consensus_probe: bool
     max_trigger_rate: float
     trigger_buckets: tuple[str, ...]
@@ -189,6 +204,7 @@ def load_protocol_config(path: str | Path) -> CredVProtocolConfig:
         new_candidate_policy=str(payload.get("new_candidate_policy", "allow")),
         allow_single_verifier_promotion=_parse_bool(payload.get("allow_single_verifier_promotion", False)),
         allow_strong_majority_pairwise_promotion=_parse_bool(payload.get("allow_strong_majority_pairwise_promotion", False)),
+        allow_semantic_promotion=_parse_bool(payload.get("allow_semantic_promotion", True)),
         false_consensus_probe=_parse_bool(payload.get("false_consensus_probe", False)),
         max_trigger_rate=float(payload.get("max_trigger_rate", 1.0)),
         trigger_buckets=tuple(

@@ -176,6 +176,90 @@ def test_protocol_recovery_metrics_are_aggregated() -> None:
     assert summary["json_truncated_count"] == 3
 
 
+def test_repair_only_and_semantic_selector_metrics_are_separated() -> None:
+    rows = [
+        _summary_prediction("gpqa_diamond", "1", "sc_5", 0.0),
+        _summary_prediction(
+            "gpqa_diamond",
+            "1",
+            "cred_rfs_repair_only_v6",
+            1.0,
+            corrected_by_debate=True,
+            repair_only_corrected=True,
+            resolver="cred_rfs_v6_math_repair",
+        ),
+        _summary_prediction("gpqa_diamond", "2", "cred_rfs_repair_only_v6", 0.0, resolver="cred_rfs_v6_repair_only_rejected"),
+        _summary_prediction("gpqa_diamond", "3", "cred_rfs_repair_only_v6", 1.0, resolver="cred_rfs_v6_repair_only_rejected"),
+        _summary_prediction("gpqa_diamond", "2", "sc_5", 0.0),
+        _summary_prediction(
+            "gpqa_diamond",
+            "2",
+            "cred_rfs_safe_select_v3",
+            1.0,
+            corrected_by_debate=True,
+            semantic_selector_corrected=True,
+            resolver="cred_rfs_v3_gpqa_unanimous_pairwise_promoted",
+        ),
+        _summary_prediction("gpqa_diamond", "3", "sc_5", 1.0),
+        _summary_prediction(
+            "gpqa_diamond",
+            "3",
+            "cred_rfs_safe_select_v3",
+            0.0,
+            harmed_by_debate=True,
+            semantic_selector_harmed=True,
+            resolver="cred_rfs_v3_gpqa_unanimous_pairwise_promoted",
+        ),
+    ]
+
+    metrics = build_metrics(
+        rows,
+        dataset_order=["gpqa_diamond"],
+        method_order=["sc_5", "cred_rfs_repair_only_v6", "cred_rfs_safe_select_v3"],
+        control_names=["sc_5"],
+    )
+    v6 = next(row for row in metrics["summary"] if row["dataset"] == "overall_micro" and row["method_name"] == "cred_rfs_repair_only_v6")
+    v3 = next(row for row in metrics["summary"] if row["dataset"] == "overall_micro" and row["method_name"] == "cred_rfs_safe_select_v3")
+
+    assert v6["repair_only_corrected_count"] == 1
+    assert v6["repair_only_harmed_count"] == 0
+    assert v6["repair_only_gain_vs_sc5"] == 0.333334
+    assert v3["semantic_selector_corrected_count"] == 1
+    assert v3["semantic_selector_harmed_count"] == 1
+    assert v3["semantic_selector_precision"] == 0.5
+    assert v3["pairwise_duel_precision"] == 0.5
+
+
+def test_v7_shadow_counterfactual_aliases_and_cross_view_agreement_are_reported() -> None:
+    rows = [
+        _summary_prediction("gpqa_diamond", "1", "sc_5", 0.0),
+        _summary_prediction(
+            "gpqa_diamond",
+            "1",
+            "cred_rfs_shadow_evidence_select_v7",
+            0.0,
+            method_expansion_call_count=3,
+            shadow_counterfactual_corrected=True,
+            shadow_gate_passed=True,
+            shadow_net_gain=1,
+            shadow_cross_view_agreement_count=3,
+        ),
+    ]
+
+    metrics = build_metrics(
+        rows,
+        dataset_order=["gpqa_diamond"],
+        method_order=["sc_5", "cred_rfs_shadow_evidence_select_v7"],
+        control_names=["sc_5"],
+    )
+    shadow = next(row for row in metrics["summary"] if row["dataset"] == "overall_micro" and row["method_name"] == "cred_rfs_shadow_evidence_select_v7")
+
+    assert shadow["accuracy_mean"] == 0.0
+    assert shadow["shadow_counterfactual_precision"] == 1.0
+    assert shadow["shadow_counterfactual_net_gain"] == 1
+    assert shadow["shadow_cross_view_agreement_count"] == 3
+
+
 def _prediction(dataset: str, sample_id: str, method_name: str, score: float) -> dict:
     return {
         "dataset": dataset,
@@ -206,6 +290,13 @@ def _summary_prediction(
     json_truncated_count: int = 0,
     math_repair_applied: bool = False,
     hotpot_span_repair_applied: bool = False,
+    corrected_by_debate: bool = False,
+    harmed_by_debate: bool = False,
+    repair_only_corrected: bool = False,
+    repair_only_harmed: bool = False,
+    semantic_selector_corrected: bool = False,
+    semantic_selector_harmed: bool = False,
+    shadow_cross_view_agreement_count: int = 0,
     resolver: str | None = None,
 ) -> dict:
     return {
@@ -230,8 +321,8 @@ def _summary_prediction(
         "initial_consensus": False,
         "final_consensus": True,
         "vote_flipped": False,
-        "corrected_by_debate": False,
-        "harmed_by_debate": False,
+        "corrected_by_debate": corrected_by_debate,
+        "harmed_by_debate": harmed_by_debate,
         "triggered": method_expansion_call_count > 0,
         "oracle_candidate_correct": score == 1.0,
         "stage_candidate_oracle_correct": score == 1.0,
@@ -253,6 +344,10 @@ def _summary_prediction(
         "pairwise_duel_win_count": pairwise_duel_win_count,
         "safe_selector_corrected": False,
         "safe_selector_harmed": False,
+        "repair_only_corrected": repair_only_corrected,
+        "repair_only_harmed": repair_only_harmed,
+        "semantic_selector_corrected": semantic_selector_corrected,
+        "semantic_selector_harmed": semantic_selector_harmed,
         "gpqa_unanimous_duel_count": gpqa_unanimous_duel_count,
         "blocked_2of3_pairwise_count": 0,
         "blocked_mmlu_pairwise_count": 0,
@@ -261,6 +356,7 @@ def _summary_prediction(
         "shadow_counterfactual_harmed": shadow_counterfactual_harmed,
         "shadow_gate_passed": shadow_gate_passed,
         "shadow_net_gain": shadow_net_gain,
+        "shadow_cross_view_agreement_count": shadow_cross_view_agreement_count,
         "duel_invalid_count": duel_invalid_count,
         "duel_retry_recoverable_count": duel_retry_recoverable_count,
         "free_text_recovered_count": free_text_recovered_count,

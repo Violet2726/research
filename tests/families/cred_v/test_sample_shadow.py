@@ -137,6 +137,56 @@ def test_strategyqa_shadow_resample_runs_on_weak_split(monkeypatch) -> None:
     assert all(row["expansion_validation_pass"] for row in rows)
 
 
+def test_v7_shadow_evidence_views_run_as_independent_modes(monkeypatch) -> None:
+    monkeypatch.setattr(sample_runner, "_execute_turn", _fake_pairwise_turn)
+    sample = _mc_sample("gpqa_diamond")
+    protocol = SimpleNamespace(
+        selection_modes=("deterministic_repair", "math_deterministic_repair", "hotpot_context_span_repair"),
+        shadow_selection_modes=(
+            "direct_option_contrast_shadow",
+            "constraint_elimination_shadow",
+            "minimal_evidence_certificate_shadow",
+        ),
+        pairwise_allowed_datasets=(),
+        shadow_pairwise_allowed_datasets=("gpqa_diamond", "mmlu_pro"),
+        pairwise_option_count_max=4,
+        pairwise_duel_replicates=3,
+        shadow_pairwise_retry_replicates=0,
+        expansion_model_refs=(),
+        verifier_temperature=0.0,
+        top_p=1.0,
+        verifier_max_tokens=128,
+        adaptive_extra_solver_calls=2,
+        stage_a_temperature=0.7,
+        stage_a_max_tokens=0,
+    )
+
+    rows = sample_runner._run_rfs_pairwise_selection(
+        run_id="r",
+        benchmark_slug="gpqa_diamond",
+        split_name="s",
+        sample=sample,
+        experiment=SimpleNamespace(global_seed=42, verifier_model_refs=["pro"], cred_verification_output_protocol="json_object_answer_v3", cred_output_protocol="free_text_answer_v1"),
+        protocol=protocol,
+        stage_rows=[],
+        vote_decision=SimpleNamespace(final_answer="A"),
+        backbone=SimpleNamespace(name="main"),
+        provider=None,
+        cache=None,
+        throttle=None,
+        verifier_runtimes=[_runtime()],
+        router_bucket="weak_split_select",
+        targets=[{"normalized_answer": "B"}],
+    )
+
+    assert [row["expansion_mode"] for row in rows] == [
+        "direct_option_contrast_shadow",
+        "constraint_elimination_shadow",
+        "minimal_evidence_certificate_shadow",
+    ]
+    assert {row["evidence_view"] for row in rows} == set(row["expansion_mode"] for row in rows)
+
+
 def _mc_sample(dataset: str) -> DatasetSample:
     return DatasetSample(dataset, "id", "Question?", "B", "", {"options": ["a", "b", "c", "d"]})
 

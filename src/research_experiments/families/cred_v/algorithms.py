@@ -101,8 +101,18 @@ def answer_family_key(dataset: str, answer: str) -> str:
 
 def build_router_decision(rows: list[dict[str, Any]], *, protocol) -> CredRouterDecision:
     dataset = _dataset_from_rows(rows)
+    selection_modes = {str(mode) for mode in getattr(protocol, "selection_modes", ())}
+    shadow_modes = {str(mode) for mode in getattr(protocol, "shadow_selection_modes", ())}
     pairwise_mode = bool(
-        {"mc_blind_pairwise_duel", "gpqa_unanimous_pairwise_duel"} & {str(mode) for mode in getattr(protocol, "selection_modes", ())}
+        {
+            "mc_blind_pairwise_duel",
+            "gpqa_unanimous_pairwise_duel",
+            "direct_option_contrast_shadow",
+            "constraint_elimination_shadow",
+            "minimal_evidence_certificate_shadow",
+            "strategyqa_resample_shadow",
+        }
+        & (selection_modes | shadow_modes)
     )
     grouped, _ = _stage_candidate_groups(dataset, rows)
     stage_decision = aggregate_stage_a_vote(rows)
@@ -975,6 +985,89 @@ def aggregate_evidence_repair_v5(
     )
 
 
+def aggregate_repair_only_v6(
+    *,
+    dataset: str,
+    question: str,
+    context: str,
+    stage_rows: list[dict[str, Any]],
+    stage_winner: str,
+    selection_modes: tuple[str, ...] | list[str],
+) -> CredAggregateDecision:
+    del question
+    stage_decision = aggregate_stage_a_vote(stage_rows)
+    stage_support = dict(stage_decision.support)
+    if not stage_rows or not stage_winner:
+        return CredAggregateDecision(
+            stage_winner,
+            stage_support,
+            "cred_rfs_v6_empty_fallback",
+            False,
+            "stage_a",
+        )
+
+    modes = {str(mode) for mode in selection_modes}
+    leader_family = answer_family_key(dataset, stage_winner)
+    repair_enabled = (
+        dataset in _MATH_DATASETS
+        and {"deterministic_repair", "math_deterministic_repair"} & modes
+        or dataset in _SPAN_DATASETS
+        and {"deterministic_repair", "hotpot_context_span_repair"} & modes
+    )
+    if repair_enabled:
+        for candidate in _safe_challenger_rows(dataset, stage_rows, stage_winner):
+            challenger = _row_answer(candidate)
+            if _repair_only_v6_allows(dataset, stage_winner, challenger, context):
+                resolver = "cred_rfs_v6_math_repair" if dataset in _MATH_DATASETS else "cred_rfs_v6_hotpot_span_repair"
+                return _safe_promoted_decision(
+                    dataset=dataset,
+                    stage_support=stage_support,
+                    stage_rows=stage_rows,
+                    stage_winner=stage_winner,
+                    winner=challenger,
+                    resolver=resolver,
+                    source="deterministic_repair",
+                )
+
+    if dataset in _SPAN_DATASETS and _has_non_answer_challenger(dataset, stage_rows, leader_family):
+        return CredAggregateDecision(
+            stage_winner,
+            stage_support,
+            "cred_rfs_v6_non_answer_blocked",
+            False,
+            "stage_a",
+        )
+
+    return CredAggregateDecision(
+        stage_winner,
+        stage_support,
+        "cred_rfs_v6_repair_only_rejected",
+        False,
+        "stage_a",
+    )
+
+
+def aggregate_shadow_evidence_select_v7(
+    *,
+    dataset: str,
+    question: str,
+    context: str,
+    stage_rows: list[dict[str, Any]],
+    selection_rows: list[dict[str, Any]],
+    stage_winner: str,
+    selection_modes: tuple[str, ...] | list[str],
+) -> CredAggregateDecision:
+    del selection_rows
+    return aggregate_repair_only_v6(
+        dataset=dataset,
+        question=question,
+        context=context,
+        stage_rows=stage_rows,
+        stage_winner=stage_winner,
+        selection_modes=selection_modes,
+    )
+
+
 def select_verification_targets(
     *,
     dataset: str,
@@ -1427,6 +1520,43 @@ def _deterministic_repair_allows(dataset: str, leader: str, challenger: str, con
     if dataset in _SPAN_DATASETS:
         return _hotpot_span_repair_allows(leader, challenger, context)
     return False
+
+
+def _repair_only_v6_allows(dataset: str, leader: str, challenger: str, context: str) -> bool:
+    if dataset in _SPAN_DATASETS:
+        return _hotpot_span_repair_allows(leader, challenger, context)
+    if dataset not in _MATH_DATASETS or str(leader).strip() == str(challenger).strip():
+        return False
+    return _math_scorer_canonical_repair_allows(leader, challenger)
+
+
+def _math_scorer_canonical_repair_allows(leader: str, challenger: str) -> bool:
+    leader_text = str(leader or "").strip()
+    challenger_text = str(challenger or "").strip()
+    if _canonical_math_text(_math_pi_ascii_text(leader_text)) != _canonical_math_text(_math_pi_ascii_text(challenger_text)):
+        return False
+    leader_lower = leader_text.lower()
+    challenger_lower = challenger_text.lower()
+    leader_has_ascii_pi = bool(re.search(r"(?<![a-z])pi(?![a-z])", leader_lower))
+    challenger_has_ascii_pi = bool(re.search(r"(?<![a-z])pi(?![a-z])", challenger_lower))
+    leader_has_pi_symbol = any(symbol in leader_text for symbol in ("π", "蟺"))
+    challenger_has_pi_symbol = any(symbol in challenger_text for symbol in ("π", "蟺"))
+    if leader_has_pi_symbol and challenger_has_ascii_pi and not challenger_has_pi_symbol:
+        return True
+    if leader_has_ascii_pi and challenger_has_pi_symbol:
+        return False
+    leader_has_textual_inf = bool(re.search(r"(?<![a-z])(?:infinity|inf|oo)(?![a-z])", leader_lower))
+    challenger_has_latex_inf = "\\infty" in challenger_lower
+    leader_has_latex_inf = "\\infty" in leader_lower
+    if leader_has_textual_inf and challenger_has_latex_inf:
+        return True
+    if leader_has_latex_inf and not challenger_has_latex_inf:
+        return False
+    return False
+
+
+def _math_pi_ascii_text(value: str) -> str:
+    return str(value or "").replace("π", "pi").replace("蟺", "pi")
 
 
 def _math_equivalence_repair_v2_allows(dataset: str, leader: str, challenger: str, modes: set[str]) -> bool:

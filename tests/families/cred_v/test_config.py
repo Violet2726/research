@@ -11,7 +11,7 @@ def test_cred_v_main_config_loads() -> None:
     assert experiment.cred_output_protocol == "free_text_answer_v1"
     assert experiment.cred_stage_a_output_protocol == "free_text_answer_v1"
     assert experiment.cred_verification_output_protocol == "json_object_answer_v3"
-    assert experiment.cred_methods == ["cred_rfs_vote_5_anchor", "cred_rfs_safe_select_v3"]
+    assert experiment.cred_methods == ["cred_rfs_vote_5_anchor", "cred_rfs_repair_only_v6"]
     assert experiment.verifier_model_refs == ["xiaomimimo/mimo-v2.5-pro"]
     assert protocol.stage_a_prompt_mode == "sc5_anchor_free_text_v1"
     assert protocol.max_verifications == 1
@@ -19,11 +19,17 @@ def test_cred_v_main_config_loads() -> None:
     assert protocol.verification_modes == ("deterministic_repair", "tool_verified", "hetero_verified")
     assert protocol.selection_modes == (
         "deterministic_repair",
-        "gpqa_unanimous_pairwise_duel",
+        "math_deterministic_repair",
         "hotpot_context_span_repair",
     )
-    assert protocol.expansion_modes == ("gpqa_unanimous_pairwise_duel",)
-    assert protocol.disabled_selection_modes == ("strategyqa_minority_resample", "mmlu_pairwise_promotion", "pairwise_2of3_promotion")
+    assert protocol.expansion_modes == ()
+    assert protocol.disabled_selection_modes == (
+        "gpqa_unanimous_pairwise_duel",
+        "mmlu_pairwise_promotion",
+        "strategyqa_minority_resample",
+        "pairwise_2of3_promotion",
+        "math_equivalence_repair_v2",
+    )
     assert protocol.disabled_expansion_modes == (
         "strategyqa_dual_polarity",
         "hotpot_span_extract",
@@ -31,30 +37,73 @@ def test_cred_v_main_config_loads() -> None:
         "mc_choice_shuffle",
         "strategyqa_minority_resample",
         "mc_blind_pairwise_duel",
+        "gpqa_unanimous_pairwise_duel",
     )
-    assert protocol.expansion_model_refs == ("xiaomimimo/mimo-v2.5-pro",)
-    assert protocol.max_expansion_calls == 3
+    assert protocol.expansion_model_refs == ()
+    assert protocol.max_expansion_calls == 0
     assert protocol.adaptive_extra_solver_calls == 0
     assert protocol.max_total_solver_calls == 5
     assert protocol.promotion_min_independent_support == 3
     assert protocol.promotion_margin_min == 1.25
     assert protocol.mc_shuffle_min_agreement == 3
-    assert protocol.pairwise_allowed_datasets == ("gpqa_diamond",)
-    assert protocol.pairwise_option_count_max == 4
-    assert protocol.pairwise_duel_replicates == 3
-    assert protocol.pairwise_promotion_min_wins == 3
+    assert protocol.pairwise_allowed_datasets == ()
+    assert protocol.pairwise_option_count_max == 0
+    assert protocol.pairwise_duel_replicates == 0
+    assert protocol.pairwise_promotion_min_wins == 0
     assert protocol.require_stage_a_challenger_support is True
-    assert protocol.new_candidate_policy == "block_unless_unanimous_probe"
+    assert protocol.new_candidate_policy == "block_semantic_promotion"
     assert protocol.allow_single_verifier_promotion is False
     assert protocol.allow_strong_majority_pairwise_promotion is False
+    assert protocol.allow_semantic_promotion is False
     assert protocol.false_consensus_probe is False
     assert protocol.max_trigger_rate == 0.20
-    assert protocol.trigger_buckets == ("weak_split_select", "deterministic_repair_only")
+    assert protocol.trigger_buckets == ("weak_split", "deterministic_repair_only")
     assert protocol.allow_same_model_promotion is False
     assert protocol.leader_lock_count == 4
     assert protocol.promotion_score_margin == 0.15
     assert protocol.stage_a_max_tokens == 0
-    assert protocol.verifier_max_tokens == 1024
+    assert protocol.verifier_max_tokens == 0
+
+
+def test_cred_v_rfs_v3_pairwise_ablation_config_retains_retired_selector() -> None:
+    experiment = load_experiment_config("configs/families/cred_v/experiments/cred_v_rfs_v3_pairwise_ablation.toml")
+    protocol = load_protocol_config(experiment.protocol)
+
+    assert experiment.cred_methods == ["cred_rfs_vote_5_anchor", "cred_rfs_safe_select_v3"]
+    assert "ablation" in experiment.description
+    assert protocol.stage_a_prompt_mode == "sc5_anchor_free_text_v1"
+    assert protocol.selection_modes == (
+        "deterministic_repair",
+        "gpqa_unanimous_pairwise_duel",
+        "hotpot_context_span_repair",
+    )
+    assert protocol.expansion_modes == ("gpqa_unanimous_pairwise_duel",)
+    assert protocol.pairwise_allowed_datasets == ("gpqa_diamond",)
+    assert protocol.pairwise_promotion_min_wins == 3
+
+
+def test_cred_v_rfs_v7_shadow_evidence_select_config_is_shadow_only() -> None:
+    experiment = load_experiment_config("configs/families/cred_v/experiments/cred_v_rfs_v7_shadow_evidence_select.toml")
+    protocol = load_protocol_config(experiment.protocol)
+
+    assert experiment.cred_methods == ["cred_rfs_vote_5_anchor", "cred_rfs_repair_only_v6", "cred_rfs_shadow_evidence_select_v7"]
+    assert protocol.selection_modes == (
+        "deterministic_repair",
+        "math_deterministic_repair",
+        "hotpot_context_span_repair",
+    )
+    assert protocol.expansion_modes == ()
+    assert protocol.shadow_selection_modes == (
+        "direct_option_contrast_shadow",
+        "constraint_elimination_shadow",
+        "minimal_evidence_certificate_shadow",
+        "strategyqa_resample_shadow",
+    )
+    assert "gpqa_unanimous_pairwise_duel" in protocol.disabled_selection_modes
+    assert protocol.shadow_pairwise_allowed_datasets == ("gpqa_diamond", "mmlu_pro")
+    assert protocol.shadow_gate_min_valid_duels == 3
+    assert protocol.shadow_gate_min_wins == 3
+    assert protocol.allow_semantic_promotion is False
 
 
 def test_cred_v_rfs_v2_ablation_config_retains_pairwise_failure_baseline() -> None:

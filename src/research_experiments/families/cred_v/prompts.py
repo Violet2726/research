@@ -138,6 +138,57 @@ def build_mc_blind_pairwise_duel_messages(
     ]
 
 
+def build_mc_shadow_evidence_select_messages(
+    sample: DatasetSample,
+    *,
+    leader_answer: str,
+    challenger_answer: str,
+    variant_index: int,
+    evidence_view: str,
+) -> list[dict[str, str]]:
+    options = _option_map(sample)
+    leader_text = options.get(str(leader_answer).strip().upper(), str(leader_answer).strip())
+    challenger_text = options.get(str(challenger_answer).strip().upper(), str(challenger_answer).strip())
+    if variant_index % 2 == 0:
+        first_label, first_text, second_label, second_text = "X", leader_text, "Y", challenger_text
+    else:
+        first_label, first_text, second_label, second_text = "X", challenger_text, "Y", leader_text
+    view_contracts = {
+        "direct_option_contrast_shadow": "Contrast the two candidate options by the decisive concept in the question.",
+        "constraint_elimination_shadow": "List the required constraints, eliminate the side that fails more constraints, then choose.",
+        "minimal_evidence_certificate_shadow": "Build the shortest concrete evidence certificate that supports one side.",
+    }
+    example = {
+        "reasoning": "view; decisive check; choose X",
+        "answer": "X",
+        "confidence": 0.0,
+        "key_evidence": "short decisive clue",
+        "risk_level": "none",
+        "risk_summary": "short risk phrase",
+        "selected_side": "X",
+        "duel_variant": variant_index,
+        "evidence_view": evidence_view,
+    }
+    user_prompt = (
+        "You are a CRED-RFS shadow evidence selector for a multiple-choice task.\n"
+        f"Evidence view: {evidence_view} - {view_contracts.get(evidence_view, view_contracts['direct_option_contrast_shadow'])}\n"
+        "Solve from the question and the two anonymized candidate options.\n"
+        "Use X or Y in both answer and selected_side.\n"
+        "Keep reasoning to three short clauses and key_evidence to one short clue.\n"
+        f"{dataset_instruction_for_sample(sample, multiple_choice_scope='visible')}\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+        f"Candidate {first_label}: {first_text}\n"
+        f"Candidate {second_label}: {second_text}\n\n"
+        "Choose the candidate that best answers the question under the evidence view. Return this compact JSON shape:\n"
+        f"{json.dumps(example, ensure_ascii=False)}\n"
+        "Field values: confidence is 0.0 to 1.0; risk_level is none, low, medium, or high; duel_variant is the provided id.\n"
+    )
+    return [
+        {"role": "system", "content": "You are a shadow evidence selector in a controlled CRED-RFS experiment. Return one JSON answer object."},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
 def build_strategyqa_minority_resample_messages(
     sample: DatasetSample,
     *,

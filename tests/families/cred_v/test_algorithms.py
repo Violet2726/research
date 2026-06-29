@@ -6,9 +6,11 @@ from research_experiments.families.cred_v.algorithms import (
     aggregate_adaptive_candidate_search,
     aggregate_evidence_repair_v5,
     aggregate_pairwise_selection,
+    aggregate_repair_only_v6,
     aggregate_reasoning_first_selection,
     aggregate_safe_verification,
     aggregate_safe_select_v3,
+    aggregate_shadow_evidence_select_v7,
     aggregate_shadow_select_v4,
     aggregate_stage_a_vote,
     aggregate_task_verification,
@@ -1351,6 +1353,141 @@ def test_rfs_v5_gpqa_unanimous_duel_still_promotes_but_mmlu_does_not() -> None:
     assert mmlu_blocked.final_answer == "A"
     assert mmlu_blocked.changed is False
     assert mmlu_blocked.resolver == "cred_rfs_v5_pairwise_dataset_blocked"
+
+
+def test_rfs_v6_repair_only_ignores_gpqa_unanimous_pairwise_rows() -> None:
+    stage_rows = [
+        _row("gpqa_diamond", "A", confidence=0.70),
+        _row("gpqa_diamond", "A", confidence=0.69),
+        _row("gpqa_diamond", "A", confidence=0.68),
+        _row("gpqa_diamond", "B", confidence=0.90),
+        _row("gpqa_diamond", "B", confidence=0.89),
+    ]
+
+    decision = aggregate_repair_only_v6(
+        dataset="gpqa_diamond",
+        question="Which option is best?",
+        context="",
+        stage_rows=stage_rows,
+        stage_winner="A",
+        selection_modes=("deterministic_repair", "math_deterministic_repair", "hotpot_context_span_repair"),
+    )
+
+    assert decision.final_answer == "A"
+    assert decision.changed is False
+    assert decision.resolver == "cred_rfs_v6_repair_only_rejected"
+
+
+def test_rfs_v6_math_and_hotpot_repairs_are_deterministic_only() -> None:
+    math_decision = aggregate_repair_only_v6(
+        dataset="math500",
+        question="Solve the interval.",
+        context="",
+        stage_rows=[
+            _row("math500", "(2,infinity)", confidence=0.70),
+            _row("math500", "(2,infinity)", confidence=0.69),
+            _row("math500", "(2,infinity)", confidence=0.68),
+            _row("math500", "(2,\\infty)", confidence=0.90),
+        ],
+        stage_winner="(2,infinity)",
+        selection_modes=("deterministic_repair", "math_deterministic_repair"),
+    )
+    pi_decision = aggregate_repair_only_v6(
+        dataset="math500",
+        question="Find the value.",
+        context="",
+        stage_rows=[
+            _row("math500", "pi", confidence=0.70),
+            _row("math500", "pi", confidence=0.69),
+            _row("math500", "pi", confidence=0.68),
+            _row("math500", "π", confidence=0.90),
+        ],
+        stage_winner="pi",
+        selection_modes=("deterministic_repair", "math_deterministic_repair"),
+    )
+    hotpot_decision = aggregate_repair_only_v6(
+        dataset="hotpotqa",
+        question="Who led the expedition?",
+        context="The expedition was led by Captain John Underhill before the colony changed command.",
+        stage_rows=[
+            _row("hotpotqa", "John Underhill", confidence=0.72),
+            _row("hotpotqa", "John Underhill", confidence=0.71),
+            _row("hotpotqa", "John Underhill", confidence=0.70),
+            _row("hotpotqa", "Captain John Underhill", confidence=0.88),
+        ],
+        stage_winner="John Underhill",
+        selection_modes=("deterministic_repair", "hotpot_context_span_repair"),
+    )
+
+    assert math_decision.final_answer == "(2,\\infty)"
+    assert math_decision.resolver == "cred_rfs_v6_math_repair"
+    assert pi_decision.final_answer == "pi"
+    assert pi_decision.changed is False
+    assert hotpot_decision.final_answer == "Captain John Underhill"
+    assert hotpot_decision.resolver == "cred_rfs_v6_hotpot_span_repair"
+
+
+def test_rfs_v6_math_repair_only_moves_toward_scorer_canonical_forms() -> None:
+    latex_to_inf = aggregate_repair_only_v6(
+        dataset="math500",
+        question="Solve the interval.",
+        context="",
+        stage_rows=[
+            _row("math500", "(2,\\infty)", confidence=0.70),
+            _row("math500", "(2,\\infty)", confidence=0.69),
+            _row("math500", "(2,\\infty)", confidence=0.68),
+            _row("math500", "(2,inf)", confidence=0.90),
+        ],
+        stage_winner="(2,\\infty)",
+        selection_modes=("deterministic_repair", "math_deterministic_repair"),
+    )
+    symbol_to_ascii_pi = aggregate_repair_only_v6(
+        dataset="math500",
+        question="Find the value.",
+        context="",
+        stage_rows=[
+            _row("math500", "π", confidence=0.70),
+            _row("math500", "π", confidence=0.69),
+            _row("math500", "π", confidence=0.68),
+            _row("math500", "pi", confidence=0.90),
+        ],
+        stage_winner="π",
+        selection_modes=("deterministic_repair", "math_deterministic_repair"),
+    )
+
+    assert latex_to_inf.final_answer == "(2,\\infty)"
+    assert latex_to_inf.changed is False
+    assert symbol_to_ascii_pi.final_answer == "pi"
+    assert symbol_to_ascii_pi.resolver == "cred_rfs_v6_math_repair"
+
+
+def test_rfs_v7_shadow_evidence_selector_keeps_v6_final_answer() -> None:
+    stage_rows = [
+        _row("gpqa_diamond", "A", confidence=0.70),
+        _row("gpqa_diamond", "A", confidence=0.69),
+        _row("gpqa_diamond", "A", confidence=0.68),
+        _row("gpqa_diamond", "B", confidence=0.90),
+        _row("gpqa_diamond", "B", confidence=0.89),
+    ]
+    selection_rows = [
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="direct_option_contrast_shadow"),
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="constraint_elimination_shadow"),
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="minimal_evidence_certificate_shadow"),
+    ]
+
+    decision = aggregate_shadow_evidence_select_v7(
+        dataset="gpqa_diamond",
+        question="Which option is best?",
+        context="",
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        stage_winner="A",
+        selection_modes=("deterministic_repair", "math_deterministic_repair", "hotpot_context_span_repair"),
+    )
+
+    assert decision.final_answer == "A"
+    assert decision.changed is False
+    assert decision.resolver == "cred_rfs_v6_repair_only_rejected"
 
 
 def _row(
