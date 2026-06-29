@@ -14,12 +14,14 @@ from research_experiments.core.data.evaluation import normalize_prediction, scor
 from research_experiments.core.execution.runner_common import iter_indexed_batch
 from research_experiments.families.cred_v.algorithms import (
     aggregate_adaptive_candidate_search,
+    aggregate_certificate_shadow_v9,
     aggregate_evidence_repair_v5,
     aggregate_pairwise_selection,
-    aggregate_repair_only_v6,
     aggregate_reasoning_first_selection,
-    aggregate_safe_verification,
+    aggregate_repair_bank_v8,
+    aggregate_repair_only_v6,
     aggregate_safe_select_v3,
+    aggregate_safe_verification,
     aggregate_shadow_evidence_select_v7,
     aggregate_shadow_select_v4,
     aggregate_stage_a_vote,
@@ -36,9 +38,11 @@ from research_experiments.families.cred_v.config import (
     CRED_ACS_METHODS,
     CRED_COMM_METHODS,
     CRED_RFS_ADAPTIVE_METHODS,
+    CRED_RFS_CERTIFICATE_SHADOW_METHODS,
     CRED_RFS_EVIDENCE_REPAIR_METHODS,
     CRED_RFS_PAIRWISE_METHODS,
     CRED_RFS_PAIRWISE_SELECT_V2,
+    CRED_RFS_REPAIR_BANK_METHODS,
     CRED_RFS_REPAIR_ONLY_METHODS,
     CRED_RFS_SAFE_SELECT_METHODS,
     CRED_RFS_SHADOW_EVIDENCE_METHODS,
@@ -50,16 +54,16 @@ from research_experiments.families.cred_v.config import (
 )
 from research_experiments.families.cred_v.prompts import (
     AGENT_ROLES,
-    build_mc_blind_pairwise_duel_messages,
-    build_mc_shadow_evidence_select_messages,
     build_choice_shuffle_solver_messages,
     build_hotpot_span_extractor_messages,
     build_math_symbolic_repair_messages,
+    build_mc_blind_pairwise_duel_messages,
+    build_mc_shadow_evidence_select_messages,
     build_rfs_extra_solver_messages,
     build_safe_hetero_verifier_messages,
     build_stage_a_messages,
-    build_strategyqa_minority_resample_messages,
     build_strategyqa_dual_polarity_messages,
+    build_strategyqa_minority_resample_messages,
     build_task_verifier_messages,
 )
 from research_experiments.family_runtime.common import resolve_phase_split_name, safe_mean, safe_ratio
@@ -232,6 +236,10 @@ class CredPredictionRecord:
     repair_only_harmed: bool
     semantic_selector_corrected: bool
     semantic_selector_harmed: bool
+    repair_bank_corrected: bool
+    repair_bank_harmed: bool
+    certificate_shadow_corrected: bool
+    certificate_shadow_harmed: bool
     gpqa_unanimous_duel_count: int
     blocked_2of3_pairwise_count: int
     blocked_mmlu_pairwise_count: int
@@ -243,6 +251,7 @@ class CredPredictionRecord:
     shadow_gate_passed: bool
     shadow_net_gain: int
     shadow_cross_view_agreement_count: int
+    certificate_shadow_valid_count: int
     duel_invalid_count: int
     duel_retry_recoverable_count: int
     minority_probe_count: int
@@ -619,6 +628,17 @@ def _run_cred_sample(
                 selection_modes=protocol.selection_modes,
             )
             method_targets = list(targets)
+        elif method_name in CRED_RFS_REPAIR_BANK_METHODS:
+            decision = aggregate_repair_bank_v8(
+                dataset=benchmark_slug,
+                question=sample.question,
+                context=sample.prompt_context,
+                stage_rows=stage_rows,
+                stage_winner=vote_decision.final_answer,
+                selection_modes=protocol.selection_modes,
+                option_texts=tuple(_multiple_choice_options(sample)),
+            )
+            method_targets = list(targets)
         elif method_name in CRED_RFS_EVIDENCE_REPAIR_METHODS:
             actual_selection_rows = _safe_select_actual_rows(expansion_rows)
             decision = aggregate_evidence_repair_v5(
@@ -696,6 +716,21 @@ def _run_cred_sample(
                 selection_rows=expansion_rows,
                 stage_winner=vote_decision.final_answer,
                 selection_modes=protocol.selection_modes,
+            )
+            debate_turns = list(expansion_rows)
+            method_turns = [*stage_rows, *debate_turns]
+            method_expansion_rows = list(expansion_rows)
+            method_targets = list(targets)
+        elif method_name in CRED_RFS_CERTIFICATE_SHADOW_METHODS:
+            decision = aggregate_certificate_shadow_v9(
+                dataset=benchmark_slug,
+                question=sample.question,
+                context=sample.prompt_context,
+                stage_rows=stage_rows,
+                selection_rows=expansion_rows,
+                stage_winner=vote_decision.final_answer,
+                selection_modes=protocol.selection_modes,
+                option_texts=tuple(_multiple_choice_options(sample)),
             )
             debate_turns = list(expansion_rows)
             method_turns = [*stage_rows, *debate_turns]
@@ -1677,6 +1712,7 @@ def _prediction_row(
         "cred_rfs_v3_math_repair",
         "cred_rfs_v5_math_equivalence_repair_v2",
         "cred_rfs_v6_math_repair",
+        "cred_rfs_v8_math_repair",
     }
     hotpot_span_repair_applied = str(decision.resolver) in {
         "cred_acs_hotpot_span_repair",
@@ -1685,6 +1721,7 @@ def _prediction_row(
         "cred_rfs_v3_hotpot_span_repair",
         "cred_rfs_v5_hotpot_context_span_repair_v2",
         "cred_rfs_v6_hotpot_span_repair",
+        "cred_rfs_v8_hotpot_span_repair",
     }
     single_pro_blocked = str(decision.resolver) in {"cred_acs_single_pro_blocked", "cred_rfs_single_pro_blocked"}
     strong_majority_locked = str(decision.resolver) in {
@@ -1711,6 +1748,8 @@ def _prediction_row(
     safe_selector_harmed = resolver.startswith(("cred_rfs_v3_", "cred_rfs_v5_")) and harmed
     repair_only_corrected = resolver.startswith("cred_rfs_v6_") and corrected
     repair_only_harmed = resolver.startswith("cred_rfs_v6_") and harmed
+    repair_bank_corrected = resolver.startswith("cred_rfs_v8_") and corrected
+    repair_bank_harmed = resolver.startswith("cred_rfs_v8_") and harmed
     semantic_selector_corrected = _is_semantic_selector_resolver(resolver) and corrected
     semantic_selector_harmed = _is_semantic_selector_resolver(resolver) and harmed
     blocked_2of3_pairwise_count = int(
@@ -1838,6 +1877,10 @@ def _prediction_row(
             repair_only_harmed=repair_only_harmed,
             semantic_selector_corrected=semantic_selector_corrected,
             semantic_selector_harmed=semantic_selector_harmed,
+            repair_bank_corrected=repair_bank_corrected,
+            repair_bank_harmed=repair_bank_harmed,
+            certificate_shadow_corrected=shadow_corrected and str(shadow.get("resolver") or "").startswith("cred_rfs_v9_"),
+            certificate_shadow_harmed=shadow_harmed and str(shadow.get("resolver") or "").startswith("cred_rfs_v9_"),
             gpqa_unanimous_duel_count=len(gpqa_unanimous_rows),
             blocked_2of3_pairwise_count=blocked_2of3_pairwise_count,
             blocked_mmlu_pairwise_count=blocked_mmlu_pairwise_count,
@@ -1849,11 +1892,18 @@ def _prediction_row(
             shadow_gate_passed=bool(shadow.get("gate_passed")),
             shadow_net_gain=(1 if shadow_corrected else 0) - (1 if shadow_harmed else 0),
             shadow_cross_view_agreement_count=shadow_cross_view_agreement_count,
+            certificate_shadow_valid_count=_certificate_shadow_valid_count(expansion_rows),
             duel_invalid_count=duel_invalid_count,
             duel_retry_recoverable_count=duel_retry_recoverable_count,
             minority_probe_count=minority_probe_count,
             non_answer_candidate_blocked=resolver
-            in {"cred_rfs_v2_non_answer_blocked", "cred_rfs_v3_non_answer_blocked", "cred_rfs_v5_non_answer_blocked", "cred_rfs_v6_non_answer_blocked"},
+            in {
+                "cred_rfs_v2_non_answer_blocked",
+                "cred_rfs_v3_non_answer_blocked",
+                "cred_rfs_v5_non_answer_blocked",
+                "cred_rfs_v6_non_answer_blocked",
+                "cred_rfs_v8_non_answer_blocked",
+            },
             false_consensus_recovered=false_consensus_recovered,
             free_text_recovered_count=free_text_recovered_count,
             pairwise_json_recovered_count=pairwise_json_recovered_count,
@@ -1893,6 +1943,14 @@ def _shadow_cross_view_agreement_count(dataset: str, expansion_rows: list[dict[s
     return max(counts.values(), default=0)
 
 
+def _certificate_shadow_valid_count(expansion_rows: list[dict[str, Any]]) -> int:
+    return sum(
+        1
+        for row in expansion_rows
+        if row.get("expansion_mode") in _V7_SHADOW_EVIDENCE_MODES and row.get("pairwise_validation_pass") is True
+    )
+
+
 def _is_semantic_selector_resolver(resolver: str) -> bool:
     return str(resolver or "") in {
         "cred_rfs_v2_pairwise_unanimous_promoted",
@@ -1913,6 +1971,11 @@ def _shadow_counterfactual(
     leader_family = answer_family_key(dataset, stage_winner)
     v7_modes = tuple(mode for mode in _V7_SHADOW_EVIDENCE_MODES if mode in set(protocol.shadow_selection_modes))
     if v7_modes and dataset in {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro"}:
+        resolver = (
+            "cred_rfs_v9_certificate_cross_view_unanimous_shadow"
+            if str(getattr(protocol, "new_candidate_policy", "")) == "certificate_shadow_only"
+            else "cred_rfs_v7_cross_view_unanimous_shadow"
+        )
         candidate = _pairwise_shadow_candidate(
             dataset=dataset,
             expansion_rows=expansion_rows,
@@ -1920,7 +1983,7 @@ def _shadow_counterfactual(
             mode_names=v7_modes,
             min_valid=len(v7_modes),
             min_wins=len(v7_modes),
-            resolver="cred_rfs_v7_cross_view_unanimous_shadow",
+            resolver=resolver,
         )
         if candidate:
             return candidate
@@ -2105,6 +2168,10 @@ def build_control_prediction_row(
         "repair_only_harmed": False,
         "semantic_selector_corrected": False,
         "semantic_selector_harmed": False,
+        "repair_bank_corrected": False,
+        "repair_bank_harmed": False,
+        "certificate_shadow_corrected": False,
+        "certificate_shadow_harmed": False,
         "gpqa_unanimous_duel_count": 0,
         "blocked_2of3_pairwise_count": 0,
         "blocked_mmlu_pairwise_count": 0,
@@ -2116,6 +2183,7 @@ def build_control_prediction_row(
         "shadow_gate_passed": False,
         "shadow_net_gain": 0,
         "shadow_cross_view_agreement_count": 0,
+        "certificate_shadow_valid_count": 0,
         "duel_invalid_count": 0,
         "duel_retry_recoverable_count": 0,
         "minority_probe_count": 0,
@@ -2146,6 +2214,7 @@ def build_metrics(
     summary = [*dataset_rows, *_build_macro_rows(dataset_rows), *_build_micro_rows(prediction_rows)]
     _attach_comparison_fields(summary, control_names=control_names)
     _attach_v5_incremental_fields(summary, prediction_rows)
+    _attach_v8_incremental_fields(summary, prediction_rows)
     summary.sort(key=lambda row: _summary_sort_key(row, dataset_order, method_order))
     paired = build_paired_comparisons(
         prediction_rows,
@@ -2212,6 +2281,62 @@ def _attach_v5_incremental_fields(summary_rows: list[dict[str, Any]], prediction
         summary_row["v5_incremental_corrected_vs_v3"] = corrected
         summary_row["v5_incremental_harmed_vs_v3"] = harmed
         summary_row["v5_actual_gain_vs_v3"] = round(sum(deltas) / len(deltas), 6) if deltas else 0.0
+
+
+def _attach_v8_incremental_fields(summary_rows: list[dict[str, Any]], prediction_rows: list[dict[str, Any]]) -> None:
+    v8_method = "cred_rfs_repair_bank_v8"
+    v6_method = "cred_rfs_repair_only_v6"
+    for row in summary_rows:
+        row["v8_incremental_corrected_vs_v6"] = 0
+        row["v8_incremental_harmed_vs_v6"] = 0
+        row["v8_actual_gain_vs_v6"] = 0.0
+
+    by_key: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for row in prediction_rows:
+        key = (
+            str(row.get("dataset") or ""),
+            str(row.get("model_name") or ""),
+            str(row.get("sample_id") or ""),
+            str(row.get("method_name") or ""),
+        )
+        by_key[key] = row
+
+    for summary_row in summary_rows:
+        if summary_row.get("method_name") != v8_method:
+            continue
+        dataset = str(summary_row.get("dataset") or "")
+        model_name = str(summary_row.get("model_name") or "")
+        scoped = [
+            row
+            for row in prediction_rows
+            if row.get("method_name") == v8_method
+            and str(row.get("model_name") or "") == model_name
+            and (dataset in {"overall", "overall_micro"} or str(row.get("dataset") or "") == dataset)
+        ]
+        deltas: list[float] = []
+        corrected = 0
+        harmed = 0
+        for row in scoped:
+            ref = by_key.get(
+                (
+                    str(row.get("dataset") or ""),
+                    str(row.get("model_name") or ""),
+                    str(row.get("sample_id") or ""),
+                    v6_method,
+                )
+            )
+            if ref is None:
+                continue
+            v8_score = float(row.get("score") or 0.0)
+            v6_score = float(ref.get("score") or 0.0)
+            deltas.append(v8_score - v6_score)
+            if v6_score < 1.0 and v8_score == 1.0:
+                corrected += 1
+            elif v6_score == 1.0 and v8_score < 1.0:
+                harmed += 1
+        summary_row["v8_incremental_corrected_vs_v6"] = corrected
+        summary_row["v8_incremental_harmed_vs_v6"] = harmed
+        summary_row["v8_actual_gain_vs_v6"] = round(sum(deltas) / len(deltas), 6) if deltas else 0.0
 
 
 def build_paired_comparisons(
@@ -2343,6 +2468,101 @@ def build_debate_diagnostics(
         if row.get("method_type") == "mad"
     ]
     return {"sample_rows": rows, "summary_rows": summary_rows}
+
+
+def build_error_bucket_audit(prediction_rows: list[dict[str, Any]], turn_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    predictions_by_sample: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
+    for row in prediction_rows:
+        predictions_by_sample.setdefault((str(row.get("dataset") or ""), str(row.get("sample_id") or "")), {})[
+            str(row.get("method_name") or "")
+        ] = row
+
+    stage_by_sample: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    shadow_by_sample: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in turn_rows:
+        key = (str(row.get("dataset") or ""), str(row.get("sample_id") or ""))
+        if row.get("method_name") == "cred_stage_a":
+            stage_by_sample.setdefault(key, []).append(row)
+        elif row.get("method_name") == "cred_rfs_expansion":
+            shadow_by_sample.setdefault(key, []).append(row)
+
+    sample_rows: list[dict[str, Any]] = []
+    bucket_counts: dict[str, int] = {}
+    for key, methods in sorted(predictions_by_sample.items()):
+        dataset, sample_id = key
+        anchor = methods.get("cred_rfs_vote_5_anchor") or methods.get("sc_5") or next(iter(methods.values()))
+        gold = str(anchor.get("gold") or "")
+        anchor_score = float(anchor.get("score") or 0.0)
+        stage_rows = stage_by_sample.get(key, [])
+        stage_candidates = [
+            {
+                "agent_id": row.get("agent_id"),
+                "agent_role": row.get("agent_role"),
+                "answer": row.get("normalized_answer") or row.get("prediction") or "",
+                "score": score_prediction(dataset, str(row.get("normalized_answer") or row.get("prediction") or ""), gold) if gold else 0.0,
+                "confidence": row.get("confidence_value"),
+                "evidence": row.get("key_evidence") or "",
+            }
+            for row in stage_rows
+        ]
+        stage_oracle_correct = any(float(item.get("score") or 0.0) == 1.0 for item in stage_candidates)
+        leader_count = max((int(value) for value in (anchor.get("initial_vote_counts") or {}).values()), default=0)
+        buckets: list[str] = []
+        if anchor_score < 1.0 and stage_oracle_correct:
+            buckets.append("wrong_majority_but_stage_oracle_correct")
+        if anchor_score < 1.0 and leader_count >= 4:
+            buckets.append("strong_majority_wrong")
+        if anchor_score < 1.0 and not stage_oracle_correct:
+            buckets.append("candidate_missing_or_all_stage_wrong")
+        for method_name in ("cred_rfs_repair_only_v6", "cred_rfs_repair_bank_v8"):
+            method_row = methods.get(method_name)
+            if method_row and method_row.get("vote_flipped"):
+                buckets.append(f"{method_name}_repaired")
+        for method_name in ("cred_rfs_shadow_evidence_select_v7", "cred_rfs_certificate_shadow_v9"):
+            method_row = methods.get(method_name)
+            if not method_row:
+                continue
+            if method_row.get("shadow_counterfactual_corrected"):
+                buckets.append(f"{method_name}_shadow_correct")
+            if method_row.get("shadow_counterfactual_harmed"):
+                buckets.append(f"{method_name}_shadow_harm")
+        for bucket in buckets:
+            bucket_counts[bucket] = bucket_counts.get(bucket, 0) + 1
+        if buckets:
+            sample_rows.append(
+                {
+                    "dataset": dataset,
+                    "sample_id": sample_id,
+                    "gold": gold,
+                    "buckets": buckets,
+                    "anchor_prediction": anchor.get("prediction"),
+                    "anchor_score": anchor_score,
+                    "leader_count": leader_count,
+                    "stage_candidate_oracle_correct": stage_oracle_correct,
+                    "predictions": {
+                        method_name: {
+                            "prediction": row.get("prediction"),
+                            "score": row.get("score"),
+                            "resolver": row.get("resolver"),
+                            "shadow_answer": row.get("shadow_counterfactual_answer"),
+                            "shadow_resolver": row.get("shadow_counterfactual_resolver"),
+                        }
+                        for method_name, row in sorted(methods.items())
+                    },
+                    "stage_candidates": stage_candidates,
+                    "shadow_rows": [
+                        {
+                            "mode": row.get("expansion_mode"),
+                            "winner": row.get("pairwise_winner_answer") or row.get("normalized_answer"),
+                            "valid": row.get("pairwise_validation_pass", row.get("expansion_validation_pass")),
+                            "evidence_view": row.get("evidence_view"),
+                            "evidence": row.get("key_evidence") or "",
+                        }
+                        for row in shadow_by_sample.get(key, [])
+                    ],
+                }
+            )
+    return {"bucket_counts": bucket_counts, "sample_rows": sample_rows}
 
 
 def build_router_eval(router_rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -2549,6 +2769,11 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
     repair_only_harmed_count = sum(1 for row in rows if row.get("repair_only_harmed"))
     semantic_selector_corrected_count = sum(1 for row in rows if row.get("semantic_selector_corrected"))
     semantic_selector_harmed_count = sum(1 for row in rows if row.get("semantic_selector_harmed"))
+    repair_bank_corrected_count = sum(1 for row in rows if row.get("repair_bank_corrected"))
+    repair_bank_harmed_count = sum(1 for row in rows if row.get("repair_bank_harmed"))
+    certificate_shadow_corrected_count = sum(1 for row in rows if row.get("certificate_shadow_corrected"))
+    certificate_shadow_harmed_count = sum(1 for row in rows if row.get("certificate_shadow_harmed"))
+    certificate_shadow_valid_count = sum(int(row.get("certificate_shadow_valid_count") or 0) for row in rows)
     gpqa_unanimous_duel_count = sum(int(row.get("gpqa_unanimous_duel_count") or 0) for row in rows)
     blocked_2of3_pairwise_count = sum(int(row.get("blocked_2of3_pairwise_count") or 0) for row in rows)
     blocked_mmlu_pairwise_count = sum(int(row.get("blocked_mmlu_pairwise_count") or 0) for row in rows)
@@ -2633,6 +2858,20 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
             semantic_selector_corrected_count,
             semantic_selector_corrected_count + semantic_selector_harmed_count,
         ),
+        "repair_bank_corrected_count": repair_bank_corrected_count,
+        "repair_bank_harmed_count": repair_bank_harmed_count,
+        "repair_bank_precision": safe_ratio(
+            repair_bank_corrected_count,
+            repair_bank_corrected_count + repair_bank_harmed_count,
+        ),
+        "certificate_shadow_corrected_count": certificate_shadow_corrected_count,
+        "certificate_shadow_harmed_count": certificate_shadow_harmed_count,
+        "certificate_shadow_precision": safe_ratio(
+            certificate_shadow_corrected_count,
+            certificate_shadow_corrected_count + certificate_shadow_harmed_count,
+        ),
+        "certificate_shadow_net_gain": certificate_shadow_corrected_count - certificate_shadow_harmed_count,
+        "certificate_shadow_valid_count": certificate_shadow_valid_count,
         "gpqa_unanimous_duel_count": gpqa_unanimous_duel_count,
         "blocked_2of3_pairwise_count": blocked_2of3_pairwise_count,
         "blocked_mmlu_pairwise_count": blocked_mmlu_pairwise_count,
@@ -2794,6 +3033,14 @@ def _macro_from_rows(rows: list[dict[str, Any]], *, dataset: str, model_name: st
         "semantic_selector_corrected_count": sum(int(row.get("semantic_selector_corrected_count") or 0) for row in rows),
         "semantic_selector_harmed_count": sum(int(row.get("semantic_selector_harmed_count") or 0) for row in rows),
         "semantic_selector_precision": safe_mean(float(row.get("semantic_selector_precision") or 0.0) for row in rows),
+        "repair_bank_corrected_count": sum(int(row.get("repair_bank_corrected_count") or 0) for row in rows),
+        "repair_bank_harmed_count": sum(int(row.get("repair_bank_harmed_count") or 0) for row in rows),
+        "repair_bank_precision": safe_mean(float(row.get("repair_bank_precision") or 0.0) for row in rows),
+        "certificate_shadow_corrected_count": sum(int(row.get("certificate_shadow_corrected_count") or 0) for row in rows),
+        "certificate_shadow_harmed_count": sum(int(row.get("certificate_shadow_harmed_count") or 0) for row in rows),
+        "certificate_shadow_precision": safe_mean(float(row.get("certificate_shadow_precision") or 0.0) for row in rows),
+        "certificate_shadow_net_gain": sum(int(row.get("certificate_shadow_net_gain") or 0) for row in rows),
+        "certificate_shadow_valid_count": sum(int(row.get("certificate_shadow_valid_count") or 0) for row in rows),
         "gpqa_unanimous_duel_count": sum(int(row.get("gpqa_unanimous_duel_count") or 0) for row in rows),
         "blocked_2of3_pairwise_count": sum(int(row.get("blocked_2of3_pairwise_count") or 0) for row in rows),
         "blocked_mmlu_pairwise_count": sum(int(row.get("blocked_mmlu_pairwise_count") or 0) for row in rows),

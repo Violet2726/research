@@ -14,6 +14,19 @@ signals without changing final predictions. Shadow rules must pass
 pre-registered precision and harm gates on count100 and count300 before any
 future promotion experiment is proposed.
 
+`cred_v_rfs_v8_repair_bank.toml` is the next forward candidate. It keeps the
+v6 final-answer discipline and only adds scorer-safe Math repair, HotpotQA
+context-supported span repair, and deterministic multiple-choice option-text
+format repair.
+
+`cred_v_rfs_v9_certificate_shadow.toml` is shadow-only. It records cross-view
+certificate signals for weak-split MC/StrategyQA samples, but its final
+prediction remains the v8/v6 deterministic-repair answer.
+
+`cred_v_error_bucket_audit_v1.toml` is a diagnostic entry for producing
+`diagnostics/error_bucket_audit.json`, which groups wrong-majority, oracle-gap,
+repair, and shadow-harm samples for mechanism discovery.
+
 `cred_v_rfs_v5_evidence_repair.toml` is retained as a negative/ablation
 entry. The count300 audit showed `math_equivalence_repair_v2` harmed
 scorer-canonical ASCII `pi` answers, so that mode is disabled in the protocol.

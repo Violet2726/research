@@ -1,0 +1,75 @@
+stage_a_agent_count = 5
+stage_a_prompt_mode = "sc5_anchor_free_text_v1"
+
+max_verifications = 1
+max_verification_calls = 1
+verification_modes = ["deterministic_repair", "tool_verified", "hetero_verified"]
+allow_same_model_promotion = false
+
+selection_modes = [
+  "deterministic_repair",
+  "math_deterministic_repair",
+  "math_repair_bank_v8",
+  "hotpot_context_span_repair",
+  "mc_option_text_repair",
+]
+expansion_modes = []
+shadow_selection_modes = [
+  "direct_option_contrast_shadow",
+  "constraint_elimination_shadow",
+  "minimal_evidence_certificate_shadow",
+  "strategyqa_resample_shadow",
+]
+disabled_selection_modes = [
+  "gpqa_unanimous_pairwise_duel",
+  "mmlu_pairwise_promotion",
+  "strategyqa_minority_resample",
+  "pairwise_2of3_promotion",
+  "math_equivalence_repair_v2",
+]
+disabled_expansion_modes = [
+  "strategyqa_dual_polarity",
+  "hotpot_span_extract",
+  "rfs_extra_solver",
+  "mc_choice_shuffle",
+  "strategyqa_minority_resample",
+  "mc_blind_pairwise_duel",
+  "gpqa_unanimous_pairwise_duel",
+]
+expansion_model_refs = ["xiaomimimo/mimo-v2.5-pro"]
+max_expansion_calls = 0
+adaptive_extra_solver_calls = 2
+max_total_solver_calls = 5
+promotion_min_independent_support = 3
+promotion_margin_min = 1.25
+mc_shuffle_min_agreement = 3
+pairwise_allowed_datasets = []
+shadow_pairwise_allowed_datasets = ["gpqa_diamond", "mmlu_pro"]
+shadow_pairwise_retry_replicates = 0
+shadow_gate_min_valid_duels = 3
+shadow_gate_min_wins = 3
+shadow_precision_threshold = 0.90
+shadow_harm_per_correction_max = 0.10
+pairwise_option_count_max = 4
+pairwise_duel_replicates = 3
+pairwise_promotion_min_wins = 3
+require_stage_a_challenger_support = true
+new_candidate_policy = "certificate_shadow_only"
+allow_single_verifier_promotion = false
+allow_strong_majority_pairwise_promotion = false
+allow_semantic_promotion = false
+false_consensus_probe = false
+max_trigger_rate = 0.25
+trigger_buckets = ["weak_split_select", "deterministic_repair_only", "format_risk"]
+
+stage_a_temperature = 0.7
+verifier_temperature = 0.0
+top_p = 1.0
+strong_majority_count = 4
+leader_lock_count = 4
+weak_majority_count = 3
+concrete_evidence_min_chars = 12
+stage_a_max_tokens = 0
+verifier_max_tokens = 512
+promotion_confidence_min = 0.72
+promotion_score_margin = 0.15

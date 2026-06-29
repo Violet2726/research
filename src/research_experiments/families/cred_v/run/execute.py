@@ -29,6 +29,7 @@ from research_experiments.families.cred_v.run.sample import (
     append_outputs,
     build_control_prediction_row,
     build_debate_diagnostics,
+    build_error_bucket_audit,
     build_metrics,
     build_router_eval,
     estimate_work,
@@ -241,6 +242,7 @@ def run_experiment(
             method_order=experiment.method_order,
         )
         router_eval = build_router_eval(all_router_rows)
+        error_bucket_audit = build_error_bucket_audit(all_predictions, all_turns)
         output_protocol_diagnostics = build_shared_output_protocol_diagnostics(
             all_turns,
             dataset_order=[benchmark.slug for benchmark in benchmarks],
@@ -249,6 +251,10 @@ def run_experiment(
         run_paths.metrics.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
         run_paths.diagnostic_path("debate_diagnostics.json").write_text(json.dumps(debate_diagnostics, ensure_ascii=False, indent=2), encoding="utf-8")
         run_paths.diagnostic_path("router_eval.json").write_text(json.dumps(router_eval, ensure_ascii=False, indent=2), encoding="utf-8")
+        run_paths.diagnostic_path("error_bucket_audit.json").write_text(
+            json.dumps(error_bucket_audit, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
         run_paths.diagnostic_path("output_protocol_diagnostics.json").write_text(
             json.dumps(output_protocol_diagnostics, ensure_ascii=False, indent=2),
             encoding="utf-8",

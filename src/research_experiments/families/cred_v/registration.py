@@ -104,6 +104,7 @@ ARTIFACT_ALIASES = {
     "router_decisions": "turns/router_decisions.jsonl",
     "debate_diagnostics": "diagnostics/debate_diagnostics.json",
     "router_eval": "diagnostics/router_eval.json",
+    "error_bucket_audit": "diagnostics/error_bucket_audit.json",
     "output_protocol_diagnostics": "diagnostics/output_protocol_diagnostics.json",
 }
 
@@ -138,6 +139,7 @@ REGISTRATION = make_family_registration(
     diagnostic_paths=(
         "diagnostics/debate_diagnostics.json",
         "diagnostics/router_eval.json",
+        "diagnostics/error_bucket_audit.json",
         "diagnostics/output_protocol_diagnostics.json",
     ),
     export_paths=(

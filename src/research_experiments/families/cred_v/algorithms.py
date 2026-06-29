@@ -513,9 +513,12 @@ def aggregate_reasoning_first_selection(
         expansion_support = _expansion_family_count(dataset, expansion_rows, family)
         if expansion_support < int(promotion_min_independent_support):
             continue
-        if dataset in _MC_DATASETS and "mc_choice_shuffle" in modes:
-            if _mc_shuffle_family_count(dataset, expansion_rows, family) < int(mc_shuffle_min_agreement):
-                continue
+        if dataset in _MC_DATASETS and "mc_choice_shuffle" in modes and _mc_shuffle_family_count(
+            dataset,
+            expansion_rows,
+            family,
+        ) < int(mc_shuffle_min_agreement):
+            continue
         margin = score - leader_score
         if margin < float(promotion_margin_min):
             continue
@@ -1068,6 +1071,112 @@ def aggregate_shadow_evidence_select_v7(
     )
 
 
+def aggregate_repair_bank_v8(
+    *,
+    dataset: str,
+    question: str,
+    context: str,
+    stage_rows: list[dict[str, Any]],
+    stage_winner: str,
+    selection_modes: tuple[str, ...] | list[str],
+    option_texts: tuple[str, ...] | list[str] = (),
+) -> CredAggregateDecision:
+    del question
+    stage_decision = aggregate_stage_a_vote(stage_rows)
+    stage_support = dict(stage_decision.support)
+    if not stage_rows or not stage_winner:
+        return CredAggregateDecision(
+            stage_winner,
+            stage_support,
+            "cred_rfs_v8_empty_fallback",
+            False,
+            "stage_a",
+        )
+
+    modes = {str(mode) for mode in selection_modes}
+    leader_family = answer_family_key(dataset, stage_winner)
+    if dataset in _MC_DATASETS and {"deterministic_repair", "mc_option_text_repair"} & modes:
+        mapped = _mc_option_text_letter(stage_winner, option_texts)
+        if mapped and answer_family_key(dataset, mapped) != leader_family:
+            support = dict(stage_support)
+            support[mapped] = max(float(support.get(mapped, 0.0)), float(_stage_family_count(dataset, stage_rows, leader_family)) + 0.5)
+            return CredAggregateDecision(
+                mapped,
+                {answer: round(float(value), 6) for answer, value in support.items()},
+                "cred_rfs_v8_mc_option_text_repair",
+                True,
+                "deterministic_repair",
+            )
+
+    repair_enabled = (
+        dataset in _MATH_DATASETS
+        and {"deterministic_repair", "math_deterministic_repair", "math_repair_bank_v8"} & modes
+        or dataset in _SPAN_DATASETS
+        and {"deterministic_repair", "hotpot_context_span_repair", "hotpot_context_span_repair_v2"} & modes
+    )
+    if repair_enabled:
+        for candidate in _safe_challenger_rows(dataset, stage_rows, stage_winner):
+            challenger = _row_answer(candidate)
+            if _repair_bank_v8_allows(dataset, stage_winner, challenger, context):
+                resolver = "cred_rfs_v8_math_repair" if dataset in _MATH_DATASETS else "cred_rfs_v8_hotpot_span_repair"
+                return _safe_promoted_decision(
+                    dataset=dataset,
+                    stage_support=stage_support,
+                    stage_rows=stage_rows,
+                    stage_winner=stage_winner,
+                    winner=challenger,
+                    resolver=resolver,
+                    source="deterministic_repair",
+                )
+
+    if dataset in _SPAN_DATASETS and _has_non_answer_challenger(dataset, stage_rows, leader_family):
+        return CredAggregateDecision(
+            stage_winner,
+            stage_support,
+            "cred_rfs_v8_non_answer_blocked",
+            False,
+            "stage_a",
+        )
+
+    return CredAggregateDecision(
+        stage_winner,
+        stage_support,
+        "cred_rfs_v8_repair_bank_rejected",
+        False,
+        "stage_a",
+    )
+
+
+def aggregate_certificate_shadow_v9(
+    *,
+    dataset: str,
+    question: str,
+    context: str,
+    stage_rows: list[dict[str, Any]],
+    selection_rows: list[dict[str, Any]],
+    stage_winner: str,
+    selection_modes: tuple[str, ...] | list[str],
+    option_texts: tuple[str, ...] | list[str] = (),
+) -> CredAggregateDecision:
+    del selection_rows
+    actual = aggregate_repair_bank_v8(
+        dataset=dataset,
+        question=question,
+        context=context,
+        stage_rows=stage_rows,
+        stage_winner=stage_winner,
+        selection_modes=selection_modes,
+        option_texts=option_texts,
+    )
+    return CredAggregateDecision(
+        actual.final_answer,
+        actual.support,
+        actual.resolver,
+        actual.changed,
+        "certificate_shadow",
+    )
+
+
 def select_verification_targets(
     *,
     dataset: str,
@@ -1530,6 +1639,64 @@ def _repair_only_v6_allows(dataset: str, leader: str, challenger: str, context: 
     return _math_scorer_canonical_repair_allows(leader, challenger)
 
 
+def _repair_bank_v8_allows(dataset: str, leader: str, challenger: str, context: str) -> bool:
+    if _repair_only_v6_allows(dataset, leader, challenger, context):
+        return True
+    if dataset not in _MATH_DATASETS or str(leader).strip() == str(challenger).strip():
+        return False
+    return _math_repair_bank_v8_allows(leader, challenger)
+
+
+def _math_repair_bank_v8_allows(leader: str, challenger: str) -> bool:
+    leader_text = str(leader or "").strip()
+    challenger_text = str(challenger or "").strip()
+    if not leader_text or not challenger_text:
+        return False
+    if _canonical_math_text(_math_pi_ascii_text(leader_text)) != _canonical_math_text(_math_pi_ascii_text(challenger_text)):
+        return False
+    leader_ascii = _math_pi_ascii_text(leader_text)
+    challenger_ascii = _math_pi_ascii_text(challenger_text)
+    if re.search(r"\\(?:boxed|text|mathrm|textrm|mbox)\s*\{", leader_ascii) and not re.search(
+        r"\\(?:boxed|text|mathrm|textrm|mbox)\s*\{",
+        challenger_ascii,
+    ):
+        return True
+    return _canonical_unit_text(leader_ascii) == _canonical_unit_text(challenger_ascii) and _math_has_unit_spacing_repair(
+        leader_ascii,
+        challenger_ascii,
+    )
+
+
+def _math_has_unit_spacing_repair(leader: str, challenger: str) -> bool:
+    return bool(re.search(r"\d\s+[a-zA-Z%]", str(leader or ""))) and not bool(
+        re.search(r"\d\s+[a-zA-Z%]", str(challenger or ""))
+    )
+
+
+def _mc_option_text_letter(answer: str, option_texts: tuple[str, ...] | list[str]) -> str:
+    raw = str(answer or "").strip()
+    if not raw or re.fullmatch(r"[A-J]", raw.upper()):
+        return ""
+    normalized_answer = _normalized_option_text(raw)
+    if not normalized_answer:
+        return ""
+    matches = [
+        index
+        for index, option in enumerate(option_texts)
+        if _normalized_option_text(str(option or "")) == normalized_answer
+    ]
+    if len(matches) != 1:
+        return ""
+    return chr(ord("A") + int(matches[0]))
+
+
+def _normalized_option_text(value: str) -> str:
+    text = unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode("ascii")
+    text = re.sub(r"^\s*(?:option|choice|answer)?\s*[A-J]\s*[\).:\-]\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"[^a-zA-Z0-9]+", " ", text.lower()).strip()
+    return re.sub(r"\s+", " ", text)
+
+
 def _math_scorer_canonical_repair_allows(leader: str, challenger: str) -> bool:
     leader_text = str(leader or "").strip()
     challenger_text = str(challenger or "").strip()
@@ -1596,7 +1763,6 @@ def _canonical_math_text(value: str) -> str:
         "\\ ": " ",
         "$": "",
         "`": "",
-        "∞": "inf",
         "∞": "inf",
         "\\infty": "inf",
         "infinity": "inf",

@@ -4,12 +4,14 @@ from types import SimpleNamespace
 
 from research_experiments.families.cred_v.algorithms import (
     aggregate_adaptive_candidate_search,
+    aggregate_certificate_shadow_v9,
     aggregate_evidence_repair_v5,
     aggregate_pairwise_selection,
-    aggregate_repair_only_v6,
     aggregate_reasoning_first_selection,
-    aggregate_safe_verification,
+    aggregate_repair_bank_v8,
+    aggregate_repair_only_v6,
     aggregate_safe_select_v3,
+    aggregate_safe_verification,
     aggregate_shadow_evidence_select_v7,
     aggregate_shadow_select_v4,
     aggregate_stage_a_vote,
@@ -1488,6 +1490,130 @@ def test_rfs_v7_shadow_evidence_selector_keeps_v6_final_answer() -> None:
     assert decision.final_answer == "A"
     assert decision.changed is False
     assert decision.resolver == "cred_rfs_v6_repair_only_rejected"
+
+
+def test_rfs_v8_repair_bank_keeps_semantic_selectors_out_of_forward_path() -> None:
+    stage_rows = [
+        _row("gpqa_diamond", "A", confidence=0.70),
+        _row("gpqa_diamond", "A", confidence=0.69),
+        _row("gpqa_diamond", "A", confidence=0.68),
+        _row("gpqa_diamond", "B", confidence=0.90),
+        _row("gpqa_diamond", "B", confidence=0.89),
+    ]
+
+    decision = aggregate_repair_bank_v8(
+        dataset="gpqa_diamond",
+        question="Which option is best?",
+        context="",
+        stage_rows=stage_rows,
+        stage_winner="A",
+        selection_modes=("deterministic_repair", "mc_option_text_repair"),
+        option_texts=("alpha", "beta", "gamma", "delta"),
+    )
+
+    assert decision.final_answer == "A"
+    assert decision.changed is False
+    assert decision.resolver == "cred_rfs_v8_repair_bank_rejected"
+
+
+def test_rfs_v8_mc_option_text_repair_maps_current_winner_only() -> None:
+    text_leader = aggregate_repair_bank_v8(
+        dataset="mmlu_pro",
+        question="Which option is best?",
+        context="",
+        stage_rows=[
+            _row("mmlu_pro", "beta", confidence=0.70),
+            _row("mmlu_pro", "beta", confidence=0.69),
+            _row("mmlu_pro", "beta", confidence=0.68),
+            _row("mmlu_pro", "C", confidence=0.90),
+        ],
+        stage_winner="beta",
+        selection_modes=("deterministic_repair", "mc_option_text_repair"),
+        option_texts=("alpha", "beta", "gamma", "delta"),
+    )
+    letter_leader = aggregate_repair_bank_v8(
+        dataset="mmlu_pro",
+        question="Which option is best?",
+        context="",
+        stage_rows=[
+            _row("mmlu_pro", "A", confidence=0.70),
+            _row("mmlu_pro", "A", confidence=0.69),
+            _row("mmlu_pro", "A", confidence=0.68),
+            _row("mmlu_pro", "beta", confidence=0.90),
+        ],
+        stage_winner="A",
+        selection_modes=("deterministic_repair", "mc_option_text_repair"),
+        option_texts=("alpha", "beta", "gamma", "delta"),
+    )
+
+    assert text_leader.final_answer == "B"
+    assert text_leader.resolver == "cred_rfs_v8_mc_option_text_repair"
+    assert letter_leader.final_answer == "A"
+    assert letter_leader.changed is False
+
+
+def test_rfs_v8_math_repair_bank_unboxes_without_pi_symbol_regression() -> None:
+    boxed = aggregate_repair_bank_v8(
+        dataset="math500",
+        question="Find the value.",
+        context="",
+        stage_rows=[
+            _row("math500", "\\boxed{8}", confidence=0.70),
+            _row("math500", "\\boxed{8}", confidence=0.69),
+            _row("math500", "\\boxed{8}", confidence=0.68),
+            _row("math500", "8", confidence=0.90),
+        ],
+        stage_winner="\\boxed{8}",
+        selection_modes=("deterministic_repair", "math_repair_bank_v8"),
+    )
+    pi_blocked = aggregate_repair_bank_v8(
+        dataset="math500",
+        question="Find the value.",
+        context="",
+        stage_rows=[
+            _row("math500", "pi", confidence=0.70),
+            _row("math500", "pi", confidence=0.69),
+            _row("math500", "pi", confidence=0.68),
+            _row("math500", "π", confidence=0.90),
+        ],
+        stage_winner="pi",
+        selection_modes=("deterministic_repair", "math_repair_bank_v8"),
+    )
+
+    assert boxed.final_answer == "8"
+    assert boxed.resolver == "cred_rfs_v8_math_repair"
+    assert pi_blocked.final_answer == "pi"
+    assert pi_blocked.changed is False
+
+
+def test_rfs_v9_certificate_shadow_keeps_v8_final_answer() -> None:
+    stage_rows = [
+        _row("gpqa_diamond", "A", confidence=0.70),
+        _row("gpqa_diamond", "A", confidence=0.69),
+        _row("gpqa_diamond", "A", confidence=0.68),
+        _row("gpqa_diamond", "B", confidence=0.90),
+        _row("gpqa_diamond", "B", confidence=0.89),
+    ]
+    selection_rows = [
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="direct_option_contrast_shadow"),
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="constraint_elimination_shadow"),
+        _duel_row("gpqa_diamond", leader="A", challenger="B", winner="B", mode="minimal_evidence_certificate_shadow"),
+    ]
+
+    decision = aggregate_certificate_shadow_v9(
+        dataset="gpqa_diamond",
+        question="Which option is best?",
+        context="",
+        stage_rows=stage_rows,
+        selection_rows=selection_rows,
+        stage_winner="A",
+        selection_modes=("deterministic_repair", "mc_option_text_repair"),
+        option_texts=("alpha", "beta", "gamma", "delta"),
+    )
+
+    assert decision.final_answer == "A"
+    assert decision.changed is False
+    assert decision.source == "certificate_shadow"
 
 
 def _row(

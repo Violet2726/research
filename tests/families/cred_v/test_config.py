@@ -106,6 +106,49 @@ def test_cred_v_rfs_v7_shadow_evidence_select_config_is_shadow_only() -> None:
     assert protocol.allow_semantic_promotion is False
 
 
+def test_cred_v_rfs_v8_repair_bank_config_is_forward_repair_only() -> None:
+    experiment = load_experiment_config("configs/families/cred_v/experiments/cred_v_rfs_v8_repair_bank.toml")
+    protocol = load_protocol_config(experiment.protocol)
+
+    assert experiment.cred_methods == ["cred_rfs_vote_5_anchor", "cred_rfs_repair_only_v6", "cred_rfs_repair_bank_v8"]
+    assert protocol.stage_a_prompt_mode == "sc5_anchor_free_text_v1"
+    assert protocol.selection_modes == (
+        "deterministic_repair",
+        "math_deterministic_repair",
+        "math_repair_bank_v8",
+        "hotpot_context_span_repair",
+        "mc_option_text_repair",
+    )
+    assert protocol.expansion_modes == ()
+    assert protocol.shadow_selection_modes == ()
+    assert "gpqa_unanimous_pairwise_duel" in protocol.disabled_selection_modes
+    assert "math_equivalence_repair_v2" in protocol.disabled_selection_modes
+    assert protocol.allow_semantic_promotion is False
+    assert protocol.max_expansion_calls == 0
+
+
+def test_cred_v_rfs_v9_certificate_shadow_config_is_shadow_only() -> None:
+    experiment = load_experiment_config("configs/families/cred_v/experiments/cred_v_rfs_v9_certificate_shadow.toml")
+    protocol = load_protocol_config(experiment.protocol)
+
+    assert experiment.cred_methods == [
+        "cred_rfs_vote_5_anchor",
+        "cred_rfs_repair_only_v6",
+        "cred_rfs_repair_bank_v8",
+        "cred_rfs_certificate_shadow_v9",
+    ]
+    assert "mc_option_text_repair" in protocol.selection_modes
+    assert protocol.shadow_selection_modes == (
+        "direct_option_contrast_shadow",
+        "constraint_elimination_shadow",
+        "minimal_evidence_certificate_shadow",
+        "strategyqa_resample_shadow",
+    )
+    assert protocol.new_candidate_policy == "certificate_shadow_only"
+    assert protocol.shadow_precision_threshold == 0.90
+    assert protocol.shadow_harm_per_correction_max == 0.10
+
+
 def test_cred_v_rfs_v2_ablation_config_retains_pairwise_failure_baseline() -> None:
     experiment = load_experiment_config("configs/families/cred_v/experiments/cred_v_rfs_v2_ablation.toml")
     protocol = load_protocol_config(experiment.protocol)

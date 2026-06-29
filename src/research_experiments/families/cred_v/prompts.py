@@ -5,11 +5,14 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.controls.control_prompts import FREE_TEXT_V1_PROMPT_VERSION, build_cot_messages
+from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.prompts.dataset_contracts import dataset_instruction_for_sample
-from research_experiments.family_runtime.free_text_protocol import FREE_TEXT_ANSWER_PROTOCOL_V1
-from research_experiments.family_runtime.free_text_protocol import build_free_text_answer_instruction, build_free_text_system_prompt
+from research_experiments.family_runtime.free_text_protocol import (
+    FREE_TEXT_ANSWER_PROTOCOL_V1,
+    build_free_text_answer_instruction,
+    build_free_text_system_prompt,
+)
 from research_experiments.family_runtime.json_object_protocol import build_json_object_answer_instruction
 
 CRED_PROMPT_VERSION = "cred_rfs_v3"

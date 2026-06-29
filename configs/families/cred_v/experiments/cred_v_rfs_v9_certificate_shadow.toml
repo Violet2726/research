@@ -1,0 +1,30 @@
+name = "cred_v_rfs_v9_certificate_shadow"
+description = "CRED-RFS v9 certificate shadow: v8 final answer plus cross-view shadow evidence certificates."
+benchmark_configs = [
+  "configs/core/shared/benchmarks/math500/test.toml",
+  "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
+  "configs/core/shared/benchmarks/gpqa/dataset.toml",
+  "configs/core/shared/benchmarks/strategyqa/dev.toml",
+  "configs/core/shared/benchmarks/mmlu-pro/test.toml",
+]
+protocol = "configs/families/cred_v/protocols/cred_rfs_v9_certificate_shadow.toml"
+control_catalog = "configs/families/single_agent/methods/common.toml"
+control_methods = ["cot_1", "sc_3", "sc_5"]
+cred_methods = ["cred_rfs_vote_5_anchor", "cred_rfs_repair_only_v6", "cred_rfs_repair_bank_v8", "cred_rfs_certificate_shadow_v9"]
+method_order = ["cot_1", "sc_3", "sc_5", "cred_rfs_vote_5_anchor", "cred_rfs_repair_only_v6", "cred_rfs_repair_bank_v8", "cred_rfs_certificate_shadow_v9"]
+global_seed = 42
+control_prompt_version = "single_agent_free_text_v1"
+cred_output_protocol = "free_text_answer_v1"
+cred_stage_a_output_protocol = "free_text_answer_v1"
+cred_verification_output_protocol = "json_object_answer_v3"
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+verifier_model_refs = ["xiaomimimo/mimo-v2.5-pro"]
+
+[phases.count20]
+split_overrides = { math500 = "count20_seed42", hotpotqa = "count20_seed42", gpqa_diamond = "count20_seed42", strategyqa = "count20_seed42", mmlu_pro = "count20_seed42" }
+
+[phases.count100]
+split_overrides = { math500 = "count100_seed42", hotpotqa = "count100_seed42", gpqa_diamond = "count100_seed42", strategyqa = "count100_seed42", mmlu_pro = "count100_seed42" }
+
+[phases.count300]
+split_overrides = { math500 = "count300_seed42", hotpotqa = "count300_seed42", gpqa_diamond = "full198_seed42", strategyqa = "full229_seed42", mmlu_pro = "count300_seed42" }

@@ -260,6 +260,92 @@ def test_v7_shadow_counterfactual_aliases_and_cross_view_agreement_are_reported(
     assert shadow["shadow_cross_view_agreement_count"] == 3
 
 
+def test_v8_incremental_metrics_are_reported_against_v6() -> None:
+    rows = [
+        _summary_prediction("math500", "1", "sc_5", 0.0),
+        _summary_prediction("math500", "1", "cred_rfs_repair_only_v6", 0.0),
+        _summary_prediction(
+            "math500",
+            "1",
+            "cred_rfs_repair_bank_v8",
+            1.0,
+            corrected_by_debate=True,
+            repair_bank_corrected=True,
+            resolver="cred_rfs_v8_math_repair",
+        ),
+        _summary_prediction("math500", "2", "sc_5", 1.0),
+        _summary_prediction("math500", "2", "cred_rfs_repair_only_v6", 1.0),
+        _summary_prediction(
+            "math500",
+            "2",
+            "cred_rfs_repair_bank_v8",
+            1.0,
+            resolver="cred_rfs_v8_repair_bank_rejected",
+        ),
+    ]
+
+    metrics = build_metrics(
+        rows,
+        dataset_order=["math500"],
+        method_order=["sc_5", "cred_rfs_repair_only_v6", "cred_rfs_repair_bank_v8"],
+        control_names=["sc_5"],
+    )
+    v8 = next(row for row in metrics["summary"] if row["dataset"] == "overall_micro" and row["method_name"] == "cred_rfs_repair_bank_v8")
+
+    assert v8["repair_bank_corrected_count"] == 1
+    assert v8["repair_bank_harmed_count"] == 0
+    assert v8["repair_bank_precision"] == 1.0
+    assert v8["v8_incremental_corrected_vs_v6"] == 1
+    assert v8["v8_incremental_harmed_vs_v6"] == 0
+    assert v8["v8_actual_gain_vs_v6"] == 0.5
+
+
+def test_v9_certificate_shadow_metrics_are_reported_separately() -> None:
+    rows = [
+        _summary_prediction("gpqa_diamond", "1", "sc_5", 0.0),
+        _summary_prediction(
+            "gpqa_diamond",
+            "1",
+            "cred_rfs_certificate_shadow_v9",
+            0.0,
+            method_expansion_call_count=3,
+            shadow_counterfactual_corrected=True,
+            certificate_shadow_corrected=True,
+            shadow_gate_passed=True,
+            shadow_net_gain=1,
+            certificate_shadow_valid_count=3,
+        ),
+        _summary_prediction("gpqa_diamond", "2", "sc_5", 1.0),
+        _summary_prediction(
+            "gpqa_diamond",
+            "2",
+            "cred_rfs_certificate_shadow_v9",
+            1.0,
+            method_expansion_call_count=3,
+            shadow_counterfactual_harmed=True,
+            certificate_shadow_harmed=True,
+            shadow_gate_passed=True,
+            shadow_net_gain=-1,
+            certificate_shadow_valid_count=3,
+        ),
+    ]
+
+    metrics = build_metrics(
+        rows,
+        dataset_order=["gpqa_diamond"],
+        method_order=["sc_5", "cred_rfs_certificate_shadow_v9"],
+        control_names=["sc_5"],
+    )
+    shadow = next(row for row in metrics["summary"] if row["dataset"] == "overall_micro" and row["method_name"] == "cred_rfs_certificate_shadow_v9")
+
+    assert shadow["accuracy_mean"] == 0.5
+    assert shadow["certificate_shadow_corrected_count"] == 1
+    assert shadow["certificate_shadow_harmed_count"] == 1
+    assert shadow["certificate_shadow_precision"] == 0.5
+    assert shadow["certificate_shadow_net_gain"] == 0
+    assert shadow["certificate_shadow_valid_count"] == 6
+
+
 def _prediction(dataset: str, sample_id: str, method_name: str, score: float) -> dict:
     return {
         "dataset": dataset,
@@ -296,6 +382,11 @@ def _summary_prediction(
     repair_only_harmed: bool = False,
     semantic_selector_corrected: bool = False,
     semantic_selector_harmed: bool = False,
+    repair_bank_corrected: bool = False,
+    repair_bank_harmed: bool = False,
+    certificate_shadow_corrected: bool = False,
+    certificate_shadow_harmed: bool = False,
+    certificate_shadow_valid_count: int = 0,
     shadow_cross_view_agreement_count: int = 0,
     resolver: str | None = None,
 ) -> dict:
@@ -348,6 +439,11 @@ def _summary_prediction(
         "repair_only_harmed": repair_only_harmed,
         "semantic_selector_corrected": semantic_selector_corrected,
         "semantic_selector_harmed": semantic_selector_harmed,
+        "repair_bank_corrected": repair_bank_corrected,
+        "repair_bank_harmed": repair_bank_harmed,
+        "certificate_shadow_corrected": certificate_shadow_corrected,
+        "certificate_shadow_harmed": certificate_shadow_harmed,
+        "certificate_shadow_valid_count": certificate_shadow_valid_count,
         "gpqa_unanimous_duel_count": gpqa_unanimous_duel_count,
         "blocked_2of3_pairwise_count": 0,
         "blocked_mmlu_pairwise_count": 0,
