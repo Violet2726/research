@@ -74,6 +74,24 @@ def parse_free_text_answer_output(
     if not cleaned:
         raise ValueError("Assistant output is empty.")
 
+    strict_error: ValueError | None = None
+    try:
+        return _parse_strict_free_text_answer(cleaned, dataset=dataset)
+    except ValueError as exc:
+        strict_error = exc
+
+    fallback = _recover_embedded_final_answer(cleaned, dataset=dataset)
+    if fallback is not None:
+        return fallback
+
+    fallback = _recover_mc_tail_answer_phrase(cleaned, dataset=dataset)
+    if fallback is not None:
+        return fallback
+
+    raise strict_error
+
+
+def _parse_strict_free_text_answer(cleaned: str, *, dataset: str) -> dict[str, Any]:
     reasoning_match = _extract_labeled_match(cleaned, ["REASONING", "REASON", "RATIONALE", "WHY"])
     if reasoning_match is None:
         raise ValueError("Missing REASONING line.")
@@ -106,6 +124,68 @@ def parse_free_text_answer_output(
     if format_warning is not None:
         payload["format_warning"] = format_warning
     return payload
+
+
+def _recover_embedded_final_answer(cleaned: str, *, dataset: str) -> dict[str, Any] | None:
+    markers = [
+        marker
+        for marker in re.finditer(r"(?i)\bFINAL_ANSWER\s*:\s*", cleaned)
+        if not _marker_starts_labeled_line(cleaned, marker.start())
+    ]
+    if not markers:
+        return None
+    marker = markers[-1]
+    answer_line = cleaned[marker.end() :].splitlines()[0] if cleaned[marker.end() :] else ""
+    final_answer = _clean_extracted_value(answer_line)
+    if not final_answer:
+        return None
+    reasoning = _fallback_reasoning(cleaned[: marker.start()])
+    return _fallback_payload(
+        dataset=dataset,
+        final_answer=final_answer,
+        reasoning=reasoning,
+        recovery="embedded_final_answer",
+    )
+
+
+def _recover_mc_tail_answer_phrase(cleaned: str, *, dataset: str) -> dict[str, Any] | None:
+    if dataset not in _MULTIPLE_CHOICE_DATASETS:
+        return None
+    match = re.search(r"(?is)\b((?:final\s+answer)|answer)\s+is\s+([A-J])\b\s*[.。!！]?\s*$", cleaned)
+    if match is None:
+        return None
+    final_answer = match.group(2).upper()
+    reasoning = _fallback_reasoning(cleaned[: match.start()])
+    return _fallback_payload(
+        dataset=dataset,
+        final_answer=final_answer,
+        reasoning=reasoning,
+        recovery="mc_tail_answer_phrase",
+    )
+
+
+def _fallback_payload(*, dataset: str, final_answer: str, reasoning: str, recovery: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "final_answer": final_answer,
+        "reasoning": reasoning,
+        "protocol_recovery": recovery,
+    }
+    format_warning = _task_format_warning(dataset, final_answer)
+    if format_warning is not None:
+        payload["format_warning"] = format_warning
+    return payload
+
+
+def _fallback_reasoning(prefix: str) -> str:
+    reasoning = _collapse_whitespace(prefix)
+    if not reasoning or reasoning in {"</think>", "<think>"}:
+        return "answer recovered from explicit final answer marker"
+    return reasoning
+
+
+def _marker_starts_labeled_line(text: str, start_index: int) -> bool:
+    line_start = str(text or "").rfind("\n", 0, start_index) + 1
+    return not str(text or "")[line_start:start_index].strip()
 
 
 def task_format_ok(dataset: str, final_answer: str) -> bool:

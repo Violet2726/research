@@ -72,3 +72,5 @@ def test_pairwise_duel_prompt_hides_leader_and_original_letters() -> None:
     assert "leader" not in combined.lower()
     assert "challenger" not in combined.lower()
     assert "selected_side" in combined
+    assert "slot; check; choose X" in combined
+    assert "Field guide:" not in combined

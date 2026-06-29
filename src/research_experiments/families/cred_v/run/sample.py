@@ -99,6 +99,7 @@ class CredTurnRecord:
     output_protocol: str
     protocol_parse_status: str
     protocol_parse_error: str | None
+    protocol_recovery: str
     reason_present: bool
     request_count: int
     cache_request_count: int
@@ -228,6 +229,9 @@ class CredPredictionRecord:
     minority_probe_count: int
     non_answer_candidate_blocked: bool
     false_consensus_recovered: bool
+    free_text_recovered_count: int
+    pairwise_json_recovered_count: int
+    json_truncated_count: int
     protocol_failures_per_question: int
     reason_missing_turns_per_question: int
 
@@ -1315,6 +1319,7 @@ def _execute_turn(
             output_protocol=result.output_protocol,
             protocol_parse_status=result.protocol_parse_status,
             protocol_parse_error=result.protocol_parse_error,
+            protocol_recovery=str(result.validated_output.get("protocol_recovery") or ""),
             reason_present=result.reason_present,
             request_count=result.request_count,
             cache_request_count=result.cache_request_count,
@@ -1597,6 +1602,19 @@ def _prediction_row(
         or "minority_probe" in set(router.reasons)
         or router.trigger_bucket in {"false_consensus_probe", "minority_probe"}
     )
+    free_text_recovered_count = sum(
+        1
+        for row in method_turns
+        if row.get("output_protocol") == FREE_TEXT_ANSWER_PROTOCOL_V1 and row.get("protocol_recovery")
+    )
+    pairwise_json_recovered_count = sum(
+        1 for row in method_turns if row.get("protocol_recovery") == "pairwise_selected_side_fallback"
+    )
+    json_truncated_count = sum(
+        1
+        for row in method_turns
+        if row.get("output_protocol") == "json_object_answer_v3" and str(row.get("raw_finish_reason") or "") == "length"
+    )
     row = asdict(
         CredPredictionRecord(
             run_id=run_id,
@@ -1686,6 +1704,9 @@ def _prediction_row(
             minority_probe_count=minority_probe_count,
             non_answer_candidate_blocked=resolver in {"cred_rfs_v2_non_answer_blocked", "cred_rfs_v3_non_answer_blocked", "cred_rfs_v5_non_answer_blocked"},
             false_consensus_recovered=false_consensus_recovered,
+            free_text_recovered_count=free_text_recovered_count,
+            pairwise_json_recovered_count=pairwise_json_recovered_count,
+            json_truncated_count=json_truncated_count,
             protocol_failures_per_question=sum(1 for row in method_turns if row.get("protocol_parse_status") == "failed"),
             reason_missing_turns_per_question=sum(1 for row in method_turns if not row.get("reason_present")),
         )
@@ -1907,6 +1928,9 @@ def build_control_prediction_row(
         "minority_probe_count": 0,
         "non_answer_candidate_blocked": False,
         "false_consensus_recovered": False,
+        "free_text_recovered_count": 0,
+        "pairwise_json_recovered_count": 0,
+        "json_truncated_count": 0,
         "protocol_failures_per_question": sum(1 for row in turn_rows if row.get("protocol_parse_status") == "failed"),
         "reason_missing_turns_per_question": sum(1 for row in turn_rows if not row.get("reason_present")),
         "vote_counts": vote_counts,
@@ -2106,6 +2130,9 @@ def build_debate_diagnostics(
             "shadow_net_gain": row.get("shadow_net_gain"),
             "duel_invalid_count": row.get("duel_invalid_count"),
             "duel_retry_recoverable_count": row.get("duel_retry_recoverable_count"),
+            "free_text_recovered_count": row.get("free_text_recovered_count"),
+            "pairwise_json_recovered_count": row.get("pairwise_json_recovered_count"),
+            "json_truncated_count": row.get("json_truncated_count"),
             "initial_vote_prediction": row.get("initial_vote_prediction"),
             "prediction": row.get("prediction"),
             "debate_tokens": row.get("debate_total_tokens_per_question"),
@@ -2332,6 +2359,9 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
     duel_invalid_count = sum(int(row.get("duel_invalid_count") or 0) for row in rows)
     duel_retry_recoverable_count = sum(int(row.get("duel_retry_recoverable_count") or 0) for row in rows)
     minority_probe_count = sum(int(row.get("minority_probe_count") or 0) for row in rows)
+    free_text_recovered_count = sum(int(row.get("free_text_recovered_count") or 0) for row in rows)
+    pairwise_json_recovered_count = sum(int(row.get("pairwise_json_recovered_count") or 0) for row in rows)
+    json_truncated_count = sum(int(row.get("json_truncated_count") or 0) for row in rows)
     pairwise_corrected = sum(1 for row in rows if str(row.get("resolver") or "").startswith("cred_rfs_v2_pairwise") and row.get("corrected_by_debate"))
     pairwise_harmed = sum(1 for row in rows if str(row.get("resolver") or "").startswith("cred_rfs_v2_pairwise") and row.get("harmed_by_debate"))
     minority_corrected = sum(1 for row in rows if row.get("resolver") == "cred_rfs_v2_strategyqa_minority_promoted" and row.get("corrected_by_debate"))
@@ -2410,6 +2440,9 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
         "duel_invalid_count": duel_invalid_count,
         "duel_retry_recoverable_count": duel_retry_recoverable_count,
         "minority_probe_count": minority_probe_count,
+        "free_text_recovered_count": free_text_recovered_count,
+        "pairwise_json_recovered_count": pairwise_json_recovered_count,
+        "json_truncated_count": json_truncated_count,
         "minority_probe_precision": safe_ratio(minority_corrected, minority_corrected + minority_harmed),
         "false_consensus_recovered_count": sum(1 for row in rows if row.get("false_consensus_recovered")),
         "non_answer_candidate_blocked_count": sum(1 for row in rows if row.get("non_answer_candidate_blocked")),
@@ -2554,6 +2587,9 @@ def _macro_from_rows(rows: list[dict[str, Any]], *, dataset: str, model_name: st
         "duel_invalid_count": sum(int(row.get("duel_invalid_count") or 0) for row in rows),
         "duel_retry_recoverable_count": sum(int(row.get("duel_retry_recoverable_count") or 0) for row in rows),
         "minority_probe_count": sum(int(row.get("minority_probe_count") or 0) for row in rows),
+        "free_text_recovered_count": sum(int(row.get("free_text_recovered_count") or 0) for row in rows),
+        "pairwise_json_recovered_count": sum(int(row.get("pairwise_json_recovered_count") or 0) for row in rows),
+        "json_truncated_count": sum(int(row.get("json_truncated_count") or 0) for row in rows),
         "minority_probe_precision": safe_mean(float(row.get("minority_probe_precision") or 0.0) for row in rows),
         "false_consensus_recovered_count": sum(int(row.get("false_consensus_recovered_count") or 0) for row in rows),
         "non_answer_candidate_blocked_count": sum(int(row.get("non_answer_candidate_blocked_count") or 0) for row in rows),

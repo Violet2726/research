@@ -150,6 +150,32 @@ def test_v5_incremental_metrics_are_reported_against_v3() -> None:
     assert v5["v5_actual_gain_vs_v3"] == 0.0
 
 
+def test_protocol_recovery_metrics_are_aggregated() -> None:
+    rows = [
+        _summary_prediction(
+            "gpqa_diamond",
+            "1",
+            "cred_rfs_safe_select_v3",
+            1.0,
+            free_text_recovered_count=2,
+            pairwise_json_recovered_count=1,
+            json_truncated_count=3,
+        )
+    ]
+
+    metrics = build_metrics(
+        rows,
+        dataset_order=["gpqa_diamond"],
+        method_order=["cred_rfs_safe_select_v3"],
+        control_names=[],
+    )
+    summary = next(row for row in metrics["summary"] if row["dataset"] == "overall_micro")
+
+    assert summary["free_text_recovered_count"] == 2
+    assert summary["pairwise_json_recovered_count"] == 1
+    assert summary["json_truncated_count"] == 3
+
+
 def _prediction(dataset: str, sample_id: str, method_name: str, score: float) -> dict:
     return {
         "dataset": dataset,
@@ -175,6 +201,9 @@ def _summary_prediction(
     shadow_net_gain: int = 0,
     duel_invalid_count: int = 0,
     duel_retry_recoverable_count: int = 0,
+    free_text_recovered_count: int = 0,
+    pairwise_json_recovered_count: int = 0,
+    json_truncated_count: int = 0,
     math_repair_applied: bool = False,
     hotpot_span_repair_applied: bool = False,
     resolver: str | None = None,
@@ -234,6 +263,9 @@ def _summary_prediction(
         "shadow_net_gain": shadow_net_gain,
         "duel_invalid_count": duel_invalid_count,
         "duel_retry_recoverable_count": duel_retry_recoverable_count,
+        "free_text_recovered_count": free_text_recovered_count,
+        "pairwise_json_recovered_count": pairwise_json_recovered_count,
+        "json_truncated_count": json_truncated_count,
         "minority_probe_count": 0,
         "non_answer_candidate_blocked": False,
         "false_consensus_recovered": False,

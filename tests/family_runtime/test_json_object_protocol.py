@@ -44,6 +44,41 @@ def test_parse_json_object_answer_output_flags_task_format_warning() -> None:
     assert payload["format_warning"] == "multiple_choice_answer_not_single_letter"
 
 
+def test_parse_json_object_answer_output_recovers_pairwise_selected_side_from_balanced_invalid_json() -> None:
+    payload = parse_json_object_answer_output(
+        (
+            '{"reasoning":"The phrase "chemically distinct" points to side Y.",'
+            '"answer":"Y","confidence":0.84,"risk_level":"low",'
+            '"key_evidence":"distinct chemical clue","selected_side":"Y"}'
+        ),
+        dataset="gpqa_diamond",
+    )
+
+    assert payload["answer"] == "Y"
+    assert payload["selected_side"] == "Y"
+    assert payload["protocol_recovery"] == "pairwise_selected_side_fallback"
+
+
+def test_parse_json_object_answer_output_does_not_recover_truncated_pairwise_json() -> None:
+    with pytest.raises(ValueError, match="valid JSON"):
+        parse_json_object_answer_output(
+            '{"reasoning":"long unfinished trace","answer":"Y","confidence":0.84,"selected_side":"Y"',
+            dataset="gpqa_diamond",
+        )
+
+
+def test_parse_json_object_answer_output_does_not_recover_conflicting_pairwise_side() -> None:
+    with pytest.raises(ValueError, match="valid JSON"):
+        parse_json_object_answer_output(
+            (
+                '{"reasoning":"The phrase "chemically distinct" points to side Y.",'
+                '"answer":"X","confidence":0.84,"risk_level":"low",'
+                '"key_evidence":"distinct chemical clue","selected_side":"Y"}'
+            ),
+            dataset="gpqa_diamond",
+        )
+
+
 def test_execute_json_object_answer_protocol_uses_provider_response_format(tmp_path) -> None:
     model = resolve_model_ref("xiaomimimo/mimo-v2.5")
     cache = RequestCache(tmp_path / "json-object.sqlite")

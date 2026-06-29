@@ -101,15 +101,16 @@ def test_cred_v_rfs_v5_evidence_repair_config_loads_without_negative_shadow_bran
     protocol = load_protocol_config(experiment.protocol)
 
     assert experiment.cred_methods == ["cred_rfs_vote_5_anchor", "cred_rfs_safe_select_v3", "cred_rfs_evidence_repair_v5"]
+    assert "negative ablation" in experiment.description
     assert protocol.stage_a_prompt_mode == "sc5_anchor_free_text_v1"
     assert protocol.selection_modes == (
         "deterministic_repair",
-        "math_equivalence_repair_v2",
         "hotpot_context_span_repair_v2",
         "gpqa_unanimous_pairwise_duel",
     )
     assert protocol.expansion_modes == ("gpqa_unanimous_pairwise_duel",)
     assert protocol.shadow_selection_modes == ()
+    assert "math_equivalence_repair_v2" in protocol.disabled_selection_modes
     assert "mmlu_unanimous_pairwise_shadow" in protocol.disabled_selection_modes
     assert "gpqa_2of3_retry_shadow" in protocol.disabled_selection_modes
     assert "strategyqa_minority_resample" in protocol.disabled_selection_modes

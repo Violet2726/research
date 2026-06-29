@@ -110,36 +110,27 @@ def build_mc_blind_pairwise_duel_messages(
     else:
         first_label, first_text, second_label, second_text = "X", challenger_text, "Y", leader_text
     example = {
-        "reasoning": "slot identified; decisive comparison made; selected side fits",
+        "reasoning": "slot; check; choose X",
         "answer": "X",
         "confidence": 0.0,
-        "key_evidence": "one decisive clue",
+        "key_evidence": "short decisive clue",
         "risk_level": "none",
-        "risk_summary": "short remaining uncertainty",
+        "risk_summary": "short risk phrase",
         "selected_side": "X",
         "duel_variant": variant_index,
     }
     user_prompt = (
         "You are a CRED-RFS blind pairwise selector for a multiple-choice task.\n"
-        "Compare two anonymized candidate options by solving the question, not by trusting vote counts or original option letters.\n"
-        "Return selected_side as exactly X or Y. Use the same X or Y value in answer.\n"
+        "Solve from the question and the two anonymized candidate options.\n"
+        "Use X or Y in both answer and selected_side.\n"
+        "Keep reasoning to three short clauses and key_evidence to one short clue.\n"
         f"{dataset_instruction_for_sample(sample, multiple_choice_scope='visible')}\n"
         f"Question:\n{sample.question.strip()}\n\n"
         f"Candidate {first_label}: {first_text}\n"
         f"Candidate {second_label}: {second_text}\n\n"
-        "Choose the candidate that best answers the question. key_evidence is the decisive concept or factual clue. "
-        "Do not use vote counts as evidence.\n"
-        "Return one compact JSON answer card with these fields:\n"
+        "Choose the candidate that best answers the question. Return this compact JSON shape:\n"
         f"{json.dumps(example, ensure_ascii=False)}\n"
-        "Field guide:\n"
-        "- reasoning: three compact verification clauses.\n"
-        "- answer: exactly X or Y, matching selected_side.\n"
-        "- confidence: a number from 0.0 to 1.0.\n"
-        "- key_evidence: one concrete option clue or concept contrast.\n"
-        '- risk_level: one of "none", "low", "medium", "high".\n'
-        "- risk_summary: one short phrase.\n"
-        "- selected_side: exactly X or Y.\n"
-        "- duel_variant: the provided integer variant id.\n"
+        "Field values: confidence is 0.0 to 1.0; risk_level is none, low, medium, or high; duel_variant is the provided id.\n"
     )
     return [
         {"role": "system", "content": "You are a blind pairwise selector in a controlled CRED-RFS experiment. Return one JSON answer object."},

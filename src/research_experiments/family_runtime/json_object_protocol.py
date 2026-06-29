@@ -67,7 +67,10 @@ def _decode_json_object(text: str) -> dict[str, Any]:
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as strict_exc:
-        payload = _recover_first_json_object(text, strict_exc)
+        try:
+            payload = _recover_first_json_object(text, strict_exc)
+        except ValueError:
+            payload = _recover_pairwise_selected_side_object(text, strict_exc)
     if not isinstance(payload, dict):
         raise ValueError("Assistant output must be one JSON object.")
     return payload
@@ -83,6 +86,58 @@ def _recover_first_json_object(text: str, strict_exc: json.JSONDecodeError) -> d
         if isinstance(payload, dict):
             return payload
     raise ValueError("Assistant output must be valid JSON.") from strict_exc
+
+
+def _recover_pairwise_selected_side_object(text: str, strict_exc: json.JSONDecodeError) -> dict[str, Any]:
+    if not _looks_like_complete_object(text):
+        raise ValueError("Assistant output must be valid JSON.") from strict_exc
+    answer_values = _field_side_values(text, "answer")
+    selected_values = _field_side_values(text, "selected_side")
+    if len(answer_values) != 1 or len(selected_values) != 1:
+        raise ValueError("Assistant output must be valid JSON.") from strict_exc
+    answer = answer_values[0]
+    selected_side = selected_values[0]
+    if answer != selected_side:
+        raise ValueError("Assistant output must be valid JSON.") from strict_exc
+    return {
+        "reasoning": "pairwise side recovered from malformed JSON",
+        "answer": selected_side,
+        "final_answer": selected_side,
+        "confidence": _recover_numeric_field(text, "confidence"),
+        "key_evidence": "selected side fallback",
+        "risk_level": _recover_risk_level(text),
+        "risk_summary": "malformed JSON string recovered",
+        "selected_side": selected_side,
+        "protocol_recovery": "pairwise_selected_side_fallback",
+    }
+
+
+def _looks_like_complete_object(text: str) -> bool:
+    stripped = str(text or "").strip()
+    return stripped.startswith("{") and stripped.endswith("}") and stripped.count("{") == stripped.count("}")
+
+
+def _field_side_values(text: str, field_name: str) -> list[str]:
+    pattern = rf'(?is)"{re.escape(field_name)}"\s*:\s*"([XY])"'
+    return [match.group(1).upper() for match in re.finditer(pattern, text)]
+
+
+def _recover_numeric_field(text: str, field_name: str) -> float:
+    pattern = rf'(?is)"{re.escape(field_name)}"\s*:\s*([01](?:\.\d+)?)'
+    match = re.search(pattern, text)
+    if match is None:
+        return 0.0
+    try:
+        return max(0.0, min(1.0, round(float(match.group(1)), 6)))
+    except ValueError:
+        return 0.0
+
+
+def _recover_risk_level(text: str) -> str:
+    match = re.search(r'(?is)"risk_level"\s*:\s*"(none|low|medium|high)"', text)
+    if match is None:
+        return "medium"
+    return match.group(1).lower()
 
 
 def _dedupe_keys(keys: list[str]) -> list[str]:

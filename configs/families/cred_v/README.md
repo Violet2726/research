@@ -4,10 +4,11 @@
 free-text Stage A reasoning with `cred_rfs_vote_5_anchor` and
 `cred_rfs_safe_select_v3`.
 
-`cred_v_rfs_v5_evidence_repair.toml` is the next forward experiment. It keeps
-the v3 safe selector as a baseline and adds `cred_rfs_evidence_repair_v5`,
-which only expands deterministic Math/Hotpot evidence repair plus the existing
-GPQA 3/3 unanimous duel gate.
+`cred_v_rfs_v5_evidence_repair.toml` is retained as a negative/ablation
+entry. The count300 audit showed `math_equivalence_repair_v2` harmed
+scorer-canonical ASCII `pi` answers, so that mode is disabled in the protocol.
+Forward runs should treat v3 as the stable baseline unless a new pre-registered
+repair gate is added.
 
 `cred_v_legacy.toml` keeps the retired verifier and ACS baselines for explicit
 failure analysis. Legacy methods are not part of the default mainline.

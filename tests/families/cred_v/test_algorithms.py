@@ -1234,6 +1234,38 @@ def test_rfs_v5_math_equivalence_repair_rejects_non_equivalent_interval() -> Non
     assert decision.changed is False
 
 
+def test_rfs_v5_forward_modes_do_not_rewrite_ascii_pi_to_unicode_pi() -> None:
+    stage_rows = [
+        _row("math500", "pi", confidence=0.70),
+        _row("math500", "pi", confidence=0.69),
+        _row("math500", "pi", confidence=0.68),
+        _row("math500", "π", confidence=0.90),
+        _row("math500", "π", confidence=0.89),
+    ]
+
+    decision = aggregate_evidence_repair_v5(
+        dataset="math500",
+        question="Find the value.",
+        context="",
+        stage_rows=stage_rows,
+        selection_rows=[],
+        stage_winner="pi",
+        selection_modes=("deterministic_repair", "hotpot_context_span_repair_v2", "gpqa_unanimous_pairwise_duel"),
+        leader_lock_count=4,
+        pairwise_duel_replicates=3,
+        pairwise_promotion_min_wins=3,
+        pairwise_allowed_datasets=("gpqa_diamond",),
+        pairwise_option_count_max=4,
+        option_count=0,
+        require_stage_a_challenger_support=True,
+        allow_strong_majority_pairwise_promotion=False,
+    )
+
+    assert decision.final_answer == "pi"
+    assert decision.changed is False
+    assert decision.resolver == "cred_rfs_v5_pairwise_dataset_blocked"
+
+
 def test_rfs_v5_hotpot_context_span_repair_promotes_supported_complete_span() -> None:
     stage_rows = [
         _row("hotpotqa", "John Underhill", confidence=0.72),
