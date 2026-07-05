@@ -1,4 +1,5 @@
 name = "cred_v_rfs_v8_repair_bank"
+legacy_experiment = true
 description = "CRED-RFS v8 repair-bank forward candidate: SC anchor plus scorer-safe deterministic repair only."
 benchmark_configs = [
   "configs/core/shared/benchmarks/math500/test.toml",

@@ -8,6 +8,7 @@ from typing import Any
 from research_experiments.core.controls.control_prompts import FREE_TEXT_V1_PROMPT_VERSION, build_cot_messages
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.prompts.dataset_contracts import dataset_instruction_for_sample
+from research_experiments.families.cred_v.certificates import compile_math_check_spec
 from research_experiments.family_runtime.free_text_protocol import (
     FREE_TEXT_ANSWER_PROTOCOL_V1,
     build_free_text_answer_instruction,
@@ -15,7 +16,7 @@ from research_experiments.family_runtime.free_text_protocol import (
 )
 from research_experiments.family_runtime.json_object_protocol import build_json_object_answer_instruction
 
-CRED_PROMPT_VERSION = "cred_rfs_v3"
+CRED_PROMPT_VERSION = "cred_cvs_v1_question_bound"
 
 AGENT_ROLES = (
     "cot_builder",
@@ -472,6 +473,123 @@ def build_strategyqa_dual_polarity_messages(
     ]
 
 
+def build_math_certificate_proposal_messages(
+    sample: DatasetSample,
+    *,
+    leader_answer: str,
+    stage_rows: list[dict[str, Any]],
+    dsl_version: str,
+) -> list[dict[str, str]]:
+    check_spec = compile_math_check_spec(sample.question)
+    if check_spec is None:
+        raise ValueError(f"Question {sample.sample_id!r} has no locally compilable math certificate source.")
+    example = {
+        "reasoning": "evaluate source; compare candidate; commit answer",
+        "answer": "5/6",
+        "confidence": 0.0,
+        "key_evidence": "exact symbolic relation",
+        "risk_level": "none",
+        "certificate_type": check_spec.certificate_type,
+        "problem_expression": check_spec.problem_expression,
+        "problem_constants": list(check_spec.problem_constants),
+        "problem_variables": list(check_spec.problem_variables),
+        "unit": check_spec.unit,
+        "certificate_dsl_version": dsl_version,
+    }
+    user_prompt = (
+        "Solve the supplied checkable subproblem and produce one proof-carrying candidate.\n"
+        f"Certificate DSL: {dsl_version}.\n"
+        "The local compiler has fixed the certificate fields below. Reproduce those fields exactly.\n"
+        f"certificate_type: {check_spec.certificate_type}\n"
+        f"problem_expression: {check_spec.problem_expression}\n"
+        f"problem_constants: {json.dumps(list(check_spec.problem_constants), ensure_ascii=False)}\n"
+        f"problem_variables: {json.dumps(list(check_spec.problem_variables), ensure_ascii=False)}\n"
+        f"unit: {check_spec.unit}\n"
+        "Write reasoning as one formula-level verification trace of at most 20 words.\n"
+        "Write key_evidence as the evaluated equality or interval comparison.\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+        f"Current anchor answer: `{leader_answer or 'unknown'}`.\n"
+        "Candidate answers for coverage:\n"
+        f"{_format_answer_board(stage_rows)}\n"
+        "Return one compact JSON object with this shape:\n"
+        f"{json.dumps(example, ensure_ascii=False)}\n"
+    )
+    return [
+        {"role": "system", "content": "You produce a typed mathematical certificate for deterministic checking."},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_hotpot_certificate_proposal_messages(
+    sample: DatasetSample,
+    *,
+    leader_answer: str,
+    stage_rows: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    example = {
+        "reasoning": "locate the unique complete answer span",
+        "answer": "Captain John Underhill",
+        "confidence": 0.0,
+        "key_evidence": "exact source span",
+        "risk_level": "none",
+        "certificate_type": "context_span_completion",
+        "source_title": "Expedition",
+        "source_sentence_index": 0,
+        "evidence_span": "Captain John Underhill",
+        "missing_tokens": ["Captain"],
+    }
+    user_prompt = (
+        "Produce one context-bound answer completion certificate.\n"
+        "Locate a unique complete answer span in the supplied context.\n"
+        "Set source_title to the bracketed source title and source_sentence_index to its zero-based sentence index.\n"
+        "Set evidence_span exactly equal to the proposed answer and list the tokens absent from the current anchor.\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+        f"Context:\n{sample.prompt_context.strip()}\n\n"
+        f"Current anchor answer: `{leader_answer or 'unknown'}`.\n"
+        "Candidate board for coverage:\n"
+        f"{_format_board(stage_rows)}\n"
+        "Return one compact JSON object with this shape:\n"
+        f"{json.dumps(example, ensure_ascii=False)}\n"
+    )
+    return [
+        {"role": "system", "content": "You produce a locatable context-span certificate for deterministic checking."},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_isp_shadow_messages(
+    sample: DatasetSample,
+    *,
+    own_answer: str,
+    candidate_answers: tuple[str, ...],
+    agent_index: int,
+) -> list[dict[str, str]]:
+    distribution = {answer: round(1.0 / len(candidate_answers), 6) for answer in candidate_answers} if candidate_answers else {}
+    example = {
+        "reasoning": "estimate independent peer beliefs",
+        "answer": own_answer,
+        "confidence": 0.0,
+        "key_evidence": "second-order belief estimate",
+        "risk_level": "none",
+        "peer_distribution": distribution,
+        "shadow_agent_index": agent_index,
+    }
+    user_prompt = (
+        "Record a shadow second-order forecast for this reasoning task.\n"
+        "Estimate the probability distribution of answers from independent peer solvers over the listed candidate answers.\n"
+        "The peer_distribution values must be non-negative and sum to 1.\n"
+        f"Question:\n{sample.question.strip()}\n\n"
+        f"Your committed answer: `{own_answer}`.\n"
+        f"Candidate answers: {json.dumps(list(candidate_answers), ensure_ascii=False)}\n"
+        "Return one compact JSON object with this shape:\n"
+        f"{json.dumps(example, ensure_ascii=False)}\n"
+    )
+    return [
+        {"role": "system", "content": "You record a shadow peer-belief forecast without changing the committed answer."},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
 def _strong_solver_workflow(dataset: str) -> str:
     return "\n".join(
         [
@@ -513,7 +631,7 @@ def _safe_verifier_workflow(dataset: str) -> str:
 def _dataset_solver_focus(dataset: str) -> str:
     if dataset in {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro"}:
         return "For multiple-choice tasks, identify the decisive concept, compare plausible options, and commit to one option letter."
-    if dataset in {"gsm8k", "math500", "competition_math"}:
+    if dataset in {"gsm8k", "math500", "competition_math", "omni_math"}:
         return "For math tasks, carry out the calculation symbolically or numerically and sanity-check the result."
     if dataset in {"hotpotqa", "webquestions"}:
         return "For short-span tasks, connect the evidence hops and commit to the complete judgeable answer span."
@@ -525,7 +643,7 @@ def _dataset_solver_focus(dataset: str) -> str:
 def _dataset_verifier_focus(dataset: str) -> str:
     if dataset in {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro"}:
         return "For multiple-choice tasks, compare the leader letter and challenger letter by the decisive concept or option clue."
-    if dataset in {"gsm8k", "math500", "competition_math"}:
+    if dataset in {"gsm8k", "math500", "competition_math", "omni_math"}:
         return "For math tasks, recompute the critical step, check equivalence, and score the requested final expression."
     if dataset in {"hotpotqa", "webquestions"}:
         return "For short-span tasks, match each answer to the necessary evidence span and score completeness of the judgeable span."
@@ -539,7 +657,7 @@ def _dataset_instruction(sample: DatasetSample) -> str:
         return 'Answer with exactly "yes" or "no". The JSON answer field is exactly "yes" or "no".'
     if sample.dataset in {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro"}:
         return 'Choose the single best option. The JSON answer field is exactly the option letter, such as "A" or "B".'
-    if sample.dataset in {"math500", "competition_math"}:
+    if sample.dataset in {"math500", "competition_math", "omni_math"}:
         return "Solve the math problem carefully. The JSON answer field is only the final mathematical expression."
     if sample.dataset == "gsm8k":
         return "Solve the math problem carefully. The JSON answer field is only the final numeric answer without commas or units."
@@ -562,6 +680,15 @@ def _format_board(rows: list[dict[str, Any]]) -> str:
     if not rows:
         return "- none\n"
     return "\n".join(f"- {_format_packet(row)}" for row in rows) + "\n"
+
+
+def _format_answer_board(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "- none\n"
+    return "\n".join(
+        f"- {row.get('agent_role') or row.get('role') or 'agent'}: `{_row_answer(row) or 'unknown'}`"
+        for row in rows
+    ) + "\n"
 
 
 def _format_options(options: list[str]) -> str:

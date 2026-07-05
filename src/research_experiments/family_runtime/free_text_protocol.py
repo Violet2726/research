@@ -16,7 +16,7 @@ _MULTIPLE_CHOICE_DATASETS = {
     "mmlu_abstract_algebra",
     "mmlu_pro",
 }
-_MATH_DATASETS = {"gsm8k", "math500", "competition_math"}
+_MATH_DATASETS = {"gsm8k", "math500", "competition_math", "omni_math"}
 _SHORT_SPAN_DATASETS = {"hotpotqa", "webquestions"}
 
 
@@ -92,7 +92,7 @@ def parse_free_text_answer_output(
 
 
 def _parse_strict_free_text_answer(cleaned: str, *, dataset: str) -> dict[str, Any]:
-    reasoning_match = _extract_labeled_match(cleaned, ["REASONING", "REASON", "RATIONALE", "WHY"])
+    reasoning_match = _extract_labeled_match(cleaned, ["REASONING", "REASONNING", "REASON", "RATIONALE", "WHY"])
     if reasoning_match is None:
         raise ValueError("Missing REASONING line.")
     final_match = _extract_labeled_match(cleaned, ["FINAL_ANSWER", "ANSWER", "FINAL"])

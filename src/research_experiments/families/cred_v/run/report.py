@@ -309,6 +309,18 @@ def _render_markdown(
                     "blocked_mmlu",
                     "blocked_strategyqa",
                     "method_expansion_calls",
+                    "certificate_candidates",
+                    "certificate_valid",
+                    "certificate_promoted",
+                    "certificate_eligible_wrong",
+                    "certificate_selection_recall",
+                    "certificate_corrected",
+                    "certificate_harmed",
+                    "certificate_precision",
+                    "certificate_harm_per_correction",
+                    "abstention_accuracy",
+                    "checker_ms",
+                    "isp_valid_responses",
                     "shadow_corrected",
                     "shadow_harmed",
                     "shadow_precision",
@@ -361,6 +373,18 @@ def _render_markdown(
                         str(row.get("blocked_mmlu_pairwise_count") or 0),
                         str(row.get("blocked_strategyqa_probe_count") or 0),
                         str(row.get("method_expansion_call_count") or 0),
+                        str(row.get("certificate_candidate_count") or 0),
+                        str(row.get("certificate_valid_count") or 0),
+                        str(row.get("certificate_promoted_count") or 0),
+                        str(row.get("certificate_eligible_wrong_count") or 0),
+                        format_float(row.get("certificate_selection_recall")),
+                        str(row.get("certificate_corrected_count") or 0),
+                        str(row.get("certificate_harmed_count") or 0),
+                        format_float(row.get("certificate_promotion_precision")),
+                        format_float(row.get("certificate_harm_per_correction")),
+                        format_float(row.get("abstention_accuracy")),
+                        format_float(row.get("checker_runtime_ms_mean"), 3),
+                        str(row.get("isp_shadow_valid_response_count") or 0),
                         str(row.get("shadow_counterfactual_corrected_count") or 0),
                         str(row.get("shadow_counterfactual_harmed_count") or 0),
                         format_float(row.get("shadow_precision")),
@@ -425,7 +449,7 @@ def _render_markdown(
     ]
     return render_family_scientific_report(
         title=f"{display_name} 科研报告",
-        abstract=abstract,
+        abstract=_cvs_abstract(display_name, overall_rows, abstract),
         overview_items=[
             ("实验名", str(manifest.get("experiment"))),
             ("Phase", str(manifest.get("phase"))),
@@ -544,6 +568,18 @@ def _render_rfs_markdown(
                     "safe_harmed",
                     "blocked_2of3",
                     "method_expansion_calls",
+                    "certificate_candidates",
+                    "certificate_valid",
+                    "certificate_promoted",
+                    "certificate_eligible_wrong",
+                    "certificate_selection_recall",
+                    "certificate_corrected",
+                    "certificate_harmed",
+                    "certificate_precision",
+                    "certificate_harm_per_correction",
+                    "abstention_accuracy",
+                    "checker_ms",
+                    "isp_valid_responses",
                     "shadow_corrected",
                     "shadow_harmed",
                     "shadow_precision",
@@ -602,6 +638,18 @@ def _render_rfs_markdown(
                         str(row.get("safe_selector_harmed_count") or 0),
                         str(row.get("blocked_2of3_pairwise_count") or 0),
                         str(row.get("method_expansion_call_count") or 0),
+                        str(row.get("certificate_candidate_count") or 0),
+                        str(row.get("certificate_valid_count") or 0),
+                        str(row.get("certificate_promoted_count") or 0),
+                        str(row.get("certificate_eligible_wrong_count") or 0),
+                        format_float(row.get("certificate_selection_recall")),
+                        str(row.get("certificate_corrected_count") or 0),
+                        str(row.get("certificate_harmed_count") or 0),
+                        format_float(row.get("certificate_promotion_precision")),
+                        format_float(row.get("certificate_harm_per_correction")),
+                        format_float(row.get("abstention_accuracy")),
+                        format_float(row.get("checker_runtime_ms_mean"), 3),
+                        str(row.get("isp_shadow_valid_response_count") or 0),
                         str(row.get("shadow_counterfactual_corrected_count") or 0),
                         str(row.get("shadow_counterfactual_harmed_count") or 0),
                         format_float(row.get("shadow_precision")),
@@ -682,7 +730,7 @@ def _render_rfs_markdown(
     ]
     return render_family_scientific_report(
         title=f"{display_name} 科研报告",
-        abstract=abstract,
+        abstract=_cvs_abstract(display_name, overall_rows, abstract),
         overview_items=[
             ("实验名", str(manifest.get("experiment"))),
             ("Phase", str(manifest.get("phase"))),
@@ -790,6 +838,22 @@ def _write_paper_summary(path: Path, summary_rows: list[dict[str, Any]]) -> None
         "non_answer_candidate_blocked_count",
         "single_pro_promotion_blocked_count",
         "strong_majority_locked_count",
+        "certificate_candidate_count",
+        "certificate_valid_count",
+        "certificate_promoted_count",
+        "certificate_eligible_wrong_count",
+        "certificate_selection_recall",
+        "certificate_corrected_count",
+        "certificate_harmed_count",
+        "certificate_promotion_precision",
+        "certificate_harm_per_correction",
+        "cross_model_agreement_count",
+        "semantic_entropy_mean",
+        "abstention_accuracy",
+        "checker_runtime_ms_mean",
+        "isp_shadow_valid_response_count",
+        "bbeh_task_count",
+        "bbeh_harmonic_accuracy",
         "communication_tokens_mean",
         "total_tokens_mean",
         "calls_per_question_mean",
@@ -801,6 +865,15 @@ def _write_paper_summary(path: Path, summary_rows: list[dict[str, Any]]) -> None
         writer.writeheader()
         for row in summary_rows:
             writer.writerow({field: row.get(field) for field in fieldnames})
+
+
+def _cvs_abstract(display_name: str, overall_rows: list[dict[str, Any]], fallback: list[str]) -> list[str]:
+    if not any(row.get("method_name") == "cred_cvs_v1" for row in overall_rows):
+        return fallback
+    return [
+        f"{display_name} 本轮采用 CRED-CVS：自由推理候选保持不变，模型只提出 proof-carrying candidate，本地 checker 决定是否晋级。",
+        "报告分别统计共享 anchor、预算匹配投票、证书验证增益与 ISP shadow；未验证的语义候选不会改变最终答案。",
+    ]
 
 
 def _ordered_rows(summary_rows: list[dict[str, Any]], *, dataset: str, method_order: list[str]) -> list[dict[str, Any]]:

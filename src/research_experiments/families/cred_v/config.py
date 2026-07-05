@@ -28,6 +28,9 @@ CRED_RFS_REPAIR_ONLY_V6 = "cred_rfs_repair_only_v6"
 CRED_RFS_SHADOW_EVIDENCE_SELECT_V7 = "cred_rfs_shadow_evidence_select_v7"
 CRED_RFS_REPAIR_BANK_V8 = "cred_rfs_repair_bank_v8"
 CRED_RFS_CERTIFICATE_SHADOW_V9 = "cred_rfs_certificate_shadow_v9"
+CRED_CVS_BUDGET_MATCHED_VOTE_V1 = "cred_cvs_budget_matched_vote_v1"
+CRED_CVS_V1 = "cred_cvs_v1"
+CRED_ISP_SHADOW_V1 = "cred_isp_shadow_v1"
 CRED_METHODS = frozenset(
     {
         CRED_V_VOTE_5,
@@ -45,6 +48,9 @@ CRED_METHODS = frozenset(
         CRED_RFS_SHADOW_EVIDENCE_SELECT_V7,
         CRED_RFS_REPAIR_BANK_V8,
         CRED_RFS_CERTIFICATE_SHADOW_V9,
+        CRED_CVS_BUDGET_MATCHED_VOTE_V1,
+        CRED_CVS_V1,
+        CRED_ISP_SHADOW_V1,
     }
 )
 CRED_VERIFY_METHODS = frozenset({CRED_V_TASK_VERIFY_V3})
@@ -68,6 +74,9 @@ CRED_RFS_REPAIR_ONLY_METHODS = frozenset({CRED_RFS_REPAIR_ONLY_V6})
 CRED_RFS_SHADOW_EVIDENCE_METHODS = frozenset({CRED_RFS_SHADOW_EVIDENCE_SELECT_V7})
 CRED_RFS_REPAIR_BANK_METHODS = frozenset({CRED_RFS_REPAIR_BANK_V8})
 CRED_RFS_CERTIFICATE_SHADOW_METHODS = frozenset({CRED_RFS_CERTIFICATE_SHADOW_V9})
+CRED_CVS_BUDGET_MATCHED_METHODS = frozenset({CRED_CVS_BUDGET_MATCHED_VOTE_V1})
+CRED_CVS_METHODS = frozenset({CRED_CVS_V1})
+CRED_ISP_SHADOW_METHODS = frozenset({CRED_ISP_SHADOW_V1})
 CRED_RFS_METHODS = frozenset(
     {
         CRED_RFS_VOTE_5,
@@ -85,6 +94,16 @@ CRED_RFS_METHODS = frozenset(
 )
 CRED_COMM_METHODS = CRED_VERIFY_METHODS | CRED_SAFE_VERIFY_METHODS | CRED_ACS_METHODS | CRED_RFS_ADAPTIVE_METHODS | CRED_RFS_PAIRWISE_METHODS
 CRED_VOTE_METHODS = frozenset({CRED_V_VOTE_5, CRED_RFS_VOTE_5, CRED_RFS_VOTE_5_ANCHOR})
+CRED_ACTIVE_METHODS = frozenset(
+    {
+        CRED_RFS_VOTE_5_ANCHOR,
+        CRED_RFS_REPAIR_ONLY_V6,
+        CRED_CVS_BUDGET_MATCHED_VOTE_V1,
+        CRED_CVS_V1,
+        CRED_ISP_SHADOW_V1,
+    }
+)
+CRED_LEGACY_METHODS = CRED_METHODS - CRED_ACTIVE_METHODS
 
 
 @dataclass(frozen=True)
@@ -136,6 +155,14 @@ class CredVProtocolConfig:
     verifier_max_tokens: int
     promotion_confidence_min: float
     promotion_score_margin: float
+    certificate_modes: tuple[str, ...]
+    certificate_proposer_model_refs: tuple[str, ...]
+    certificate_dsl_version: str
+    max_certificate_calls: int
+    certificate_min_independent_support: int
+    allow_unverified_promotion: bool
+    shadow_aggregation_modes: tuple[str, ...]
+    max_shadow_calls: int
 
 
 @dataclass(frozen=True)
@@ -157,6 +184,7 @@ class CredVExperimentConfig:
     requests_per_minute_limit: int | None
     primary_model_ref: str
     verifier_model_refs: list[str]
+    legacy_experiment: bool
     raw: dict[str, Any]
 
 
@@ -235,6 +263,14 @@ def load_protocol_config(path: str | Path) -> CredVProtocolConfig:
         verifier_max_tokens=int(payload.get("verifier_max_tokens", 1024)),
         promotion_confidence_min=float(payload.get("promotion_confidence_min", 0.72)),
         promotion_score_margin=float(payload.get("promotion_score_margin", 0.15)),
+        certificate_modes=tuple(str(item) for item in payload.get("certificate_modes", [])),
+        certificate_proposer_model_refs=tuple(str(item) for item in payload.get("certificate_proposer_model_refs", [])),
+        certificate_dsl_version=str(payload.get("certificate_dsl_version", "")),
+        max_certificate_calls=int(payload.get("max_certificate_calls", 0)),
+        certificate_min_independent_support=int(payload.get("certificate_min_independent_support", 2)),
+        allow_unverified_promotion=_parse_bool(payload.get("allow_unverified_promotion", False)),
+        shadow_aggregation_modes=tuple(str(item) for item in payload.get("shadow_aggregation_modes", [])),
+        max_shadow_calls=int(payload.get("max_shadow_calls", 0)),
     )
 
 
@@ -250,6 +286,10 @@ def load_experiment_config(path: str | Path) -> CredVExperimentConfig:
     unsupported = sorted(set(cred_methods) - CRED_METHODS)
     if unsupported:
         raise ValueError("Unsupported cred_v methods: " + ", ".join(unsupported))
+    legacy_experiment = _parse_bool(payload.get("legacy_experiment", False))
+    legacy_used = sorted(set(cred_methods) & CRED_LEGACY_METHODS)
+    if legacy_used and not legacy_experiment:
+        raise ValueError("Legacy cred_v methods require legacy_experiment=true: " + ", ".join(legacy_used))
     method_order = [str(item) for item in payload.get("method_order", [])]
     if set(method_order) != set(control_methods) | set(cred_methods):
         raise ValueError("cred_v method_order must exactly cover control_methods and cred_methods.")
@@ -287,6 +327,7 @@ def load_experiment_config(path: str | Path) -> CredVExperimentConfig:
         requests_per_minute_limit=runtime["requests_per_minute_limit"],
         primary_model_ref=str(payload["primary_model_ref"]),
         verifier_model_refs=[str(item) for item in payload.get("verifier_model_refs", [])],
+        legacy_experiment=legacy_experiment,
         raw=payload,
     )
 
@@ -297,6 +338,30 @@ def inspect_methods(experiment: CredVExperimentConfig) -> list[str]:
 
 def inspect_benchmarks(experiment: CredVExperimentConfig) -> list[str]:
     return [benchmark.slug for benchmark in load_benchmarks(experiment)]
+
+
+def validate_experiment_protocol_contract(
+    experiment: CredVExperimentConfig,
+    protocol: CredVProtocolConfig,
+) -> None:
+    if not (set(experiment.cred_methods) & (CRED_CVS_METHODS | CRED_CVS_BUDGET_MATCHED_METHODS)):
+        return
+
+    proposer_refs = tuple(dict.fromkeys(protocol.certificate_proposer_model_refs))
+    verifier_refs = set(experiment.verifier_model_refs)
+    missing_refs = sorted(set(proposer_refs) - verifier_refs)
+    if missing_refs:
+        raise ValueError(
+            "certificate_proposer_model_refs must be present in verifier_model_refs: " + ", ".join(missing_refs)
+        )
+    if not protocol.certificate_modes:
+        raise ValueError("CRED-CVS requires at least one certificate_mode.")
+    if len(proposer_refs) < protocol.certificate_min_independent_support:
+        raise ValueError("CRED-CVS requires enough distinct proposer models for certificate_min_independent_support.")
+    if protocol.max_certificate_calls < protocol.certificate_min_independent_support:
+        raise ValueError("max_certificate_calls must cover certificate_min_independent_support.")
+    if protocol.allow_unverified_promotion:
+        raise ValueError("CRED-CVS forward experiments cannot enable unverified promotion.")
 
 
 def _parse_bool(value: Any) -> bool:

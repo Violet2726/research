@@ -14,7 +14,10 @@ from research_experiments.core.data.evaluation import normalize_prediction, scor
 from research_experiments.core.execution.runner_common import iter_indexed_batch
 from research_experiments.families.cred_v.algorithms import (
     aggregate_adaptive_candidate_search,
+    aggregate_budget_matched_vote,
     aggregate_certificate_shadow_v9,
+    aggregate_certificate_verified_search,
+    aggregate_cvs_deterministic_base,
     aggregate_evidence_repair_v5,
     aggregate_pairwise_selection,
     aggregate_reasoning_first_selection,
@@ -29,14 +32,19 @@ from research_experiments.families.cred_v.algorithms import (
     answer_family_key,
     build_router_decision,
     choice_permutation,
+    compute_isp_shadow,
     evidence_quality,
     expansion_mode_for_dataset,
     map_shuffled_choice_answer,
     select_verification_targets,
 )
+from research_experiments.families.cred_v.certificates import verify_hotpot_certificate, verify_math_certificate
 from research_experiments.families.cred_v.config import (
     CRED_ACS_METHODS,
     CRED_COMM_METHODS,
+    CRED_CVS_BUDGET_MATCHED_METHODS,
+    CRED_CVS_METHODS,
+    CRED_ISP_SHADOW_METHODS,
     CRED_RFS_ADAPTIVE_METHODS,
     CRED_RFS_CERTIFICATE_SHADOW_METHODS,
     CRED_RFS_EVIDENCE_REPAIR_METHODS,
@@ -55,7 +63,10 @@ from research_experiments.families.cred_v.config import (
 from research_experiments.families.cred_v.prompts import (
     AGENT_ROLES,
     build_choice_shuffle_solver_messages,
+    build_hotpot_certificate_proposal_messages,
     build_hotpot_span_extractor_messages,
+    build_isp_shadow_messages,
+    build_math_certificate_proposal_messages,
     build_math_symbolic_repair_messages,
     build_mc_blind_pairwise_duel_messages,
     build_mc_shadow_evidence_select_messages,
@@ -379,11 +390,13 @@ def _run_cred_sample(
         )
 
     vote_decision = aggregate_stage_a_vote(stage_rows)
-    router = build_router_decision(stage_rows, protocol=protocol)
+    router = build_router_decision(stage_rows, protocol=protocol, sample_id=sample.sample_id, question=sample.question)
     method_set = set(experiment.cred_methods)
     verification_rows: list[dict[str, Any]] = []
     safe_verifier_rows: list[dict[str, Any]] = []
     expansion_rows: list[dict[str, Any]] = []
+    certificate_rows: list[dict[str, Any]] = []
+    isp_rows: list[dict[str, Any]] = []
     debate_rows: list[dict[str, Any]] = []
     targets: list[dict[str, Any]] = []
 
@@ -534,7 +547,55 @@ def _run_cred_sample(
         for row in pairwise_rows:
             debate_rows.append(_debate_message_row(run_id, benchmark_slug, split_name, sample, row, "rfs_pairwise_selection"))
 
-    all_turns = [*stage_rows, *verification_rows, *safe_verifier_rows, *expansion_rows]
+    if router.triggered and router.trigger_bucket == "certificate_search" and (
+        CRED_CVS_METHODS | CRED_CVS_BUDGET_MATCHED_METHODS
+    ) & method_set:
+        repair_leader = aggregate_cvs_deterministic_base(
+            dataset=benchmark_slug,
+            question=sample.question,
+            context=sample.prompt_context,
+            stage_rows=stage_rows,
+            stage_winner=vote_decision.final_answer,
+            selection_modes=protocol.selection_modes,
+            option_texts=tuple(_multiple_choice_options(sample)),
+        ).final_answer
+        certificate_rows = _run_cvs_certificate_proposals(
+            run_id=run_id,
+            benchmark_slug=benchmark_slug,
+            split_name=split_name,
+            sample=sample,
+            experiment=experiment,
+            protocol=protocol,
+            stage_rows=stage_rows,
+            leader_answer=repair_leader,
+            verifier_runtimes=verifier_runtimes,
+        )
+        for row in certificate_rows:
+            debate_rows.append(_debate_message_row(run_id, benchmark_slug, split_name, sample, row, "cvs_certificate"))
+
+    if (
+        router.triggered
+        and router.trigger_bucket == "unverifiable_shadow"
+        and CRED_ISP_SHADOW_METHODS & method_set
+        and "isp" in set(protocol.shadow_aggregation_modes)
+    ):
+        isp_rows = _run_isp_shadow_rows(
+            run_id=run_id,
+            benchmark_slug=benchmark_slug,
+            split_name=split_name,
+            sample=sample,
+            experiment=experiment,
+            protocol=protocol,
+            stage_rows=stage_rows,
+            backbone=backbone,
+            provider=provider,
+            cache=cache,
+            throttle=throttle,
+        )
+        for row in isp_rows:
+            debate_rows.append(_debate_message_row(run_id, benchmark_slug, split_name, sample, row, "isp_shadow"))
+
+    all_turns = [*stage_rows, *verification_rows, *safe_verifier_rows, *expansion_rows, *certificate_rows, *isp_rows]
     router_row = _router_row(
         run_id=run_id,
         dataset=benchmark_slug,
@@ -543,7 +604,7 @@ def _run_cred_sample(
         router=router,
         self_verification_count=len(verification_rows),
         hetero_verification_count=len(safe_verifier_rows),
-        expansion_count=len(expansion_rows),
+        expansion_count=len(expansion_rows) + len(certificate_rows) + len(isp_rows),
     )
     prediction_rows: list[dict[str, Any]] = []
     for method_name in experiment.cred_methods:
@@ -552,6 +613,8 @@ def _run_cred_sample(
         debate_turns: list[dict[str, Any]] = []
         method_expansion_rows: list[dict[str, Any]] = []
         method_targets: list[dict[str, Any]] = []
+        method_certificate_rows: list[dict[str, Any]] = []
+        method_isp_decision = None
         if method_name in CRED_VERIFY_METHODS:
             decision = aggregate_task_verification(
                 dataset=benchmark_slug,
@@ -628,6 +691,51 @@ def _run_cred_sample(
                 selection_modes=protocol.selection_modes,
             )
             method_targets = list(targets)
+        elif method_name in CRED_CVS_BUDGET_MATCHED_METHODS:
+            decision = aggregate_budget_matched_vote(
+                dataset=benchmark_slug,
+                stage_rows=stage_rows,
+                proposal_rows=certificate_rows,
+                stage_winner=vote_decision.final_answer,
+            )
+            debate_turns = list(certificate_rows)
+            method_turns = [*stage_rows, *debate_turns]
+            method_expansion_rows = list(certificate_rows)
+            method_certificate_rows = list(certificate_rows)
+        elif method_name in CRED_CVS_METHODS:
+            repair_decision = aggregate_cvs_deterministic_base(
+                dataset=benchmark_slug,
+                question=sample.question,
+                context=sample.prompt_context,
+                stage_rows=stage_rows,
+                stage_winner=vote_decision.final_answer,
+                selection_modes=protocol.selection_modes,
+                option_texts=tuple(_multiple_choice_options(sample)),
+            )
+            certificate_decision = aggregate_certificate_verified_search(
+                dataset=benchmark_slug,
+                stage_rows=stage_rows,
+                stage_winner=repair_decision.final_answer,
+                certificate_rows=certificate_rows,
+                min_independent_support=protocol.certificate_min_independent_support,
+            )
+            decision = certificate_decision if certificate_decision.changed else repair_decision
+            debate_turns = list(certificate_rows)
+            method_turns = [*stage_rows, *debate_turns]
+            method_expansion_rows = list(certificate_rows)
+            method_certificate_rows = list(certificate_rows)
+        elif method_name in CRED_ISP_SHADOW_METHODS:
+            decision = aggregate_repair_only_v6(
+                dataset=benchmark_slug,
+                question=sample.question,
+                context=sample.prompt_context,
+                stage_rows=stage_rows,
+                stage_winner=vote_decision.final_answer,
+                selection_modes=protocol.selection_modes,
+            )
+            method_isp_decision = compute_isp_shadow(dataset=benchmark_slug, stage_rows=stage_rows, shadow_rows=isp_rows)
+            debate_turns = list(isp_rows)
+            method_turns = [*stage_rows, *debate_turns]
         elif method_name in CRED_RFS_REPAIR_BANK_METHODS:
             decision = aggregate_repair_bank_v8(
                 dataset=benchmark_slug,
@@ -770,10 +878,171 @@ def _run_cred_sample(
                 method_turns=method_turns,
                 targets=method_targets,
                 expansion_rows=method_expansion_rows,
+                certificate_rows=method_certificate_rows,
+                isp_shadow_decision=method_isp_decision,
                 protocol=protocol,
             )
         )
     return all_turns, debate_rows, [router_row], prediction_rows
+
+
+def _run_cvs_certificate_proposals(
+    *,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    sample: DatasetSample,
+    experiment,
+    protocol,
+    stage_rows: list[dict[str, Any]],
+    leader_answer: str,
+    verifier_runtimes: list[CredVerifierRuntime],
+) -> list[dict[str, Any]]:
+    certificate_modes = set(getattr(protocol, "certificate_modes", ()))
+    math_mode = (
+        benchmark_slug in {"gsm8k", "math500", "competition_math", "omni_math"}
+        and "math_symbolic" in certificate_modes
+    )
+    hotpot_mode = benchmark_slug == "hotpotqa" and "hotpot_context_span" in certificate_modes
+    if not math_mode and not hotpot_mode:
+        return []
+    configured_refs = tuple(getattr(protocol, "certificate_proposer_model_refs", ()))
+    runtime_by_ref = {runtime.model_ref: runtime for runtime in verifier_runtimes}
+    selected = [runtime_by_ref[model_ref] for model_ref in configured_refs if model_ref in runtime_by_ref]
+    selected = selected[: max(0, int(getattr(protocol, "max_certificate_calls", 0)))]
+    rows: list[dict[str, Any]] = []
+    for index, runtime in enumerate(selected, start=1):
+        messages = (
+            build_math_certificate_proposal_messages(
+                sample,
+                leader_answer=leader_answer,
+                stage_rows=stage_rows,
+                dsl_version=str(getattr(protocol, "certificate_dsl_version", "math_cert_v1")),
+            )
+            if math_mode
+            else build_hotpot_certificate_proposal_messages(
+                sample,
+                leader_answer=leader_answer,
+                stage_rows=stage_rows,
+            )
+        )
+        row = _execute_turn(
+            run_id=run_id,
+            dataset=benchmark_slug,
+            split_name=split_name,
+            sample=sample,
+            method_name="cred_cvs_certificate",
+            method_type="verification",
+            round_index=1,
+            agent_id=1100 + index,
+            role="certificate_proposer",
+            agent_role=f"certificate_proposer:{runtime.model_ref}",
+            visible_peer_count=len(stage_rows),
+            messages=messages,
+            backbone=runtime.backbone,
+            provider=runtime.provider,
+            cache=runtime.cache,
+            throttle=runtime.throttle,
+            temperature=float(getattr(protocol, "verifier_temperature", 0.0)),
+            top_p=float(getattr(protocol, "top_p", 1.0)),
+            seed=int(experiment.global_seed) + 1100 + index,
+            output_protocol=experiment.cred_verification_output_protocol,
+            max_tokens=_positive_token_cap(int(getattr(protocol, "verifier_max_tokens", 0))),
+        )
+        payload = row.get("validated_output") if isinstance(row.get("validated_output"), dict) else {}
+        validation = (
+            verify_math_certificate(
+                question=sample.question,
+                leader_answer=leader_answer,
+                payload=payload,
+            )
+            if math_mode
+            else verify_hotpot_certificate(
+                context=sample.prompt_context,
+                raw_context=sample.metadata.get("raw_context") if isinstance(sample.metadata, dict) else None,
+                leader_answer=leader_answer,
+                payload=payload,
+            )
+        )
+        row["certificate_model_ref"] = runtime.model_ref
+        row["certificate_mode"] = "math_symbolic" if math_mode else "hotpot_context_span"
+        row["certificate_validation"] = validation.to_dict()
+        row["certificate_validation_pass"] = validation.valid
+        rows.append(row)
+    return rows
+
+
+def _run_isp_shadow_rows(
+    *,
+    run_id: str,
+    benchmark_slug: str,
+    split_name: str,
+    sample: DatasetSample,
+    experiment,
+    protocol,
+    stage_rows: list[dict[str, Any]],
+    backbone,
+    provider,
+    cache,
+    throttle,
+) -> list[dict[str, Any]]:
+    candidate_answers: list[str] = []
+    for row in stage_rows:
+        answer = str(row.get("normalized_answer") or row.get("prediction") or "").strip()
+        if answer and answer not in candidate_answers:
+            candidate_answers.append(answer)
+    if len(candidate_answers) < 2:
+        return []
+    rows: list[dict[str, Any]] = []
+    limit = min(len(stage_rows), max(0, int(getattr(protocol, "max_shadow_calls", 0))))
+    for index, stage_row in enumerate(stage_rows[:limit], start=1):
+        own_answer = str(stage_row.get("normalized_answer") or stage_row.get("prediction") or "").strip()
+        row = _execute_turn(
+            run_id=run_id,
+            dataset=benchmark_slug,
+            split_name=split_name,
+            sample=sample,
+            method_name="cred_isp_shadow",
+            method_type="shadow",
+            round_index=1,
+            agent_id=1200 + index,
+            role="isp_shadow",
+            agent_role=f"isp_shadow:{index}",
+            visible_peer_count=0,
+            messages=build_isp_shadow_messages(
+                sample,
+                own_answer=own_answer,
+                candidate_answers=tuple(candidate_answers),
+                agent_index=index,
+            ),
+            backbone=backbone,
+            provider=provider,
+            cache=cache,
+            throttle=throttle,
+            temperature=float(getattr(protocol, "verifier_temperature", 0.0)),
+            top_p=float(getattr(protocol, "top_p", 1.0)),
+            seed=int(experiment.global_seed) + 1200 + index,
+            output_protocol=experiment.cred_verification_output_protocol,
+            max_tokens=_positive_token_cap(int(getattr(protocol, "verifier_max_tokens", 0))),
+        )
+        payload = row.get("validated_output") if isinstance(row.get("validated_output"), dict) else {}
+        distribution = payload.get("peer_distribution")
+        valid_distribution = False
+        if isinstance(distribution, dict):
+            try:
+                values = [float(value) for value in distribution.values()]
+                valid_distribution = bool(values) and all(value >= 0.0 for value in values) and abs(sum(values) - 1.0) <= 0.02
+            except (TypeError, ValueError):
+                valid_distribution = False
+        row["isp_own_answer"] = own_answer
+        row["isp_validation_pass"] = (
+            row.get("request_status") == "ok"
+            and row.get("output_status") == "ok"
+            and row.get("protocol_parse_status") != "failed"
+            and valid_distribution
+        )
+        rows.append(row)
+    return rows
 
 
 def _run_acs_expansions(
@@ -1669,6 +1938,8 @@ def _prediction_row(
     method_turns: list[dict[str, Any]],
     targets: list[dict[str, Any]],
     expansion_rows: list[dict[str, Any]],
+    certificate_rows: list[dict[str, Any]],
+    isp_shadow_decision,
     protocol: CredVProtocolConfig,
 ) -> dict[str, Any]:
     prediction = decision.final_answer
@@ -1773,6 +2044,12 @@ def _prediction_row(
         expansion_rows=expansion_rows,
         protocol=protocol,
     )
+    if isp_shadow_decision is not None and getattr(isp_shadow_decision, "winner", ""):
+        shadow = {
+            "answer": str(isp_shadow_decision.winner),
+            "resolver": "cred_isp_shadow_counterfactual",
+            "gate_passed": False,
+        }
     shadow_answer = str(shadow.get("answer") or "")
     shadow_score = score_prediction(dataset, shadow_answer, sample.reference_answer) if shadow_answer else 0.0
     shadow_corrected = bool(shadow_answer and initial_score < 1.0 and shadow_score == 1.0)
@@ -1913,6 +2190,54 @@ def _prediction_row(
         )
     )
     row["vote_counts"] = row["initial_vote_counts"]
+    valid_certificates = [
+        item
+        for item in certificate_rows
+        if isinstance(item.get("certificate_validation"), dict)
+        and item["certificate_validation"].get("valid") is True
+    ]
+    row["certificate_candidate_count"] = len(certificate_rows)
+    row["certificate_valid_count"] = len(valid_certificates)
+    row["certificate_mode"] = str(next((item.get("certificate_mode") for item in certificate_rows if item.get("certificate_mode")), ""))
+    row["certificate_promoted"] = resolver == "cred_cvs_double_certificate_promoted"
+    row["certificate_failure_reason"] = str(
+        next(
+            (
+                item["certificate_validation"].get("failure_reason")
+                for item in certificate_rows
+                if isinstance(item.get("certificate_validation"), dict)
+                and item["certificate_validation"].get("failure_reason")
+            ),
+            "",
+        )
+    )
+    row["leader_constraint_failed"] = bool(valid_certificates) and all(
+        item["certificate_validation"].get("leader_pass") is False for item in valid_certificates
+    )
+    row["checker_runtime_ms"] = round(
+        sum(float(item["certificate_validation"].get("checker_runtime_ms") or 0.0) for item in certificate_rows if isinstance(item.get("certificate_validation"), dict)),
+        6,
+    )
+    row["certificate_corrected"] = row["certificate_promoted"] and corrected
+    row["certificate_harmed"] = row["certificate_promoted"] and harmed
+    valid_certificate_sources: dict[str, set[str]] = {}
+    for item in valid_certificates:
+        validation = item["certificate_validation"]
+        family = answer_family_key(dataset, str(validation.get("normalized_answer") or ""))
+        model_ref = str(item.get("certificate_model_ref") or "").strip()
+        if model_ref:
+            valid_certificate_sources.setdefault(family, set()).add(model_ref)
+    row["cross_model_agreement"] = max((len(refs) for refs in valid_certificate_sources.values()), default=0)
+    stage_counts = [float(value) for value in stage_decision.support.values() if float(value) > 0.0]
+    stage_total = sum(stage_counts)
+    row["semantic_entropy"] = round(
+        -sum((count / stage_total) * math.log(count / stage_total) for count in stage_counts),
+        6,
+    ) if stage_total else 0.0
+    row["isp_shadow_winner"] = str(getattr(isp_shadow_decision, "winner", "") or "")
+    row["isp_shadow_scores"] = dict(getattr(isp_shadow_decision, "scores", {}) or {})
+    row["isp_shadow_valid_response_count"] = int(getattr(isp_shadow_decision, "valid_response_count", 0) or 0)
+    row["benchmark_task"] = str(sample.metadata.get("task") or "")
     return row
 
 
@@ -2100,6 +2425,7 @@ def build_control_prediction_row(
         "dataset": benchmark_slug,
         "split": split_name,
         "sample_id": sample.sample_id,
+        "benchmark_task": str(sample.metadata.get("task") or ""),
         "method_name": control_name,
         "method_type": "control",
         "model_name": backbone.name,
@@ -2222,6 +2548,15 @@ def build_metrics(
         method_order=method_order,
         reference_method="sc_5",
     )
+    if "cred_rfs_vote_5_anchor" in method_order:
+        paired.extend(
+            build_paired_comparisons(
+                prediction_rows,
+                dataset_order=dataset_order,
+                method_order=method_order,
+                reference_method="cred_rfs_vote_5_anchor",
+            )
+        )
     return {"summary": summary, "paired_comparisons": paired}
 
 
@@ -2585,7 +2920,9 @@ def build_router_eval(router_rows: list[dict[str, Any]]) -> dict[str, Any]:
                 "expansion_calls_mean": safe_mean(float(row.get("expansion_count") or 0.0) for row in rows),
                 "false_consensus_trigger_count": sum(1 for row in rows if row.get("trigger_bucket") in {"false_consensus_probe", "minority_probe"}),
                 "weak_split_trigger_count": sum(1 for row in rows if row.get("trigger_bucket") in {"weak_split", "weak_split_select"}),
-                "deterministic_repair_trigger_count": sum(1 for row in rows if row.get("trigger_bucket") == "deterministic_repair_only"),
+                "deterministic_repair_trigger_count": sum(1 for row in rows if row.get("trigger_bucket") in {"deterministic_repair_only", "deterministic_repair"}),
+                "certificate_search_trigger_count": sum(1 for row in rows if row.get("trigger_bucket") == "certificate_search"),
+                "unverifiable_shadow_trigger_count": sum(1 for row in rows if row.get("trigger_bucket") == "unverifiable_shadow"),
                 "minority_probe_trigger_count": sum(1 for row in rows if row.get("trigger_bucket") == "minority_probe"),
                 "clean_skip_count": sum(1 for row in rows if row.get("trigger_bucket") in {"clean_skip", "clean_anchor_skip"}),
             }
@@ -2604,7 +2941,9 @@ def build_router_eval(router_rows: list[dict[str, Any]]) -> dict[str, Any]:
                 "expansion_calls_mean": safe_mean(float(row.get("expansion_count") or 0.0) for row in router_rows),
                 "false_consensus_trigger_count": sum(1 for row in router_rows if row.get("trigger_bucket") in {"false_consensus_probe", "minority_probe"}),
                 "weak_split_trigger_count": sum(1 for row in router_rows if row.get("trigger_bucket") in {"weak_split", "weak_split_select"}),
-                "deterministic_repair_trigger_count": sum(1 for row in router_rows if row.get("trigger_bucket") == "deterministic_repair_only"),
+                "deterministic_repair_trigger_count": sum(1 for row in router_rows if row.get("trigger_bucket") in {"deterministic_repair_only", "deterministic_repair"}),
+                "certificate_search_trigger_count": sum(1 for row in router_rows if row.get("trigger_bucket") == "certificate_search"),
+                "unverifiable_shadow_trigger_count": sum(1 for row in router_rows if row.get("trigger_bucket") == "unverifiable_shadow"),
                 "minority_probe_trigger_count": sum(1 for row in router_rows if row.get("trigger_bucket") == "minority_probe"),
                 "clean_skip_count": sum(1 for row in router_rows if row.get("trigger_bucket") in {"clean_skip", "clean_anchor_skip"}),
             }
@@ -2652,6 +2991,10 @@ def estimate_work(experiment: CredVExperimentConfig, phase_name: str, benchmarks
                 else 0
             )
             total_calls += sample_count * max(pairwise_calls, strategy_calls)
+        if (CRED_CVS_METHODS | CRED_CVS_BUDGET_MATCHED_METHODS) & set(experiment.cred_methods):
+            total_calls += sample_count * int(protocol.max_certificate_calls)
+        if CRED_ISP_SHADOW_METHODS & set(experiment.cred_methods):
+            total_calls += sample_count * int(protocol.max_shadow_calls)
         total_predictions += sample_count * len(experiment.cred_methods)
         for method_name in experiment.control_methods:
             total_calls += sample_count * controls[method_name].budget_calls
@@ -2795,6 +3138,30 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
     minority_corrected = sum(1 for row in rows if row.get("resolver") == "cred_rfs_v2_strategyqa_minority_promoted" and row.get("corrected_by_debate"))
     minority_harmed = sum(1 for row in rows if row.get("resolver") == "cred_rfs_v2_strategyqa_minority_promoted" and row.get("harmed_by_debate"))
     adaptive_trigger_rate = safe_mean(1.0 if int(row.get("expansion_call_count") or 0) > 0 else 0.0 for row in rows)
+    certificate_candidate_count = sum(int(row.get("certificate_candidate_count") or 0) for row in rows)
+    certificate_valid_count = sum(int(row.get("certificate_valid_count") or 0) for row in rows)
+    certificate_promoted_count = sum(1 for row in rows if row.get("certificate_promoted"))
+    certificate_corrected_count = sum(1 for row in rows if row.get("certificate_corrected"))
+    certificate_harmed_count = sum(1 for row in rows if row.get("certificate_harmed"))
+    certificate_eligible_wrong_count = sum(
+        1
+        for row in rows
+        if _initial_vote_score(row) < 1.0 and int(row.get("certificate_valid_count") or 0) > 0
+    )
+    abstained_rows = [row for row in rows if not row.get("certificate_promoted")]
+    isp_valid_response_count = sum(int(row.get("isp_shadow_valid_response_count") or 0) for row in rows)
+    cross_model_agreement_count = sum(1 for row in rows if int(row.get("cross_model_agreement") or 0) >= 2)
+    bbeh_task_scores: dict[str, list[float]] = {}
+    if dataset == "bbeh":
+        for row in rows:
+            task = str(row.get("benchmark_task") or "unknown")
+            bbeh_task_scores.setdefault(task, []).append(float(row.get("score") or 0.0))
+    bbeh_task_accuracies = [safe_mean(scores) for scores in bbeh_task_scores.values()]
+    bbeh_harmonic_accuracy = (
+        0.0
+        if not bbeh_task_accuracies or any(score <= 0.0 for score in bbeh_task_accuracies)
+        else round(len(bbeh_task_accuracies) / sum(1.0 / score for score in bbeh_task_accuracies), 6)
+    )
     return {
         "dataset": dataset,
         "aggregate_kind": aggregate_kind,
@@ -2904,6 +3271,28 @@ def _summarize_prediction_rows(rows: list[dict[str, Any]], *, dataset: str, mode
         "non_answer_candidate_blocked_count": sum(1 for row in rows if row.get("non_answer_candidate_blocked")),
         "single_pro_promotion_blocked_count": single_pro_blocked_count,
         "strong_majority_locked_count": strong_majority_locked_count,
+        "certificate_candidate_count": certificate_candidate_count,
+        "certificate_valid_count": certificate_valid_count,
+        "certificate_promoted_count": certificate_promoted_count,
+        "certificate_eligible_wrong_count": certificate_eligible_wrong_count,
+        "certificate_selection_recall": safe_ratio(certificate_corrected_count, certificate_eligible_wrong_count),
+        "certificate_corrected_count": certificate_corrected_count,
+        "certificate_harmed_count": certificate_harmed_count,
+        "certificate_promotion_precision": safe_ratio(
+            certificate_corrected_count,
+            certificate_corrected_count + certificate_harmed_count,
+        ),
+        "certificate_harm_per_correction": round(
+            (certificate_harmed_count / certificate_corrected_count) if certificate_corrected_count else float(certificate_harmed_count),
+            6,
+        ),
+        "abstention_accuracy": safe_mean(float(row.get("score") or 0.0) for row in abstained_rows),
+        "checker_runtime_ms_mean": safe_mean(float(row.get("checker_runtime_ms") or 0.0) for row in rows),
+        "isp_shadow_valid_response_count": isp_valid_response_count,
+        "cross_model_agreement_count": cross_model_agreement_count,
+        "semantic_entropy_mean": safe_mean(float(row.get("semantic_entropy") or 0.0) for row in rows),
+        "bbeh_task_count": len(bbeh_task_scores),
+        "bbeh_harmonic_accuracy": bbeh_harmonic_accuracy,
         "corrected_rate": safe_ratio(corrected_count, question_count),
         "harmed_rate": safe_ratio(harmed_count, question_count),
         "flip_rate": safe_mean(1.0 if row.get("vote_flipped") else 0.0 for row in rows),
@@ -3067,6 +3456,20 @@ def _macro_from_rows(rows: list[dict[str, Any]], *, dataset: str, model_name: st
         "non_answer_candidate_blocked_count": sum(int(row.get("non_answer_candidate_blocked_count") or 0) for row in rows),
         "single_pro_promotion_blocked_count": sum(int(row.get("single_pro_promotion_blocked_count") or 0) for row in rows),
         "strong_majority_locked_count": sum(int(row.get("strong_majority_locked_count") or 0) for row in rows),
+        "certificate_candidate_count": sum(int(row.get("certificate_candidate_count") or 0) for row in rows),
+        "certificate_valid_count": sum(int(row.get("certificate_valid_count") or 0) for row in rows),
+        "certificate_promoted_count": sum(int(row.get("certificate_promoted_count") or 0) for row in rows),
+        "certificate_eligible_wrong_count": sum(int(row.get("certificate_eligible_wrong_count") or 0) for row in rows),
+        "certificate_selection_recall": safe_mean(float(row.get("certificate_selection_recall") or 0.0) for row in rows),
+        "certificate_corrected_count": sum(int(row.get("certificate_corrected_count") or 0) for row in rows),
+        "certificate_harmed_count": sum(int(row.get("certificate_harmed_count") or 0) for row in rows),
+        "certificate_promotion_precision": safe_mean(float(row.get("certificate_promotion_precision") or 0.0) for row in rows),
+        "certificate_harm_per_correction": safe_mean(float(row.get("certificate_harm_per_correction") or 0.0) for row in rows),
+        "abstention_accuracy": safe_mean(float(row.get("abstention_accuracy") or 0.0) for row in rows),
+        "checker_runtime_ms_mean": safe_mean(float(row.get("checker_runtime_ms_mean") or 0.0) for row in rows),
+        "isp_shadow_valid_response_count": sum(int(row.get("isp_shadow_valid_response_count") or 0) for row in rows),
+        "cross_model_agreement_count": sum(int(row.get("cross_model_agreement_count") or 0) for row in rows),
+        "semantic_entropy_mean": safe_mean(float(row.get("semantic_entropy_mean") or 0.0) for row in rows),
         "corrected_rate": safe_mean(float(row["corrected_rate"]) for row in rows),
         "harmed_rate": safe_mean(float(row["harmed_rate"]) for row in rows),
         "flip_rate": safe_mean(float(row["flip_rate"]) for row in rows),

@@ -245,8 +245,8 @@ def _build_http_client() -> httpx.Client:
 
     return httpx.Client(
         limits=httpx.Limits(
-            max_connections=128,
-            max_keepalive_connections=32,
+            max_connections=1024,
+            max_keepalive_connections=256,
             keepalive_expiry=30.0,
         ),
     )

@@ -4,7 +4,10 @@ from types import SimpleNamespace
 
 from research_experiments.families.cred_v.algorithms import (
     aggregate_adaptive_candidate_search,
+    aggregate_budget_matched_vote,
     aggregate_certificate_shadow_v9,
+    aggregate_certificate_verified_search,
+    aggregate_cvs_deterministic_base,
     aggregate_evidence_repair_v5,
     aggregate_pairwise_selection,
     aggregate_reasoning_first_selection,
@@ -18,6 +21,7 @@ from research_experiments.families.cred_v.algorithms import (
     aggregate_task_verification,
     build_router_decision,
     choice_permutation,
+    compute_isp_shadow,
     map_shuffled_choice_answer,
     select_verification_targets,
 )
@@ -1516,6 +1520,42 @@ def test_rfs_v8_repair_bank_keeps_semantic_selectors_out_of_forward_path() -> No
     assert decision.resolver == "cred_rfs_v8_repair_bank_rejected"
 
 
+def test_cvs_deterministic_base_uses_v6_repairs_and_only_adds_mc_text_mapping() -> None:
+    math_decision = aggregate_cvs_deterministic_base(
+        dataset="math500",
+        question="Find the value.",
+        context="",
+        stage_rows=[
+            _row("math500", "pi", confidence=0.70),
+            _row("math500", "pi", confidence=0.69),
+            _row("math500", "pi", confidence=0.68),
+            _row("math500", "π", confidence=0.90),
+        ],
+        stage_winner="pi",
+        selection_modes=("deterministic_repair", "math_repair_bank_v8", "mc_option_text_repair"),
+        option_texts=(),
+    )
+    mc_decision = aggregate_cvs_deterministic_base(
+        dataset="mmlu_pro",
+        question="Which option is best?",
+        context="",
+        stage_rows=[
+            _row("mmlu_pro", "beta", confidence=0.70),
+            _row("mmlu_pro", "beta", confidence=0.69),
+            _row("mmlu_pro", "beta", confidence=0.68),
+            _row("mmlu_pro", "C", confidence=0.90),
+        ],
+        stage_winner="beta",
+        selection_modes=("deterministic_repair", "math_repair_bank_v8", "mc_option_text_repair"),
+        option_texts=("alpha", "beta", "gamma", "delta"),
+    )
+
+    assert math_decision.final_answer == "pi"
+    assert math_decision.changed is False
+    assert mc_decision.final_answer == "B"
+    assert mc_decision.resolver == "cred_rfs_v8_mc_option_text_repair"
+
+
 def test_rfs_v8_mc_option_text_repair_maps_current_winner_only() -> None:
     text_leader = aggregate_repair_bank_v8(
         dataset="mmlu_pro",
@@ -1614,6 +1654,159 @@ def test_rfs_v9_certificate_shadow_keeps_v8_final_answer() -> None:
     assert decision.final_answer == "A"
     assert decision.changed is False
     assert decision.source == "certificate_shadow"
+
+
+def test_cvs_requires_two_independent_valid_certificates() -> None:
+    stage_rows = [
+        _row("math500", "1/2"),
+        _row("math500", "1/2"),
+        _row("math500", "1/2"),
+        _row("math500", "5/6"),
+        _row("math500", "5/6"),
+    ]
+    one_source = [_certificate_row("pro", "5/6", valid=True, challenger_pass=True, leader_pass=False)]
+    two_sources = [
+        *one_source,
+        _certificate_row("qwen", "5/6", valid=True, challenger_pass=True, leader_pass=False),
+    ]
+
+    blocked = aggregate_certificate_verified_search(
+        dataset="math500",
+        stage_rows=stage_rows,
+        stage_winner="1/2",
+        certificate_rows=one_source,
+        min_independent_support=2,
+    )
+    promoted = aggregate_certificate_verified_search(
+        dataset="math500",
+        stage_rows=stage_rows,
+        stage_winner="1/2",
+        certificate_rows=two_sources,
+        min_independent_support=2,
+    )
+
+    assert blocked.final_answer == "1/2"
+    assert blocked.changed is False
+    assert promoted.final_answer == "5/6"
+    assert promoted.changed is True
+    assert promoted.resolver == "cred_cvs_double_certificate_promoted"
+
+
+def test_cvs_rejects_conflicting_or_incomplete_certificates() -> None:
+    stage_rows = [_row("math500", "1/2") for _ in range(3)] + [_row("math500", "5/6") for _ in range(2)]
+    rows = [
+        _certificate_row("pro", "5/6", valid=True, challenger_pass=True, leader_pass=False),
+        _certificate_row("qwen", "7/8", valid=True, challenger_pass=True, leader_pass=False),
+        _certificate_row("third", "5/6", valid=False, challenger_pass=True, leader_pass=False),
+    ]
+
+    decision = aggregate_certificate_verified_search(
+        dataset="math500",
+        stage_rows=stage_rows,
+        stage_winner="1/2",
+        certificate_rows=rows,
+        min_independent_support=2,
+    )
+
+    assert decision.final_answer == "1/2"
+    assert decision.changed is False
+    assert decision.resolver == "cred_cvs_certificate_rejected"
+
+
+def test_budget_matched_vote_uses_proposals_as_votes_without_certificate_authority() -> None:
+    stage_rows = [_row("math500", "A") for _ in range(3)] + [_row("math500", "B") for _ in range(2)]
+    proposal_rows = [
+        _certificate_row("pro", "B", valid=False, challenger_pass=False, leader_pass=False),
+        _certificate_row("qwen", "B", valid=False, challenger_pass=False, leader_pass=False),
+    ]
+
+    decision = aggregate_budget_matched_vote(
+        dataset="math500",
+        stage_rows=stage_rows,
+        proposal_rows=proposal_rows,
+        stage_winner="A",
+    )
+
+    assert decision.final_answer == "B"
+    assert decision.resolver == "cred_cvs_budget_matched_vote"
+
+
+def test_isp_shadow_uses_surprise_ratio_and_stays_counterfactual() -> None:
+    decision = compute_isp_shadow(
+        dataset="strategyqa",
+        stage_rows=[_row("strategyqa", "yes") for _ in range(3)] + [_row("strategyqa", "no") for _ in range(2)],
+        shadow_rows=[
+            {"validated_output": {"peer_distribution": {"yes": 0.8, "no": 0.2}}},
+            {"validated_output": {"peer_distribution": {"yes": 0.8, "no": 0.2}}},
+        ],
+    )
+
+    assert decision.winner == "no"
+    assert decision.valid_response_count == 2
+    assert decision.scores["no"] > decision.scores["yes"]
+
+
+def test_cvs_router_separates_verifiable_search_from_unverifiable_shadow() -> None:
+    protocol = SimpleNamespace(
+        certificate_modes=("math_symbolic", "hotpot_context_span", "mc_option_mapping"),
+        selection_modes=("deterministic_repair",),
+        shadow_selection_modes=(),
+        trigger_buckets=("certificate_search", "deterministic_repair", "unverifiable_shadow"),
+        leader_lock_count=4,
+        strong_majority_count=4,
+        false_consensus_probe=False,
+        max_trigger_rate=1.0,
+    )
+    math_rows = [_row("math500", "1/2") for _ in range(3)] + [_row("math500", "5/6") for _ in range(2)]
+    mc_rows = [_row("mmlu_pro", "A") for _ in range(3)] + [_row("mmlu_pro", "B") for _ in range(2)]
+    hotpot_rows = [_row("hotpotqa", "John Underhill") for _ in range(3)] + [
+        _row("hotpotqa", "Captain Underhill"),
+        _row("hotpotqa", "Underhill"),
+    ]
+
+    math_route = build_router_decision(math_rows, protocol=protocol, sample_id="math-1", question="Evaluate 1/2 + 1/3.")
+    uncompiled_math_route = build_router_decision(
+        math_rows,
+        protocol=protocol,
+        sample_id="math-2",
+        question="Find the angle between two lines in degrees.",
+    )
+    mc_route = build_router_decision(mc_rows, protocol=protocol, sample_id="mc-1", question="Choose one option.")
+    hotpot_route = build_router_decision(
+        hotpot_rows,
+        protocol=protocol,
+        sample_id="hotpot-1",
+        question="Who led the expedition?",
+    )
+
+    assert math_route.trigger_bucket == "certificate_search"
+    assert math_route.triggered is True
+    assert uncompiled_math_route.trigger_bucket == "unverifiable_shadow"
+    assert uncompiled_math_route.triggered is True
+    assert mc_route.trigger_bucket == "unverifiable_shadow"
+    assert mc_route.triggered is True
+    assert hotpot_route.trigger_bucket == "certificate_search"
+    assert hotpot_route.triggered is True
+
+
+def _certificate_row(
+    model_ref: str,
+    answer: str,
+    *,
+    valid: bool,
+    challenger_pass: bool,
+    leader_pass: bool,
+) -> dict:
+    row = _row("math500", answer, method_name="cred_cvs_certificate")
+    row["certificate_model_ref"] = model_ref
+    row["certificate_validation"] = {
+        "valid": valid,
+        "challenger_pass": challenger_pass,
+        "leader_pass": leader_pass,
+        "normalized_answer": answer,
+        "failure_reason": "" if valid else "invalid_certificate",
+    }
+    return row
 
 
 def _row(

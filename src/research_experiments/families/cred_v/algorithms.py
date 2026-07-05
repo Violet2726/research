@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
+from research_experiments.families.cred_v.certificates import compile_math_check_spec
+
 _NON_ANSWERS = {"", "unknown", "n/a", "none"}
-_MATH_DATASETS = {"gsm8k", "math500", "competition_math"}
+_MATH_DATASETS = {"gsm8k", "math500", "competition_math", "omni_math"}
 _SPAN_DATASETS = {"hotpotqa"}
 _HETERO_DATASETS = {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro", "strategyqa"}
 _MC_DATASETS = {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro"}
@@ -83,6 +86,13 @@ class CredAggregateDecision:
     source: str
 
 
+@dataclass(frozen=True)
+class IspShadowDecision:
+    winner: str
+    scores: dict[str, float]
+    valid_response_count: int
+
+
 def answer_family_key(dataset: str, answer: str) -> str:
     normalized = str(answer or "").strip()
     if not normalized:
@@ -99,7 +109,13 @@ def answer_family_key(dataset: str, answer: str) -> str:
     return _coarse_text(normalized)
 
 
-def build_router_decision(rows: list[dict[str, Any]], *, protocol) -> CredRouterDecision:
+def build_router_decision(
+    rows: list[dict[str, Any]],
+    *,
+    protocol,
+    sample_id: str = "",
+    question: str = "",
+) -> CredRouterDecision:
     dataset = _dataset_from_rows(rows)
     selection_modes = {str(mode) for mode in getattr(protocol, "selection_modes", ())}
     shadow_modes = {str(mode) for mode in getattr(protocol, "shadow_selection_modes", ())}
@@ -123,6 +139,72 @@ def build_router_decision(rows: list[dict[str, Any]], *, protocol) -> CredRouter
     risk_count = sum(1 for row in rows if _row_risk_level(row) in {"medium", "high"})
     evidence_mean = _mean(evidence_quality(row) for row in rows)
     strong_majority_count = int(getattr(protocol, "leader_lock_count", getattr(protocol, "strong_majority_count", 4)))
+    certificate_modes = {str(mode) for mode in getattr(protocol, "certificate_modes", ())}
+    if certificate_modes:
+        repair_risk = _format_repair_risk(dataset, rows, leading_family, leading_answer) if leading_answer else False
+        if repair_risk:
+            return _cvs_router_result(
+                protocol=protocol,
+                sample_id=sample_id,
+                bucket="deterministic_repair",
+                reason="deterministic_repair_candidate",
+                leading_answer=leading_answer,
+                vote_counts=vote_counts,
+                risk_count=risk_count,
+                evidence_mean=evidence_mean,
+                leading_count=leading_count,
+            )
+        if dataset in _MATH_DATASETS and "math_symbolic" in certificate_modes and _math_certificate_question(question):
+            return _cvs_router_result(
+                protocol=protocol,
+                sample_id=sample_id,
+                bucket="certificate_search",
+                reason="machine_checkable_math_candidate",
+                leading_answer=leading_answer,
+                vote_counts=vote_counts,
+                risk_count=risk_count,
+                evidence_mean=evidence_mean,
+                leading_count=leading_count,
+            )
+        if (
+            dataset in _SPAN_DATASETS
+            and "hotpot_context_span" in certificate_modes
+            and leading_answer
+            and leading_count < strong_majority_count
+        ):
+            return _cvs_router_result(
+                protocol=protocol,
+                sample_id=sample_id,
+                bucket="certificate_search",
+                reason="context_span_certificate_candidate",
+                leading_answer=leading_answer,
+                vote_counts=vote_counts,
+                risk_count=risk_count,
+                evidence_mean=evidence_mean,
+                leading_count=leading_count,
+            )
+        if leading_answer and leading_count < strong_majority_count and (dataset in _HETERO_DATASETS or dataset not in _SPAN_DATASETS):
+            return _cvs_router_result(
+                protocol=protocol,
+                sample_id=sample_id,
+                bucket="unverifiable_shadow",
+                reason="weak_split_without_checker",
+                leading_answer=leading_answer,
+                vote_counts=vote_counts,
+                risk_count=risk_count,
+                evidence_mean=evidence_mean,
+                leading_count=leading_count,
+            )
+        return CredRouterDecision(
+            triggered=False,
+            reasons=("clean_certificate_skip",),
+            trigger_bucket="clean_skip",
+            leading_answer=leading_answer,
+            vote_counts=vote_counts,
+            risk_count=risk_count,
+            evidence_quality_mean=round(evidence_mean, 6),
+            leading_count=leading_count,
+        )
     reasons: list[str] = []
     if not leading_answer:
         reasons.append("no_valid_stage_a_answer")
@@ -166,6 +248,43 @@ def build_router_decision(rows: list[dict[str, Any]], *, protocol) -> CredRouter
     )
 
 
+def _cvs_router_result(
+    *,
+    protocol,
+    sample_id: str,
+    bucket: str,
+    reason: str,
+    leading_answer: str,
+    vote_counts: dict[str, int],
+    risk_count: int,
+    evidence_mean: float,
+    leading_count: int,
+) -> CredRouterDecision:
+    enabled = bucket in _enabled_trigger_buckets(protocol)
+    rate = min(1.0, max(0.0, float(getattr(protocol, "max_trigger_rate", 1.0))))
+    within_budget = _stable_trigger_fraction(sample_id or f"{bucket}:{leading_answer}") < rate
+    triggered = enabled and within_budget
+    return CredRouterDecision(
+        triggered=triggered,
+        reasons=(reason,) if triggered else ("certificate_budget_skip",),
+        trigger_bucket=bucket if triggered else "clean_skip",
+        leading_answer=leading_answer,
+        vote_counts=vote_counts,
+        risk_count=risk_count,
+        evidence_quality_mean=round(evidence_mean, 6),
+        leading_count=leading_count,
+    )
+
+
+def _stable_trigger_fraction(value: str) -> float:
+    digest = hashlib.sha256(str(value).encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big") / float(2**64)
+
+
+def _math_certificate_question(question: str) -> bool:
+    return compile_math_check_spec(question) is not None
+
+
 def aggregate_stage_a_vote(rows: list[dict[str, Any]]) -> CredAggregateDecision:
     dataset = _dataset_from_rows(rows)
     grouped, ordered_families = _stage_candidate_groups(dataset, rows)
@@ -187,6 +306,140 @@ def aggregate_stage_a_vote(rows: list[dict[str, Any]]) -> CredAggregateDecision:
         changed=False,
         source="stage_a_vote",
     )
+
+
+def aggregate_budget_matched_vote(
+    *,
+    dataset: str,
+    stage_rows: list[dict[str, Any]],
+    proposal_rows: list[dict[str, Any]],
+    stage_winner: str,
+) -> CredAggregateDecision:
+    eligible = [
+        row
+        for row in proposal_rows
+        if row.get("request_status") == "ok"
+        and row.get("output_status") == "ok"
+        and row.get("protocol_parse_status") != "failed"
+        and _is_candidate(_row_answer(row))
+    ]
+    combined = [*stage_rows, *eligible]
+    decision = aggregate_stage_a_vote(combined)
+    winner = decision.final_answer or stage_winner
+    return CredAggregateDecision(
+        winner,
+        decision.support,
+        "cred_cvs_budget_matched_vote",
+        answer_family_key(dataset, winner) != answer_family_key(dataset, stage_winner),
+        "budget_matched_vote",
+    )
+
+
+def aggregate_certificate_verified_search(
+    *,
+    dataset: str,
+    stage_rows: list[dict[str, Any]],
+    stage_winner: str,
+    certificate_rows: list[dict[str, Any]],
+    min_independent_support: int,
+) -> CredAggregateDecision:
+    stage_support = dict(aggregate_stage_a_vote(stage_rows).support)
+    leader_family = answer_family_key(dataset, stage_winner)
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    representatives: dict[str, str] = {}
+    for row in certificate_rows:
+        validation = row.get("certificate_validation")
+        if not isinstance(validation, dict):
+            continue
+        answer = str(validation.get("normalized_answer") or _row_answer(row)).strip()
+        family = answer_family_key(dataset, answer)
+        if (
+            not answer
+            or family == leader_family
+            or validation.get("valid") is not True
+            or validation.get("challenger_pass") is not True
+            or validation.get("leader_pass") is not False
+            or row.get("request_status") != "ok"
+            or row.get("output_status") != "ok"
+            or row.get("protocol_parse_status") == "failed"
+        ):
+            continue
+        grouped[family].append(row)
+        representatives.setdefault(family, answer)
+
+    eligible: list[tuple[int, str, str]] = []
+    for family, rows in grouped.items():
+        independent_sources = {
+            str(row.get("certificate_model_ref") or "").strip()
+            for row in rows
+            if str(row.get("certificate_model_ref") or "").strip()
+        }
+        if len(independent_sources) >= int(min_independent_support):
+            eligible.append((len(independent_sources), family, representatives[family]))
+    if not eligible:
+        return CredAggregateDecision(
+            stage_winner,
+            stage_support,
+            "cred_cvs_certificate_rejected",
+            False,
+            "stage_a",
+        )
+
+    source_count, _, winner = max(eligible, key=lambda item: (item[0], item[1]))
+    support = dict(stage_support)
+    support[winner] = max(float(support.get(winner, 0.0)), float(source_count))
+    return CredAggregateDecision(
+        winner,
+        {answer: round(float(value), 6) for answer, value in support.items()},
+        "cred_cvs_double_certificate_promoted",
+        True,
+        "certificate_verified_search",
+    )
+
+
+def compute_isp_shadow(
+    *,
+    dataset: str,
+    stage_rows: list[dict[str, Any]],
+    shadow_rows: list[dict[str, Any]],
+) -> IspShadowDecision:
+    grouped, ordered_families = _stage_candidate_groups(dataset, stage_rows)
+    total_votes = sum(len(rows) for rows in grouped.values())
+    if not grouped or total_votes <= 0:
+        return IspShadowDecision("", {}, 0)
+    actual = {family: len(rows) / total_votes for family, rows in grouped.items()}
+    predicted_sums = {family: 0.0 for family in grouped}
+    valid_count = 0
+    for row in shadow_rows:
+        payload = row.get("validated_output") if isinstance(row.get("validated_output"), dict) else {}
+        distribution = payload.get("peer_distribution")
+        if not isinstance(distribution, dict):
+            continue
+        normalized: dict[str, float] = defaultdict(float)
+        for answer, probability in distribution.items():
+            try:
+                value = float(probability)
+            except (TypeError, ValueError):
+                continue
+            if value < 0.0:
+                continue
+            normalized[answer_family_key(dataset, str(answer))] += value
+        mass = sum(normalized.values())
+        if mass <= 0.0:
+            continue
+        valid_count += 1
+        for family in grouped:
+            predicted_sums[family] += normalized.get(family, 0.0) / mass
+    if valid_count <= 0:
+        return IspShadowDecision("", {}, 0)
+    scores_by_family = {
+        family: actual[family] / max(predicted_sums[family] / valid_count, 1e-6)
+        for family in grouped
+    }
+    winner_family = max(ordered_families, key=lambda family: (scores_by_family[family], actual[family], -ordered_families.index(family)))
+    representatives = {family: _representative_answer(dataset, grouped[family]) for family in grouped}
+    scores = {representatives[family]: round(score, 6) for family, score in scores_by_family.items()}
+    return IspShadowDecision(representatives[winner_family], scores, valid_count)
 
 
 def aggregate_task_verification(
@@ -1147,6 +1400,45 @@ def aggregate_repair_bank_v8(
     )
 
 
+def aggregate_cvs_deterministic_base(
+    *,
+    dataset: str,
+    question: str,
+    context: str,
+    stage_rows: list[dict[str, Any]],
+    stage_winner: str,
+    selection_modes: tuple[str, ...] | list[str],
+    option_texts: tuple[str, ...] | list[str] = (),
+) -> CredAggregateDecision:
+    """Apply the frozen v6 repair policy plus deterministic MC text mapping."""
+    v6_decision = aggregate_repair_only_v6(
+        dataset=dataset,
+        question=question,
+        context=context,
+        stage_rows=stage_rows,
+        stage_winner=stage_winner,
+        selection_modes=selection_modes,
+    )
+    if v6_decision.changed or dataset not in _MC_DATASETS:
+        return v6_decision
+
+    mc_modes = tuple(
+        mode for mode in selection_modes if str(mode) in {"deterministic_repair", "mc_option_text_repair"}
+    )
+    if not mc_modes:
+        return v6_decision
+    mc_decision = aggregate_repair_bank_v8(
+        dataset=dataset,
+        question=question,
+        context=context,
+        stage_rows=stage_rows,
+        stage_winner=stage_winner,
+        selection_modes=mc_modes,
+        option_texts=option_texts,
+    )
+    return mc_decision if mc_decision.changed else v6_decision
+
+
 def aggregate_certificate_shadow_v9(
     *,
     dataset: str,
@@ -1272,8 +1564,15 @@ def _format_repair_risk(dataset: str, rows: list[dict[str, Any]], leading_family
             continue
         if dataset in _MATH_DATASETS and _canonical_math_text(answer) == _canonical_math_text(leading_answer):
             return True
-        if dataset in _SPAN_DATASETS and _span_tokens(answer):
-            return True
+        if dataset in _SPAN_DATASETS:
+            leader_tokens = _span_tokens(leading_answer)
+            challenger_tokens = _span_tokens(answer)
+            if (
+                leader_tokens
+                and len(leader_tokens) < len(challenger_tokens)
+                and _subsequence_index(challenger_tokens, leader_tokens) >= 0
+            ):
+                return True
     return False
 
 

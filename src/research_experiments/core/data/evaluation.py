@@ -22,7 +22,7 @@ def normalize_prediction(dataset: str, final_answer: str) -> str:
     """按数据集类型把模型答案归一化为可比较的形式。"""
     if dataset == "gsm8k":
         return normalize_number(final_answer)
-    if dataset in {"math500", "competition_math"}:
+    if dataset in {"math500", "competition_math", "omni_math"}:
         return normalize_math_expression(final_answer)
     if dataset == "strategyqa":
         return normalize_yes_no(final_answer)
@@ -39,6 +39,8 @@ def normalize_prediction(dataset: str, final_answer: str) -> str:
         "webquestions",
     }:
         return normalize_text(final_answer)
+    if dataset == "bbeh":
+        return normalize_bbeh_prediction(final_answer)
     if dataset in {"mmlu_pro", "gpqa_diamond", "mmlu_abstract_algebra"}:
         return normalize_multiple_choice(final_answer)
     if dataset == "mmlu":
@@ -53,6 +55,8 @@ def normalize_gold(dataset: str, answer: str) -> str:
     if dataset == "webquestions":
         answers = _decode_text_answer_set_gold(answer)
         return normalize_text(answers[0]) if answers else ""
+    if dataset == "bbeh":
+        return normalize_bbeh_reference(answer)
     return normalize_prediction(dataset, answer)
 
 
@@ -67,6 +71,8 @@ def score_prediction(dataset: str, predicted: str, gold: str) -> float:
         return score_text_answer_set(predicted, gold)
     if dataset == "commongen_hard":
         return score_commongen_hard(predicted, gold)
+    if dataset == "bbeh":
+        return score_bbeh(predicted, gold)
     if dataset in {
         "realmistake_math_problem_generation",
         "realmistake_fine_grained_fact_verification",
@@ -152,6 +158,56 @@ def normalize_text(value: str) -> str:
     lowered = lowered.translate(str.maketrans("", "", string.punctuation))
     lowered = " ".join(lowered.split())
     return lowered
+
+
+def normalize_bbeh_prediction(value: str) -> str:
+    answer = str(value or "").strip()
+    for prefix in ("The answer is:", "The final answer is ", "The final answer is: ", "The answer is "):
+        if prefix in answer:
+            answer = answer.split(prefix)[-1].strip()
+    if answer.endswith("."):
+        answer = answer[:-1]
+    answer = _strip_bbeh_latex(answer).lower()
+    answer = answer.replace(", ", ",").replace("**", "")
+    answer = answer.split("\n", 1)[0]
+    return answer[:-1] if answer.endswith(".") else answer
+
+
+def normalize_bbeh_reference(value: str) -> str:
+    return str(value or "").strip().lower().replace(", ", ",")
+
+
+def score_bbeh(predicted: str, gold: str) -> float:
+    prediction = normalize_bbeh_prediction(predicted)
+    reference = normalize_bbeh_reference(gold)
+    if prediction == reference:
+        return 1.0
+    if len(prediction) == 3 and prediction[0] == "(" and prediction[-1] == ")" and prediction[1] == reference:
+        return 1.0
+    if len(reference) == 3 and reference[0] == "(" and reference[-1] == ")" and reference[1] == prediction:
+        return 1.0
+    try:
+        if float(prediction) == float(reference):
+            return 1.0
+    except ValueError:
+        pass
+    if prediction.replace("'", "") == reference.replace("'", ""):
+        return 1.0
+    if f"[{reference}]" == prediction or f"[{prediction}]" == reference:
+        return 1.0
+    if prediction.endswith("?") and prediction[:-1] == reference:
+        return 1.0
+    return 0.0
+
+
+def _strip_bbeh_latex(value: str) -> str:
+    answer = value
+    if answer.startswith("$") and answer.endswith("$"):
+        answer = answer[1:-1]
+    for marker in ("boxed{", "text{", "texttt{"):
+        if marker in answer and answer.endswith("}"):
+            answer = answer[:-1].split(marker)[-1]
+    return answer
 
 
 def normalize_multiple_choice(value: str) -> str:

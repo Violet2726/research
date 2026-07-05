@@ -1,0 +1,29 @@
+name = "cred_v_cvs_transfer"
+description = "Locked cross-benchmark transfer evaluation on Omni-MATH and BBEH."
+benchmark_configs = [
+  "configs/core/shared/benchmarks/omni-math/Omni-Math.toml",
+  "configs/core/shared/benchmarks/bbeh/bbeh-main.toml",
+]
+protocol = "configs/families/cred_v/protocols/cred_cvs_v1.toml"
+control_catalog = "configs/families/single_agent/methods/common.toml"
+control_methods = ["sc_5"]
+cred_methods = ["cred_rfs_vote_5_anchor", "cred_rfs_repair_only_v6", "cred_cvs_budget_matched_vote_v1", "cred_cvs_v1", "cred_isp_shadow_v1"]
+method_order = ["sc_5", "cred_rfs_vote_5_anchor", "cred_rfs_repair_only_v6", "cred_cvs_budget_matched_vote_v1", "cred_cvs_v1", "cred_isp_shadow_v1"]
+global_seed = 20260704
+control_prompt_version = "single_agent_free_text_v1"
+cred_output_protocol = "free_text_answer_v1"
+cred_stage_a_output_protocol = "free_text_answer_v1"
+cred_verification_output_protocol = "json_object_answer_v3"
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+verifier_model_refs = ["xiaomimimo/mimo-v2.5-pro", "dashscope/qwen-flash"]
+max_concurrent_requests = 1000
+requests_per_minute_limit = 1000
+
+[phases.count20]
+split_overrides = { omni_math = "count20_seed20260704", bbeh = "count20_seed20260704" }
+
+[phases.pilot]
+split_overrides = { omni_math = "count100_seed20260704", bbeh = "count460_seed20260704" }
+
+[phases.locked]
+split_overrides = { omni_math = "count1000_locked_seed20260704", bbeh = "count920_locked_seed20260704" }

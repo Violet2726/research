@@ -1,0 +1,33 @@
+name = "Omni-MATH"
+slug = "omni_math"
+loader = "omni_math_jsonl"
+source_path = "omni-math/Omni-Math.jsonl"
+source_split = "test"
+sample_id_prefix = "omni_math"
+question_field = "problem"
+answer_field = "answer"
+smoke_size = 20
+pilot_size = 100
+main_size = 1000
+random_seed = 20260704
+notes = "Omni-MATH 锁定迁移评测，用于检验数学证书的覆盖率与跨领域稳健性。"
+
+[[split_presets]]
+name = "count20_seed20260704"
+strategy = "stratified"
+field = "stratum"
+size = 20
+
+[[split_presets]]
+name = "count100_seed20260704"
+strategy = "stratified_window"
+field = "stratum"
+offset = 0
+size = 100
+
+[[split_presets]]
+name = "count1000_locked_seed20260704"
+strategy = "stratified_window"
+field = "stratum"
+offset = 100
+size = 1000

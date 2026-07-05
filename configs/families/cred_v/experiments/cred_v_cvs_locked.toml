@@ -1,0 +1,26 @@
+name = "cred_v_cvs_locked"
+description = "Locked non-overlapping confirmation split for CRED-CVS v1."
+benchmark_configs = [
+  "configs/core/shared/benchmarks/math500/test.toml",
+  "configs/core/shared/benchmarks/hotpotqa/validation_distractor.toml",
+  "configs/core/shared/benchmarks/gpqa/dataset.toml",
+  "configs/core/shared/benchmarks/strategyqa/dev.toml",
+  "configs/core/shared/benchmarks/mmlu-pro/test.toml",
+]
+protocol = "configs/families/cred_v/protocols/cred_cvs_v1.toml"
+control_catalog = "configs/families/single_agent/methods/common.toml"
+control_methods = ["sc_5"]
+cred_methods = ["cred_rfs_vote_5_anchor", "cred_rfs_repair_only_v6", "cred_cvs_budget_matched_vote_v1", "cred_cvs_v1", "cred_isp_shadow_v1"]
+method_order = ["sc_5", "cred_rfs_vote_5_anchor", "cred_rfs_repair_only_v6", "cred_cvs_budget_matched_vote_v1", "cred_cvs_v1", "cred_isp_shadow_v1"]
+global_seed = 42
+control_prompt_version = "single_agent_free_text_v1"
+cred_output_protocol = "free_text_answer_v1"
+cred_stage_a_output_protocol = "free_text_answer_v1"
+cred_verification_output_protocol = "json_object_answer_v3"
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+verifier_model_refs = ["xiaomimimo/mimo-v2.5-pro", "dashscope/qwen-flash"]
+max_concurrent_requests = 1000
+requests_per_minute_limit = 1000
+
+[phases.locked]
+split_overrides = { math500 = "count200_locked_seed42", hotpotqa = "count500_locked_seed42", gpqa_diamond = "full198_seed42", strategyqa = "full229_seed42", mmlu_pro = "count500_locked_seed42" }

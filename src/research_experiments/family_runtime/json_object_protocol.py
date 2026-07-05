@@ -31,7 +31,7 @@ def build_json_object_answer_instruction(dataset: str, *, extra_json_keys: list[
     ]
     if dataset in {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro"}:
         lines.append('- For this dataset, answer is exactly one option letter such as "A" or "B".')
-    elif dataset in {"gsm8k", "math500", "competition_math"}:
+    elif dataset in {"gsm8k", "math500", "competition_math", "omni_math"}:
         lines.append("- For this dataset, answer uses plain ASCII math, such as sqrt(3), pi/6, x^2, [a,b], or (a,b).")
     elif dataset in {"hotpotqa", "webquestions"}:
         lines.append("- For this dataset, answer is the complete judgeable answer span.")
@@ -237,6 +237,6 @@ def _strip_code_fences(text: str) -> str:
 def _task_format_warning(dataset: str) -> str:
     if dataset in {"gpqa_diamond", "mmlu", "mmlu_abstract_algebra", "mmlu_pro"}:
         return "multiple_choice_answer_not_single_letter"
-    if dataset in {"gsm8k", "math500", "competition_math"}:
+    if dataset in {"gsm8k", "math500", "competition_math", "omni_math"}:
         return "math_answer_contains_non_ascii_math_markup"
     return "answer_outside_expected_slot"

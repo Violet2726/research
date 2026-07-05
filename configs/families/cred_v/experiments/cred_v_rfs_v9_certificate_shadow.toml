@@ -1,4 +1,5 @@
 name = "cred_v_rfs_v9_certificate_shadow"
+legacy_experiment = true
 description = "CRED-RFS v9 certificate shadow: v8 final answer plus cross-view shadow evidence certificates."
 benchmark_configs = [
   "configs/core/shared/benchmarks/math500/test.toml",

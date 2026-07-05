@@ -50,6 +50,8 @@ def load_samples(config: BenchmarkConfig) -> list[DatasetSample]:
         "humaneval_parquet": _load_humaneval,
         "gsm8k_jsonl": _load_gsm8k,
         "math500_jsonl": _load_math500,
+        "omni_math_jsonl": _load_omni_math,
+        "bbeh_json_bundle": _load_bbeh,
         "mmlu_parquet": _load_mmlu,
         "strategyqa_json": _load_strategyqa,
         "hotpotqa_parquet": _load_hotpotqa,
@@ -185,11 +187,27 @@ def _build_split_ids(
         shuffled = indexed_ids[:]
         random.Random(config.random_seed).shuffle(shuffled)
         return shuffled[: min(size, len(shuffled))]
+    if strategy == "shuffle_window":
+        shuffled = indexed_ids[:]
+        random.Random(config.random_seed).shuffle(shuffled)
+        offset = max(0, int(preset.get("offset") or 0))
+        return shuffled[offset : min(offset + size, len(shuffled))]
     if strategy == "stratified":
         field_name = str(preset.get("field") or "").strip()
         if not field_name:
             raise ValueError(f"Stratified split preset for {config.slug} requires a non-empty field.")
         return _stratified_sample_ids(samples, field_name=field_name, size=size, seed=config.random_seed)
+    if strategy == "stratified_window":
+        field_name = str(preset.get("field") or "").strip()
+        if not field_name:
+            raise ValueError(f"Stratified window split preset for {config.slug} requires a non-empty field.")
+        return _stratified_window_sample_ids(
+            samples,
+            field_name=field_name,
+            size=size,
+            offset=max(0, int(preset.get("offset") or 0)),
+            seed=config.random_seed,
+        )
     raise ValueError(f"Unsupported split preset strategy {strategy!r} for benchmark {config.slug}.")
 
 
@@ -292,6 +310,34 @@ def _stratified_sample_ids(
     ]
     rng.shuffle(selected)
     return selected
+
+
+def _stratified_window_sample_ids(
+    samples: list[DatasetSample],
+    *,
+    field_name: str,
+    size: int,
+    offset: int,
+    seed: int,
+) -> list[str]:
+    grouped: dict[str, list[DatasetSample]] = {}
+    for sample in samples:
+        value = sample.metadata.get(field_name)
+        group_key = str(value if value not in {None, ""} else "unknown")
+        grouped.setdefault(group_key, []).append(sample)
+
+    rng = random.Random(seed)
+    ranked: list[tuple[float, str, int, str]] = []
+    for group_key in sorted(grouped):
+        rows = grouped[group_key]
+        rng.shuffle(rows)
+        denominator = max(1, len(rows))
+        ranked.extend(
+            ((index + 0.5) / denominator, group_key, index, sample.sample_id)
+            for index, sample in enumerate(rows)
+        )
+    ordered = [item[3] for item in sorted(ranked)]
+    return ordered[offset : min(offset + size, len(ordered))]
 
 
 def load_split_ids(
@@ -473,6 +519,86 @@ def _load_math500(config: BenchmarkConfig) -> list[DatasetSample]:
                     },
                 )
             )
+    return samples
+
+
+def _load_omni_math(config: BenchmarkConfig) -> list[DatasetSample]:
+    path = resolve_dataset_source_path(config.source_path)
+    samples: list[DatasetSample] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for index, line in enumerate(handle):
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            sample_id = str(record.get("id") or f"{config.sample_id_prefix}-{index:05d}")
+            samples.append(
+                DatasetSample(
+                    dataset=config.slug,
+                    sample_id=sample_id,
+                    question=str(record.get("problem") or "").strip(),
+                    reference_answer=str(record.get("answer") or "").strip(),
+                    prompt_context="",
+                    metadata={
+                        "raw_index": index,
+                        "domain": list(record.get("domain") or []),
+                        "primary_domain": str(next(iter(record.get("domain") or []), "unknown")),
+                        "difficulty": record.get("difficulty"),
+                        "stratum": _omni_math_stratum(record),
+                        "source": record.get("source"),
+                        "solution": record.get("solution"),
+                    },
+                )
+            )
+    return samples
+
+
+def _omni_math_stratum(record: dict[str, Any]) -> str:
+    primary_domain = str(next(iter(record.get("domain") or []), "unknown"))
+    try:
+        difficulty_band = int(float(record.get("difficulty")) // 2 * 2)
+    except (TypeError, ValueError):
+        difficulty_band = -1
+    return f"{primary_domain}|difficulty_{difficulty_band}"
+
+
+def _load_bbeh(config: BenchmarkConfig) -> list[DatasetSample]:
+    path = resolve_dataset_source_path(config.source_path)
+    task_payloads: list[tuple[str, dict[str, Any]]] = []
+    if path.is_file() and path.suffix.lower() == ".zip":
+        with zipfile.ZipFile(path) as archive:
+            members = [
+                name
+                for name in archive.namelist()
+                if "/benchmark_tasks/bbeh_" in name and name.endswith("/task.json")
+            ]
+            for member in sorted(members):
+                task_name = Path(member).parent.name.removeprefix("bbeh_")
+                with archive.open(member) as handle:
+                    task_payloads.append((task_name, json.loads(handle.read().decode("utf-8"))))
+    else:
+        for task_path in sorted(path.rglob("benchmark_tasks/bbeh_*/task.json")):
+            task_name = task_path.parent.name.removeprefix("bbeh_")
+            task_payloads.append((task_name, json.loads(task_path.read_text(encoding="utf-8"))))
+
+    samples: list[DatasetSample] = []
+    raw_index = 0
+    for task_name, payload in task_payloads:
+        for task_index, record in enumerate(payload.get("examples") or []):
+            samples.append(
+                DatasetSample(
+                    dataset=config.slug,
+                    sample_id=f"{config.sample_id_prefix}-{task_name}-{task_index:04d}",
+                    question=str(record.get("input") or "").strip(),
+                    reference_answer=str(record.get("target") or "").strip(),
+                    prompt_context="",
+                    metadata={
+                        "raw_index": raw_index,
+                        "task": task_name,
+                        "task_index": task_index,
+                    },
+                )
+            )
+            raw_index += 1
     return samples
 
 

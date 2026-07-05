@@ -13,6 +13,7 @@ from research_experiments.families.cred_v.config import (
     load_control_catalog,
     load_experiment_config,
     load_protocol_config,
+    validate_experiment_protocol_contract,
 )
 from research_experiments.families.cred_v.prompts import CRED_PROMPT_VERSION
 from research_experiments.families.cred_v.run.execute import run_experiment as run_cred_kernel
@@ -27,6 +28,7 @@ from research_experiments.workspace.layout import workspace_defaults
 def inspect_experiment(experiment_path: str, model_override: str | None) -> dict[str, object]:
     experiment = load_experiment_config(experiment_path)
     protocol = load_protocol_config(experiment.protocol)
+    validate_experiment_protocol_contract(experiment, protocol)
     controls = load_control_catalog(experiment.control_catalog)
     resolved_model = resolve_model(model_override or experiment.primary_model_ref)
     resolved_verifier_models = [resolve_model(model_ref) for model_ref in experiment.verifier_model_refs]
@@ -51,6 +53,7 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "primary_model_ref": experiment.primary_model_ref,
         "resolved_model": asdict(resolved_model),
         "verifier_model_refs": experiment.verifier_model_refs,
+        "legacy_experiment": experiment.legacy_experiment,
         "resolved_verifier_models": [asdict(model) for model in resolved_verifier_models],
         "phases": experiment.raw["phases"],
     }

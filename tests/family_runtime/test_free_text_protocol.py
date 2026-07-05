@@ -26,6 +26,15 @@ def test_parse_free_text_answer_output_accepts_reason_alias() -> None:
     assert payload["reasoning"] == "Peer evidence ruled out A."
 
 
+def test_parse_free_text_answer_output_accepts_reasonning_alias() -> None:
+    payload = parse_free_text_answer_output(
+        "REASONNING: Peer evidence ruled out A.\nFINAL_ANSWER: B",
+        dataset="gpqa_diamond",
+    )
+    assert payload["final_answer"] == "B"
+    assert payload["reasoning"] == "Peer evidence ruled out A."
+
+
 def test_parse_free_text_answer_output_requires_reasoning_before_final_answer() -> None:
     with pytest.raises(ValueError, match="REASONING must appear before FINAL_ANSWER"):
         parse_free_text_answer_output(

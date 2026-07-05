@@ -1,0 +1,40 @@
+stage_a_agent_count = 5
+stage_a_prompt_mode = "sc5_anchor_free_text_v1"
+
+selection_modes = ["deterministic_repair", "math_deterministic_repair", "hotpot_context_span_repair", "mc_option_text_repair"]
+certificate_modes = ["math_symbolic", "hotpot_context_span", "mc_option_mapping"]
+certificate_proposer_model_refs = ["xiaomimimo/mimo-v2.5-pro", "dashscope/qwen-flash"]
+certificate_dsl_version = "math_cert_v1_question_bound"
+max_certificate_calls = 2
+certificate_min_independent_support = 2
+allow_unverified_promotion = false
+shadow_aggregation_modes = ["isp"]
+max_shadow_calls = 5
+
+verification_modes = []
+expansion_modes = []
+shadow_selection_modes = []
+disabled_selection_modes = ["gpqa_unanimous_pairwise_duel", "mmlu_pairwise_promotion", "strategyqa_minority_resample", "pairwise_2of3_promotion", "math_equivalence_repair_v2"]
+disabled_expansion_modes = ["hotpot_span_extract", "mc_choice_shuffle", "strategyqa_dual_polarity", "mc_blind_pairwise_duel"]
+expansion_model_refs = []
+max_verifications = 0
+max_verification_calls = 0
+max_expansion_calls = 0
+adaptive_extra_solver_calls = 0
+max_total_solver_calls = 7
+promotion_min_independent_support = 2
+promotion_margin_min = 1.25
+allow_same_model_promotion = false
+allow_semantic_promotion = false
+false_consensus_probe = false
+max_trigger_rate = 0.30
+trigger_buckets = ["certificate_search", "deterministic_repair", "unverifiable_shadow"]
+
+stage_a_temperature = 0.7
+verifier_temperature = 0.0
+top_p = 1.0
+strong_majority_count = 4
+leader_lock_count = 4
+weak_majority_count = 3
+stage_a_max_tokens = 0
+verifier_max_tokens = 1024

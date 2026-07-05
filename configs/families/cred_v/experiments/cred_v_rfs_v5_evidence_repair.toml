@@ -1,4 +1,5 @@
 name = "cred_v_rfs_v5_evidence_repair"
+legacy_experiment = true
 description = "CRED-RFS v5 negative ablation; v3 stable baseline plus non-math evidence repair after math_equivalence_repair_v2 was retired."
 benchmark_configs = [
   "configs/core/shared/benchmarks/math500/test.toml",

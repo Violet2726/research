@@ -1,6 +1,16 @@
 from __future__ import annotations
 
-from research_experiments.families.cred_v.config import load_experiment_config, load_protocol_config
+from dataclasses import replace
+
+import pytest
+
+from research_experiments.families.cred_v.config import (
+    CRED_ACTIVE_METHODS,
+    CRED_LEGACY_METHODS,
+    load_experiment_config,
+    load_protocol_config,
+    validate_experiment_protocol_contract,
+)
 from research_experiments.families.registry import registered_family_names
 
 
@@ -63,6 +73,49 @@ def test_cred_v_main_config_loads() -> None:
     assert protocol.promotion_score_margin == 0.15
     assert protocol.stage_a_max_tokens == 0
     assert protocol.verifier_max_tokens == 0
+
+
+def test_cred_cvs_v1_config_loads_certificate_contract() -> None:
+    experiment = load_experiment_config("configs/families/cred_v/experiments/cred_v_cvs_v1.toml")
+    protocol = load_protocol_config(experiment.protocol)
+
+    assert experiment.control_methods == ["sc_5"]
+    assert experiment.cred_methods == [
+        "cred_rfs_vote_5_anchor",
+        "cred_rfs_repair_only_v6",
+        "cred_cvs_budget_matched_vote_v1",
+        "cred_cvs_v1",
+        "cred_isp_shadow_v1",
+    ]
+    assert experiment.verifier_model_refs == ["xiaomimimo/mimo-v2.5-pro", "dashscope/qwen-flash"]
+    assert experiment.max_concurrent_requests == 1000
+    assert experiment.requests_per_minute_limit == 1000
+    assert protocol.stage_a_prompt_mode == "sc5_anchor_free_text_v1"
+    assert protocol.certificate_modes == ("math_symbolic", "hotpot_context_span", "mc_option_mapping")
+    assert protocol.certificate_proposer_model_refs == ("xiaomimimo/mimo-v2.5-pro", "dashscope/qwen-flash")
+    assert protocol.certificate_dsl_version == "math_cert_v1_question_bound"
+    assert protocol.max_certificate_calls == 2
+    assert protocol.certificate_min_independent_support == 2
+    assert protocol.allow_unverified_promotion is False
+    assert protocol.shadow_aggregation_modes == ("isp",)
+    assert protocol.max_trigger_rate == 0.30
+    validate_experiment_protocol_contract(experiment, protocol)
+
+
+def test_cred_cvs_contract_rejects_unconfigured_or_insufficient_proposers() -> None:
+    experiment = load_experiment_config("configs/families/cred_v/experiments/cred_v_cvs_v1.toml")
+    protocol = load_protocol_config(experiment.protocol)
+
+    with pytest.raises(ValueError, match="present in verifier_model_refs"):
+        validate_experiment_protocol_contract(
+            replace(experiment, verifier_model_refs=["xiaomimimo/mimo-v2.5-pro"]),
+            protocol,
+        )
+    with pytest.raises(ValueError, match="enough distinct proposer models"):
+        validate_experiment_protocol_contract(
+            experiment,
+            replace(protocol, certificate_proposer_model_refs=("xiaomimimo/mimo-v2.5-pro",)),
+        )
 
 
 def test_cred_v_rfs_v3_pairwise_ablation_config_retains_retired_selector() -> None:
@@ -232,3 +285,21 @@ def test_cred_v_legacy_config_retains_old_baselines() -> None:
 
 def test_cred_v_family_is_registered() -> None:
     assert "cred_v" in registered_family_names()
+
+
+def test_active_registry_contains_only_v6_and_cvs_forward_methods() -> None:
+    assert {
+        "cred_rfs_vote_5_anchor",
+        "cred_rfs_repair_only_v6",
+        "cred_cvs_budget_matched_vote_v1",
+        "cred_cvs_v1",
+        "cred_isp_shadow_v1",
+    } == CRED_ACTIVE_METHODS
+    assert "cred_rfs_safe_select_v3" in CRED_LEGACY_METHODS
+    assert "cred_rfs_certificate_shadow_v9" in CRED_LEGACY_METHODS
+
+
+def test_legacy_experiment_is_explicitly_marked() -> None:
+    experiment = load_experiment_config("configs/families/cred_v/experiments/cred_v_rfs_v9_certificate_shadow.toml")
+
+    assert experiment.legacy_experiment is True

@@ -346,6 +346,83 @@ def test_v9_certificate_shadow_metrics_are_reported_separately() -> None:
     assert shadow["certificate_shadow_valid_count"] == 6
 
 
+def test_cvs_metrics_report_certificate_events_and_dual_paired_references() -> None:
+    anchor_wrong = _summary_prediction("math500", "1", "cred_rfs_vote_5_anchor", 0.0)
+    anchor_right = _summary_prediction("math500", "2", "cred_rfs_vote_5_anchor", 1.0)
+    cvs_corrected = _summary_prediction("math500", "1", "cred_cvs_v1", 1.0, corrected_by_debate=True)
+    cvs_unchanged = _summary_prediction("math500", "2", "cred_cvs_v1", 1.0)
+    cvs_corrected.update(
+        initial_vote_score=0.0,
+        certificate_candidate_count=2,
+        certificate_valid_count=2,
+        certificate_promoted=True,
+        certificate_corrected=True,
+        certificate_harmed=False,
+        checker_runtime_ms=2.5,
+    )
+    cvs_unchanged.update(
+        certificate_candidate_count=0,
+        certificate_valid_count=0,
+        certificate_promoted=False,
+        certificate_corrected=False,
+        certificate_harmed=False,
+        checker_runtime_ms=0.0,
+    )
+    rows = [
+        _summary_prediction("math500", "1", "sc_5", 0.0),
+        _summary_prediction("math500", "2", "sc_5", 1.0),
+        anchor_wrong,
+        anchor_right,
+        cvs_corrected,
+        cvs_unchanged,
+    ]
+
+    metrics = build_metrics(
+        rows,
+        dataset_order=["math500"],
+        method_order=["sc_5", "cred_rfs_vote_5_anchor", "cred_cvs_v1"],
+        control_names=["sc_5"],
+    )
+    summary = next(row for row in metrics["summary"] if row["dataset"] == "overall_micro" and row["method_name"] == "cred_cvs_v1")
+    references = {
+        row["reference_method"]
+        for row in metrics["paired_comparisons"]
+        if row["dataset"] == "overall" and row["method_name"] == "cred_cvs_v1"
+    }
+
+    assert summary["certificate_candidate_count"] == 2
+    assert summary["certificate_valid_count"] == 2
+    assert summary["certificate_corrected_count"] == 1
+    assert summary["certificate_harmed_count"] == 0
+    assert summary["certificate_promotion_precision"] == 1.0
+    assert summary["certificate_selection_recall"] == 1.0
+    assert references == {"sc_5", "cred_rfs_vote_5_anchor"}
+
+
+def test_bbeh_summary_reports_official_task_harmonic_mean() -> None:
+    rows = [
+        _summary_prediction("bbeh", "1", "cred_rfs_vote_5_anchor", 1.0),
+        _summary_prediction("bbeh", "2", "cred_rfs_vote_5_anchor", 0.0),
+        _summary_prediction("bbeh", "3", "cred_rfs_vote_5_anchor", 1.0),
+        _summary_prediction("bbeh", "4", "cred_rfs_vote_5_anchor", 1.0),
+    ]
+    rows[0]["benchmark_task"] = "task_a"
+    rows[1]["benchmark_task"] = "task_a"
+    rows[2]["benchmark_task"] = "task_b"
+    rows[3]["benchmark_task"] = "task_b"
+
+    metrics = build_metrics(
+        rows,
+        dataset_order=["bbeh"],
+        method_order=["cred_rfs_vote_5_anchor"],
+        control_names=[],
+    )
+    summary = next(row for row in metrics["summary"] if row["dataset"] == "bbeh")
+
+    assert summary["bbeh_task_count"] == 2
+    assert summary["bbeh_harmonic_accuracy"] == 0.666667
+
+
 def _prediction(dataset: str, sample_id: str, method_name: str, score: float) -> dict:
     return {
         "dataset": dataset,

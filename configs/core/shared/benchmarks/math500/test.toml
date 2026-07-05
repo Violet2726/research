@@ -32,3 +32,9 @@ size = 300
 name = "full500_seed42"
 strategy = "full"
 size = 500
+
+[[split_presets]]
+name = "count200_locked_seed42"
+strategy = "shuffle_window"
+offset = 300
+size = 200

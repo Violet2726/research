@@ -40,7 +40,7 @@ def dataset_instruction(
             "Solve the math problem carefully. "
             "The final_answer must be only the final numeric answer without commas or units."
         )
-    if dataset in {"math500", "competition_math"}:
+    if dataset in {"math500", "competition_math", "omni_math"}:
         return (
             "Solve the math problem carefully. "
             "The final_answer must be only the final mathematical expression, with no explanation."
@@ -92,6 +92,8 @@ def dataset_instruction(
             "Choose the single best option. "
             'The final_answer must be only the option letter, such as "A" or "B".'
         )
+    if dataset == "bbeh":
+        return "Solve the reasoning task carefully. The final_answer must contain only the exact answer requested by the task."
     raise ValueError(f"Unsupported dataset: {dataset}")
 
 

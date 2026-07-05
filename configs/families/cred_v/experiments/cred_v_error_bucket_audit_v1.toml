@@ -1,4 +1,5 @@
 name = "cred_v_error_bucket_audit_v1"
+legacy_experiment = true
 description = "CRED-V diagnostic run for exporting error buckets and repair/shadow audit samples."
 benchmark_configs = [
   "configs/core/shared/benchmarks/math500/test.toml",

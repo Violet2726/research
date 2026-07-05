@@ -1,4 +1,5 @@
 name = "cred_v_legacy"
+legacy_experiment = true
 description = "Legacy CRED-V verifier and ACS baselines retained for failure analysis only."
 benchmark_configs = [
   "configs/core/shared/benchmarks/math500/test.toml",
