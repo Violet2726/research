@@ -1,0 +1,33 @@
+name = "Omni-MATH-2 Filtered Exact"
+slug = "omni_math_2_filtered"
+loader = "omni_math_2_filtered_jsonl"
+source_path = "omni-math-2/Omni-Math-2.jsonl"
+source_split = "clean_exact_answer"
+sample_id_prefix = "omni_math_2"
+question_field = "problem"
+answer_field = "answer"
+smoke_size = 20
+pilot_size = 100
+main_size = 1000
+random_seed = 42
+notes = "Omni-MATH-2 干净 exact-answer 确认集。加载器会排除所有非空 tags（含 proof/image/estimation 等），原始 Omni-MATH 配置保持不变。"
+
+[[split_presets]]
+name = "count20_seed42"
+strategy = "shuffle"
+size = 20
+
+[[split_presets]]
+name = "count100_seed42"
+strategy = "shuffle"
+size = 100
+
+[[split_presets]]
+name = "count300_seed42"
+strategy = "shuffle"
+size = 300
+
+[[split_presets]]
+name = "full1000_seed42"
+strategy = "full"
+size = 1000

@@ -1,0 +1,29 @@
+{
+  "dataset": "omni_math",
+  "split_name": "count20_seed42",
+  "source_split": "test",
+  "sample_count": 20,
+  "sample_ids": [
+    "omni_math-00247",
+    "omni_math-00003",
+    "omni_math-03020",
+    "omni_math-04269",
+    "omni_math-02901",
+    "omni_math-04348",
+    "omni_math-03982",
+    "omni_math-00754",
+    "omni_math-00131",
+    "omni_math-00144",
+    "omni_math-03810",
+    "omni_math-02087",
+    "omni_math-02532",
+    "omni_math-01455",
+    "omni_math-03615",
+    "omni_math-01603",
+    "omni_math-02383",
+    "omni_math-03693",
+    "omni_math-02385",
+    "omni_math-00742"
+  ],
+  "random_seed": 42
+}

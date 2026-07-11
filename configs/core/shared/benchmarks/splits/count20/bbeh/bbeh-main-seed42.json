@@ -1,0 +1,29 @@
+{
+  "dataset": "bbeh",
+  "split_name": "count20_seed42",
+  "source_split": "benchmark_tasks",
+  "sample_count": 20,
+  "sample_ids": [
+    "bbeh-linguini-0034",
+    "bbeh-multistep_arithmetic-0032",
+    "bbeh-movie_recommendation-0019",
+    "bbeh-boardgame_qa-0048",
+    "bbeh-word_sorting-0044",
+    "bbeh-nycc-0174",
+    "bbeh-causal_understanding-0131",
+    "bbeh-object_counting-0080",
+    "bbeh-buggy_tables-0013",
+    "bbeh-web_of_lies-0167",
+    "bbeh-web_of_lies-0191",
+    "bbeh-causal_understanding-0161",
+    "bbeh-object_properties-0089",
+    "bbeh-movie_recommendation-0186",
+    "bbeh-causal_understanding-0163",
+    "bbeh-time_arithmetic-0196",
+    "bbeh-linguini-0133",
+    "bbeh-spatial_reasoning-0045",
+    "bbeh-web_of_lies-0083",
+    "bbeh-temporal_sequence-0043"
+  ],
+  "random_seed": 42
+}
