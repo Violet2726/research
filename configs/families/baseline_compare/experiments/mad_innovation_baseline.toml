@@ -23,6 +23,8 @@ control_output_protocol = "free_text_answer_v1"
 mad_initial_output_protocol = "free_text_answer_v1"
 mad_debate_output_protocol = "free_text_answer_v1"
 primary_model_ref = "xiaomimimo/mimo-v2.5"
+max_concurrent_requests = 1000
+requests_per_minute_limit = 1000
 
 [[setups]]
 name = "mad_3a_r1"

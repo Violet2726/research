@@ -1,0 +1,15 @@
+# Frozen SGSA-MAD V1 protocol.
+stage_a_candidates = 5
+reviewer_count = 3
+trigger_mode = "answer_disagreement"
+hide_vote_counts = true
+strong_majority_quorum = 3
+default_quorum = 2
+novel_answer_mode = "shadow"
+
+stage_a_temperature = 0.7
+reviewer_temperature = 0.7
+top_p = 1.0
+stage_a_max_tokens = 768
+reviewer_max_tokens = 8192
+representative_max_chars = 6000

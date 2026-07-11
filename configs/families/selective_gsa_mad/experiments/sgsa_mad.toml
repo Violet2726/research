@@ -1,0 +1,57 @@
+name = "sgsa_mad"
+description = "Selective GSA with one shared blind review panel and a strict unanimous promotion policy."
+benchmark_configs = [
+  "configs/core/shared/benchmarks/omni-math-2/Omni-Math-2.toml",
+  "configs/core/shared/benchmarks/bbeh/bbeh-main.toml",
+  "configs/core/shared/benchmarks/gpqa/dataset.toml",
+]
+protocol = "configs/families/selective_gsa_mad/protocols/sgsa_v1.toml"
+control_catalog = "configs/families/single_agent/methods/common.toml"
+control_methods = ["cot_1", "sc_3", "sc_5"]
+brd_methods = [
+  "conditional_resample_3",
+  "gsa_quorum_3",
+  "sgsa_unanimous_3",
+  "sgsa_visible_support_3",
+  "concise_brd_quorum_3",
+  "concise_brd_unanimous_3",
+]
+method_order = [
+  "cot_1",
+  "sc_3",
+  "sc_5",
+  "conditional_resample_3",
+  "gsa_quorum_3",
+  "sgsa_unanimous_3",
+  "sgsa_visible_support_3",
+  "concise_brd_quorum_3",
+  "concise_brd_unanimous_3",
+]
+global_seed = 42
+control_prompt_version = "single_agent_free_text_v1"
+output_protocol = "free_text_answer_v1"
+primary_model_ref = "dashscope/qwen-flash"
+max_concurrent_requests = 1000
+requests_per_minute_limit = 1000
+
+[runtime_profiles.dashscope]
+max_concurrent_requests = 1000
+requests_per_minute_limit = 1000
+
+[phases.count20_seed42]
+benchmark_slugs = ["omni_math_2_filtered", "bbeh"]
+split_overrides = { omni_math_2_filtered = "count20_seed42", bbeh = "count20_seed42", gpqa_diamond = "full198_seed42" }
+brd_methods = ["conditional_resample_3", "gsa_quorum_3", "sgsa_unanimous_3"]
+
+[phases.count100_seed42]
+benchmark_slugs = ["omni_math_2_filtered", "bbeh"]
+split_overrides = { omni_math_2_filtered = "count100_seed42", bbeh = "count100_seed42", gpqa_diamond = "full198_seed42" }
+brd_methods = ["conditional_resample_3", "gsa_quorum_3", "sgsa_unanimous_3", "sgsa_visible_support_3", "concise_brd_quorum_3", "concise_brd_unanimous_3"]
+
+[phases.full_seed42]
+benchmark_slugs = ["omni_math_2_filtered", "bbeh", "gpqa_diamond"]
+split_overrides = { omni_math_2_filtered = "full1000_seed42", bbeh = "full4520_seed42", gpqa_diamond = "full198_seed42" }
+brd_methods = ["conditional_resample_3", "gsa_quorum_3", "sgsa_unanimous_3"]
+full_after_count100_gate = true
+count100_gate_experiment = "sgsa_mad"
+no_interim_method_accuracy_inspection = true
