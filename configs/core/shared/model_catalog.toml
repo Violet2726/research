@@ -13,6 +13,7 @@ tags = ["text", "reasoning", "general_qa", "provider_dashscope"]
 reasoning_effort = "none"
 supports_response_format = true
 response_format = "json_object"
+timeout_seconds = 300
 
 [models."siliconflow/deepseek-ai/DeepSeek-V4-Flash"]
 tags = ["text", "reasoning", "general_qa", "provider_siliconflow", "selective_comm_primary"]

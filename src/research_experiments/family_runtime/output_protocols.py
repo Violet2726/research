@@ -221,6 +221,9 @@ def _finalize_turn_result(
     output_protocol: OutputProtocol,
 ) -> OutputProtocolTurnResult:
     request_status = "request_fail" if request.request_error else "ok"
+    network_attempts = 0 if request.cache_hit else max(
+        1, int(request.response_payload.get("network_attempt_count") or 1)
+    )
     if request.request_error:
         return OutputProtocolTurnResult(
             payload=request.payload,
@@ -237,9 +240,9 @@ def _finalize_turn_result(
             protocol_parse_status="not_attempted",
             protocol_parse_error=None,
             reason_present=False,
-            request_count=1,
+            request_count=max(1, network_attempts),
             cache_request_count=1 if request.cache_hit else 0,
-            network_request_count=0 if request.cache_hit else 1,
+            network_request_count=network_attempts,
             raw_finish_reason=_raw_finish_reason(request.response_payload),
         )
 
@@ -264,9 +267,9 @@ def _finalize_turn_result(
         protocol_parse_status=parsed.status,
         protocol_parse_error=parsed.error if parsed.status != "ok" else None,
         reason_present=parsed.reason_present,
-        request_count=1,
+        request_count=max(1, network_attempts),
         cache_request_count=1 if request.cache_hit else 0,
-        network_request_count=0 if request.cache_hit else 1,
+        network_request_count=network_attempts,
         raw_finish_reason=_raw_finish_reason(request.response_payload),
     )
 

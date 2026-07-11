@@ -132,6 +132,32 @@ def test_math_expression_normalization_handles_latex_trig_function_commands() ->
     assert score_prediction("math500", "cotx", r"\cotx") == 1.0
 
 
+def test_omni_math_2_normalization_canonicalizes_simple_symbolic_arithmetic() -> None:
+    predicted = "2015+2x+y"
+    gold = "2x+y+2015"
+
+    assert normalize_prediction("omni_math_2_filtered", predicted) == normalize_prediction(
+        "omni_math_2_filtered", gold
+    )
+    assert score_prediction("omni_math_2_filtered", predicted, gold) == 1.0
+
+
+def test_math_normalization_is_idempotent_for_implicit_latex_multiplication() -> None:
+    raw = r"3\sqrt{21}"
+    normalized = normalize_prediction("omni_math_2_filtered", raw)
+
+    assert normalize_prediction("omni_math_2_filtered", normalized) == normalized
+    assert score_prediction("omni_math_2_filtered", normalized, raw) == 1.0
+
+
+def test_math_normalization_is_idempotent_for_scientific_notation_lists() -> None:
+    raw = "5^{56}, 31^{28}, 17^{35}, 10^{51}"
+    normalized = normalize_prediction("omni_math_2_filtered", raw)
+
+    assert normalize_prediction("omni_math_2_filtered", normalized) == normalized
+    assert score_prediction("omni_math_2_filtered", normalized, raw) == 1.0
+
+
 def test_math500_normalization_handles_textual_answers_interval_prefixes_and_dfrac() -> None:
     assert score_prediction("math500", "[-2,7]", r"x \in [-2,7]") == 1.0
     assert score_prediction("math500", "0.34", r"\dfrac{17}{50}") == 1.0

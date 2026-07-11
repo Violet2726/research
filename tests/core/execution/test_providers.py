@@ -217,14 +217,15 @@ def test_provider_rotates_shared_http_client_after_protocol_error(monkeypatch: p
     provider = None
     try:
         provider = OpenAICompatibleProvider(model)
-        response = provider.chat_completion(
-            {
-                "model": model.model_id,
-                "messages": [{"role": "user", "content": "hello"}],
-                "temperature": 0.0,
-                "top_p": 1.0,
-            }
-        )
+        payload = {
+            "model": model.model_id,
+            "messages": [{"role": "user", "content": "hello"}],
+            "temperature": 0.0,
+            "top_p": 1.0,
+        }
+        with pytest.raises(httpx.RemoteProtocolError):
+            provider.chat_completion(payload)
+        response = provider.chat_completion(payload)
         assert response.http_status == 200
         assert response.finish_reason == "stop"
         assert len(created_clients) == 2

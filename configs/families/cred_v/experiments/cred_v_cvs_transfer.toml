@@ -9,7 +9,7 @@ control_catalog = "configs/families/single_agent/methods/common.toml"
 control_methods = ["sc_5"]
 cred_methods = ["cred_rfs_vote_5_anchor", "cred_rfs_repair_only_v6", "cred_cvs_budget_matched_vote_v1", "cred_cvs_v1", "cred_isp_shadow_v1"]
 method_order = ["sc_5", "cred_rfs_vote_5_anchor", "cred_rfs_repair_only_v6", "cred_cvs_budget_matched_vote_v1", "cred_cvs_v1", "cred_isp_shadow_v1"]
-global_seed = 20260704
+global_seed = 42
 control_prompt_version = "single_agent_free_text_v1"
 cred_output_protocol = "free_text_answer_v1"
 cred_stage_a_output_protocol = "free_text_answer_v1"
@@ -20,10 +20,10 @@ max_concurrent_requests = 1000
 requests_per_minute_limit = 1000
 
 [phases.count20]
-split_overrides = { omni_math = "count20_seed20260704", bbeh = "count20_seed20260704" }
+split_overrides = { omni_math = "count20_seed42", bbeh = "count20_seed42" }
 
 [phases.pilot]
-split_overrides = { omni_math = "count100_seed20260704", bbeh = "count460_seed20260704" }
+split_overrides = { omni_math = "count100_seed42", bbeh = "count100_seed42" }
 
 [phases.locked]
-split_overrides = { omni_math = "count1000_locked_seed20260704", bbeh = "count920_locked_seed20260704" }
+split_overrides = { omni_math = "full4428_seed42", bbeh = "full4520_seed42" }

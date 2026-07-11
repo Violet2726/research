@@ -51,6 +51,7 @@ def load_samples(config: BenchmarkConfig) -> list[DatasetSample]:
         "gsm8k_jsonl": _load_gsm8k,
         "math500_jsonl": _load_math500,
         "omni_math_jsonl": _load_omni_math,
+        "omni_math_2_filtered_jsonl": _load_omni_math_2_filtered,
         "bbeh_json_bundle": _load_bbeh,
         "mmlu_parquet": _load_mmlu,
         "strategyqa_json": _load_strategyqa,
@@ -132,22 +133,11 @@ def _resolve_split_specs(
     samples: list[DatasetSample],
 ) -> list[tuple[str, list[str]]]:
     if config.split_presets:
-        return _dedupe_split_specs(
-            (
-                _canonical_split_name(
-                    str(preset["name"]),
-                    sample_ids := _build_split_ids(config, samples, preset),
-                    total_count=len(samples),
-                    fallback_seed=config.random_seed,
-                ),
-                sample_ids,
-            )
-            for preset in config.split_presets
-        )
+        return _canonical_prefix_split_specs(config, samples)
 
     indexed_ids = [sample.sample_id for sample in samples]
     shuffled = indexed_ids[:]
-    random.Random(config.random_seed).shuffle(shuffled)
+    random.Random(42).shuffle(shuffled)
     split_specs = [
         ("count20_seed42", shuffled[: min(config.smoke_size, len(shuffled))]),
         ("count100_seed42", shuffled[: min(100, len(shuffled))]),
@@ -163,7 +153,7 @@ def _resolve_split_specs(
                 split_name,
                 sample_ids,
                 total_count=len(indexed_ids),
-                fallback_seed=config.random_seed,
+                fallback_seed=42,
             ),
             sample_ids,
         )
@@ -171,44 +161,38 @@ def _resolve_split_specs(
     )
 
 
-def _build_split_ids(
+def _canonical_prefix_split_specs(
     config: BenchmarkConfig,
     samples: list[DatasetSample],
-    preset: dict[str, Any],
-) -> list[str]:
-    strategy = str(preset.get("strategy") or "shuffle")
-    size = int(preset.get("size") or len(samples))
+) -> list[tuple[str, list[str]]]:
+    """Build every configured split from one deterministic seed-42 prefix.
+
+    ``countN_seed42`` always means the first N records of the same shuffled
+    order, and ``fullN_seed42`` means the complete source order.  This is the
+    repository-wide pairing contract: count20 is therefore always contained in
+    count100, count300, and every larger canonical count split.
+    """
     indexed_ids = [sample.sample_id for sample in samples]
-    if strategy == "full":
-        return indexed_ids[:]
-    if strategy == "ordered":
-        return indexed_ids[: min(size, len(indexed_ids))]
-    if strategy == "shuffle":
-        shuffled = indexed_ids[:]
-        random.Random(config.random_seed).shuffle(shuffled)
-        return shuffled[: min(size, len(shuffled))]
-    if strategy == "shuffle_window":
-        shuffled = indexed_ids[:]
-        random.Random(config.random_seed).shuffle(shuffled)
-        offset = max(0, int(preset.get("offset") or 0))
-        return shuffled[offset : min(offset + size, len(shuffled))]
-    if strategy == "stratified":
-        field_name = str(preset.get("field") or "").strip()
-        if not field_name:
-            raise ValueError(f"Stratified split preset for {config.slug} requires a non-empty field.")
-        return _stratified_sample_ids(samples, field_name=field_name, size=size, seed=config.random_seed)
-    if strategy == "stratified_window":
-        field_name = str(preset.get("field") or "").strip()
-        if not field_name:
-            raise ValueError(f"Stratified window split preset for {config.slug} requires a non-empty field.")
-        return _stratified_window_sample_ids(
-            samples,
-            field_name=field_name,
-            size=size,
-            offset=max(0, int(preset.get("offset") or 0)),
-            seed=config.random_seed,
-        )
-    raise ValueError(f"Unsupported split preset strategy {strategy!r} for benchmark {config.slug}.")
+    shuffled = indexed_ids[:]
+    random.Random(42).shuffle(shuffled)
+    resolved: list[tuple[str, list[str]]] = []
+    for preset in config.split_presets:
+        raw_name = str(preset["name"])
+        match = re.fullmatch(r"(?P<kind>count|full)(?P<size>\d+)_seed42", raw_name)
+        if match is None:
+            raise ValueError(
+                f"Benchmark {config.slug!r} uses non-canonical split {raw_name!r}. "
+                "Use countN_seed42 or fullN_seed42."
+            )
+        if match.group("kind") == "full":
+            resolved.append((f"full{len(indexed_ids)}_seed42", indexed_ids[:]))
+            continue
+        requested_size = int(match.group("size"))
+        if requested_size >= len(indexed_ids):
+            resolved.append((f"full{len(indexed_ids)}_seed42", indexed_ids[:]))
+            continue
+        resolved.append((f"count{requested_size}_seed42", shuffled[: min(requested_size, len(shuffled))]))
+    return _dedupe_split_specs(resolved)
 
 
 def _dedupe_split_specs(split_specs: Iterable[tuple[str, list[str]]]) -> list[tuple[str, list[str]]]:
@@ -246,98 +230,6 @@ def _count_split_target(split_name_without_seed: str) -> int | None:
     if not match:
         return None
     return int(match.group("count"))
-
-
-def _stratified_sample_ids(
-    samples: list[DatasetSample],
-    *,
-    field_name: str,
-    size: int,
-    seed: int,
-) -> list[str]:
-    grouped: dict[str, list[DatasetSample]] = {}
-    for sample in samples:
-        value = sample.metadata.get(field_name)
-        group_key = str(value if value not in {None, ""} else "unknown")
-        grouped.setdefault(group_key, []).append(sample)
-
-    rng = random.Random(seed)
-    for rows in grouped.values():
-        rng.shuffle(rows)
-
-    total = len(samples)
-    if size >= total:
-        return [sample.sample_id for sample in samples]
-
-    allocations: dict[str, int] = {}
-    remainders: list[tuple[float, str]] = []
-    allocated = 0
-    for group_key, rows in grouped.items():
-        ideal = size * len(rows) / total
-        base = min(len(rows), int(ideal))
-        allocations[group_key] = base
-        allocated += base
-        remainders.append((ideal - base, group_key))
-
-    remaining = size - allocated
-    for _, group_key in sorted(remainders, key=lambda item: (-item[0], item[1])):
-        if remaining <= 0:
-            break
-        capacity = len(grouped[group_key]) - allocations[group_key]
-        if capacity <= 0:
-            continue
-        allocations[group_key] += 1
-        remaining -= 1
-
-    while remaining > 0:
-        progressed = False
-        for group_key in sorted(grouped):
-            capacity = len(grouped[group_key]) - allocations[group_key]
-            if capacity <= 0:
-                continue
-            allocations[group_key] += 1
-            remaining -= 1
-            progressed = True
-            if remaining <= 0:
-                break
-        if not progressed:
-            break
-
-    selected = [
-        sample.sample_id
-        for group_key in sorted(grouped)
-        for sample in grouped[group_key][: allocations[group_key]]
-    ]
-    rng.shuffle(selected)
-    return selected
-
-
-def _stratified_window_sample_ids(
-    samples: list[DatasetSample],
-    *,
-    field_name: str,
-    size: int,
-    offset: int,
-    seed: int,
-) -> list[str]:
-    grouped: dict[str, list[DatasetSample]] = {}
-    for sample in samples:
-        value = sample.metadata.get(field_name)
-        group_key = str(value if value not in {None, ""} else "unknown")
-        grouped.setdefault(group_key, []).append(sample)
-
-    rng = random.Random(seed)
-    ranked: list[tuple[float, str, int, str]] = []
-    for group_key in sorted(grouped):
-        rows = grouped[group_key]
-        rng.shuffle(rows)
-        denominator = max(1, len(rows))
-        ranked.extend(
-            ((index + 0.5) / denominator, group_key, index, sample.sample_id)
-            for index, sample in enumerate(rows)
-        )
-    ordered = [item[3] for item in sorted(ranked)]
-    return ordered[offset : min(offset + size, len(ordered))]
 
 
 def load_split_ids(
@@ -550,6 +442,69 @@ def _load_omni_math(config: BenchmarkConfig) -> list[DatasetSample]:
                 )
             )
     return samples
+
+
+def _load_omni_math_2_filtered(config: BenchmarkConfig) -> list[DatasetSample]:
+    """Load the exact-answer, untagged Omni-MATH-2 subset.
+
+    Omni-MATH-2 exposes tags for items needing proof, visual interpretation, or
+    estimation.  The BRD confirmation set excludes every tagged record rather
+    than quietly applying a task-specific judge to them.
+    """
+
+    path = resolve_dataset_source_path(config.source_path)
+    samples: list[DatasetSample] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for index, line in enumerate(handle):
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            tags = _normalized_omni_math_2_tags(record.get("tags"))
+            if tags:
+                continue
+            sample_id = str(record.get("id") or f"{config.sample_id_prefix}-{index:05d}")
+            domain = record.get("domain")
+            domains = domain if isinstance(domain, list) else [domain] if domain else []
+            samples.append(
+                DatasetSample(
+                    dataset=config.slug,
+                    sample_id=sample_id,
+                    question=str(record.get("problem") or "").strip(),
+                    reference_answer=str(record.get("answer") or "").strip(),
+                    prompt_context="",
+                    metadata={
+                        "raw_index": index,
+                        "domain": domains,
+                        "primary_domain": str(domains[0]) if domains else "unknown",
+                        "difficulty": record.get("difficulty"),
+                        "stratum": _omni_math_2_stratum(record),
+                        "source": record.get("source"),
+                        "solution": record.get("solution"),
+                        "tags": tags,
+                    },
+                )
+            )
+    return samples
+
+
+def _normalized_omni_math_2_tags(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip() and item.strip().lower() not in {"none", "null", "[]"}]
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip() and str(item).strip().lower() not in {"none", "null"}]
+    return [str(value).strip()] if str(value).strip() else []
+
+
+def _omni_math_2_stratum(record: dict[str, Any]) -> str:
+    domain = record.get("domain")
+    primary_domain = str(domain[0] if isinstance(domain, list) and domain else domain or "unknown")
+    try:
+        difficulty_band = int(float(record.get("difficulty")) // 2 * 2)
+    except (TypeError, ValueError):
+        difficulty_band = -1
+    return f"{primary_domain}|difficulty_{difficulty_band}"
 
 
 def _omni_math_stratum(record: dict[str, Any]) -> str:

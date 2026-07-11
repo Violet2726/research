@@ -7,7 +7,7 @@ from testsupport.cli import run_cli_json
 
 def test_dataset_assets_list_used_cli() -> None:
     payload = run_cli_json(["research_cli", "tools", "dataset-assets", "list-used"])
-    assert payload["benchmark_count"] == 17
+    assert payload["benchmark_count"] == 18
     assert {item["slug"] for item in payload["benchmarks"]} == {
         "bbeh",
         "commongen_hard",
@@ -21,6 +21,7 @@ def test_dataset_assets_list_used_cli() -> None:
         "mmlu_abstract_algebra",
         "mmlu_pro",
         "omni_math",
+        "omni_math_2_filtered",
         "realmistake_answerability_classification",
         "realmistake_fine_grained_fact_verification",
         "realmistake_math_problem_generation",

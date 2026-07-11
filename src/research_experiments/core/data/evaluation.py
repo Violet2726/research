@@ -17,12 +17,14 @@ import tempfile
 from collections import Counter
 from collections.abc import Iterable
 
+import sympy
+
 
 def normalize_prediction(dataset: str, final_answer: str) -> str:
     """按数据集类型把模型答案归一化为可比较的形式。"""
     if dataset == "gsm8k":
         return normalize_number(final_answer)
-    if dataset in {"math500", "competition_math", "omni_math"}:
+    if dataset in {"math500", "competition_math", "omni_math", "omni_math_2_filtered"}:
         return normalize_math_expression(final_answer)
     if dataset == "strategyqa":
         return normalize_yes_no(final_answer)
@@ -270,6 +272,9 @@ def _normalize_math_atom(value: str) -> str:
     numeric_value = _safe_numeric_evaluate(prepared)
     if numeric_value is not None:
         return _format_numeric_math_value(numeric_value)
+    symbolic_value = _safe_symbolic_canonicalize(prepared)
+    if symbolic_value is not None:
+        return symbolic_value
     return prepared
 
 
@@ -322,6 +327,13 @@ def _prepare_math_expression(value: str) -> str:
     compact = _replace_latex_command(compact, command="sqrt", binary=False)
     compact = compact.replace("{", "(").replace("}", ")")
     compact = compact.replace("^", "**")
+    # Preserve idempotence when a canonicalized expression is normalized a
+    # second time for scoring.  LaTeX juxtaposition such as ``3\sqrt{21}``
+    # becomes ``3sqrt(21)`` above and must be made explicit before either the
+    # numeric or symbolic safe evaluator sees it.
+    # Exclude e/E so scientific notation such as ``1.2e+43`` remains numeric.
+    compact = re.sub(r"(?<=[0-9)])(?=[a-df-zA-DF-Z])", "*", compact)
+    compact = re.sub(r"(?<=\))(?=[a-zA-Z0-9(])", "*", compact)
     return compact
 
 
@@ -463,6 +475,66 @@ def _format_numeric_math_value(value: float) -> str:
     if abs(rounded) < 1e-12:
         rounded = 0.0
     return f"{rounded:.12g}"
+
+
+def _safe_symbolic_canonicalize(expression: str) -> str | None:
+    """Canonicalize small algebraic expressions using a strict AST whitelist.
+
+    This intentionally handles only arithmetic over symbolic names.  It fixes
+    exact-answer false negatives such as ``2015+2x+y`` versus ``2x+y+2015``
+    without passing model text to ``sympify``/``eval`` or accepting equations,
+    inequalities, indexing, attributes, or arbitrary function calls.
+    """
+
+    candidate = str(expression or "").strip()
+    if not candidate or len(candidate) > 256:
+        return None
+    if not re.fullmatch(r"[a-zA-Z0-9_+\-*/().]+", candidate):
+        return None
+    if not re.search(r"[a-zA-Z]", candidate):
+        return None
+    candidate = re.sub(r"(?<=\d)(?=[a-zA-Z])", "*", candidate)
+    candidate = re.sub(r"(?<=\))(?=[a-zA-Z0-9(])", "*", candidate)
+    try:
+        node = ast.parse(candidate, mode="eval")
+        symbols: dict[str, sympy.Symbol] = {}
+        value = _eval_symbolic_ast(node.body, symbols)
+        canonical = sympy.factor_terms(sympy.expand(value))
+    except Exception:
+        return None
+    rendered = str(canonical).replace(" ", "")
+    return rendered if rendered and len(rendered) <= 512 else None
+
+
+def _eval_symbolic_ast(node: ast.AST, symbols: dict[str, sympy.Symbol]) -> sympy.Expr:
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+        return sympy.Rational(str(node.value))
+    if isinstance(node, ast.Name):
+        if node.id == "pi":
+            return sympy.pi
+        if node.id not in symbols:
+            symbols[node.id] = sympy.Symbol(node.id, real=True)
+        return symbols[node.id]
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+        operand = _eval_symbolic_ast(node.operand, symbols)
+        return operand if isinstance(node.op, ast.UAdd) else -operand
+    if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow)):
+        left = _eval_symbolic_ast(node.left, symbols)
+        right = _eval_symbolic_ast(node.right, symbols)
+        if isinstance(node.op, ast.Add):
+            return left + right
+        if isinstance(node.op, ast.Sub):
+            return left - right
+        if isinstance(node.op, ast.Mult):
+            return left * right
+        if isinstance(node.op, ast.Div):
+            return left / right
+        if not right.is_number or abs(float(right)) > 32:
+            raise ValueError("Symbolic exponent is outside the safe canonicalization bound.")
+        return left**right
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "sqrt" and len(node.args) == 1:
+        return sympy.sqrt(_eval_symbolic_ast(node.args[0], symbols))
+    raise ValueError(f"Unsupported symbolic math AST: {ast.dump(node)}")
 
 
 def score_multiple_choice(predicted: str, gold: str) -> float:

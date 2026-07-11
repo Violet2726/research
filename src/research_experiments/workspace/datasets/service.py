@@ -244,6 +244,18 @@ def build_primary_dataset_specs(benchmarks: list[BenchmarkConfig]) -> list[Datas
             source_url="https://raw.githubusercontent.com/KbsdJames/Omni-MATH/main/Omni-Math.jsonl",
             source_split="test",
         ),
+        "omni_math_2_filtered": DatasetAssetSpec(
+            slug="omni_math_2_filtered",
+            dataset_name="Omni-MATH-2 Filtered",
+            asset_id="evaluation",
+            purpose="evaluation",
+            relative_path=Path("omni-math-2/Omni-Math-2.jsonl"),
+            source_kind="http_file",
+            source_label="Omni-MATH-2 Hugging Face dataset",
+            source_url="https://huggingface.co/datasets/martheballon/Omni-MATH-2/resolve/main/Omni-Math-2.jsonl",
+            source_split="clean_exact_answer",
+            notes="The loader excludes all non-empty tags before creating frozen splits; this preserves a clean exact-answer evaluation subset.",
+        ),
         "bbeh": DatasetAssetSpec(
             slug="bbeh",
             dataset_name="BIG-Bench Extra Hard",

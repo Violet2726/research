@@ -23,4 +23,4 @@ max_concurrent_requests = 1000
 requests_per_minute_limit = 1000
 
 [phases.locked]
-split_overrides = { math500 = "count200_locked_seed42", hotpotqa = "count500_locked_seed42", gpqa_diamond = "full198_seed42", strategyqa = "full229_seed42", mmlu_pro = "count500_locked_seed42" }
+split_overrides = { math500 = "full500_seed42", hotpotqa = "full7405_seed42", gpqa_diamond = "full198_seed42", strategyqa = "full229_seed42", mmlu_pro = "full12032_seed42" }

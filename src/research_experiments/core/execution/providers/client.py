@@ -19,6 +19,7 @@ from research_experiments.core.execution.providers.normalization import (
     estimate_usage,
     extract_finish_reason,
     extract_message_channels,
+    provider_cooldown_seconds,
 )
 from research_experiments.core.execution.rate_limits import RequestThrottle
 
@@ -72,7 +73,7 @@ class OpenAICompatibleProvider:
         self._closed = True
 
     def chat_completion(self, payload: dict[str, Any]) -> ProviderResponse:
-        """执行一次 chat completion 请求；传输层断连时换连接再发一次。"""
+        """执行一次 chat completion；失败后的重放由统一 runner 控制。"""
 
         if self._closed:
             raise RuntimeError("Provider client has already been closed.")
@@ -83,7 +84,7 @@ class OpenAICompatibleProvider:
         }
         timeout = httpx.Timeout(self.config.timeout_seconds)
         last_error: httpx.TransportError | None = None
-        for attempt in range(2):
+        for _attempt in range(1):
             client = self._client_handle.client
             started = time.perf_counter()
             try:
@@ -91,9 +92,7 @@ class OpenAICompatibleProvider:
             except httpx.TransportError as exc:
                 last_error = exc
                 self._reset_shared_client(client)
-                if attempt == 0:
-                    continue
-                raise
+                continue
             latency_ms = (time.perf_counter() - started) * 1000
             response.raise_for_status()
             body = response.json()
@@ -200,6 +199,7 @@ def execute_completion_request(
             "response_id": None,
             "request_started_at": request_started_at,
             "request_error": f"Provider returned HTTP {exc.response.status_code}: {response_text}",
+            "retry_after_seconds": provider_cooldown_seconds(exc.response),
         }
     except httpx.TransportError as exc:
         provider._reset_shared_client(provider._client_handle.client)

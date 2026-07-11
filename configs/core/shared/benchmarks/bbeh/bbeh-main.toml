@@ -7,27 +7,27 @@ sample_id_prefix = "bbeh"
 question_field = "input"
 answer_field = "target"
 smoke_size = 20
-pilot_size = 460
-main_size = 920
-random_seed = 20260704
+pilot_size = 100
+main_size = 4520
+random_seed = 42
 notes = "BBEH 锁定迁移评测，用于检验不可验证任务上的正确 abstain 与任务级稳健性。"
 
 [[split_presets]]
-name = "count20_seed20260704"
-strategy = "stratified"
-field = "task"
+name = "count20_seed42"
+strategy = "shuffle"
 size = 20
 
 [[split_presets]]
-name = "count460_seed20260704"
-strategy = "stratified_window"
-field = "task"
-offset = 0
-size = 460
+name = "count100_seed42"
+strategy = "shuffle"
+size = 100
 
 [[split_presets]]
-name = "count920_locked_seed20260704"
-strategy = "stratified_window"
-field = "task"
-offset = 460
-size = 920
+name = "count300_seed42"
+strategy = "shuffle"
+size = 300
+
+[[split_presets]]
+name = "full4520_seed42"
+strategy = "full"
+size = 4520

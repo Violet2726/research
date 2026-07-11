@@ -16,7 +16,12 @@ _MULTIPLE_CHOICE_DATASETS = {
     "mmlu_abstract_algebra",
     "mmlu_pro",
 }
-_MATH_DATASETS = {"gsm8k", "math500", "competition_math", "omni_math"}
+_MATH_DATASETS = {
+    "gsm8k",
+    "math500",
+    "competition_math",
+    "omni_math",
+}
 _SHORT_SPAN_DATASETS = {"hotpotqa", "webquestions"}
 
 

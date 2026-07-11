@@ -39,9 +39,3 @@ size = 500
 name = "full12032_seed42"
 strategy = "full"
 size = 12032
-
-[[split_presets]]
-name = "count500_locked_seed42"
-strategy = "shuffle_window"
-offset = 300
-size = 500

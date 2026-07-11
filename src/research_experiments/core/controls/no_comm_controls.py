@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from research_experiments.core.controls.control_prompts import (
@@ -115,6 +116,7 @@ def run_unified_control_sample(
     resolved_build_messages = build_messages or resolve_unified_control_message_builder(
         str(getattr(method, "family", "") or "")
     )
+    requests: list[dict[str, Any]] = []
     for replicate_id in range(method.budget_calls):
         messages = resolved_build_messages(sample, replicate_id + 1, None)
         if prompt_version is not None:
@@ -124,28 +126,30 @@ def run_unified_control_sample(
             method_family=str(getattr(method, "family", "") or ""),
             replicate_id=replicate_id,
         )
-        turn_rows.append(
-            execute_turn(
-                run_id=run_id,
-                dataset=benchmark_slug,
-                split_name=split_name,
-                sample=sample,
-                method_name=control_name,
-                method_type="control",
-                round_index=0,
-                agent_id=replicate_id + 1,
-                role="control",
-                visible_peer_count=0,
-                messages=messages,
-                backbone=backbone,
-                provider=provider,
-                cache=cache,
-                throttle=throttle,
-                temperature=method.temperature,
-                top_p=method.top_p,
-                seed=seed,
-            )
+        requests.append(
+            {
+                "run_id": run_id,
+                "dataset": benchmark_slug,
+                "split_name": split_name,
+                "sample": sample,
+                "method_name": control_name,
+                "method_type": "control",
+                "round_index": 0,
+                "agent_id": replicate_id + 1,
+                "role": "control",
+                "visible_peer_count": 0,
+                "messages": messages,
+                "backbone": backbone,
+                "provider": provider,
+                "cache": cache,
+                "throttle": throttle,
+                "temperature": method.temperature,
+                "top_p": method.top_p,
+                "seed": seed,
+            }
         )
+    with ThreadPoolExecutor(max_workers=method.budget_calls) as executor:
+        turn_rows.extend(executor.map(lambda kwargs: execute_turn(**kwargs), requests))
 
     answers = [row["normalized_answer"] for row in turn_rows]
     final_vote, vote_counts = aggregate_majority(answers)

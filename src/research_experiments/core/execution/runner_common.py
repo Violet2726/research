@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -133,10 +134,11 @@ def execute_cached_request(
     )
     cached = cache.get(cache_key)
     if cached is None:
-        response_payload = (
-            request_executor(payload, provider, throttle)
-            if request_executor is not None
-            else execute_completion_request(provider, payload, throttle=throttle)
+        response_payload = _execute_request_with_retries(
+            payload=payload,
+            provider=provider,
+            throttle=throttle,
+            request_executor=request_executor,
         )
         response_payload = dict(response_payload)
         if response_hook is not None:
@@ -168,6 +170,35 @@ def execute_cached_request(
         request_error=str(request_error) if request_error else None,
         usage=usage,
     )
+
+
+def _execute_request_with_retries(
+    *,
+    payload: dict[str, Any],
+    provider: OpenAICompatibleProvider,
+    throttle: RequestThrottle | None,
+    request_executor: TurnRequestExecutor | None,
+    max_attempts: int = 5,
+) -> dict[str, Any]:
+    """Retry transport/429/5xx failures without changing the logical request."""
+
+    executor = request_executor or (
+        lambda value, target, limiter: execute_completion_request(target, value, throttle=limiter)
+    )
+    last: dict[str, Any] = {}
+    for attempt in range(1, max_attempts + 1):
+        last = dict(executor(payload, provider, throttle))
+        status = last.get("http_status")
+        retryable = bool(last.get("request_error")) and (
+            status is None or int(status) == 429 or 500 <= int(status) < 600
+        )
+        if not retryable or attempt == max_attempts:
+            last["network_attempt_count"] = attempt
+            return last
+        suggested = last.get("retry_after_seconds")
+        delay = float(suggested) if suggested is not None else min(float(2 ** (attempt - 1)), 30.0)
+        time.sleep(max(0.0, delay))
+    return last
 
 
 def execute_cached_turn(
