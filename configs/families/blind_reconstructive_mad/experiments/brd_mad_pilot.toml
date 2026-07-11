@@ -1,0 +1,32 @@
+name = "brd_mad_pilot"
+description = "Blind Review-Reconstruct Debate pilot on disjoint Omni-MATH-2 and BBEH samples."
+benchmark_configs = [
+  "configs/core/shared/benchmarks/omni-math-2/Omni-Math-2.toml",
+  "configs/core/shared/benchmarks/bbeh/bbeh-main.toml",
+]
+protocol = "configs/families/blind_reconstructive_mad/protocols/brd_v1.toml"
+control_catalog = "configs/families/single_agent/methods/common.toml"
+control_methods = ["cot_1", "sc_3", "sc_5"]
+brd_methods = ["conditional_resample_3", "gsa_quorum_3", "brd_quorum_3", "brd_visible_support_3"]
+method_order = ["cot_1", "sc_3", "sc_5", "conditional_resample_3", "gsa_quorum_3", "brd_quorum_3", "brd_visible_support_3"]
+global_seed = 42
+control_prompt_version = "single_agent_free_text_v1"
+output_protocol = "free_text_answer_v1"
+primary_model_ref = "dashscope/qwen-flash"
+max_concurrent_requests = 1000
+requests_per_minute_limit = 1000
+
+[runtime_profiles.dashscope]
+max_concurrent_requests = 1000
+requests_per_minute_limit = 1000
+
+[runtime_profiles.xiaomimimo]
+max_concurrent_requests = 8
+requests_per_minute_limit = 18
+
+[phases.smoke]
+split_overrides = { omni_math_2_filtered = "count20_seed42", bbeh = "count20_seed42" }
+
+[phases.pilot]
+split_overrides = { omni_math_2_filtered = "count100_seed42", bbeh = "count100_seed42" }
+brd_methods = ["conditional_resample_3", "gsa_quorum_3", "brd_quorum_3", "brd_visible_support_3"]
