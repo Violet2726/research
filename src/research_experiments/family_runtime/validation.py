@@ -70,9 +70,15 @@ def validate_rate_limit_check(
     )
     events: list[tuple[datetime, dict[str, Any]]] = []
     for row in turn_rows:
-        timestamp = row.get("request_started_at")
-        if timestamp and not bool(row.get("cache_hit")):
-            events.append((_parse_timestamp(str(timestamp)), row))
+        if bool(row.get("cache_hit")):
+            continue
+        timestamps = row.get("request_started_at_events")
+        if not isinstance(timestamps, list):
+            timestamp = row.get("request_started_at")
+            timestamps = [timestamp] if timestamp else []
+        for timestamp in timestamps:
+            if timestamp:
+                events.append((_parse_timestamp(str(timestamp)), row))
     events.sort(key=lambda item: item[0])
 
     active_window: deque[tuple[datetime, dict[str, Any]]] = deque()

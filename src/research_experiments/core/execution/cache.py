@@ -101,6 +101,17 @@ class RequestCache:
 
             self._execute_with_recovery(_write)
 
+    def delete(self, cache_key: str) -> None:
+        """Remove one response that failed a post-request protocol contract."""
+
+        with self._lock:
+            def _delete() -> None:
+                self.connection.execute("DELETE FROM requests WHERE cache_key = ?", (cache_key,))
+                self.connection.commit()
+                self._pending_writes = 0
+
+            self._execute_with_recovery(_delete)
+
     def close(self) -> None:
         """Close the underlying SQLite connection."""
 

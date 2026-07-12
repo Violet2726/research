@@ -186,14 +186,19 @@ def _execute_request_with_retries(
         lambda value, target, limiter: execute_completion_request(target, value, throttle=limiter)
     )
     last: dict[str, Any] = {}
+    request_started_at_events: list[str] = []
     for attempt in range(1, max_attempts + 1):
         last = dict(executor(payload, provider, throttle))
+        started_at = last.get("request_started_at")
+        if started_at:
+            request_started_at_events.append(str(started_at))
         status = last.get("http_status")
         retryable = bool(last.get("request_error")) and (
             status is None or int(status) == 429 or 500 <= int(status) < 600
         )
         if not retryable or attempt == max_attempts:
             last["network_attempt_count"] = attempt
+            last["request_started_at_events"] = request_started_at_events
             return last
         suggested = last.get("retry_after_seconds")
         delay = float(suggested) if suggested is not None else min(float(2 ** (attempt - 1)), 30.0)

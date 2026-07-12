@@ -27,3 +27,9 @@ family = "self_consistency"
 budget_calls = 7
 temperature = 0.7
 top_p = 1.0
+
+[methods.sc_9]
+family = "self_consistency"
+budget_calls = 9
+temperature = 0.7
+top_p = 1.0
