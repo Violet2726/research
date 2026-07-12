@@ -1,35 +1,73 @@
-from __future__ import annotations
+import pytest
 
-from research_experiments.families.risk_controlled_trace_mad.certificates import verify_certificate
-
-
-def test_arithmetic_certificate_passes_and_rejects_unbound_operand() -> None:
-    passed = verify_certificate(question="Compute 2 + 3.", final_answer="5", certificate_type="arithmetic", payload={"expression": "2+3", "claimed_value": "5"})
-    assert passed["status"] == "pass"
-    unsupported = verify_certificate(question="Compute 2 + 3.", final_answer="105", certificate_type="arithmetic", payload={"expression": "2+3+100", "claimed_value": "105"})
-    assert unsupported["status"] == "unsupported"
-    mismatched = verify_certificate(question="Compute 2 + 3.", final_answer="7", certificate_type="arithmetic", payload={"expression": "2+3", "claimed_value": "5"})
-    assert mismatched["status"] == "fail"
+from research_experiments.families.risk_controlled_trace_mad.certificates import verify_evidence
 
 
-def test_symbolic_ordering_and_boolean_certificates() -> None:
-    symbolic = verify_certificate(question="For real x compare x+x and 2*x.", final_answer="2*x", certificate_type="symbolic", payload={"left": "x+x", "right": "2*x", "substitutions": {}})
-    assert symbolic["status"] == "pass"
-    ordering = verify_certificate(question="Sort pear apple banana.", final_answer="apple banana pear", certificate_type="ordering", payload={"items": ["pear", "apple", "banana"], "ordered_items": ["apple", "banana", "pear"], "direction": "ascending"})
-    assert ordering["status"] == "pass"
-    boolean = verify_certificate(question="Evaluate True and False.", final_answer="False", certificate_type="boolean", payload={"expression": "True and False", "variables": {}, "claimed_value": False})
-    assert boolean["status"] == "pass"
+def _verify(question: str, answer: str, test_type: str, payload: dict, claim_kind: str = "support"):
+    return verify_evidence(
+        question=question,
+        target_answer=answer,
+        evidence={
+            "target_answer": answer,
+            "claim_kind": claim_kind,
+            "test_type": test_type,
+            "payload": payload,
+        },
+    )
 
 
-def test_self_consistent_payload_cannot_certify_an_unrelated_final_answer() -> None:
-    symbolic = verify_certificate(question="For real x compare x+x and 2*x.", final_answer="3*x", certificate_type="symbolic", payload={"left": "x+x", "right": "2*x", "substitutions": {}})
-    assert symbolic["status"] == "unsupported"
-    ordering = verify_certificate(question="Sort pear apple banana.", final_answer="pear apple banana", certificate_type="ordering", payload={"items": ["pear", "apple", "banana"], "ordered_items": ["apple", "banana", "pear"], "direction": "ascending"})
-    assert ordering["status"] == "fail"
-    boolean = verify_certificate(question="Evaluate True and False.", final_answer="True", certificate_type="boolean", payload={"expression": "True and False", "variables": {}, "claimed_value": False})
-    assert boolean["status"] == "fail"
+@pytest.mark.parametrize(
+    ("question", "answer", "kind", "payload"),
+    [
+        ("Compute 2 + 3.", "5", "arithmetic", {"left": "2+3", "right": "5", "relation": "eq"}),
+        (
+            "For x, compare x + x and 2*x. Answer 2*x.",
+            "2*x",
+            "symbolic",
+            {"left": "x+x", "right": "2*x", "relation": "eq"},
+        ),
+        (
+            "Arrange red, blue.",
+            "red,blue",
+            "collection",
+            {"items": ["red", "blue"], "expected_items": ["red", "blue"], "mode": "ordered", "relation": "eq"},
+        ),
+        ("p is true. Is p true?", "true", "boolean", {"expression": "p", "variables": {"p": True}, "expected": True}),
+        (
+            "A links B and B links C. Is C reachable from A?",
+            "yes",
+            "graph",
+            {"edges": [["A", "B"], ["B", "C"]], "source": "A", "target": "C", "reachable": True, "directed": True},
+        ),
+    ],
+)
+def test_safe_dsl_positive_cases(question, answer, kind, payload) -> None:
+    assert _verify(question, answer, kind, payload)["status"] == "pass"
 
 
-def test_certificate_never_executes_calls_or_attributes() -> None:
-    result = verify_certificate(question="Compute 1.", final_answer="1", certificate_type="arithmetic", payload={"expression": "__import__('os').system('x')", "claimed_value": "1"})
+def test_dangerous_or_unbound_expressions_are_unsupported() -> None:
+    result = _verify(
+        "Compute 2 + 3.", "5", "arithmetic", {"left": "__import__('os').system('x')", "right": "5", "relation": "eq"}
+    )
     assert result["status"] == "unsupported"
+    unbound = _verify("Compute 2 + 3.", "99", "arithmetic", {"left": "2+3", "right": "99", "relation": "eq"})
+    assert unbound["status"] == "fail"
+
+
+def test_falsification_cannot_masquerade_as_a_passing_equality() -> None:
+    mislabeled = _verify(
+        "Compute 2 + 3.",
+        "5",
+        "arithmetic",
+        {"left": "2+3", "right": "5", "relation": "eq"},
+        claim_kind="falsify",
+    )
+    assert mislabeled["status"] == "unsupported"
+    actual = _verify(
+        "Compute 2 + 3.",
+        "4",
+        "arithmetic",
+        {"left": "2+3", "right": "4", "relation": "ne"},
+        claim_kind="falsify",
+    )
+    assert actual["status"] == "pass"

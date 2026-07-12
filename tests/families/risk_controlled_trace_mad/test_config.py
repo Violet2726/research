@@ -1,18 +1,30 @@
-from __future__ import annotations
+import pytest
 
 from research_experiments.families.risk_controlled_trace_mad.config import (
     load_experiment_config,
     load_protocol_config,
-    runtime_for_provider,
+    load_version_registry,
+    phase_methods,
+    require_active_version,
 )
 
+EXPERIMENT = "configs/families/risk_controlled_trace_mad/experiments/mad_innovation.toml"
 
-def test_canonical_phases_and_runtime_limits() -> None:
-    experiment = load_experiment_config("configs/families/risk_controlled_trace_mad/experiments/rcta_mad.toml")
-    assert set(experiment.raw["phases"]) == {"count20_seed42", "count300_seed42", "full_seed42"}
-    assert runtime_for_provider(experiment, "dashscope").requests_per_minute_limit == 1000
-    mimo = runtime_for_provider(experiment, "xiaomimimo")
-    assert (mimo.requests_per_minute_limit, mimo.max_concurrent_requests) == (18, 8)
+
+def test_unified_experiment_has_one_active_version_and_canonical_phases() -> None:
+    experiment = load_experiment_config(EXPERIMENT)
+    registry = load_version_registry(experiment.version_registry)
     protocol = load_protocol_config(experiment.protocol)
-    assert (protocol.stage_a_candidates, protocol.sc_ceiling_candidates, protocol.trace_synthesizer_count) == (5, 9, 1)
+    assert registry.active_version == experiment.active_version == "v4_evf"
+    assert [key for key, value in registry.versions.items() if value.status == "active"] == ["v4_evf"]
+    assert set(experiment.raw["phases"]) == {"count20_seed42", "count100_seed42", "count300_seed42", "full_seed42"}
+    assert protocol.max_logical_calls == 10
+    assert phase_methods(experiment, "count20_seed42")[-1] == "evf_mad_1"
 
+
+def test_retired_versions_cannot_run() -> None:
+    experiment = load_experiment_config(EXPERIMENT)
+    registry = load_version_registry(experiment.version_registry)
+    with pytest.raises(ValueError, match="cannot be run"):
+        require_active_version(registry, "v3_rcta")
+    assert require_active_version(registry, None).version_id == "v4_evf"

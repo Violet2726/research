@@ -1,4 +1,4 @@
-"""RCTA 逐题配对 bootstrap、McNemar 与 Holm 校正。"""
+"""统一 MAD 创新实验的逐题配对 bootstrap、McNemar 与 Holm 校正。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,15 @@ from collections import defaultdict
 from typing import Any
 
 
-def paired_statistics(rows: list[dict[str, Any]], *, reference: str, competitors: list[str], seed: int, bootstrap_samples: int = 10_000, bbeh_harmonic: bool = False) -> dict[str, Any]:
+def paired_statistics(
+    rows: list[dict[str, Any]],
+    *,
+    reference: str,
+    competitors: list[str],
+    seed: int,
+    bootstrap_samples: int = 10_000,
+    bbeh_harmonic: bool = False,
+) -> dict[str, Any]:
     tests: list[dict[str, Any]] = []
     datasets = sorted({str(row["dataset"]) for row in rows})
     for dataset in datasets:
@@ -27,13 +35,20 @@ def paired_statistics(rows: list[dict[str, Any]], *, reference: str, competitors
             )
             b = sum(left > right for left, right, _ in pairs)
             c = sum(right > left for left, right, _ in pairs)
-            tests.append({
-                "dataset": dataset, "reference_method": reference, "comparison_method": competitor,
-                "paired_question_count": len(pairs), "mean_accuracy_delta": point,
-                "accuracy_metric": "task_harmonic" if use_task_harmonic else "micro_accuracy",
-                "bootstrap_ci_95": [low, high], "mcnemar_b_reference_only_correct": b,
-                "mcnemar_c_comparator_only_correct": c, "mcnemar_exact_p": _mcnemar_p(b, c),
-            })
+            tests.append(
+                {
+                    "dataset": dataset,
+                    "reference_method": reference,
+                    "comparison_method": competitor,
+                    "paired_question_count": len(pairs),
+                    "mean_accuracy_delta": point,
+                    "accuracy_metric": "task_harmonic" if use_task_harmonic else "micro_accuracy",
+                    "bootstrap_ci_95": [low, high],
+                    "mcnemar_b_reference_only_correct": b,
+                    "mcnemar_c_comparator_only_correct": c,
+                    "mcnemar_exact_p": _mcnemar_p(b, c),
+                }
+            )
     primary_tests = [item for item in tests if item["dataset"] in {"omni_math_2_filtered", "bbeh"}]
     _holm(primary_tests)
     return {
@@ -47,8 +62,18 @@ def paired_statistics(rows: list[dict[str, Any]], *, reference: str, competitors
 
 def _pairs(rows, dataset, reference, competitor):
     index = {(str(row["sample_id"]), str(row["method_name"])): row for row in rows if row.get("dataset") == dataset}
-    sample_ids = sorted({sample for sample, method in index if method == reference} & {sample for sample, method in index if method == competitor})
-    return [(float(index[(sample, reference)].get("score") or 0), float(index[(sample, competitor)].get("score") or 0), str(index[(sample, reference)].get("task") or "unknown")) for sample in sample_ids]
+    sample_ids = sorted(
+        {sample for sample, method in index if method == reference}
+        & {sample for sample, method in index if method == competitor}
+    )
+    return [
+        (
+            float(index[(sample, reference)].get("score") or 0),
+            float(index[(sample, competitor)].get("score") or 0),
+            str(index[(sample, reference)].get("task") or "unknown"),
+        )
+        for sample in sample_ids
+    ]
 
 
 def _bootstrap(pairs, *, samples, seed, stratified):
@@ -97,7 +122,7 @@ def _mcnemar_p(b: int, c: int) -> float:
     total = b + c
     if total == 0:
         return 1.0
-    tail = sum(math.comb(total, index) for index in range(0, min(b, c) + 1)) / (2 ** total)
+    tail = sum(math.comb(total, index) for index in range(0, min(b, c) + 1)) / (2**total)
     return min(1.0, 2.0 * tail)
 
 

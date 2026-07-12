@@ -1,18 +1,21 @@
-"""RCTA-MAD family 注册。"""
+"""统一 MAD 创新 family 注册与版本命令。"""
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import asdict
 
+from research_experiments.cli_support.output import emit_json
 from research_experiments.core.contracts import FamilyCliHelp, FamilyRunRequest
 from research_experiments.families.risk_controlled_trace_mad.config import (
     inspect_benchmarks,
     inspect_methods,
-    load_control_catalog,
     load_experiment_config,
     load_protocol_config,
+    load_version_registry,
+    require_active_version,
 )
-from research_experiments.families.risk_controlled_trace_mad.prompts import RCTA_PROMPT_VERSION, RCTA_SCHEMA_VERSION
+from research_experiments.families.risk_controlled_trace_mad.prompts import EVF_AUDIT_SCHEMA_VERSION, EVF_PROMPT_VERSION
 from research_experiments.families.risk_controlled_trace_mad.run.execute import run_experiment
 from research_experiments.families.risk_controlled_trace_mad.run.report import render_report, summarize_run
 from research_experiments.families.risk_controlled_trace_mad.run.validate import validate_run
@@ -25,42 +28,115 @@ FAMILY_NAME = "risk_controlled_trace_mad"
 
 def inspect_experiment(path: str, model_override: str | None):
     experiment = load_experiment_config(path)
+    if model_override and model_override != experiment.qwen_model_ref:
+        raise ValueError("EVF uses a frozen heterogeneous roster; --model cannot replace it.")
     protocol = load_protocol_config(experiment.protocol)
-    controls = load_control_catalog(experiment.control_catalog)
-    model = resolve_model(model_override or experiment.primary_model_ref)
+    registry = load_version_registry(experiment.version_registry)
     return {
         "name": experiment.name,
         "description": experiment.description,
+        "active_version": experiment.active_version,
+        "versions": {key: asdict(value) for key, value in registry.versions.items()},
         "benchmarks": inspect_benchmarks(experiment),
-        "protocol": {**asdict(protocol), "router_artifact": str(protocol.router_artifact)},
-        "controls": {name: asdict(controls[name]) for name in experiment.control_methods},
+        "protocol": asdict(protocol),
         "methods": inspect_methods(experiment),
         "method_order": experiment.method_order,
-        "prompt_version": RCTA_PROMPT_VERSION,
-        "schema_version": RCTA_SCHEMA_VERSION,
+        "prompt_version": EVF_PROMPT_VERSION,
+        "schema_version": EVF_AUDIT_SCHEMA_VERSION,
         "global_seed": experiment.global_seed,
+        "model_roster": {
+            "qwen": asdict(resolve_model(experiment.qwen_model_ref)),
+            "mimo": asdict(resolve_model(experiment.mimo_model_ref)),
+        },
         "runtime_profiles": {key: asdict(value) for key, value in experiment.runtime_profiles.items()},
         "workspace_defaults": workspace_defaults(FAMILY_NAME),
-        "primary_model_ref": experiment.primary_model_ref,
-        "resolved_model": asdict(model),
         "phases": experiment.raw["phases"],
     }
 
 
 def run_from_cli(request: FamilyRunRequest):
     experiment = load_experiment_config(request.experiment_path)
-    return run_experiment(experiment, request.phase_name, resolve_model(request.model_ref or experiment.primary_model_ref), request.runs_root, request.cache_root)
+    registry = load_version_registry(experiment.version_registry)
+    require_active_version(registry, request.version)
+    if request.model_ref and request.model_ref != experiment.qwen_model_ref:
+        raise ValueError("EVF uses its frozen Qwen+MiMo roster; omit --model.")
+    return run_experiment(
+        experiment=experiment,
+        phase_name=request.phase_name,
+        backbone=resolve_model(experiment.qwen_model_ref),
+        run_root=request.runs_root,
+        cache_root=request.cache_root,
+        resume_run_dir=request.resume_run_dir,
+        version=request.version,
+    )
 
 
-ALIASES = {"agent_turns": "turns/agent_turns.jsonl", "debate_messages": "turns/debate_messages.jsonl", "router_decisions": "turns/router_decisions.jsonl", "rcta_diagnostics": "diagnostics/rcta_diagnostics.json", "paired_statistics": "diagnostics/paired_statistics.json", "output_protocol_diagnostics": "diagnostics/output_protocol_diagnostics.json", "rcta_comparison": "exports/rcta_comparison.json", "paper_summary": "exports/paper_summary.csv"}
+def configure_parser(parser) -> None:
+    for action in parser._actions:
+        if not isinstance(action, argparse._SubParsersAction):
+            continue
+        action.choices["run"].add_argument("--version", default=None)
+        versions = action.add_parser("inspect-versions", help="Inspect active and retired MAD innovation versions.")
+        versions.add_argument("--experiment", required=True)
+        return
+    raise RuntimeError("Parser is missing subcommands.")
+
+
+def dispatch_extra_command(args) -> bool:
+    if args.command != "inspect-versions":
+        return False
+    experiment = load_experiment_config(args.experiment)
+    registry = load_version_registry(experiment.version_registry)
+    emit_json(
+        {
+            "active_version": registry.active_version,
+            "versions": {key: asdict(value) for key, value in registry.versions.items()},
+        }
+    )
+    return True
+
+
+ALIASES = {
+    "agent_turns": "turns/agent_turns.jsonl",
+    "debate_messages": "turns/debate_messages.jsonl",
+    "router_decisions": "turns/router_decisions.jsonl",
+    "evf_diagnostics": "diagnostics/evf_diagnostics.json",
+    "paired_statistics": "diagnostics/paired_statistics.json",
+    "output_protocol_diagnostics": "diagnostics/output_protocol_diagnostics.json",
+    "evf_comparison": "exports/evf_comparison.json",
+    "paper_summary": "exports/paper_summary.csv",
+}
 
 REGISTRATION = make_family_registration(
-    family_name=FAMILY_NAME, prototype="shared_stage_policy",
-    cli_help=FamilyCliHelp(description="Risk-Controlled Trace Aggregation MAD experiments.", inspect_help="Show resolved RCTA configuration.", run_help="Run an RCTA phase.", summarize_help="Summarize an RCTA run.", validate_help="Validate RCTA artifacts and invariants.", report_help="Regenerate the RCTA report."),
-    load_experiment=load_experiment_config, resolve_model=resolve_model, invoke_runner=run_experiment,
-    inspect_experiment=inspect_experiment, run_from_cli=run_from_cli, summarize_run=summarize_run, validate_run=validate_run, render_report=render_report,
-    artifact_aliases=ALIASES, metrics_view_path="views/metrics.json", prediction_records_path="views/predictions.jsonl",
+    family_name=FAMILY_NAME,
+    prototype="shared_stage_policy",
+    cli_help=FamilyCliHelp(
+        description="统一 MAD 创新主线与 EVF-MAD 实验。",
+        inspect_help="Show the frozen heterogeneous EVF experiment configuration.",
+        run_help="Run the active MAD innovation version.",
+        summarize_help="Summarize an EVF run.",
+        validate_help="Validate EVF artifacts, safety and budgets.",
+        report_help="Regenerate the EVF report.",
+        include_resume_run_dir=True,
+    ),
+    load_experiment=load_experiment_config,
+    resolve_model=resolve_model,
+    invoke_runner=run_experiment,
+    inspect_experiment=inspect_experiment,
+    run_from_cli=run_from_cli,
+    summarize_run=summarize_run,
+    validate_run=validate_run,
+    render_report=render_report,
+    configure_parser=configure_parser,
+    dispatch_extra_command=dispatch_extra_command,
+    artifact_aliases=ALIASES,
+    metrics_view_path="views/metrics.json",
+    prediction_records_path="views/predictions.jsonl",
     turn_record_paths=("turns/agent_turns.jsonl", "turns/debate_messages.jsonl", "turns/router_decisions.jsonl"),
-    diagnostic_paths=("diagnostics/rcta_diagnostics.json", "diagnostics/paired_statistics.json", "diagnostics/output_protocol_diagnostics.json"),
-    export_paths=("exports/rcta_comparison.json", "exports/paper_summary.csv"),
+    diagnostic_paths=(
+        "diagnostics/evf_diagnostics.json",
+        "diagnostics/paired_statistics.json",
+        "diagnostics/output_protocol_diagnostics.json",
+    ),
+    export_paths=("exports/evf_comparison.json", "exports/paper_summary.csv"),
 )

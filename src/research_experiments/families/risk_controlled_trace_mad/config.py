@@ -1,4 +1,4 @@
-"""RCTA-MAD 配置、公开方法集合与冻结不变量。"""
+"""统一 MAD 创新实验的版本、模型编组与协议配置。"""
 
 from __future__ import annotations
 
@@ -6,29 +6,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from research_experiments.core.controls.control_prompts import FREE_TEXT_V1_PROMPT_VERSION
-from research_experiments.family_runtime.config_helpers import apply_runtime_defaults, load_benchmarks, load_toml
-from research_experiments.family_runtime.method_catalog import MethodConfig, load_method_catalog
+from research_experiments.family_runtime.config_helpers import load_benchmarks, load_toml
 
-CONTROL_METHODS = ("cot_1", "sc_3", "sc_5", "sc_7", "sc_9")
-RCTA_METHODS = (
-    "adaptive_sc_9",
-    "gsa_trace_1",
+VERSION_STATUSES = frozenset({"active", "retired_negative", "retired_prerequisite_failure", "retired_superseded"})
+METHODS = (
+    "cot_1",
+    "qwen_sc_5",
+    "qwen_sc_9",
+    "mimo_sc_5",
+    "mimo_sc_9",
+    "heterogeneous_mv_5",
+    "heterogeneous_gsa_1",
     "mad_5a_r1",
-    "confidence_mad_5a_r1",
-    "rcta_certificate_shadow_1",
-    "rcta_1",
-    "rcta_no_certificate",
-    "rcta_existing_only",
+    "hcp_mad_budget10",
+    "minority_sentinel_reproduction",
+    "evf_mad_1",
 )
-FULL_METHODS = frozenset({
-    *CONTROL_METHODS,
-    "adaptive_sc_9",
-    "gsa_trace_1",
-    "mad_5a_r1",
-    "confidence_mad_5a_r1",
-    "rcta_1",
-})
 
 
 @dataclass(frozen=True)
@@ -38,151 +31,220 @@ class RuntimeProfile:
 
 
 @dataclass(frozen=True)
-class RctaProtocolConfig:
-    stage_a_candidates: int
-    sc_ceiling_candidates: int
-    trace_synthesizer_count: int
-    trigger_mode: str
-    trace_max_chars: int
-    board_max_chars: int
-    reasoning_word_limit: int
-    stage_a_temperature: float
-    synthesis_temperature: float
-    debate_temperature: float
-    top_p: float
-    stage_a_max_tokens: int
-    synthesis_max_tokens: int
-    debate_max_tokens: int
-    router_artifact: Path
-    router_mode: str
-    risk_limit: float
-    risk_delta: float
+class VersionRecord:
+    version_id: str
+    paper_name: str
+    status: str
+    source_commit: str
+    config_sha256: str
+    methods: tuple[str, ...]
+    representative_run: str
+    retirement_reason: str
+    claim_boundary: str
 
 
 @dataclass(frozen=True)
-class RctaExperimentConfig:
+class VersionRegistry:
+    active_version: str
+    versions: dict[str, VersionRecord]
+
+
+@dataclass(frozen=True)
+class EvfProtocolConfig:
+    stage_qwen_candidates: int
+    stage_mimo_candidates: int
+    evf_qwen_candidates: int
+    evf_mimo_candidates: int
+    trigger_mode: str
+    stage_temperature: float
+    selector_temperature: float
+    audit_temperature: float
+    cross_exam_temperature: float
+    top_p: float
+    selector_max_tokens: int
+    audit_max_tokens: int
+    cross_exam_max_tokens: int
+    trace_max_chars: int
+    board_max_chars: int
+    max_logical_calls: int
+    minimum_valid_stage_traces: int
+    provider_abstention_limit: float
+    challenger_required_passes: int
+    anchor_required_falsifications: int
+
+
+@dataclass(frozen=True)
+class MadInnovationExperimentConfig:
     name: str
     description: str
-    benchmark_configs: list[Path]
+    active_version: str
+    version_registry: Path
     protocol: Path
-    control_catalog: Path
-    control_methods: list[str]
-    rcta_methods: list[str]
-    method_order: list[str]
-    global_seed: int
-    control_prompt_version: str
+    benchmark_configs: list[Path]
+    qwen_model_ref: str
+    mimo_model_ref: str
     primary_model_ref: str
+    global_seed: int
     max_concurrent_requests: int
     requests_per_minute_limit: int
+    methods: list[str]
+    method_order: list[str]
     runtime_profiles: dict[str, RuntimeProfile]
     raw: dict[str, Any]
 
 
-def load_protocol_config(path: str | Path) -> RctaProtocolConfig:
+def load_version_registry(path: str | Path) -> VersionRegistry:
     payload = load_toml(path)
-    protocol = RctaProtocolConfig(
-        stage_a_candidates=int(payload.get("stage_a_candidates", 5)),
-        sc_ceiling_candidates=int(payload.get("sc_ceiling_candidates", 9)),
-        trace_synthesizer_count=int(payload.get("trace_synthesizer_count", 1)),
-        trigger_mode=str(payload.get("trigger_mode", "answer_disagreement")),
-        trace_max_chars=int(payload.get("trace_max_chars", 1200)),
-        board_max_chars=int(payload.get("board_max_chars", 7000)),
-        reasoning_word_limit=int(payload.get("reasoning_word_limit", 120)),
-        stage_a_temperature=float(payload.get("stage_a_temperature", 0.7)),
-        synthesis_temperature=float(payload.get("synthesis_temperature", 0.7)),
-        debate_temperature=float(payload.get("debate_temperature", 0.7)),
-        top_p=float(payload.get("top_p", 1.0)),
-        stage_a_max_tokens=int(payload.get("stage_a_max_tokens", 768)),
-        synthesis_max_tokens=int(payload.get("synthesis_max_tokens", 2048)),
-        debate_max_tokens=int(payload.get("debate_max_tokens", 2048)),
-        router_artifact=Path(str(payload.get("router_artifact", "configs/families/risk_controlled_trace_mad/router/rcta_v1.json"))),
-        router_mode=str(payload.get("router_mode", "shadow")),
-        risk_limit=float(payload.get("risk_limit", 1.0 / 3.0)),
-        risk_delta=float(payload.get("risk_delta", 0.05)),
+    records: dict[str, VersionRecord] = {}
+    for version_id, raw in dict(payload.get("versions") or {}).items():
+        status = str(raw.get("status") or "")
+        if status not in VERSION_STATUSES:
+            raise ValueError(f"Unsupported version status for {version_id}: {status!r}")
+        records[str(version_id)] = VersionRecord(
+            version_id=str(version_id),
+            paper_name=str(raw.get("paper_name") or version_id),
+            status=status,
+            source_commit=str(raw.get("source_commit") or ""),
+            config_sha256=str(raw.get("config_sha256") or ""),
+            methods=tuple(map(str, raw.get("methods") or [])),
+            representative_run=str(raw.get("representative_run") or ""),
+            retirement_reason=str(raw.get("retirement_reason") or ""),
+            claim_boundary=str(raw.get("claim_boundary") or ""),
+        )
+    active = str(payload.get("active_version") or "")
+    active_records = [record.version_id for record in records.values() if record.status == "active"]
+    if active not in records or active_records != [active]:
+        raise ValueError("Version registry must contain exactly one active version matching active_version.")
+    return VersionRegistry(active_version=active, versions=records)
+
+
+def require_active_version(registry: VersionRegistry, requested: str | None) -> VersionRecord:
+    version_id = requested or registry.active_version
+    if version_id not in registry.versions:
+        raise ValueError(f"Unknown MAD innovation version: {version_id}")
+    record = registry.versions[version_id]
+    if record.status != "active":
+        evidence = f"; representative_run={record.representative_run}" if record.representative_run else ""
+        raise ValueError(
+            f"Version {version_id} is {record.status} and cannot be run; "
+            f"checkout source_commit={record.source_commit} for exact reproduction{evidence}."
+        )
+    return record
+
+
+def load_protocol_config(path: str | Path) -> EvfProtocolConfig:
+    raw = load_toml(path)
+    protocol = EvfProtocolConfig(
+        **{
+            field: caster(raw[field])
+            for field, caster in {
+                "stage_qwen_candidates": int,
+                "stage_mimo_candidates": int,
+                "evf_qwen_candidates": int,
+                "evf_mimo_candidates": int,
+                "trigger_mode": str,
+                "stage_temperature": float,
+                "selector_temperature": float,
+                "audit_temperature": float,
+                "cross_exam_temperature": float,
+                "top_p": float,
+                "selector_max_tokens": int,
+                "audit_max_tokens": int,
+                "cross_exam_max_tokens": int,
+                "trace_max_chars": int,
+                "board_max_chars": int,
+                "max_logical_calls": int,
+                "minimum_valid_stage_traces": int,
+                "provider_abstention_limit": float,
+                "challenger_required_passes": int,
+                "anchor_required_falsifications": int,
+            }.items()
+        }
     )
-    fixed = {
-        "stage_a_candidates": (protocol.stage_a_candidates, 5),
-        "sc_ceiling_candidates": (protocol.sc_ceiling_candidates, 9),
-        "trace_synthesizer_count": (protocol.trace_synthesizer_count, 1),
+    required = {
+        "stage_qwen_candidates": (protocol.stage_qwen_candidates, 9),
+        "stage_mimo_candidates": (protocol.stage_mimo_candidates, 9),
+        "evf_qwen_candidates": (protocol.evf_qwen_candidates, 3),
+        "evf_mimo_candidates": (protocol.evf_mimo_candidates, 2),
         "trigger_mode": (protocol.trigger_mode, "answer_disagreement"),
-        "trace_max_chars": (protocol.trace_max_chars, 1200),
-        "board_max_chars": (protocol.board_max_chars, 7000),
+        "max_logical_calls": (protocol.max_logical_calls, 10),
     }
-    invalid = [f"{key}={actual!r} (required {expected!r})" for key, (actual, expected) in fixed.items() if actual != expected]
-    if invalid:
-        raise ValueError("RCTA-MAD V1 protocol is frozen: " + "; ".join(invalid))
-    if protocol.router_mode not in {"shadow", "frozen"}:
-        raise ValueError("router_mode must be 'shadow' or 'frozen'.")
-    if not 0.0 < protocol.risk_limit < 1.0 or not 0.0 < protocol.risk_delta < 1.0:
-        raise ValueError("risk_limit and risk_delta must lie in (0, 1).")
+    errors = [
+        f"{key}={actual!r}, required {expected!r}" for key, (actual, expected) in required.items() if actual != expected
+    ]
+    if errors:
+        raise ValueError("EVF-MAD v4 frozen invariant violation: " + "; ".join(errors))
+    if not 0 <= protocol.provider_abstention_limit < 1:
+        raise ValueError("provider_abstention_limit must lie in [0, 1).")
+    if protocol.minimum_valid_stage_traces < 3:
+        raise ValueError("minimum_valid_stage_traces must be at least three.")
     return protocol
 
 
-def load_experiment_config(path: str | Path) -> RctaExperimentConfig:
-    payload = load_toml(path)
-    runtime = apply_runtime_defaults(payload)
-    controls = [str(item) for item in payload.get("control_methods", CONTROL_METHODS)]
-    methods = [str(item) for item in payload.get("rcta_methods", RCTA_METHODS)]
-    if set(controls) - set(CONTROL_METHODS):
-        raise ValueError("Unsupported RCTA control methods: " + ", ".join(sorted(set(controls) - set(CONTROL_METHODS))))
-    if set(methods) - set(RCTA_METHODS):
-        raise ValueError("Unsupported RCTA methods: " + ", ".join(sorted(set(methods) - set(RCTA_METHODS))))
-    order = [str(item) for item in payload.get("method_order", [*controls, *methods])]
-    if set(order) != set(controls) | set(methods) or len(order) != len(set(order)):
-        raise ValueError("method_order must exactly cover unique control_methods and rcta_methods.")
-    if str(payload.get("control_prompt_version", FREE_TEXT_V1_PROMPT_VERSION)) != FREE_TEXT_V1_PROMPT_VERSION:
-        raise ValueError("RCTA Stage A must match single_agent_free_text_v1.")
-    profiles: dict[str, RuntimeProfile] = {}
-    for name, values in dict(payload.get("runtime_profiles") or {}).items():
-        profiles[str(name)] = RuntimeProfile(
+def load_experiment_config(path: str | Path) -> MadInnovationExperimentConfig:
+    raw = load_toml(path)
+    methods = list(map(str, raw.get("methods") or []))
+    unsupported = sorted(set(methods) - set(METHODS))
+    if unsupported or not methods or len(methods) != len(set(methods)):
+        raise ValueError(f"Invalid MAD innovation methods: unsupported={unsupported}")
+    registry_path = Path(str(raw["version_registry"]))
+    registry = load_version_registry(registry_path)
+    active_version = str(raw["active_version"])
+    if active_version != registry.active_version:
+        raise ValueError("Experiment active_version must match the version registry.")
+    profiles = {
+        str(name): RuntimeProfile(
             max_concurrent_requests=int(values["max_concurrent_requests"]),
             requests_per_minute_limit=int(values["requests_per_minute_limit"]),
         )
-    return RctaExperimentConfig(
-        name=str(payload["name"]),
-        description=str(payload["description"]),
-        benchmark_configs=[Path(item) for item in payload["benchmark_configs"]],
-        protocol=Path(payload["protocol"]),
-        control_catalog=Path(payload["control_catalog"]),
-        control_methods=controls,
-        rcta_methods=methods,
-        method_order=order,
-        global_seed=int(payload.get("global_seed", 42)),
-        control_prompt_version=FREE_TEXT_V1_PROMPT_VERSION,
-        primary_model_ref=str(payload["primary_model_ref"]),
-        max_concurrent_requests=int(runtime["max_concurrent_requests"]),
-        requests_per_minute_limit=int(runtime["requests_per_minute_limit"]),
+        for name, values in dict(raw.get("runtime_profiles") or {}).items()
+    }
+    return MadInnovationExperimentConfig(
+        name=str(raw["name"]),
+        description=str(raw["description"]),
+        active_version=active_version,
+        version_registry=registry_path,
+        protocol=Path(str(raw["protocol"])),
+        benchmark_configs=[Path(item) for item in raw["benchmark_configs"]],
+        qwen_model_ref=str(raw["qwen_model_ref"]),
+        mimo_model_ref=str(raw["mimo_model_ref"]),
+        primary_model_ref=str(raw["qwen_model_ref"]),
+        global_seed=int(raw.get("global_seed", 42)),
+        max_concurrent_requests=int(raw.get("max_concurrent_requests", 1000)),
+        requests_per_minute_limit=int(raw.get("requests_per_minute_limit", 1000)),
+        methods=methods,
+        method_order=list(methods),
         runtime_profiles=profiles,
-        raw=payload,
+        raw=raw,
     )
 
 
-def load_control_catalog(path: str | Path) -> dict[str, MethodConfig]:
-    return load_method_catalog(path)
-
-
-def runtime_for_provider(experiment: RctaExperimentConfig, provider: str) -> RuntimeProfile:
-    normalized = str(provider).lower()
-    for key, profile in experiment.runtime_profiles.items():
-        if key.lower() == normalized:
-            return profile
-    return RuntimeProfile(experiment.max_concurrent_requests, experiment.requests_per_minute_limit)
-
-
-def phase_methods(experiment: RctaExperimentConfig, phase_name: str) -> list[str]:
-    phase = dict(experiment.raw.get("phases", {}).get(phase_name, {}))
-    methods = [str(item) for item in phase.get("rcta_methods", experiment.rcta_methods)]
-    if not methods or set(methods) - set(experiment.rcta_methods):
-        raise ValueError(f"Phase {phase_name!r} has unsupported or empty rcta_methods.")
-    if phase_name == "full_seed42" and set(methods) - FULL_METHODS:
-        raise ValueError("full_seed42 may not include development-only ablations.")
+def phase_methods(experiment: MadInnovationExperimentConfig, phase_name: str) -> list[str]:
+    try:
+        phase = dict(experiment.raw["phases"][phase_name])
+    except KeyError as exc:
+        raise ValueError(f"Unknown canonical phase: {phase_name}") from exc
+    methods = list(map(str, phase.get("methods") or experiment.methods))
+    if not methods or set(methods) - set(experiment.methods):
+        raise ValueError(f"Phase {phase_name} contains invalid methods.")
     return methods
 
 
-def inspect_methods(experiment: RctaExperimentConfig) -> list[str]:
-    return [*experiment.control_methods, *experiment.rcta_methods]
+def runtime_for_provider(experiment: MadInnovationExperimentConfig, provider: str) -> RuntimeProfile:
+    try:
+        return experiment.runtime_profiles[str(provider)]
+    except KeyError as exc:
+        raise ValueError(f"No frozen runtime profile for provider {provider!r}.") from exc
 
 
-def inspect_benchmarks(experiment: RctaExperimentConfig) -> list[str]:
+def inspect_methods(experiment: MadInnovationExperimentConfig) -> list[str]:
+    return list(experiment.methods)
+
+
+def inspect_benchmarks(experiment: MadInnovationExperimentConfig) -> list[str]:
     return [item.slug for item in load_benchmarks(experiment)]
 
+
+# Narrow compatibility alias for shared runtime type hints; old family entry points are removed.
+RctaExperimentConfig = MadInnovationExperimentConfig
+RctaProtocolConfig = EvfProtocolConfig

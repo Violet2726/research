@@ -120,6 +120,7 @@ class FamilyRunRequest:
     runs_root: str | Path | None = None
     cache_root: str | Path | None = None
     resume_run_dir: str | Path | None = None
+    version: str | None = None
 
 
 @dataclass(frozen=True)

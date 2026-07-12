@@ -1,0 +1,21 @@
+stage_qwen_candidates = 9
+stage_mimo_candidates = 9
+evf_qwen_candidates = 3
+evf_mimo_candidates = 2
+trigger_mode = "answer_disagreement"
+stage_temperature = 0.7
+selector_temperature = 0.2
+audit_temperature = 0.2
+cross_exam_temperature = 0.2
+top_p = 1.0
+selector_max_tokens = 1024
+audit_max_tokens = 2048
+cross_exam_max_tokens = 2048
+trace_max_chars = 1400
+board_max_chars = 9000
+max_logical_calls = 10
+minimum_valid_stage_traces = 3
+provider_abstention_limit = 0.01
+challenger_required_passes = 2
+anchor_required_falsifications = 1
+

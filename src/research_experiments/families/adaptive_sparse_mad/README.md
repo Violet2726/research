@@ -1,6 +1,6 @@
 # A-SMAD (historical family)
 
-`adaptive_sparse_mad` is a frozen historical mechanism family. It remains in the repository so that earlier experiments and artifacts can be reproduced, but it is no longer an active innovation line. Do not add V10/V11-style variants here; new MAD mechanism work belongs in `blind_reconstructive_mad` (BRD-MAD).
+`adaptive_sparse_mad` is a frozen historical mechanism family. It remains in the repository so that earlier experiments and artifacts can be reproduced, but it is no longer an active innovation line. Do not add V10/V11-style variants here; new MAD mechanism work belongs in the unified `risk_controlled_trace_mad` versioned experiment.
 
 ## Preserved entry points
 

@@ -1,67 +1,90 @@
-"""RCTA 轨迹综合与预算匹配 MAD 提示。"""
+"""EVF-MAD 的票数盲化选择、对称审计与交叉答辩提示。"""
 
 from __future__ import annotations
 
-import json
-
 from research_experiments.core.data.datasets import DatasetSample
 
-RCTA_PROMPT_VERSION = "rcta_trace_synthesis_v1_2"
-RCTA_SCHEMA_VERSION = "rcta_trace_certificate_v1_1"
+EVF_PROMPT_VERSION = "evf_mad_v4_1"
+EVF_SELECTOR_SCHEMA_VERSION = "evf_challenger_selector_v1"
+EVF_AUDIT_SCHEMA_VERSION = "evf_symmetric_audit_v1"
 
 
-def build_synthesis_messages(sample: DatasetSample, board: str) -> list[dict[str, str]]:
-    schema = {
-        "reasoning_summary": "concise synthesis, target 80 words and never exceed 120 words",
-        "final_answer": "judgeable final answer only; string preferred, JSON scalar allowed",
-        "source_trace_ids": ["T1"],
-        "decisive_claim": "one decisive check",
-        "certificate_type": "arithmetic|symbolic|ordering|boolean|unsupported",
-        "certificate_payload": {},
-    }
+def build_selector_messages(sample: DatasetSample, board: str, *, anchor_label: str) -> list[dict[str, str]]:
     return [
         {
             "role": "system",
             "content": (
-                "You aggregate independent reasoning traces. Re-solve the problem using trace-level complementarity; "
-                "do not merely follow the majority. Return exactly one JSON object and no markdown. "
-                "Do not expose step-by-step deliberation: emit only the short summary. Keep reasoning_summary under 80 words "
-                "and keep the entire JSON compact. Never report confidence. "
-                "Only claim a certificate when its payload is mechanically checkable."
+                "You select one existing non-anchor candidate for a falsification test. "
+                "Vote counts and candidate order are hidden. Do not invent an answer. "
+                "Return one JSON object only."
             ),
         },
         {
             "role": "user",
             "content": (
-                f"Question:\n{sample.question}\n\nAnonymous traces:\n{board}\n\n"
-                "Return this exact JSON schema:\n"
-                + json.dumps(schema, ensure_ascii=False)
-                + "\nCertificate payloads: arithmetic={expression,claimed_value}; "
-                "symbolic={left,right,substitutions}; ordering={items,ordered_items,direction}; "
-                "boolean={expression,variables,claimed_value}. Use unsupported with {} when no safe certificate applies."
+                f"Question:\n{sample.question}\n\nAnonymous candidates:\n{board}\n\n"
+                f"The current anchor is Candidate {anchor_label}. Select exactly one different label.\n"
+                '{"challenger_label":"A","decisive_difference":"brief falsifiable difference"}'
             ),
         },
     ]
 
 
-def build_debate_update_messages(sample: DatasetSample, own: dict, peers: list[dict], *, confidence_mode: bool) -> list[dict[str, str]]:
-    peer_text = "\n\n".join(
-        f"Peer {index}:\n{str((row.get('validated_output') or {}).get('reasoning') or row.get('assistant_text') or '')}\n"
-        f"FINAL: {row.get('normalized_answer') or row.get('prediction') or ''}"
-        for index, row in enumerate(peers, start=1)
-    )
-    confidence_instruction = (
-        "Communicate a calibrated confidence number from 0 to 1 and condition revisions on the peers' evidence, not rhetoric. "
-        if confidence_mode else ""
-    )
+def build_audit_messages(sample: DatasetSample, board: str) -> list[dict[str, str]]:
     return [
-        {"role": "system", "content": "You are revising one answer after one controlled multi-agent discussion round."},
+        {
+            "role": "system",
+            "content": (
+                "Act as a symmetric verifier. Evaluate both anonymous candidates independently; do not infer vote counts. "
+                "Prefer an existing candidate only when evidence supports it. Emit bounded JSON only. "
+                "Every evidence item must bind target_label and use one safe test_type: arithmetic, symbolic, collection, boolean, graph, unsupported. "
+                "Use at most 10 evidence items. Support must recompute the target with relation eq; falsification must compare a recomputed value directly against the target with relation ne. "
+                "Never output Python code, imports, files, network operations, confidence scores, or a new answer."
+            ),
+        },
         {
             "role": "user",
             "content": (
-                f"Question:\n{sample.question}\n\nYour previous response:\n{own.get('assistant_text','')}\n\nOther responses:\n{peer_text}\n\n"
-                + confidence_instruction
-                + "Return REASONING then FINAL_ANSWER using the standard tagged-line contract."
+                f"Question:\n{sample.question}\n\nCandidates:\n{board}\n\n"
+                "Return this schema:\n"
+                '{"preferred_label":"A","decisive_claim":"...","evidence":['
+                '{"target_label":"A","claim_kind":"support|falsify",'
+                '"test_type":"arithmetic|symbolic|collection|boolean|graph|unsupported","payload":{}}]}\n'
+                "For arithmetic/symbolic payload use left,right,relation where relation is exactly eq or ne. "
+                "For collection use items,expected_items,mode,relation. "
+                "For boolean use expression,variables,expected. "
+                "For graph use edges,source,target,reachable,directed."
             ),
         },
     ]
+
+
+def build_cross_exam_messages(
+    sample: DatasetSample,
+    board: str,
+    *,
+    assigned_label: str,
+    opposing_claim: str,
+) -> list[dict[str, str]]:
+    return [
+        {
+            "role": "system",
+            "content": (
+                "Test the assigned candidate against the opposing audit. You may repair its reasoning or falsify it, "
+                "but you may not change candidates. Return the same audit JSON schema with one preferred_label and bounded evidence."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Question:\n{sample.question}\n\nCandidates:\n{board}\n\n"
+                f"Assigned candidate: {assigned_label}\nOpposing claim: {opposing_claim}\n"
+                "Return JSON using the symmetric audit schema."
+            ),
+        },
+    ]
+
+
+# Historical constant aliases are kept inside the sole family only for old artifact readers.
+RCTA_PROMPT_VERSION = EVF_PROMPT_VERSION
+RCTA_SCHEMA_VERSION = EVF_AUDIT_SCHEMA_VERSION

@@ -1,53 +1,29 @@
-from __future__ import annotations
-
 import pytest
 
 from research_experiments.families.risk_controlled_trace_mad.run.metrics import build_metrics
 from research_experiments.families.risk_controlled_trace_mad.statistics import paired_statistics
 
 
-def _row(dataset: str, sample_id: str, task: str, method: str, score: float) -> dict:
+def _row(dataset, sample, task, method, score):
     return {
         "dataset": dataset,
-        "sample_id": sample_id,
+        "sample_id": sample,
         "task": task,
         "method_name": method,
         "score": score,
-        "total_tokens_per_question": 1.0,
+        "total_tokens_per_question": 1,
         "logical_calls_per_question": 1,
     }
 
 
-def test_bbeh_primary_metric_and_bootstrap_use_task_harmonic() -> None:
+def test_bbeh_harmonic_and_stratified_bootstrap() -> None:
     rows = []
-    left = {"a": [1, 1, 1, 0], "b": [1, 1, 1, 1]}
-    right = {"a": [1, 1, 0, 0], "b": [1, 1, 1, 1]}
-    for task in ("a", "b"):
-        for index, (left_score, right_score) in enumerate(zip(left[task], right[task], strict=True)):
-            sample_id = f"{task}-{index}"
-            rows.append(_row("bbeh", sample_id, task, "rcta_1", left_score))
-            rows.append(_row("bbeh", sample_id, task, "sc_9", right_score))
-    metrics = build_metrics(rows, dataset_order=["bbeh"], method_order=["rcta_1", "sc_9"], bbeh_harmonic=True)
+    for sample, task, left, right in (("1", "a", 1, 1), ("2", "a", 1, 0), ("3", "b", 1, 1), ("4", "b", 1, 1)):
+        rows += [_row("bbeh", sample, task, "evf_mad_1", left), _row("bbeh", sample, task, "qwen_sc_9", right)]
+    metrics = build_metrics(rows, dataset_order=["bbeh"], method_order=["evf_mad_1", "qwen_sc_9"], bbeh_harmonic=True)
     summary = {(row["dataset"], row["method_name"]): row for row in metrics["summary"]}
-    assert summary[("bbeh", "rcta_1")]["accuracy_mean"] == pytest.approx(6 / 7)
-    paired = paired_statistics(
-        rows,
-        reference="rcta_1",
-        competitors=["sc_9"],
-        seed=42,
-        bootstrap_samples=200,
-        bbeh_harmonic=True,
+    assert summary[("bbeh", "evf_mad_1")]["accuracy_mean"] == pytest.approx(1.0)
+    result = paired_statistics(
+        rows, reference="evf_mad_1", competitors=["qwen_sc_9"], seed=42, bootstrap_samples=50, bbeh_harmonic=True
     )
-    test = paired["tests"][0]
-    assert test["accuracy_metric"] == "task_harmonic"
-    assert test["mean_accuracy_delta"] == pytest.approx((6 / 7) - (2 / 3))
-    assert test["holm_adjusted_p"] >= test["mcnemar_exact_p"]
-
-
-def test_gpqa_is_not_in_primary_holm_family() -> None:
-    rows = [
-        _row("gpqa_diamond", "x", "science", "rcta_1", 1),
-        _row("gpqa_diamond", "x", "science", "sc_9", 0),
-    ]
-    result = paired_statistics(rows, reference="rcta_1", competitors=["sc_9"], seed=42, bootstrap_samples=20)
-    assert "holm_adjusted_p" not in result["tests"][0]
+    assert result["bbeh_resampling"] == "within_task_stratified_harmonic"

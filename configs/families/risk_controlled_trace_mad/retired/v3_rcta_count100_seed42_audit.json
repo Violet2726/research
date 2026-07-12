@@ -1,0 +1,19 @@
+{
+  "audit_version": "rcta_v3_negative_audit_v1",
+  "status": "retired_prerequisite_failure",
+  "run_dir": "local/runs/risk_controlled_trace_mad/rcta_mad/count100_seed42/20260712T090005Z-xiaomimimo-mimo-v2.5",
+  "manifest_sha256": "878eeda3ef0a3b49a41cb61eff50cb66a77cc64fd4336629723033b7464a2cbc",
+  "predictions_sha256": "d19a3bb5728928dbf54ccc3da1108d3c8f5a830e2cfacca71828aba8381292b7",
+  "validation": {
+    "passed": false,
+    "request_failures": 1,
+    "protocol_failures": 6
+  },
+  "candidate_oracle": {
+    "omni_math_2_filtered": {"sc5_accuracy": 0.71, "oracle5_accuracy": 0.80, "gap": 0.09},
+    "bbeh": {"sc5_accuracy": 0.44, "oracle5_accuracy": 0.64, "gap": 0.20}
+  },
+  "gsa_gain_harm": {"corrected": 7, "harmed": 20},
+  "certificate": {"pass": 3, "fail": 4, "unsupported": 193},
+  "scientific_boundary": "该运行只证伪 GSA 综合器和可执行证书前提。正式方法是 rcta_certificate_shadow_1，未拟合或启用冻结 router，因此不能声称完整证伪风险路由。"
+}

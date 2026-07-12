@@ -1,10 +1,11 @@
-"""RCTA-MAD 独立样本执行链路。"""
+"""EVF-MAD 的异构样本执行链路。"""
 
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
@@ -13,31 +14,41 @@ from research_experiments.core.data.datasets import DatasetSample, select_sample
 from research_experiments.core.data.evaluation import normalize_prediction, score_prediction
 from research_experiments.core.execution.runner_common import execute_cached_request, iter_indexed_batch
 from research_experiments.families.risk_controlled_trace_mad.algorithms import (
-    build_feature_vector,
-    build_trace_board,
+    StageDecision,
+    build_candidate_board,
+    decide_override,
+    deterministic_challenger_fallback,
     majority_with_anchor_fallback,
+    normalized_answer,
     stage_decision,
 )
-from research_experiments.families.risk_controlled_trace_mad.certificates import (
-    CERTIFICATE_TYPES,
-    verify_certificate,
-)
+from research_experiments.families.risk_controlled_trace_mad.certificates import EVF_TEST_TYPES, verify_evidence
 from research_experiments.families.risk_controlled_trace_mad.config import (
-    RctaExperimentConfig,
-    RctaProtocolConfig,
+    EvfProtocolConfig,
+    MadInnovationExperimentConfig,
 )
 from research_experiments.families.risk_controlled_trace_mad.prompts import (
-    RCTA_SCHEMA_VERSION,
-    build_debate_update_messages,
-    build_synthesis_messages,
+    EVF_AUDIT_SCHEMA_VERSION,
+    EVF_SELECTOR_SCHEMA_VERSION,
+    build_audit_messages,
+    build_cross_exam_messages,
+    build_selector_messages,
 )
-from research_experiments.families.risk_controlled_trace_mad.router import RiskRouter
 from research_experiments.family_runtime.common import resolve_phase_split_name
 from research_experiments.family_runtime.free_text_protocol import FREE_TEXT_ANSWER_PROTOCOL_V1
 from research_experiments.family_runtime.output_protocols import execute_output_protocol_turn
 
 
-def resolve_split_name(experiment: RctaExperimentConfig, phase_name: str, dataset: str) -> str:
+@dataclass(frozen=True)
+class ModelEndpoint:
+    lineage: str
+    backbone: Any
+    provider: Any
+    cache: Any
+    throttle: Any
+
+
+def resolve_split_name(experiment: MadInnovationExperimentConfig, phase_name: str, dataset: str) -> str:
     return resolve_phase_split_name(experiment, phase_name, dataset)
 
 
@@ -51,14 +62,12 @@ def run_batch(
     dataset: str,
     split_name: str,
     samples: list[DatasetSample],
-    experiment: RctaExperimentConfig,
-    protocol: RctaProtocolConfig,
+    experiment: MadInnovationExperimentConfig,
+    protocol: EvfProtocolConfig,
     active_methods: list[str],
-    backbone,
-    provider,
-    cache,
-    throttle,
-    router: RiskRouter | None,
+    qwen: ModelEndpoint,
+    mimo: ModelEndpoint,
+    max_concurrent_samples: int,
 ) -> Iterator[tuple[int, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]]:
     worker = partial(
         run_sample,
@@ -68,13 +77,10 @@ def run_batch(
         experiment=experiment,
         protocol=protocol,
         active_methods=active_methods,
-        backbone=backbone,
-        provider=provider,
-        cache=cache,
-        throttle=throttle,
-        router=router,
+        qwen=qwen,
+        mimo=mimo,
     )
-    for index, result in iter_indexed_batch(samples, worker=worker, max_concurrent_requests=experiment.max_concurrent_requests):
+    for index, result in iter_indexed_batch(samples, worker=worker, max_concurrent_requests=max_concurrent_samples):
         yield index, *result
 
 
@@ -84,406 +90,891 @@ def run_sample(
     run_id: str,
     dataset: str,
     split_name: str,
-    experiment: RctaExperimentConfig,
-    protocol: RctaProtocolConfig,
+    experiment: MadInnovationExperimentConfig,
+    protocol: EvfProtocolConfig,
     active_methods: list[str],
-    backbone,
-    provider,
-    cache,
-    throttle,
-    router: RiskRouter | None,
+    qwen: ModelEndpoint,
+    mimo: ModelEndpoint,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-    stage_rows = _run_stage_pool(
+    qwen_rows, mimo_rows = _run_stage_pools(
         run_id=run_id,
         dataset=dataset,
         split_name=split_name,
         sample=sample,
         experiment=experiment,
         protocol=protocol,
-        backbone=backbone,
-        provider=provider,
-        cache=cache,
-        throttle=throttle,
+        qwen=qwen,
+        mimo=mimo,
     )
-    first_five = stage_rows[:5]
-    stage = stage_decision(first_five)
-    anchor_score = score_prediction(dataset, stage.anchor_answer, sample.reference_answer)
-    all_turns = list(stage_rows)
-    debate_rows: list[dict[str, Any]] = []
+    mixed_rows = [*qwen_rows[:3], *mimo_rows[:2]]
+    stage = stage_decision(mixed_rows, qwen_rows=qwen_rows[:3])
+    turns = [*qwen_rows, *mimo_rows]
+    messages: list[dict[str, Any]] = []
+    decisions: list[dict[str, Any]] = []
     predictions: list[dict[str, Any]] = []
+    model_name = f"{qwen.backbone.name}+{mimo.backbone.name}"
 
-    for control_name in experiment.control_methods:
-        count = int(control_name.rsplit("_", 1)[1]) if control_name.startswith("sc_") else 1
-        predictions.append(_prediction_from_votes(
-            run_id=run_id, dataset=dataset, split_name=split_name, sample=sample, backbone_name=backbone.name,
-            method_name=control_name, method_type="control", rows=stage_rows[:count], anchor=stage.anchor_answer,
-        ))
-
-    if "adaptive_sc_9" in active_methods:
-        adaptive_rows = stage_rows if stage.triggered else first_five
-        predictions.append(_prediction_from_votes(
-            run_id=run_id, dataset=dataset, split_name=split_name, sample=sample, backbone_name=backbone.name,
-            method_name="adaptive_sc_9", method_type="rcta", rows=adaptive_rows, anchor=stage.anchor_answer,
-            initial_rows=first_five, additional_rows=stage_rows[5:] if stage.triggered else [],
-        ))
-
-    synthesis_turn: dict[str, Any] | None = None
-    synthesis: dict[str, Any] = {}
-    certificate = {"status": "unsupported", "certificate_type": "unsupported", "detail": "not_triggered"}
-    feature_vector: dict[str, float] | None = None
-    board = ""
-    board_counts: dict[str, int] = {}
-    synthesis_methods = {"gsa_trace_1", "rcta_certificate_shadow_1", "rcta_1", "rcta_no_certificate", "rcta_existing_only"}
-    if stage.triggered and synthesis_methods.intersection(active_methods):
-        board, board_counts = build_trace_board(
-            first_five, seed=experiment.global_seed, sample_id=sample.sample_id,
-            trace_max_chars=protocol.trace_max_chars, board_max_chars=protocol.board_max_chars,
-        )
-        synthesis_turn = _execute_synthesis_turn(
-            run_id=run_id, dataset=dataset, split_name=split_name, sample=sample, board=board,
-            backbone=backbone, provider=provider, cache=cache, throttle=throttle,
-            temperature=protocol.synthesis_temperature, top_p=protocol.top_p,
-            seed=experiment.global_seed + 20_000, max_tokens=protocol.synthesis_max_tokens,
-            reasoning_word_limit=protocol.reasoning_word_limit,
-        )
-        all_turns.append(synthesis_turn)
-        synthesis = dict(synthesis_turn.get("validated_output") or {})
-        synthesis_answer = str(synthesis.get("final_answer") or "")
-        if synthesis_answer:
-            synthesis["final_answer"] = normalize_prediction(dataset, synthesis_answer)
-        certificate = verify_certificate(
-            question=sample.question,
-            final_answer=str(synthesis.get("final_answer") or ""),
-            certificate_type=str(synthesis.get("certificate_type") or "unsupported"),
-            payload=dict(synthesis.get("certificate_payload") or {}),
-        )
-        feature_vector = build_feature_vector(first_five, synthesis, certificate)
-        debate_rows.append({
-            "run_id": run_id, "dataset": dataset, "split": split_name, "sample_id": sample.sample_id,
-            "method_name": "rcta_trace_synthesizer", "round_index": 1, "sender_agent_id": 1,
-            "recipient_agent_id": 0, "message_kind": "trace_synthesis", "sender_answer": synthesis.get("final_answer", ""),
-            "sender_reasoning": synthesis.get("reasoning_summary", ""),
-        })
-
-    if "gsa_trace_1" in active_methods:
-        predictions.append(_rcta_prediction(
-            run_id=run_id, dataset=dataset, split_name=split_name, sample=sample, backbone_name=backbone.name,
-            method_name="gsa_trace_1", stage_rows=first_five, stage=stage, anchor_score=anchor_score,
-            synthesis_turn=synthesis_turn, synthesis=synthesis, certificate=certificate, feature_vector=feature_vector,
-            accept=bool(synthesis.get("final_answer")), resolver="gsa_trace_always_accept", board=board, board_counts=board_counts,
-        ))
-
-    for method_name in [name for name in active_methods if name in {"rcta_certificate_shadow_1", "rcta_1", "rcta_no_certificate", "rcta_existing_only"}]:
-        router_result: dict[str, Any] = {"accept": False, "risk_score": None, "p_gain": None, "p_harm": None}
-        if router is not None and feature_vector is not None:
-            router_result = router.score(feature_vector, without_certificate=method_name == "rcta_no_certificate")
-        accept = bool(router_result["accept"])
-        if method_name == "rcta_certificate_shadow_1":
-            accept = False
-        if method_name == "rcta_existing_only" and str(synthesis.get("final_answer") or "") not in stage.vote_counts:
-            accept = False
-        predictions.append(_rcta_prediction(
-            run_id=run_id, dataset=dataset, split_name=split_name, sample=sample, backbone_name=backbone.name,
-            method_name=method_name, stage_rows=first_five, stage=stage, anchor_score=anchor_score,
-            synthesis_turn=synthesis_turn, synthesis=synthesis, certificate=certificate, feature_vector=feature_vector,
-            accept=accept, resolver=("rcta_risk_accept" if accept else "rcta_anchor_fallback"), board=board,
-            board_counts=board_counts, router_result=router_result,
-        ))
-
-    for method_name, confidence_mode in (("mad_5a_r1", False), ("confidence_mad_5a_r1", True)):
-        if method_name not in active_methods:
-            continue
-        updates = _run_debate_round(
-            run_id=run_id, dataset=dataset, split_name=split_name, sample=sample, stage_rows=first_five,
-            method_name=method_name, confidence_mode=confidence_mode, experiment=experiment, protocol=protocol,
-            backbone=backbone, provider=provider, cache=cache, throttle=throttle,
-        ) if stage.triggered else []
-        all_turns.extend(updates)
-        method_rows = updates or first_five
-        prediction = _prediction_from_votes(
-            run_id=run_id, dataset=dataset, split_name=split_name, sample=sample, backbone_name=backbone.name,
-            method_name=method_name, method_type="mad", rows=method_rows, anchor=stage.anchor_answer,
-            initial_rows=first_five, additional_rows=updates,
-        )
-        predictions.append(prediction)
-        debate_rows.extend(_debate_message_rows(run_id, dataset, split_name, sample, method_name, updates))
-
-    router_row = {
-        "run_id": run_id, "dataset": dataset, "split": split_name, "sample_id": sample.sample_id,
-        "policy_name": "rcta_global_risk_v1", "triggered": stage.triggered, "anchor_answer": stage.anchor_answer,
-        "anchor_score": anchor_score, "vote_counts": stage.vote_counts, "disagreement_pattern": stage.disagreement_pattern,
-        "feature_vector": feature_vector, "certificate": certificate,
+    row_sets = {
+        "cot_1": qwen_rows[:1],
+        "qwen_sc_5": qwen_rows[:5],
+        "qwen_sc_9": qwen_rows[:9],
+        "mimo_sc_5": mimo_rows[:5],
+        "mimo_sc_9": mimo_rows[:9],
+        "heterogeneous_mv_5": mixed_rows,
     }
-    return all_turns, debate_rows, [router_row], predictions
+    for method in active_methods:
+        if method in row_sets:
+            method_rows = row_sets[method]
+            method_stage = stage_decision(method_rows, qwen_rows=qwen_rows[:3])
+            predictions.append(
+                _vote_prediction(
+                    run_id=run_id,
+                    dataset=dataset,
+                    split_name=split_name,
+                    sample=sample,
+                    model_name=model_name,
+                    method_name=method,
+                    rows=method_rows,
+                    anchor=method_stage.anchor_answer,
+                    initial_rows=mixed_rows,
+                    initial_stage=stage,
+                )
+            )
+
+    if "hcp_mad_budget10" in active_methods:
+        hcp_rows = [*mixed_rows, *qwen_rows[3:6], *mimo_rows[2:4]]
+        predictions.append(
+            _vote_prediction(
+                run_id=run_id,
+                dataset=dataset,
+                split_name=split_name,
+                sample=sample,
+                model_name=model_name,
+                method_name="hcp_mad_budget10",
+                rows=hcp_rows,
+                anchor=stage.anchor_answer,
+                initial_rows=mixed_rows,
+                initial_stage=stage,
+            )
+        )
+
+    if "minority_sentinel_reproduction" in active_methods:
+        answer, reason = _minority_sentinel_nonofficial(mixed_rows, stage)
+        predictions.append(
+            _prediction(
+                run_id=run_id,
+                dataset=dataset,
+                split_name=split_name,
+                sample=sample,
+                model_name=model_name,
+                method_name="minority_sentinel_reproduction",
+                prediction=answer,
+                stage=stage,
+                initial_rows=mixed_rows,
+                additional_rows=[],
+                resolver=reason,
+                method_metadata={"reproduction_status": "non_official_rule_reproduction"},
+            )
+        )
+
+    if "heterogeneous_gsa_1" in active_methods and stage.triggered:
+        gsa_turn = _run_gsa(run_id, dataset, split_name, sample, mixed_rows, experiment, protocol, qwen)
+        turns.append(gsa_turn)
+        gsa_answer = normalized_answer(gsa_turn) or stage.anchor_answer
+        predictions.append(
+            _prediction(
+                run_id=run_id,
+                dataset=dataset,
+                split_name=split_name,
+                sample=sample,
+                model_name=model_name,
+                method_name="heterogeneous_gsa_1",
+                prediction=gsa_answer,
+                stage=stage,
+                initial_rows=mixed_rows,
+                additional_rows=[gsa_turn],
+                resolver="heterogeneous_gsa",
+                method_metadata={"novel_answer": gsa_answer not in stage.vote_counts},
+            )
+        )
+    elif "heterogeneous_gsa_1" in active_methods:
+        predictions.append(
+            _prediction(
+                run_id=run_id,
+                dataset=dataset,
+                split_name=split_name,
+                sample=sample,
+                model_name=model_name,
+                method_name="heterogeneous_gsa_1",
+                prediction=stage.anchor_answer,
+                stage=stage,
+                initial_rows=mixed_rows,
+                additional_rows=[],
+                resolver="unanimous_no_trigger",
+            )
+        )
+
+    if "mad_5a_r1" in active_methods:
+        debate_turns = (
+            _run_mad_round(
+                run_id,
+                dataset,
+                split_name,
+                sample,
+                mixed_rows,
+                experiment,
+                protocol,
+                qwen,
+                mimo,
+            )
+            if stage.triggered
+            else []
+        )
+        turns.extend(debate_turns)
+        answer, _, resolver = majority_with_anchor_fallback(debate_turns or mixed_rows, stage.anchor_answer)
+        predictions.append(
+            _prediction(
+                run_id=run_id,
+                dataset=dataset,
+                split_name=split_name,
+                sample=sample,
+                model_name=model_name,
+                method_name="mad_5a_r1",
+                prediction=answer,
+                stage=stage,
+                initial_rows=mixed_rows,
+                additional_rows=debate_turns,
+                resolver=resolver,
+            )
+        )
+
+    if "evf_mad_1" in active_methods:
+        evf_turns, evf_messages, evf_decision, evf_prediction = _run_evf(
+            run_id=run_id,
+            dataset=dataset,
+            split_name=split_name,
+            sample=sample,
+            experiment=experiment,
+            protocol=protocol,
+            mixed_rows=mixed_rows,
+            stage=stage,
+            qwen=qwen,
+            mimo=mimo,
+            model_name=model_name,
+        )
+        turns.extend(evf_turns)
+        messages.extend(evf_messages)
+        decisions.append(evf_decision)
+        predictions.append(evf_prediction)
+
+    return turns, messages, decisions, predictions
 
 
-def _run_stage_pool(*, run_id, dataset, split_name, sample, experiment, protocol, backbone, provider, cache, throttle) -> list[dict[str, Any]]:
-    requests = []
-    for agent_id in range(1, protocol.sc_ceiling_candidates + 1):
-        requests.append({
-            "run_id": run_id, "dataset": dataset, "split_name": split_name, "sample": sample,
-            "method_name": "rcta_stage_a_shared", "method_type": "rcta_stage_a", "round_index": 0,
-            "agent_id": agent_id, "role": "initial", "messages": build_cot_messages(sample, agent_id, experiment.control_prompt_version),
-            "backbone": backbone, "provider": provider, "cache": cache, "throttle": throttle,
-            "temperature": protocol.stage_a_temperature, "top_p": protocol.top_p,
-            "seed": experiment.global_seed + agent_id - 1, "max_tokens": None,
-        })
-    with ThreadPoolExecutor(max_workers=protocol.sc_ceiling_candidates) as executor:
-        return list(executor.map(lambda values: _execute_free_text_turn(**values), requests))
+def _run_stage_pools(*, run_id, dataset, split_name, sample, experiment, protocol, qwen, mimo):
+    requests: list[tuple[ModelEndpoint, int, int]] = []
+    for index in range(protocol.stage_qwen_candidates):
+        requests.append((qwen, index + 1, experiment.global_seed + index))
+    for index in range(protocol.stage_mimo_candidates):
+        requests.append((mimo, index + 1, experiment.global_seed + 100 + index))
+
+    def execute(values):
+        endpoint, agent_id, seed = values
+        return _execute_free_text_turn(
+            run_id=run_id,
+            dataset=dataset,
+            split_name=split_name,
+            sample=sample,
+            method_name="evf_stage_a_shared",
+            method_type="evf_stage_a",
+            round_index=0,
+            agent_id=agent_id,
+            role=f"{endpoint.lineage}_solver",
+            messages=build_cot_messages(sample, agent_id, "single_agent_free_text_v1"),
+            endpoint=endpoint,
+            temperature=protocol.stage_temperature,
+            top_p=protocol.top_p,
+            seed=seed,
+            max_tokens=None,
+        )
+
+    with ThreadPoolExecutor(max_workers=len(requests)) as executor:
+        rows = list(executor.map(execute, requests))
+    return rows[: protocol.stage_qwen_candidates], rows[protocol.stage_qwen_candidates :]
 
 
 def _execute_free_text_turn(
-    *, run_id: str, dataset: str, split_name: str, sample: DatasetSample, method_name: str,
-    method_type: str, round_index: int, agent_id: int, role: str, messages: list[dict[str, str]],
-    backbone, provider, cache, throttle, temperature: float, top_p: float, seed: int,
-    max_tokens: int | None,
+    *,
+    run_id,
+    dataset,
+    split_name,
+    sample,
+    method_name,
+    method_type,
+    round_index,
+    agent_id,
+    role,
+    messages,
+    endpoint,
+    temperature,
+    top_p,
+    seed,
+    max_tokens,
 ) -> dict[str, Any]:
-    result = execute_output_protocol_turn(
-        backbone=backbone, provider=provider, cache=cache, throttle=throttle, sample=sample,
-        messages=messages, temperature=temperature, top_p=top_p, seed=seed, dataset=dataset,
-        role=role, output_protocol=FREE_TEXT_ANSWER_PROTOCOL_V1, max_tokens=max_tokens,
-    )
+    results = []
+    for _attempt in range(2):
+        result = execute_output_protocol_turn(
+            backbone=endpoint.backbone,
+            provider=endpoint.provider,
+            cache=endpoint.cache,
+            throttle=endpoint.throttle,
+            sample=sample,
+            messages=messages,
+            temperature=temperature,
+            top_p=top_p,
+            seed=seed,
+            dataset=dataset,
+            role=role,
+            output_protocol=FREE_TEXT_ANSWER_PROTOCOL_V1,
+            max_tokens=max_tokens,
+        )
+        results.append(result)
+        finish_reason = str(result.raw_finish_reason or "")
+        if result.output_status == "ok" or finish_reason == "content_filter" or result.request_error:
+            break
+        endpoint.cache.delete(result.cache_key)
+    result = results[-1]
+    finish_reason = str(result.raw_finish_reason or "")
     if result.output_status != "ok":
-        cache.delete(result.cache_key)
+        endpoint.cache.delete(result.cache_key)
+    abstention = finish_reason == "content_filter"
     answer = str(result.validated_output.get("final_answer") or "")
-    normalized = normalize_prediction(dataset, answer) if answer else ""
+    normalized = normalize_prediction(dataset, answer) if answer and result.output_status == "ok" else ""
+    usage = {
+        key: sum(float(item.usage.get(key) or 0) for item in results)
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+    }
     response = result.response_payload
+    events = [event for item in results for event in list(item.response_payload.get("request_started_at_events") or [])]
+    network_attempts = sum(
+        0 if item.cache_hit else int(item.response_payload.get("network_attempt_count") or 1) for item in results
+    )
     return {
-        "run_id": run_id, "dataset": dataset, "split": split_name, "sample_id": sample.sample_id,
-        "method_name": method_name, "method_type": method_type, "round_index": round_index,
-        "agent_id": agent_id, "role": role, "prompt_hash": result.prompt_hash, "cache_key": result.cache_key,
-        "prediction": normalized, "normalized_answer": normalized, "score": None,
-        "output_status": result.output_status, "prompt_tokens": float(result.usage.get("prompt_tokens") or 0),
-        "completion_tokens": float(result.usage.get("completion_tokens") or 0),
-        "total_tokens": float(result.usage.get("total_tokens") or 0),
-        "latency_ms": float(response.get("latency_ms") or 0), "cache_hit": result.cache_hit,
-        "request_error": result.request_error, "request_status": result.request_status,
-        "raw_finish_reason": result.raw_finish_reason, "output_protocol": result.output_protocol,
-        "protocol_parse_status": result.protocol_parse_status, "protocol_parse_error": result.protocol_parse_error,
-        "reason_present": result.reason_present, "request_count": result.request_count,
-        "cache_request_count": result.cache_request_count, "network_request_count": result.network_request_count,
-        "logical_call_count": 1, "network_attempt_count": int(response.get("network_attempt_count") or (0 if result.cache_hit else 1)),
-        "request_started_at": response.get("request_started_at"), "payload": result.payload,
-        "request_started_at_events": list(response.get("request_started_at_events") or []),
+        "run_id": run_id,
+        "dataset": dataset,
+        "split": split_name,
+        "sample_id": sample.sample_id,
+        "method_name": method_name,
+        "method_type": method_type,
+        "round_index": round_index,
+        "agent_id": agent_id,
+        "role": role,
+        "model_lineage": endpoint.lineage,
+        "model_name": endpoint.backbone.name,
+        "prompt_hash": result.prompt_hash,
+        "cache_key": result.cache_key,
+        "prediction": normalized,
+        "normalized_answer": normalized,
+        "score": None,
+        "output_status": "abstain" if abstention else result.output_status,
+        "provider_abstention": abstention,
+        "prompt_tokens": usage["prompt_tokens"],
+        "completion_tokens": usage["completion_tokens"],
+        "total_tokens": usage["total_tokens"],
+        "latency_ms": sum(float(item.response_payload.get("latency_ms") or 0) for item in results),
+        "cache_hit": all(item.cache_hit for item in results),
+        "request_error": result.request_error,
+        "request_status": result.request_status,
+        "raw_finish_reason": result.raw_finish_reason,
+        "output_protocol": result.output_protocol,
+        "protocol_parse_status": ("abstain" if abstention else result.protocol_parse_status),
+        "protocol_parse_error": result.protocol_parse_error,
+        "reason_present": result.reason_present,
+        "request_count": len(results) + network_attempts,
+        "cache_request_count": sum(item.cache_hit for item in results),
+        "network_request_count": network_attempts,
+        "logical_call_count": 1,
+        "network_attempt_count": network_attempts,
+        "protocol_attempt_count": len(results),
+        "request_started_at": response.get("request_started_at"),
+        "request_started_at_events": events,
+        "payload": result.payload,
         "assistant_text": str(response.get("assistant_text") or ""),
         "provider_reasoning_text": str(response.get("provider_reasoning_text") or ""),
         "validated_output": result.validated_output,
     }
 
 
-def parse_synthesis_output(raw_text: str, *, reasoning_word_limit: int = 120) -> dict[str, Any]:
-    text = str(raw_text or "").strip()
-    if text.startswith("```") and text.endswith("```"):
-        lines = text.splitlines()
-        text = "\n".join(lines[1:-1]).strip()
-    payload = json.loads(text)
-    if not isinstance(payload, dict):
-        raise ValueError("RCTA synthesis output must be a JSON object")
-    required = {"reasoning_summary", "final_answer", "source_trace_ids", "decisive_claim", "certificate_type", "certificate_payload"}
-    if not required.issubset(payload):
-        raise ValueError("Missing RCTA synthesis field(s): " + ", ".join(sorted(required - set(payload))))
-    for key in ("reasoning_summary", "final_answer", "decisive_claim", "certificate_type"):
-        if key == "final_answer" and isinstance(payload[key], (int, float, bool)):
-            payload[key] = str(payload[key])
-        if not isinstance(payload[key], str) or not payload[key].strip():
-            raise ValueError(f"RCTA synthesis field {key} must be non-empty text")
-    reasoning_words = payload["reasoning_summary"].split()
-    if len(reasoning_words) > reasoning_word_limit:
-        payload["reasoning_summary"] = " ".join(reasoning_words[:reasoning_word_limit])
-    trace_ids = payload["source_trace_ids"]
-    if not isinstance(trace_ids, list) or not all(isinstance(item, str) and item in {f"T{i}" for i in range(1, 6)} for item in trace_ids):
-        raise ValueError("source_trace_ids must contain only T1..T5")
-    if payload["certificate_type"] not in CERTIFICATE_TYPES or not isinstance(payload["certificate_payload"], dict):
-        raise ValueError("invalid certificate contract")
-    return {key: payload[key] for key in required}
+def _run_evf(*, run_id, dataset, split_name, sample, experiment, protocol, mixed_rows, stage, qwen, mimo, model_name):
+    turns: list[dict[str, Any]] = []
+    messages: list[dict[str, Any]] = []
+    anchor_score = (
+        score_prediction(dataset, stage.anchor_answer, sample.reference_answer) if stage.anchor_answer else 0.0
+    )
+    if stage.valid_trace_count < protocol.minimum_valid_stage_traces:
+        prediction = _prediction(
+            run_id=run_id,
+            dataset=dataset,
+            split_name=split_name,
+            sample=sample,
+            model_name=model_name,
+            method_name="evf_mad_1",
+            prediction=stage.anchor_answer,
+            stage=stage,
+            initial_rows=mixed_rows,
+            additional_rows=[],
+            resolver="insufficient_valid_stage_traces",
+            method_metadata={"evf_gate_passed": False, "evf_gate_reasons": ["insufficient_valid_stage_traces"]},
+        )
+        return (
+            turns,
+            messages,
+            _decision_row(
+                run_id,
+                dataset,
+                split_name,
+                sample,
+                stage,
+                anchor_score,
+                "",
+                [],
+                False,
+                ["insufficient_valid_stage_traces"],
+            ),
+            prediction,
+        )
+    if not stage.triggered:
+        prediction = _prediction(
+            run_id=run_id,
+            dataset=dataset,
+            split_name=split_name,
+            sample=sample,
+            model_name=model_name,
+            method_name="evf_mad_1",
+            prediction=stage.anchor_answer,
+            stage=stage,
+            initial_rows=mixed_rows,
+            additional_rows=[],
+            resolver="unanimous_no_trigger",
+            method_metadata={"evf_gate_passed": False, "evf_gate_reasons": ["unanimous"]},
+        )
+        return (
+            turns,
+            messages,
+            _decision_row(run_id, dataset, split_name, sample, stage, anchor_score, "", [], False, ["unanimous"]),
+            prediction,
+        )
+
+    selector_board, selector_map, selector_counts = build_candidate_board(
+        mixed_rows,
+        seed=experiment.global_seed,
+        sample_id=sample.sample_id,
+        purpose="selector",
+        trace_max_chars=protocol.trace_max_chars,
+        board_max_chars=protocol.board_max_chars,
+    )
+    anchor_label = next(label for label, answer in selector_map.items() if answer == stage.anchor_answer)
+    selector_turn = _execute_json_turn(
+        run_id=run_id,
+        dataset=dataset,
+        split_name=split_name,
+        sample=sample,
+        method_name="evf_challenger_selector",
+        role="challenger_selector",
+        messages=build_selector_messages(sample, selector_board, anchor_label=anchor_label),
+        endpoint=qwen,
+        temperature=protocol.selector_temperature,
+        top_p=protocol.top_p,
+        seed=experiment.global_seed + 20_000,
+        max_tokens=protocol.selector_max_tokens,
+        schema_version=EVF_SELECTOR_SCHEMA_VERSION,
+        parser=lambda raw: _parse_selector(raw, selector_map, stage.anchor_answer),
+    )
+    turns.append(selector_turn)
+    challenger = str((selector_turn.get("validated_output") or {}).get("challenger_answer") or "")
+    if not challenger:
+        challenger = deterministic_challenger_fallback(stage, seed=experiment.global_seed, sample_id=sample.sample_id)
+
+    audits: list[dict[str, Any]] = []
+    for endpoint, purpose, offset in ((qwen, "qwen-audit", 30_000), (mimo, "mimo-audit", 40_000)):
+        board, mapping, _ = build_candidate_board(
+            mixed_rows,
+            seed=experiment.global_seed,
+            sample_id=sample.sample_id,
+            purpose=purpose,
+            trace_max_chars=protocol.trace_max_chars,
+            board_max_chars=protocol.board_max_chars,
+            restrict_answers={stage.anchor_answer, challenger},
+        )
+        turn = _execute_json_turn(
+            run_id=run_id,
+            dataset=dataset,
+            split_name=split_name,
+            sample=sample,
+            method_name="evf_symmetric_audit",
+            role=purpose,
+            messages=build_audit_messages(sample, board),
+            endpoint=endpoint,
+            temperature=protocol.audit_temperature,
+            top_p=protocol.top_p,
+            seed=experiment.global_seed + offset,
+            max_tokens=protocol.audit_max_tokens,
+            schema_version=EVF_AUDIT_SCHEMA_VERSION,
+            parser=lambda raw, mapping=mapping: _parse_audit(raw, mapping, sample.question),
+        )
+        turns.append(turn)
+        if turn.get("output_status") == "ok":
+            audits.append(dict(turn["validated_output"]))
+
+    accepted, reasons = decide_override(
+        anchor=stage.anchor_answer,
+        challenger=challenger,
+        audits=audits,
+        challenger_required_passes=protocol.challenger_required_passes,
+        anchor_required_falsifications=protocol.anchor_required_falsifications,
+    )
+    if (
+        not accepted
+        and len(turns) == 3
+        and any(evidence.get("status") == "pass" for audit in audits for evidence in audit.get("evidence_results", []))
+    ):
+        cross_audits: list[dict[str, Any]] = []
+        opposing = " | ".join(str(audit.get("decisive_claim") or "") for audit in audits)
+        for endpoint, assigned, purpose, offset in (
+            (qwen, stage.anchor_answer, "qwen-cross", 50_000),
+            (mimo, challenger, "mimo-cross", 60_000),
+        ):
+            board, mapping, _ = build_candidate_board(
+                mixed_rows,
+                seed=experiment.global_seed,
+                sample_id=sample.sample_id,
+                purpose=purpose,
+                trace_max_chars=protocol.trace_max_chars,
+                board_max_chars=protocol.board_max_chars,
+                restrict_answers={stage.anchor_answer, challenger},
+            )
+            assigned_label = next(label for label, answer in mapping.items() if answer == assigned)
+            turn = _execute_json_turn(
+                run_id=run_id,
+                dataset=dataset,
+                split_name=split_name,
+                sample=sample,
+                method_name="evf_cross_exam",
+                role=purpose,
+                messages=build_cross_exam_messages(
+                    sample, board, assigned_label=assigned_label, opposing_claim=opposing
+                ),
+                endpoint=endpoint,
+                temperature=protocol.cross_exam_temperature,
+                top_p=protocol.top_p,
+                seed=experiment.global_seed + offset,
+                max_tokens=protocol.cross_exam_max_tokens,
+                schema_version=EVF_AUDIT_SCHEMA_VERSION,
+                parser=lambda raw, mapping=mapping: _parse_audit(raw, mapping, sample.question),
+            )
+            turns.append(turn)
+            if turn.get("output_status") == "ok":
+                cross_audits.append(dict(turn["validated_output"]))
+        if len(cross_audits) == 2:
+            audits = cross_audits
+            accepted, reasons = decide_override(
+                anchor=stage.anchor_answer,
+                challenger=challenger,
+                audits=audits,
+                challenger_required_passes=protocol.challenger_required_passes,
+                anchor_required_falsifications=protocol.anchor_required_falsifications,
+            )
+
+    prediction_answer = challenger if accepted else stage.anchor_answer
+    prediction = _prediction(
+        run_id=run_id,
+        dataset=dataset,
+        split_name=split_name,
+        sample=sample,
+        model_name=model_name,
+        method_name="evf_mad_1",
+        prediction=prediction_answer,
+        stage=stage,
+        initial_rows=mixed_rows,
+        additional_rows=turns,
+        resolver="evf_executable_override" if accepted else "evf_anchor_fallback",
+        method_metadata={
+            "evf_gate_passed": accepted,
+            "evf_gate_reasons": reasons,
+            "challenger_answer": challenger,
+            "audit_count": len(audits),
+            "evidence_results": [item for audit in audits for item in audit.get("evidence_results", [])],
+            "candidate_answers": sorted(stage.vote_counts),
+            "candidate_oracle_correct": any(
+                score_prediction(dataset, answer, sample.reference_answer) == 1.0 for answer in stage.vote_counts
+            ),
+            "selector_board_char_count": len(selector_board),
+            "selector_trace_char_counts": selector_counts,
+            "novel_answer": prediction_answer not in stage.vote_counts,
+        },
+    )
+    messages.extend(
+        {
+            "run_id": run_id,
+            "dataset": dataset,
+            "split": split_name,
+            "sample_id": sample.sample_id,
+            "method_name": row["method_name"],
+            "round_index": row["round_index"],
+            "sender_agent_id": row["agent_id"],
+            "recipient_agent_id": 0,
+            "message_kind": row["role"],
+            "sender_answer": row.get("normalized_answer", ""),
+            "sender_reasoning": row.get("assistant_text", ""),
+        }
+        for row in turns
+    )
+    decision = _decision_row(
+        run_id, dataset, split_name, sample, stage, anchor_score, challenger, audits, accepted, reasons
+    )
+    return turns, messages, decision, prediction
 
 
-def _execute_synthesis_turn(
-    *, run_id, dataset, split_name, sample, board, backbone, provider, cache, throttle,
-    temperature, top_p, seed, max_tokens, reasoning_word_limit,
+def _execute_json_turn(
+    *,
+    run_id,
+    dataset,
+    split_name,
+    sample,
+    method_name,
+    role,
+    messages,
+    endpoint,
+    temperature,
+    top_p,
+    seed,
+    max_tokens,
+    schema_version,
+    parser: Callable[[str], dict[str, Any]],
 ) -> dict[str, Any]:
-    messages = build_synthesis_messages(sample, board)
+    requests = []
     validated: dict[str, Any] = {}
     parse_error = None
-    request = None
-    response: dict[str, Any] = {}
-    aggregate_usage = {"prompt_tokens": 0.0, "completion_tokens": 0.0, "total_tokens": 0.0}
-    aggregate_latency = 0.0
-    aggregate_network_attempts = 0
-    aggregate_cache_requests = 0
-    aggregate_request_events: list[str] = []
-    protocol_normalization_flags: list[str] = []
-    protocol_attempts = 0
-    for protocol_attempt in range(1, 3):
-        protocol_attempts = protocol_attempt
+    for _ in range(2):
         request = execute_cached_request(
-            backbone=backbone, provider=provider, cache=cache, throttle=throttle, messages=messages,
-            temperature=temperature, top_p=top_p, seed=seed, use_response_format=True, max_tokens=max_tokens,
+            backbone=endpoint.backbone,
+            provider=endpoint.provider,
+            cache=endpoint.cache,
+            throttle=endpoint.throttle,
+            messages=messages,
+            temperature=temperature,
+            top_p=top_p,
+            seed=seed,
+            use_response_format=True,
+            max_tokens=max_tokens,
         )
-        response = dict(request.response_payload)
-        for key in aggregate_usage:
-            aggregate_usage[key] += float(request.usage.get(key) or 0.0)
-        aggregate_latency += float(response.get("latency_ms") or 0.0)
-        aggregate_network_attempts += 0 if request.cache_hit else int(response.get("network_attempt_count") or 1)
-        aggregate_cache_requests += int(request.cache_hit)
-        if not request.cache_hit:
-            response_events = response.get("request_started_at_events")
-            if isinstance(response_events, list):
-                aggregate_request_events.extend(str(value) for value in response_events if value)
-            elif response.get("request_started_at"):
-                aggregate_request_events.append(str(response["request_started_at"]))
-        if request.request_error or str(response.get("finish_reason") or "") in {"length", "content_filter"}:
+        requests.append(request)
+        response = request.response_payload
+        finish = str(response.get("finish_reason") or "")
+        if request.request_error or finish in {"length", "content_filter"}:
+            endpoint.cache.delete(request.cache_key)
             break
         try:
-            raw_text = str(response.get("assistant_text") or "")
-            try:
-                raw_payload = json.loads(raw_text)
-            except (json.JSONDecodeError, TypeError):
-                raw_payload = {}
-            if isinstance(raw_payload, dict):
-                if isinstance(raw_payload.get("final_answer"), (int, float, bool)):
-                    protocol_normalization_flags.append("final_answer_json_scalar_to_text")
-                summary = raw_payload.get("reasoning_summary")
-                if isinstance(summary, str) and len(summary.split()) > reasoning_word_limit:
-                    protocol_normalization_flags.append("reasoning_summary_truncated_to_word_limit")
-            validated = parse_synthesis_output(raw_text, reasoning_word_limit=reasoning_word_limit)
+            validated = parser(str(response.get("assistant_text") or ""))
             break
         except Exception as exc:
             parse_error = str(exc)
-            cache.delete(request.cache_key)
-            if protocol_attempt == 2:
-                break
-    assert request is not None
-    if not validated and not request.request_error:
-        cache.delete(request.cache_key)
-    status = "request_fail" if request.request_error else ("ok" if validated else "protocol_fail")
-    answer = str(validated.get("final_answer") or "")
+            endpoint.cache.delete(request.cache_key)
+    request = requests[-1]
+    response = request.response_payload
+    if not validated:
+        endpoint.cache.delete(request.cache_key)
+    finish = str(response.get("finish_reason") or "")
+    abstention = finish == "content_filter"
+    status = (
+        "request_fail"
+        if request.request_error
+        else ("abstain" if abstention else ("ok" if validated else "protocol_fail"))
+    )
+    usage = {
+        key: sum(float(item.usage.get(key) or 0) for item in requests)
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+    }
+    events = [
+        event for item in requests for event in list(item.response_payload.get("request_started_at_events") or [])
+    ]
+    network_attempts = sum(
+        0 if item.cache_hit else int(item.response_payload.get("network_attempt_count") or 1) for item in requests
+    )
+    answer = str(
+        validated.get("final_answer") or validated.get("challenger_answer") or validated.get("preferred_answer") or ""
+    )
     return {
-        "run_id": run_id, "dataset": dataset, "split": split_name, "sample_id": sample.sample_id,
-        "method_name": "rcta_trace_synthesizer", "method_type": "rcta_synthesis", "round_index": 1,
-        "agent_id": 1, "role": "trace_synthesizer", "prompt_hash": request.prompt_hash, "cache_key": request.cache_key,
-        "prediction": answer, "normalized_answer": answer, "score": None, "output_status": status,
-        "prompt_tokens": aggregate_usage["prompt_tokens"], "completion_tokens": aggregate_usage["completion_tokens"],
-        "total_tokens": aggregate_usage["total_tokens"], "latency_ms": aggregate_latency,
-        "cache_hit": request.cache_hit, "request_error": request.request_error,
+        "run_id": run_id,
+        "dataset": dataset,
+        "split": split_name,
+        "sample_id": sample.sample_id,
+        "method_name": method_name,
+        "method_type": "evf_verification",
+        "round_index": 1,
+        "agent_id": 1,
+        "role": role,
+        "model_lineage": endpoint.lineage,
+        "model_name": endpoint.backbone.name,
+        "prompt_hash": request.prompt_hash,
+        "cache_key": request.cache_key,
+        "prediction": answer,
+        "normalized_answer": answer,
+        "score": None,
+        "output_status": status,
+        "provider_abstention": abstention,
+        "prompt_tokens": usage["prompt_tokens"],
+        "completion_tokens": usage["completion_tokens"],
+        "total_tokens": usage["total_tokens"],
+        "latency_ms": sum(float(item.response_payload.get("latency_ms") or 0) for item in requests),
+        "cache_hit": all(item.cache_hit for item in requests),
+        "request_error": request.request_error,
         "request_status": "request_fail" if request.request_error else "ok",
-        "raw_finish_reason": response.get("finish_reason"), "output_protocol": RCTA_SCHEMA_VERSION,
-        "protocol_parse_status": "not_attempted" if request.request_error else ("ok" if validated else "failed"),
-        "protocol_parse_error": parse_error, "reason_present": bool(validated.get("reasoning_summary")),
-        "request_count": aggregate_cache_requests + aggregate_network_attempts,
-        "cache_request_count": aggregate_cache_requests, "network_request_count": aggregate_network_attempts,
-        "logical_call_count": 1, "network_attempt_count": aggregate_network_attempts,
-        "protocol_attempt_count": protocol_attempts,
-        "protocol_normalization_flags": sorted(set(protocol_normalization_flags)),
-        "request_started_at": response.get("request_started_at"), "payload": request.payload,
-        "request_started_at_events": aggregate_request_events,
+        "raw_finish_reason": response.get("finish_reason"),
+        "output_protocol": schema_version,
+        "protocol_parse_status": "ok" if validated else ("abstain" if abstention else "failed"),
+        "protocol_parse_error": parse_error,
+        "reason_present": bool(validated.get("decisive_claim") or validated.get("decisive_difference")),
+        "request_count": len(requests) + network_attempts,
+        "cache_request_count": sum(item.cache_hit for item in requests),
+        "network_request_count": network_attempts,
+        "logical_call_count": 1,
+        "network_attempt_count": network_attempts,
+        "protocol_attempt_count": len(requests),
+        "request_started_at": response.get("request_started_at"),
+        "request_started_at_events": events,
+        "payload": request.payload,
         "assistant_text": str(response.get("assistant_text") or ""),
-        "provider_reasoning_text": str(response.get("provider_reasoning_text") or ""), "validated_output": validated,
+        "provider_reasoning_text": str(response.get("provider_reasoning_text") or ""),
+        "validated_output": validated,
     }
 
 
-def _run_debate_round(
-    *, run_id, dataset, split_name, sample, stage_rows, method_name, confidence_mode,
-    experiment, protocol, backbone, provider, cache, throttle,
-) -> list[dict[str, Any]]:
-    requests = []
-    for index, own in enumerate(stage_rows, start=1):
-        peers = [row for row in stage_rows if row is not own]
-        requests.append({
-            "run_id": run_id, "dataset": dataset, "split_name": split_name, "sample": sample,
-            "method_name": method_name, "method_type": "mad_update", "round_index": 1, "agent_id": index,
-            "role": "debate_update", "messages": build_debate_update_messages(sample, own, peers, confidence_mode=confidence_mode),
-            "backbone": backbone, "provider": provider, "cache": cache, "throttle": throttle,
-            "temperature": protocol.debate_temperature, "top_p": protocol.top_p,
-            "seed": experiment.global_seed + 30_000 + index + (100 if confidence_mode else 0),
-            "max_tokens": protocol.debate_max_tokens,
-        })
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        return list(executor.map(lambda values: _execute_free_text_turn(**values), requests))
+def _parse_selector(raw_text: str, mapping: dict[str, str], anchor: str) -> dict[str, Any]:
+    payload = _json_object(raw_text)
+    label = str(payload.get("challenger_label") or "")
+    difference = str(payload.get("decisive_difference") or "").strip()
+    if label not in mapping or mapping[label] == anchor or not difference:
+        raise ValueError("selector must choose one existing non-anchor label with a decisive difference")
+    return {"challenger_label": label, "challenger_answer": mapping[label], "decisive_difference": difference[:1000]}
 
 
-def _prediction_from_votes(
-    *, run_id, dataset, split_name, sample, backbone_name, method_name, method_type, rows, anchor,
-    initial_rows=None, additional_rows=None,
-) -> dict[str, Any]:
-    initial = list(initial_rows or rows)
-    additional = list(additional_rows or [])
-    initial_stage = stage_decision(initial[:5])
-    prediction, counts, resolver = majority_with_anchor_fallback(list(rows), anchor)
-    initial_answer = initial_stage.anchor_answer or anchor
-    score = score_prediction(dataset, prediction, sample.reference_answer)
-    initial_score = score_prediction(dataset, initial_answer, sample.reference_answer)
-    return _base_prediction(
-        run_id=run_id, dataset=dataset, split_name=split_name, sample=sample, backbone_name=backbone_name,
-        method_name=method_name, method_type=method_type, prediction=prediction, score=score,
-        initial_answer=initial_answer, initial_score=initial_score, vote_counts=counts,
-        initial_counts=initial_stage.vote_counts, initial_rows=initial, additional_rows=additional,
-        triggered=initial_stage.triggered, resolver=resolver, override=prediction != initial_answer,
-    )
-
-
-def _rcta_prediction(
-    *, run_id, dataset, split_name, sample, backbone_name, method_name, stage_rows, stage, anchor_score,
-    synthesis_turn, synthesis, certificate, feature_vector, accept, resolver, board, board_counts,
-    router_result=None,
-) -> dict[str, Any]:
-    synthesis_answer = str(synthesis.get("final_answer") or "")
-    valid_accept = bool(accept and synthesis_answer and synthesis_turn and synthesis_turn.get("output_status") == "ok")
-    prediction = synthesis_answer if valid_accept else stage.anchor_answer
-    score = score_prediction(dataset, prediction, sample.reference_answer)
-    turns = [*stage_rows, *([synthesis_turn] if synthesis_turn is not None else [])]
-    base = _base_prediction(
-        run_id=run_id, dataset=dataset, split_name=split_name, sample=sample, backbone_name=backbone_name,
-        method_name=method_name, method_type="rcta", prediction=prediction, score=score,
-        initial_answer=stage.anchor_answer, initial_score=anchor_score, vote_counts={prediction: 1},
-        initial_counts=stage.vote_counts, initial_rows=stage_rows,
-        additional_rows=[synthesis_turn] if synthesis_turn is not None else [],
-        triggered=stage.triggered, resolver=resolver if valid_accept else "rcta_anchor_fallback",
-        override=valid_accept and prediction != stage.anchor_answer,
-    )
-    synthesis_score = score_prediction(dataset, synthesis_answer, sample.reference_answer) if synthesis_answer else 0.0
-    base.update({
-        "synthesis_answer": synthesis_answer,
-        "synthesis_score": synthesis_score,
-        "synthesis_existing_candidate": synthesis_answer in stage.vote_counts,
-        "synthesis_source_trace_ids": list(synthesis.get("source_trace_ids") or []),
-        "decisive_claim": synthesis.get("decisive_claim"),
-        "certificate": certificate,
-        "feature_version": "rcta_router_features_v1",
-        "feature_vector": feature_vector,
-        "router_result": router_result or {},
-        "risk_score": (router_result or {}).get("risk_score"),
-        "p_gain": (router_result or {}).get("p_gain"),
-        "p_harm": (router_result or {}).get("p_harm"),
-        "board_char_count": len(board),
-        "trace_char_counts": board_counts,
-        "candidate_answers": sorted(stage.vote_counts),
-        "candidate_oracle_correct": any(score_prediction(dataset, answer, sample.reference_answer) == 1.0 for answer in stage.vote_counts),
-        "candidate_board_all_candidates_visible": all(f"Trace T{index}" in board for index in range(1, 6)) if board else None,
-        "protocol_normalization_flags": list((synthesis_turn or {}).get("protocol_normalization_flags") or []),
-        "logical_calls_per_question": 5 + int(synthesis_turn is not None),
-        "network_attempts_per_question": sum(int(row.get("network_attempt_count") or 0) for row in turns),
-    })
-    return base
-
-
-def _base_prediction(
-    *, run_id, dataset, split_name, sample, backbone_name, method_name, method_type, prediction, score,
-    initial_answer, initial_score, vote_counts, initial_counts, initial_rows, additional_rows,
-    triggered, resolver, override,
-) -> dict[str, Any]:
-    turns = [*initial_rows, *additional_rows]
+def _parse_audit(raw_text: str, mapping: dict[str, str], question: str) -> dict[str, Any]:
+    payload = _json_object(raw_text)
+    preferred_label = str(payload.get("preferred_label") or "")
+    if preferred_label not in mapping:
+        raise ValueError("audit preferred_label is not on the board")
+    decisive = str(payload.get("decisive_claim") or "").strip()
+    evidence_items = payload.get("evidence")
+    if not decisive or not isinstance(evidence_items, list) or len(evidence_items) > 10:
+        raise ValueError("audit evidence contract is invalid")
+    results = []
+    for raw in evidence_items:
+        if not isinstance(raw, dict):
+            raise ValueError("audit evidence item must be an object")
+        label = str(raw.get("target_label") or "")
+        if label not in mapping:
+            raise ValueError("evidence target is not on the board")
+        test_type = str(raw.get("test_type") or "unsupported")
+        if test_type not in EVF_TEST_TYPES:
+            raise ValueError("evidence test_type is invalid")
+        contract = {
+            "target_answer": mapping[label],
+            "claim_kind": str(raw.get("claim_kind") or ""),
+            "test_type": test_type,
+            "payload": raw.get("payload") or {},
+        }
+        results.append(verify_evidence(question=question, target_answer=mapping[label], evidence=contract))
     return {
-        "run_id": run_id, "dataset": dataset, "split": split_name, "sample_id": sample.sample_id,
-        "task": sample.metadata.get("task"), "method_name": method_name, "method_type": method_type,
-        "model_name": backbone_name, "prediction": prediction, "gold": sample.reference_answer, "score": score,
-        "initial_vote_prediction": initial_answer, "initial_vote_score": initial_score,
-        "initial_vote_counts": initial_counts, "initial_consensus": len(initial_counts) <= 1,
-        "final_vote_prediction": prediction, "final_vote_score": score, "final_vote_counts": vote_counts,
-        "prompt_tokens_per_question": _sum(turns, "prompt_tokens"),
-        "completion_tokens_per_question": _sum(turns, "completion_tokens"),
-        "total_tokens_per_question": _sum(turns, "total_tokens"),
-        "latency_ms_per_question": _sum(turns, "latency_ms"),
+        "preferred_label": preferred_label,
+        "preferred_answer": mapping[preferred_label],
+        "decisive_claim": decisive[:1500],
+        "evidence_results": results,
+    }
+
+
+def _json_object(raw_text: str) -> dict[str, Any]:
+    text = str(raw_text or "").strip()
+    if text.startswith("```") and text.endswith("```"):
+        text = "\n".join(text.splitlines()[1:-1]).strip()
+    payload = json.loads(text)
+    if not isinstance(payload, dict):
+        raise ValueError("JSON output must be an object")
+    return payload
+
+
+def _run_gsa(run_id, dataset, split_name, sample, rows, experiment, protocol, qwen):
+    board, mapping, _ = build_candidate_board(
+        rows,
+        seed=experiment.global_seed,
+        sample_id=sample.sample_id,
+        purpose="gsa",
+        trace_max_chars=protocol.trace_max_chars,
+        board_max_chars=protocol.board_max_chars,
+    )
+    prompt = [
+        {
+            "role": "system",
+            "content": "Synthesize the best final answer from the anonymous responses. Return JSON only.",
+        },
+        {
+            "role": "user",
+            "content": f'Question:\n{sample.question}\n\nResponses:\n{board}\n\nReturn {{"final_answer":"...","reasoning_summary":"..."}}',
+        },
+    ]
+    return _execute_json_turn(
+        run_id=run_id,
+        dataset=dataset,
+        split_name=split_name,
+        sample=sample,
+        method_name="heterogeneous_gsa_synthesis",
+        role="gsa_synthesis",
+        messages=prompt,
+        endpoint=qwen,
+        temperature=0.7,
+        top_p=protocol.top_p,
+        seed=experiment.global_seed + 70_000,
+        max_tokens=protocol.audit_max_tokens,
+        schema_version="heterogeneous_gsa_v1",
+        parser=lambda raw: _parse_gsa(raw, dataset),
+    )
+
+
+def _parse_gsa(raw: str, dataset: str) -> dict[str, Any]:
+    payload = _json_object(raw)
+    answer = str(payload.get("final_answer") or "").strip()
+    reasoning = str(payload.get("reasoning_summary") or "").strip()
+    if not answer or not reasoning:
+        raise ValueError("GSA output is incomplete")
+    return {"final_answer": normalize_prediction(dataset, answer), "reasoning_summary": reasoning[:1500]}
+
+
+def _run_mad_round(run_id, dataset, split_name, sample, rows, experiment, protocol, qwen, mimo):
+    requests = []
+    for index, own in enumerate(rows):
+        peers = [row for row in rows if row is not own]
+        peer_text = "\n\n".join(
+            f"Peer answer: {normalized_answer(row)}\n{str(row.get('assistant_text') or '')[:1000]}" for row in peers
+        )
+        prompt = [
+            {
+                "role": "system",
+                "content": "Re-solve independently after checking peer arguments. Return REASONING then FINAL_ANSWER.",
+            },
+            {
+                "role": "user",
+                "content": f"Question:\n{sample.question}\n\nYour answer: {normalized_answer(own)}\nPeers:\n{peer_text}",
+            },
+        ]
+        endpoint = qwen if own.get("model_lineage") == "qwen" else mimo
+        requests.append((endpoint, index + 1, prompt))
+
+    def execute(values):
+        endpoint, agent_id, prompt = values
+        return _execute_free_text_turn(
+            run_id=run_id,
+            dataset=dataset,
+            split_name=split_name,
+            sample=sample,
+            method_name="mad_5a_r1_update",
+            method_type="mad_update",
+            round_index=1,
+            agent_id=agent_id,
+            role="debate_update",
+            messages=prompt,
+            endpoint=endpoint,
+            temperature=0.7,
+            top_p=protocol.top_p,
+            seed=experiment.global_seed + 80_000 + agent_id,
+            max_tokens=protocol.cross_exam_max_tokens,
+        )
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        return list(executor.map(execute, requests))
+
+
+def _minority_sentinel_nonofficial(rows: list[dict[str, Any]], stage: StageDecision) -> tuple[str, str]:
+    support: dict[str, set[str]] = {}
+    for row in rows:
+        answer = normalized_answer(row)
+        if answer:
+            support.setdefault(answer, set()).add(str(row.get("model_lineage") or ""))
+    challengers = [
+        answer
+        for answer in stage.vote_counts
+        if answer != stage.anchor_answer and support.get(answer) == {"qwen", "mimo"}
+    ]
+    anchor_lineages = support.get(stage.anchor_answer, set())
+    if len(challengers) == 1 and len(anchor_lineages) == 1:
+        return challengers[0], "nonofficial_minority_sentinel_cross_lineage_flip"
+    return stage.anchor_answer, "nonofficial_minority_sentinel_anchor_fallback"
+
+
+def _vote_prediction(
+    *, run_id, dataset, split_name, sample, model_name, method_name, rows, anchor, initial_rows, initial_stage
+):
+    answer, _, resolver = majority_with_anchor_fallback(rows, anchor)
+    return _prediction(
+        run_id=run_id,
+        dataset=dataset,
+        split_name=split_name,
+        sample=sample,
+        model_name=model_name,
+        method_name=method_name,
+        prediction=answer,
+        stage=initial_stage,
+        initial_rows=initial_rows,
+        additional_rows=[row for row in rows if row not in initial_rows],
+        resolver=resolver,
+        logical_rows=rows,
+    )
+
+
+def _prediction(
+    *,
+    run_id,
+    dataset,
+    split_name,
+    sample,
+    model_name,
+    method_name,
+    prediction,
+    stage,
+    initial_rows,
+    additional_rows,
+    resolver,
+    method_metadata=None,
+    logical_rows=None,
+):
+    score = score_prediction(dataset, prediction, sample.reference_answer) if prediction else 0.0
+    initial_score = (
+        score_prediction(dataset, stage.anchor_answer, sample.reference_answer) if stage.anchor_answer else 0.0
+    )
+    rows = list(logical_rows or [*initial_rows, *additional_rows])
+    override = bool(prediction and prediction != stage.anchor_answer)
+    abstentions = sum(bool(row.get("provider_abstention")) for row in rows)
+    payload = {
+        "run_id": run_id,
+        "dataset": dataset,
+        "split": split_name,
+        "sample_id": sample.sample_id,
+        "task": sample.metadata.get("task"),
+        "method_name": method_name,
+        "method_type": "mad_innovation",
+        "model_name": model_name,
+        "prediction": prediction,
+        "gold": sample.reference_answer,
+        "score": score,
+        "initial_vote_prediction": stage.anchor_answer,
+        "initial_vote_score": initial_score,
+        "initial_vote_counts": stage.vote_counts,
+        "initial_consensus": not stage.triggered,
+        "final_vote_prediction": prediction,
+        "final_vote_score": score,
+        "final_vote_counts": {prediction: 1} if prediction else {},
+        "prompt_tokens_per_question": _sum(rows, "prompt_tokens"),
+        "completion_tokens_per_question": _sum(rows, "completion_tokens"),
+        "total_tokens_per_question": _sum(rows, "total_tokens"),
+        "latency_ms_per_question": _sum(rows, "latency_ms"),
         "initial_prompt_tokens_per_question": _sum(initial_rows, "prompt_tokens"),
         "initial_completion_tokens_per_question": _sum(initial_rows, "completion_tokens"),
         "initial_total_tokens_per_question": _sum(initial_rows, "total_tokens"),
@@ -492,41 +983,70 @@ def _base_prediction(
         "debate_completion_tokens_per_question": _sum(additional_rows, "completion_tokens"),
         "debate_total_tokens_per_question": _sum(additional_rows, "total_tokens"),
         "debate_latency_ms_per_question": _sum(additional_rows, "latency_ms"),
-        "calls_per_question": len(turns), "logical_calls_per_question": len(turns),
-        "network_attempts_per_question": sum(int(row.get("network_attempt_count") or 0) for row in turns),
-        "debate_rounds": 1 if additional_rows else 0, "agent_count": len(initial_rows),
-        "final_consensus": len(vote_counts) <= 1, "initial_disagreement": triggered,
-        "vote_flipped": override, "corrected_by_debate": initial_score < 1.0 and score == 1.0,
-        "harmed_by_debate": initial_score == 1.0 and score < 1.0,
-        "unchanged_correct": not override and score == 1.0, "unchanged_wrong": not override and score < 1.0,
-        "triggered": triggered, "router_reasons": ["answer_disagreement"] if triggered else [],
-        "resolver": resolver, "protocol_failures_per_question": sum(row.get("protocol_parse_status") == "failed" for row in turns),
-        "reason_missing_turns_per_question": sum(not row.get("reason_present") for row in turns),
-        "vote_counts": initial_counts, "override_accepted": override,
-        "stage_a_prompt_hashes": [str(row.get("prompt_hash") or "") for row in initial_rows[:5]],
+        "calls_per_question": len(rows),
+        "logical_calls_per_question": len(rows),
+        "network_attempts_per_question": sum(int(row.get("network_attempt_count") or 0) for row in rows),
+        "valid_trajectories_per_question": sum(bool(normalized_answer(row)) for row in initial_rows),
+        "provider_abstentions_per_question": abstentions,
+        "debate_rounds": int(bool(additional_rows)),
+        "agent_count": len(initial_rows),
+        "final_consensus": True,
+        "initial_disagreement": stage.triggered,
+        "vote_flipped": override,
+        "corrected_by_debate": initial_score < 1 and score == 1,
+        "harmed_by_debate": initial_score == 1 and score < 1,
+        "unchanged_correct": not override and score == 1,
+        "unchanged_wrong": not override and score < 1,
+        "triggered": stage.triggered,
+        "router_reasons": ["answer_disagreement"] if stage.triggered else [],
+        "resolver": resolver,
+        "protocol_failures_per_question": sum(row.get("protocol_parse_status") == "failed" for row in rows),
+        "request_failures_per_question": sum(row.get("output_status") == "request_fail" for row in rows),
+        "reason_missing_turns_per_question": sum(
+            row.get("protocol_parse_status") == "ok" and not row.get("reason_present") for row in rows
+        ),
+        "vote_counts": stage.vote_counts,
+        "override_accepted": override,
+        "stage_a_prompt_hashes": [str(row.get("prompt_hash") or "") for row in initial_rows],
+    }
+    payload.update(method_metadata or {})
+    return payload
+
+
+def _decision_row(run_id, dataset, split_name, sample, stage, anchor_score, challenger, audits, accepted, reasons):
+    return {
+        "run_id": run_id,
+        "dataset": dataset,
+        "split": split_name,
+        "sample_id": sample.sample_id,
+        "policy_name": "evf_executable_falsification_v4",
+        "triggered": stage.triggered,
+        "anchor_answer": stage.anchor_answer,
+        "anchor_score": anchor_score,
+        "vote_counts": stage.vote_counts,
+        "disagreement_pattern": stage.disagreement_pattern,
+        "anchor_resolver": stage.resolver,
+        "valid_trace_count": stage.valid_trace_count,
+        "challenger_answer": challenger,
+        "audits": audits,
+        "override_accepted": accepted,
+        "gate_reasons": reasons,
     }
 
 
-def _debate_message_rows(run_id, dataset, split_name, sample, method_name, turns):
-    return [{
-        "run_id": run_id, "dataset": dataset, "split": split_name, "sample_id": sample.sample_id,
-        "method_name": method_name, "round_index": 1, "sender_agent_id": row.get("agent_id"),
-        "recipient_agent_id": 0, "message_kind": "one_round_update", "sender_answer": row.get("normalized_answer", ""),
-        "sender_reasoning": row.get("assistant_text", ""),
-    } for row in turns]
+def _sum(rows, key):
+    return float(sum(float(row.get(key) or 0) for row in rows if row is not None))
 
 
-def _sum(rows: list[dict[str, Any]], key: str) -> float:
-    return float(sum(float(row.get(key) or 0.0) for row in rows if row is not None))
-
-
-def estimate_work(experiment: RctaExperimentConfig, phase_name: str, benchmarks, active_methods: list[str]) -> tuple[int, int]:
-    sample_total = 0
-    for benchmark in benchmarks:
-        sample_total += len(load_selected_samples(benchmark, resolve_split_name(experiment, phase_name, benchmark.slug)))
-    upper_calls = 9
-    if {"gsa_trace_1", "rcta_certificate_shadow_1", "rcta_1", "rcta_no_certificate", "rcta_existing_only"}.intersection(active_methods):
-        upper_calls += 1
-    upper_calls += 5 * int("mad_5a_r1" in active_methods)
-    upper_calls += 5 * int("confidence_mad_5a_r1" in active_methods)
-    return sample_total * upper_calls, sample_total * (len(experiment.control_methods) + len(active_methods))
+def estimate_work(
+    experiment: MadInnovationExperimentConfig, phase_name: str, benchmarks, active_methods: list[str]
+) -> tuple[int, int]:
+    sample_total = sum(
+        len(load_selected_samples(benchmark, resolve_split_name(experiment, phase_name, benchmark.slug)))
+        for benchmark in benchmarks
+    )
+    upper_calls = 18
+    upper_calls += 1 if "heterogeneous_gsa_1" in active_methods else 0
+    upper_calls += 5 if "mad_5a_r1" in active_methods else 0
+    upper_calls += 5 if "evf_mad_1" in active_methods else 0
+    return sample_total * upper_calls, sample_total * len(active_methods)

@@ -73,6 +73,7 @@ def dispatch_family_cli(registration: FamilyRegistration, argv: list[str] | None
                 runs_root=args.runs_root,
                 cache_root=args.cache_root,
                 resume_run_dir=getattr(args, "resume_run_dir", None),
+                version=getattr(args, "version", None),
             )
         )
         print(run_dir.as_posix())

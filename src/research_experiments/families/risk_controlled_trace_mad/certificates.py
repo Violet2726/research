@@ -7,12 +7,13 @@ import json
 import math
 import operator
 import re
-from collections import Counter
+from collections import Counter, deque
 from typing import Any
 
 import sympy
 
 CERTIFICATE_TYPES = frozenset({"arithmetic", "symbolic", "ordering", "boolean", "unsupported"})
+EVF_TEST_TYPES = frozenset({"arithmetic", "symbolic", "collection", "boolean", "graph", "unsupported"})
 _BIN_OPS = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
@@ -34,7 +35,9 @@ _COMPARE_OPS = {
 }
 
 
-def verify_certificate(*, question: str, final_answer: str, certificate_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+def verify_certificate(
+    *, question: str, final_answer: str, certificate_type: str, payload: dict[str, Any]
+) -> dict[str, Any]:
     kind = str(certificate_type or "unsupported").strip().lower()
     if kind not in CERTIFICATE_TYPES or kind == "unsupported" or not isinstance(payload, dict):
         return _result("unsupported", kind if kind in CERTIFICATE_TYPES else "unsupported", "no_supported_certificate")
@@ -59,7 +62,9 @@ def _verify_arithmetic(question: str, final_answer: str, payload: dict[str, Any]
     value = _eval_ast(ast.parse(expression, mode="eval").body, {})
     claimed_value = _eval_ast(ast.parse(str(claimed), mode="eval").body, {})
     final_value = _eval_ast(ast.parse(str(final_answer), mode="eval").body, {})
-    if not all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in (value, claimed_value, final_value)):
+    if not all(
+        isinstance(item, (int, float)) and not isinstance(item, bool) for item in (value, claimed_value, final_value)
+    ):
         raise ValueError("arithmetic certificate is not numeric")
     passed = math.isclose(float(value), float(claimed_value), rel_tol=1e-9, abs_tol=1e-9)
     passed = passed and math.isclose(float(claimed_value), float(final_value), rel_tol=1e-9, abs_tol=1e-9)
@@ -98,7 +103,11 @@ def _verify_ordering(question: str, final_answer: str, payload: dict[str, Any]) 
     items = payload.get("items")
     ordered = payload.get("ordered_items")
     direction = str(payload.get("direction") or "ascending").lower()
-    if not isinstance(items, list) or not isinstance(ordered, list) or not all(isinstance(item, str) for item in [*items, *ordered]):
+    if (
+        not isinstance(items, list)
+        or not isinstance(ordered, list)
+        or not all(isinstance(item, str) for item in [*items, *ordered])
+    ):
         raise ValueError("ordering lists are invalid")
     if not items or Counter(items) != Counter(ordered):
         return False, "ordering_not_a_permutation"
@@ -116,7 +125,11 @@ def _verify_boolean(question: str, final_answer: str, payload: dict[str, Any]) -
     expression = _text(payload, "expression")
     claimed = payload.get("claimed_value")
     variables = payload.get("variables") or {}
-    if not isinstance(claimed, bool) or not isinstance(variables, dict) or not all(isinstance(value, bool) for value in variables.values()):
+    if (
+        not isinstance(claimed, bool)
+        or not isinstance(variables, dict)
+        or not all(isinstance(value, bool) for value in variables.values())
+    ):
         raise ValueError("boolean payload is invalid")
     compact_expression = re.sub(r"\s+", "", expression).lower()
     compact_question = re.sub(r"\s+", "", question).lower()
@@ -185,7 +198,12 @@ def _sympy_ast(node: ast.AST, symbols: dict[str, sympy.Symbol]) -> sympy.Expr:
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
         value = _sympy_ast(node.operand, symbols)
         return value if isinstance(node.op, ast.UAdd) else -value
-    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "sqrt" and len(node.args) == 1:
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "sqrt"
+        and len(node.args) == 1
+    ):
         return sympy.sqrt(_sympy_ast(node.args[0], symbols))
     raise ValueError(f"unsafe symbolic node: {type(node).__name__}")
 
@@ -229,3 +247,191 @@ def _result(status: str, kind: str, detail: str) -> dict[str, Any]:
 def canonical_payload_hash(payload: dict[str, Any]) -> str:
     """Stable serialized payload used by diagnostics/tests without executing it."""
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def verify_evidence(*, question: str, target_answer: str, evidence: dict[str, Any]) -> dict[str, Any]:
+    """执行 EVF 白名单 DSL；任何歧义、未绑定或危险输入均降级为 unsupported。"""
+
+    kind = str(evidence.get("test_type") or "unsupported").strip().lower()
+    claim_kind = str(evidence.get("claim_kind") or "").strip().lower()
+    payload = evidence.get("payload")
+    declared_target = str(evidence.get("target_answer") or "").strip()
+    base = {"test_type": kind, "claim_kind": claim_kind, "target_answer": target_answer}
+    if kind not in EVF_TEST_TYPES or kind == "unsupported" or claim_kind not in {"support", "falsify"}:
+        return {**base, "status": "unsupported", "detail": "unsupported_contract"}
+    if not isinstance(payload, dict) or declared_target != target_answer:
+        return {**base, "status": "unsupported", "detail": "target_not_bound"}
+    try:
+        if kind == "arithmetic":
+            passed, detail = _verify_relation(question, target_answer, payload, symbolic=False, claim_kind=claim_kind)
+        elif kind == "symbolic":
+            passed, detail = _verify_relation(question, target_answer, payload, symbolic=True, claim_kind=claim_kind)
+        elif kind == "collection":
+            passed, detail = _verify_collection(question, target_answer, payload, claim_kind=claim_kind)
+        elif kind == "boolean":
+            passed, detail = _verify_evf_boolean(question, target_answer, payload, claim_kind=claim_kind)
+        else:
+            passed, detail = _verify_graph(question, target_answer, payload, claim_kind=claim_kind)
+    except (ArithmeticError, TypeError, ValueError, SyntaxError, sympy.SympifyError, OverflowError) as exc:
+        return {**base, "status": "unsupported", "detail": f"unsafe_or_unbound:{type(exc).__name__}"}
+    return {**base, "status": "pass" if passed else "fail", "detail": detail}
+
+
+def _verify_relation(
+    question: str, target_answer: str, payload: dict[str, Any], *, symbolic: bool, claim_kind: str
+) -> tuple[bool, str]:
+    left = _text(payload, "left")
+    right = _text(payload, "right")
+    raw_relation = str(payload.get("relation") or "eq").lower()
+    relation = {"equals": "eq", "equality": "eq", "not_equal": "ne", "not equals": "ne"}.get(raw_relation, raw_relation)
+    if relation not in {"eq", "ne", "lt", "le", "gt", "ge"}:
+        raise ValueError("invalid relation")
+    if claim_kind == "support" and relation != "eq":
+        raise ValueError("support evidence must prove equality")
+    if claim_kind == "falsify" and relation != "ne":
+        raise ValueError("falsification must prove target inequality")
+    context = question + " " + target_answer
+    if re.sub(r"\s+", "", target_answer).casefold() not in re.sub(r"\s+", "", left + right).casefold():
+        raise ValueError("target answer is absent from relation")
+    _require_operands_grounded(left, context)
+    _require_operands_grounded(right, context)
+    if symbolic:
+        symbols: dict[str, sympy.Symbol] = {}
+        left_value = _sympy_ast(ast.parse(left.replace("^", "**"), mode="eval").body, symbols)
+        right_value = _sympy_ast(ast.parse(right.replace("^", "**"), mode="eval").body, symbols)
+        _require_symbols_grounded(left + " " + right, context)
+        delta = sympy.simplify(left_value - right_value)
+        if relation == "eq":
+            result = delta == 0
+        elif relation == "ne":
+            result = delta != 0
+        else:
+            if getattr(delta, "free_symbols", set()):
+                raise ValueError("ordered symbolic relation is not closed")
+            result = _compare_values(float(left_value), float(right_value), relation)
+    else:
+        left_value = _eval_ast(ast.parse(left, mode="eval").body, {})
+        right_value = _eval_ast(ast.parse(right, mode="eval").body, {})
+        if isinstance(left_value, bool) or isinstance(right_value, bool):
+            raise ValueError("arithmetic relation is boolean")
+        result = _compare_values(float(left_value), float(right_value), relation)
+    return bool(result), f"{kind_name(symbolic)}_relation_recomputed"
+
+
+def kind_name(symbolic: bool) -> str:
+    return "symbolic" if symbolic else "arithmetic"
+
+
+def _compare_values(left: float, right: float, relation: str) -> bool:
+    if not math.isfinite(left) or not math.isfinite(right):
+        raise ValueError("non-finite value")
+    if relation == "eq":
+        return math.isclose(left, right, rel_tol=1e-9, abs_tol=1e-9)
+    if relation == "ne":
+        return not math.isclose(left, right, rel_tol=1e-9, abs_tol=1e-9)
+    return {"lt": left < right, "le": left <= right, "gt": left > right, "ge": left >= right}[relation]
+
+
+def _verify_collection(
+    question: str, target_answer: str, payload: dict[str, Any], *, claim_kind: str
+) -> tuple[bool, str]:
+    items = payload.get("items")
+    expected = payload.get("expected_items")
+    mode = str(payload.get("mode") or "multiset").lower()
+    raw_relation = str(payload.get("relation") or "eq").lower()
+    relation = {"equals": "eq", "equality": "eq", "not_equal": "ne"}.get(raw_relation, raw_relation)
+    if not isinstance(items, list) or not isinstance(expected, list) or mode not in {"set", "multiset", "ordered"}:
+        raise ValueError("invalid collection payload")
+    if not all(isinstance(item, (str, int, float, bool)) for item in [*items, *expected]):
+        raise ValueError("collection contains unsafe values")
+    if relation not in {"eq", "ne"}:
+        raise ValueError("invalid collection relation")
+    if (claim_kind == "support" and relation != "eq") or (claim_kind == "falsify" and relation != "ne"):
+        raise ValueError("collection relation does not match claim kind")
+    normalized_target = _answer_items(target_answer)
+    normalized_items = [str(item).strip().casefold() for item in items]
+    if normalized_target != normalized_items:
+        raise ValueError("collection is not bound to target answer")
+    for item in expected:
+        if (
+            str(item).strip().casefold() not in question.casefold()
+            and str(item).strip().casefold() not in target_answer.casefold()
+        ):
+            raise ValueError("collection item is not grounded")
+    normalized_expected = [str(item).strip().casefold() for item in expected]
+    if mode == "set":
+        equal = set(normalized_items) == set(normalized_expected)
+    elif mode == "multiset":
+        equal = Counter(normalized_items) == Counter(normalized_expected)
+    else:
+        equal = normalized_items == normalized_expected
+    return equal if relation == "eq" else not equal, "collection_relation_recomputed"
+
+
+def _answer_items(value: str) -> list[str]:
+    text = str(value).strip().strip("[](){}")
+    return [item.strip().strip("'\"").casefold() for item in re.split(r"\s*(?:,|;|->|<)\s*", text) if item.strip()]
+
+
+def _verify_evf_boolean(
+    question: str, target_answer: str, payload: dict[str, Any], *, claim_kind: str
+) -> tuple[bool, str]:
+    expression = _text(payload, "expression")
+    variables = payload.get("variables") or {}
+    expected = payload.get("expected")
+    if (
+        not isinstance(variables, dict)
+        or not isinstance(expected, bool)
+        or not all(isinstance(value, bool) for value in variables.values())
+    ):
+        raise ValueError("invalid boolean evidence")
+    _require_boolean_bindings_grounded(question, variables)
+    normalized_target = target_answer.strip().casefold()
+    if normalized_target not in {"true", "false", "yes", "no"}:
+        raise ValueError("boolean target is not bound")
+    target_value = normalized_target in {"true", "yes"}
+    if claim_kind == "support" and target_value is not expected:
+        raise ValueError("support boolean is not target-bound")
+    if claim_kind == "falsify" and target_value is expected:
+        raise ValueError("falsification boolean does not contradict target")
+    observed = _eval_ast(ast.parse(expression, mode="eval").body, {str(key): value for key, value in variables.items()})
+    return observed is expected, "boolean_expression_recomputed"
+
+
+def _verify_graph(question: str, target_answer: str, payload: dict[str, Any], *, claim_kind: str) -> tuple[bool, str]:
+    edges = payload.get("edges")
+    source = str(payload.get("source") or "")
+    target = str(payload.get("target") or "")
+    expected = payload.get("reachable")
+    directed = payload.get("directed", True)
+    if not isinstance(edges, list) or not isinstance(expected, bool) or not isinstance(directed, bool):
+        raise ValueError("invalid graph payload")
+    normalized_target = target_answer.strip().casefold()
+    if normalized_target not in {"true", "false", "yes", "no"}:
+        raise ValueError("graph result is not bound to target answer")
+    target_value = normalized_target in {"true", "yes"}
+    if claim_kind == "support" and target_value is not expected:
+        raise ValueError("support graph evidence is not target-bound")
+    if claim_kind == "falsify" and target_value is expected:
+        raise ValueError("falsification graph evidence does not contradict target")
+    graph: dict[str, set[str]] = {}
+    for edge in edges:
+        if not isinstance(edge, list) or len(edge) != 2 or not all(isinstance(item, str) and item for item in edge):
+            raise ValueError("invalid graph edge")
+        left, right = edge
+        if left.casefold() not in question.casefold() or right.casefold() not in question.casefold():
+            raise ValueError("graph entity is not grounded")
+        graph.setdefault(left, set()).add(right)
+        if not directed:
+            graph.setdefault(right, set()).add(left)
+    if source.casefold() not in question.casefold() or target.casefold() not in question.casefold():
+        raise ValueError("graph query is not grounded")
+    queue = deque([source])
+    seen = {source}
+    while queue:
+        node = queue.popleft()
+        for neighbor in graph.get(node, set()):
+            if neighbor not in seen:
+                seen.add(neighbor)
+                queue.append(neighbor)
+    return (target in seen) is expected, "graph_reachability_recomputed"
