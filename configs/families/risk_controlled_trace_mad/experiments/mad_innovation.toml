@@ -33,7 +33,7 @@ max_concurrent_requests = 1000
 requests_per_minute_limit = 1000
 
 [runtime_profiles.xiaomimimo]
-max_concurrent_requests = 8
+max_concurrent_requests = 12
 requests_per_minute_limit = 18
 
 [phases.count20_seed42]

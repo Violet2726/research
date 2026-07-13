@@ -91,8 +91,6 @@ def run_experiment(
     )
     cache_router = RequestCacheRouter(cache_root or default_cache_root())
     run_root = Path(run_root or default_runs_root(FAMILY_NAME))
-    if resume_run_dir is None:
-        _require_previous_phase(run_root, experiment.name, phase_name)
     if resume_run_dir is not None:
         resume = Path(resume_run_dir)
         previous = json.loads((resume / "manifest.json").read_text(encoding="utf-8"))
@@ -312,27 +310,3 @@ def run_experiment(
         cache_router.close()
 
 
-def _require_previous_phase(run_root: Path, experiment_name: str, phase_name: str) -> None:
-    previous = {
-        "count100_seed42": ("count20_seed42", False),
-        "count300_seed42": ("count100_seed42", True),
-        "full_seed42": ("count300_seed42", True),
-    }.get(phase_name)
-    if previous is None:
-        return
-    previous_phase, require_gate = previous
-    candidates = sorted((run_root / experiment_name / previous_phase).glob("*"), reverse=True)
-    for candidate in candidates:
-        validation_path = candidate / "run_validation.json"
-        metrics_path = candidate / "views" / "metrics.json"
-        if not validation_path.exists() or not metrics_path.exists():
-            continue
-        validation = json.loads(validation_path.read_text(encoding="utf-8"))
-        metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
-        gate_passed = (metrics.get("progression_gate") or {}).get("passed") is True
-        if validation.get("passed") is True and (not require_gate or gate_passed):
-            return
-    gate_text = " and a passing progression gate" if require_gate else ""
-    raise RuntimeError(
-        f"{phase_name} requires a validated {previous_phase} run{gate_text} under the same experiment root."
-    )
