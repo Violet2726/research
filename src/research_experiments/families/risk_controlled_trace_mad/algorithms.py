@@ -8,6 +8,8 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
+from research_experiments.core.data.evaluation import answer_class_key
+
 
 @dataclass(frozen=True)
 class StageDecision:
@@ -167,3 +169,147 @@ def decide_override(
     if challenger_failures:
         reasons.append("challenger_evidence_failed")
     return not reasons, reasons or ["executable_override_gate_passed"]
+
+
+@dataclass(frozen=True)
+class HomogeneousStageDecision:
+    anchor_key: str
+    anchor_answer: str
+    vote_counts: dict[str, int]
+    answer_by_key: dict[str, str]
+    disagreement_pattern: str
+    resolver: str
+    valid_trace_count: int
+
+    @property
+    def triggered(self) -> bool:
+        return len(self.vote_counts) > 1
+
+
+def stable_hash_index(values: list[str], *, seed: int, sample_id: str, purpose: str) -> str:
+    """Choose from a tie without depending on candidate or arrival order."""
+
+    ordered = sorted(values)
+    if not ordered:
+        return ""
+    digest = hashlib.sha256(f"hsgsa-v5:{seed}:{sample_id}:{purpose}".encode()).digest()
+    return ordered[int.from_bytes(digest[:8], "big") % len(ordered)]
+
+
+def homogeneous_stage_decision(
+    rows: list[dict[str, Any]], *, dataset: str, seed: int, sample_id: str, purpose: str = "stage"
+) -> HomogeneousStageDecision:
+    valid: list[tuple[str, dict[str, Any]]] = []
+    answer_by_key: dict[str, str] = {}
+    for row in rows:
+        answer = normalized_answer(row)
+        key = str(row.get("answer_class_key") or answer_class_key(dataset, answer)) if answer else ""
+        if not key:
+            continue
+        valid.append((key, row))
+        answer_by_key.setdefault(key, answer)
+    counts = Counter(key for key, _ in valid)
+    if not counts:
+        return HomogeneousStageDecision("", "", {}, {}, "0", "no_valid_votes", 0)
+    top = max(counts.values())
+    tied = [key for key, count in counts.items() if count == top]
+    anchor_key = stable_hash_index(tied, seed=seed, sample_id=sample_id, purpose=f"{purpose}:tie")
+    resolver = "answer_class_majority" if len(tied) == 1 else "sample_hash_tie_break"
+    ordered = sorted(counts, key=lambda key: (-counts[key], key))
+    return HomogeneousStageDecision(
+        anchor_key=anchor_key,
+        anchor_answer=answer_by_key[anchor_key],
+        vote_counts={key: counts[key] for key in ordered},
+        answer_by_key=answer_by_key,
+        disagreement_pattern="-".join(map(str, sorted(counts.values(), reverse=True))),
+        resolver=resolver,
+        valid_trace_count=len(valid),
+    )
+
+
+def class_majority(
+    rows: list[dict[str, Any]],
+    *,
+    dataset: str,
+    seed: int,
+    sample_id: str,
+    purpose: str,
+    fallback_key: str,
+    fallback_answer: str,
+) -> tuple[str, str, dict[str, int], str]:
+    decision = homogeneous_stage_decision(rows, dataset=dataset, seed=seed, sample_id=sample_id, purpose=purpose)
+    if not decision.anchor_key:
+        return fallback_key, fallback_answer, {}, "anchor_fallback_no_valid_votes"
+    return decision.anchor_key, decision.anchor_answer, decision.vote_counts, decision.resolver
+
+
+def build_support_blind_board(
+    rows: list[dict[str, Any]],
+    *,
+    dataset: str,
+    seed: int,
+    sample_id: str,
+    reviewer_index: int,
+    trace_max_chars: int,
+    board_max_chars: int,
+) -> tuple[str, dict[str, str], dict[str, str], dict[str, str]]:
+    """Build an independently permuted board with one hash-fixed trace per answer class."""
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    answer_by_key: dict[str, str] = {}
+    for row in rows:
+        answer = normalized_answer(row)
+        key = str(row.get("answer_class_key") or answer_class_key(dataset, answer)) if answer else ""
+        if key:
+            grouped.setdefault(key, []).append(row)
+            answer_by_key.setdefault(key, answer)
+    class_keys = sorted(
+        grouped,
+        key=lambda key: hashlib.sha256(
+            f"hsgsa-v5:{seed}:{sample_id}:reviewer:{reviewer_index}:label:{key}".encode()
+        ).hexdigest(),
+    )
+    labels = [chr(ord("A") + index) for index in range(len(class_keys))]
+    label_to_key = dict(zip(labels, class_keys, strict=True))
+    label_to_answer = {label: answer_by_key[key] for label, key in label_to_key.items()}
+    representative_hashes: dict[str, str] = {}
+    blocks: list[str] = []
+    for label, key in label_to_key.items():
+        representatives = sorted(
+            grouped[key],
+            key=lambda row: hashlib.sha256(
+                (
+                    f"hsgsa-v5:{seed}:{sample_id}:reviewer:{reviewer_index}:trace:"
+                    + str(row.get("prompt_hash") or "")
+                    + str(row.get("assistant_text") or "")
+                ).encode()
+            ).hexdigest(),
+        )
+        row = representatives[0]
+        raw_trace = str((row.get("validated_output") or {}).get("reasoning") or row.get("assistant_text") or "")
+        trace_hash = hashlib.sha256(raw_trace.encode()).hexdigest()
+        representative_hashes[label] = trace_hash
+        excerpt = balanced_excerpt(raw_trace, trace_max_chars)
+        blocks.append(f"Candidate {label}\nAnswer: {label_to_answer[label]}\nReasoning:\n{excerpt}")
+    rendered = "\n\n---\n\n".join(blocks)
+    if len(rendered) > board_max_chars:
+        raise ValueError("H-SGSA candidate board exceeds board_max_chars.")
+    return rendered, label_to_key, label_to_answer, representative_hashes
+
+
+def reviewer_selected_key(
+    reviewer_rows: list[dict[str, Any]], *, anchor_key: str, candidate_keys: set[str], required: int
+) -> tuple[str, str]:
+    valid = [
+        str((row.get("validated_output") or {}).get("picked_answer_class_key") or "")
+        for row in reviewer_rows
+        if row.get("output_status") == "ok"
+    ]
+    valid = [key for key in valid if key in candidate_keys and key != anchor_key]
+    counts = Counter(valid)
+    winners = [key for key, count in counts.items() if count >= required]
+    if len(winners) != 1:
+        return anchor_key, "anchor_fallback_no_unique_reviewer_quorum"
+    if required == 3 and (len(reviewer_rows) != 3 or len(valid) != 3 or counts[winners[0]] != 3):
+        return anchor_key, "anchor_fallback_not_three_valid_unanimous"
+    return winners[0], f"support_blind_{required}_of_3_override"

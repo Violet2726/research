@@ -14,6 +14,7 @@ import string
 import subprocess
 import sys
 import tempfile
+import unicodedata
 from collections import Counter
 from collections.abc import Iterable
 
@@ -60,6 +61,39 @@ def normalize_gold(dataset: str, answer: str) -> str:
     if dataset == "bbeh":
         return normalize_bbeh_reference(answer)
     return normalize_prediction(dataset, answer)
+
+
+def answer_class_key(dataset: str, answer: str) -> str:
+    """Return the conservative, label-free equivalence key used by voting and scoring.
+
+    BBEH's official scorer accepts a small set of formatting variants.  Keeping
+    those variants as separate vote classes creates artificial disagreement, so
+    the exact same conservative key is now shared by aggregation and scoring.
+    This intentionally does not attempt semantic or model-based equivalence.
+    """
+
+    if dataset != "bbeh":
+        return normalize_prediction(dataset, answer)
+    value = unicodedata.normalize("NFKC", normalize_bbeh_prediction(answer)).strip()
+    quote_pairs = {('"', '"'), ("'", "'"), ("“", "”"), ("‘", "’")}
+    while len(value) >= 2 and (value[0], value[-1]) in quote_pairs:
+        value = value[1:-1].strip()
+    if len(value) == 3 and value[0] == "(" and value[-1] == ")" and value[1].isalnum():
+        value = value[1]
+    if len(value) >= 2 and value[0] == "[" and value[-1] == "]" and "[" not in value[1:-1]:
+        value = value[1:-1].strip()
+    value = value.replace("'", "")
+    if value.endswith("?"):
+        value = value[:-1].rstrip()
+    try:
+        numeric = float(value)
+    except ValueError:
+        return value
+    if not math.isfinite(numeric):
+        return value
+    if math.isclose(numeric, round(numeric)):
+        return str(int(round(numeric)))
+    return format(numeric, ".15g")
 
 
 def score_prediction(dataset: str, predicted: str, gold: str) -> float:
@@ -180,26 +214,7 @@ def normalize_bbeh_reference(value: str) -> str:
 
 
 def score_bbeh(predicted: str, gold: str) -> float:
-    prediction = normalize_bbeh_prediction(predicted)
-    reference = normalize_bbeh_reference(gold)
-    if prediction == reference:
-        return 1.0
-    if len(prediction) == 3 and prediction[0] == "(" and prediction[-1] == ")" and prediction[1] == reference:
-        return 1.0
-    if len(reference) == 3 and reference[0] == "(" and reference[-1] == ")" and reference[1] == prediction:
-        return 1.0
-    try:
-        if float(prediction) == float(reference):
-            return 1.0
-    except ValueError:
-        pass
-    if prediction.replace("'", "") == reference.replace("'", ""):
-        return 1.0
-    if f"[{reference}]" == prediction or f"[{prediction}]" == reference:
-        return 1.0
-    if prediction.endswith("?") and prediction[:-1] == reference:
-        return 1.0
-    return 0.0
+    return 1.0 if answer_class_key("bbeh", predicted) == answer_class_key("bbeh", gold) else 0.0
 
 
 def _strip_bbeh_latex(value: str) -> str:

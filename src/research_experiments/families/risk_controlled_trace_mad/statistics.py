@@ -49,14 +49,14 @@ def paired_statistics(
                     "mcnemar_exact_p": _mcnemar_p(b, c),
                 }
             )
-    primary_tests = [item for item in tests if item["dataset"] in {"omni_math_2_filtered", "bbeh"}]
+    primary_tests = [item for item in tests if item["dataset"] in {"bbeh", "gpqa_diamond"}]
     _holm(primary_tests)
     return {
         "reference_method": reference,
         "bootstrap_samples": bootstrap_samples,
         "tests": tests,
         "bbeh_resampling": "within_task_stratified_harmonic" if bbeh_harmonic else "item_micro",
-        "holm_scope": ["omni_math_2_filtered", "bbeh"],
+        "holm_scope": ["bbeh", "gpqa_diamond"],
     }
 
 

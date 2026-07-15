@@ -1,0 +1,35 @@
+{
+  "audit_kind": "label_free_historical_trajectory_replay",
+  "source_run": "local\\runs\\selective_gsa_mad\\sgsa_mad\\count300_seed42\\20260711T174756Z-xiaomimimo-mimo-v2.5",
+  "dataset": "bbeh",
+  "sample_count": 300,
+  "network_calls_made": 0,
+  "passed": false,
+  "failures": [
+    "historical_reviewer_parse_rate_below_99_5_percent"
+  ],
+  "development_thresholds": {
+    "reviewer_parse_rate_min": 0.995,
+    "hsgsa_minus_adaptive_sc8_min": 0.01,
+    "net_correction_positive": true
+  },
+  "results": {
+    "hsgsa_micro_accuracy": 0.4766666666666667,
+    "adaptive_sc8_micro_accuracy": 0.45666666666666667,
+    "hsgsa_task_harmonic_accuracy": 0.0,
+    "adaptive_sc8_task_harmonic_accuracy": 0.0,
+    "hsgsa_minus_adaptive_sc8": 0.020000000000000018,
+    "reviewer_parse_rate": 0.9593175853018373,
+    "reviewer_valid": 731,
+    "reviewer_total": 762,
+    "override_count": 35,
+    "corrected": 16,
+    "harmed": 6,
+    "malformed_sample_count": 0
+  },
+  "limitations": [
+    "The v5 PICK protocol cannot be counterfactually reconstructed from v2 text; legacy FINAL_ANSWER is used as the conservative reviewer pick proxy.",
+    "Passing this replay would be necessary but not sufficient evidence for the new prompt. Failing it activates the pre-registered stop rule.",
+    "No OmniMath row is used in the positive gate."
+  ]
+}

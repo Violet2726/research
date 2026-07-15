@@ -17,6 +17,7 @@ from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from research_experiments.core.structured_outputs import ARTIFACT_VERSION
 from research_experiments.families.risk_controlled_trace_mad.config import (
+    HsgsaProtocolConfig,
     MadInnovationExperimentConfig,
     load_protocol_config,
     load_version_registry,
@@ -63,6 +64,20 @@ def run_experiment(
     registry = load_version_registry(experiment.version_registry)
     version_record = require_active_version(registry, version)
     protocol = load_protocol_config(experiment.protocol)
+    if isinstance(protocol, HsgsaProtocolConfig):
+        from research_experiments.families.risk_controlled_trace_mad.run.hsgsa_execute import (
+            run_hsgsa_experiment,
+        )
+
+        return run_hsgsa_experiment(
+            experiment=experiment,
+            phase_name=phase_name,
+            protocol=protocol,
+            run_root=run_root,
+            cache_root=cache_root,
+            resume_run_dir=resume_run_dir,
+            version=version,
+        )
     phase = phase_metadata(experiment, phase_name)
     active_methods = phase_methods(experiment, phase_name)
     benchmarks = load_benchmarks(experiment)

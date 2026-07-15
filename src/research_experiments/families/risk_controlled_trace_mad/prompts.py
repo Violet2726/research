@@ -7,6 +7,29 @@ from research_experiments.core.data.datasets import DatasetSample
 EVF_PROMPT_VERSION = "evf_mad_v4_1"
 EVF_SELECTOR_SCHEMA_VERSION = "evf_challenger_selector_v1"
 EVF_AUDIT_SCHEMA_VERSION = "evf_symmetric_audit_v1"
+HSGSA_PROMPT_VERSION = "homogeneous_support_blind_sgsa_v5_1"
+HSGSA_REVIEW_SCHEMA_VERSION = "support_blind_pick_v1"
+
+
+def build_blind_reviewer_messages(sample: DatasetSample, board: str) -> list[dict[str, str]]:
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You are one independent adjudicator. Candidate identities, generation order, and support counts are "
+                "hidden. Re-solve the problem, audit every displayed candidate, and select only an existing label. "
+                "If no displayed answer is defensible, abstain. Do not infer popularity and do not create a candidate."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Question:\n{sample.question}\n\nAnonymous candidate board:\n{board}\n\n"
+                "Return exactly these two machine-readable lines (an optional brief explanation may precede them):\n"
+                "PICK: <LABEL|ABSTAIN>\nFINAL_ANSWER: <the displayed answer, or ABSTAIN>"
+            ),
+        },
+    ]
 
 
 def build_selector_messages(sample: DatasetSample, board: str, *, anchor_label: str) -> list[dict[str, str]]:

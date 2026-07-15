@@ -1,15 +1,11 @@
-"""统一 MAD 创新主线的 EVF 科研报告。"""
+"""由 manifest 驱动的当前与历史 MAD 科研报告。"""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-from research_experiments.family_runtime.artifact_index import (
-    load_metrics_payload,
-    named_diagnostic_paths,
-    resolve_run_artifact_index,
-)
+from research_experiments.family_runtime.artifact_index import load_metrics_payload, resolve_run_artifact_index
 from research_experiments.family_runtime.report_bundle import (
     render_family_report_bundle,
     render_family_scientific_report,
@@ -44,38 +40,51 @@ def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) ->
     root = index.run_dir
     manifest = load_json_payload(index.manifest_path)
     metrics = load_json_payload(index.metrics_view_path)
-    diagnostics = load_json_payload(named_diagnostic_paths(root, family_name=FAMILY_NAME)["evf_diagnostics.json"])
+    is_hsgsa = str(manifest.get("active_version")) == "v5_hsgsa"
+    diagnostic_name = "hsgsa_diagnostics.json" if is_hsgsa else "evf_diagnostics.json"
+    diagnostics = load_json_payload(root / "diagnostics" / diagnostic_name)
     summary = SummaryTableView.from_metrics_payload(metrics)
     rows = [row.raw for row in summary.rows]
     overall = summary.overall_rows()
     best = summary.best_by("accuracy_mean", rows=overall)
     gate = dict(metrics.get("progression_gate") or {})
+    descriptions = dict(manifest.get("method_descriptions") or {})
+    protocol = dict(manifest.get("protocol") or {})
+    mechanism = (
+        [
+            f"One frozen model produces {protocol.get('stage_candidates')} Stage-A candidates with identical base prompts.",
+            "All aggregation, triggers, and scores use the same conservative answer-class key.",
+            f"Disagreement adds {protocol.get('resample_candidates')} independent resamples and {protocol.get('reviewer_count')} independently permuted support-blind reviews.",
+            "Only three valid, unanimous picks of one existing non-anchor answer class can override SC5; generated reviewer answers are shadow data only.",
+        ]
+        if is_hsgsa
+        else ["This is a historical EVF artifact. Its model roster and mechanisms are read from the preserved manifest."]
+    )
     markdown = render_family_scientific_report(
-        title="MAD Innovation / EVF-MAD research report",
+        title="H-SGSA homogeneous support-blind adjudication report" if is_hsgsa else "Historical EVF-MAD report",
         abstract=[
-            "EVF-MAD uses a fixed three-Qwen/two-MiMo solver roster and only overrides its heterogeneous majority with independently executable falsification evidence.",
-            "Retired BRD, SGSA and RCTA versions remain historical evidence; this run does not revive their selection logic.",
+            str(manifest.get("description") or ""),
             f"Current-run best method: `{best.method_name}` ({format_float(best.accuracy_mean)})"
             if best
             else "No complete result is available.",
-            f"Progression gate: `{gate.get('passed')}`; failures={gate.get('failures', [])}.",
+            f"Pre-registered progression gate: `{gate.get('passed')}`; failures={gate.get('failures', [])}.",
         ],
         overview_items=[
             ("Experiment", str(manifest.get("experiment_name"))),
             ("Version", str(manifest.get("active_version"))),
             ("Phase", str(manifest.get("phase_name"))),
-            ("Model roster", "3×Qwen-Flash + 2×MiMo-v2.5"),
+            ("Resolved models", str(manifest.get("resolved_models"))),
             ("Run directory", root.as_posix()),
         ],
         sections=[
+            {"title": "Frozen mechanism", "bullets": mechanism},
             {
-                "title": "Frozen mechanism",
-                "bullets": [
-                    "Five heterogeneous trajectories form the anchor; a 5–0 result exits immediately.",
-                    "A blind selector can choose only an existing challenger. Qwen and MiMo audit the same pair under independent label permutations.",
-                    "An override requires two passing challenger checks, one passing anchor falsification, auditor agreement, and no failed challenger evidence.",
-                    "The DSL rejects arbitrary code, ungrounded literals, filesystem access and network access.",
-                ],
+                "title": "Manifest-derived method definitions",
+                "table": {
+                    "headers": ["method", "definition"],
+                    "rows": [[f"`{method}`", descriptions.get(method, "Recorded in historical manifest")]
+                             for method in manifest.get("method_order", [])],
+                },
             },
             {
                 "title": "Overall results",
@@ -95,31 +104,30 @@ def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) ->
                 },
             },
             {
-                "title": "Evidence and replacement diagnostics",
-                "bullets": [
-                    f"`{method}`: {payload}" for method, payload in sorted((diagnostics.get("methods") or {}).items())
-                ],
+                "title": "Selection diagnostics",
+                "bullets": [f"`{method}`: {payload}" for method, payload in sorted((diagnostics.get("methods") or {}).items())],
             },
             {
                 "title": "Claim boundary",
                 "bullets": [
-                    "A positive result may only support a fixed Qwen-Flash + MiMo-v2.5 compound system under at most ten logical model calls.",
-                    "The Minority Sentinel entry is a non-official rule reproduction, not author code.",
-                    "No unconditional global-SOTA or fixed-single-backbone claim is permitted.",
+                    str(manifest.get("claim_scope") or "No claim scope recorded."),
+                    "A failed confirmation gate forbids a SOTA or successful-subset claim.",
+                    "No cross-model or global leaderboard SOTA claim is licensed by this experiment.",
                 ],
             },
             render_run_reproducibility_section(
                 run_dir=root,
                 artifact_items=[
-                    "Core evidence: predictions.jsonl, evf_diagnostics.json, paired_statistics.json, output_protocol_diagnostics.json, paper_summary.csv."
+                    f"Core evidence: predictions.jsonl, {diagnostic_name}, paired_statistics.json, output_protocol_diagnostics.json, and paper_summary.csv."
                 ],
             ),
         ],
     )
+    prefix = "H-SGSA" if is_hsgsa else "EVF"
     figures = [
         build_frontier_figure_spec(
             rows,
-            title="EVF accuracy/token frontier",
+            title=f"{prefix} accuracy/token frontier",
             caption="Accuracy versus actual mean token use.",
             score_field="accuracy_mean",
             primary_metric="accuracy",
@@ -127,7 +135,7 @@ def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) ->
         ),
         build_efficiency_rank_figure_spec(
             rows,
-            title="EVF efficiency rank",
+            title=f"{prefix} efficiency rank",
             caption="Accuracy per thousand actual tokens.",
             efficiency_field="accuracy_per_1k_tokens",
             primary_metric="accuracy per 1k tokens",
@@ -135,8 +143,8 @@ def render_report(run_dir: str | Path, publish_dir: str | Path | None = None) ->
         ),
         build_score_by_dataset_figure_spec(
             rows,
-            title="EVF score by dataset",
-            caption="Primary dataset score for every pre-registered method.",
+            title=f"{prefix} score by dataset",
+            caption="Pre-registered score for every method and dataset.",
             score_field="accuracy_mean",
             primary_metric="primary accuracy",
             method_label_field="method_name",

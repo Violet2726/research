@@ -1,4 +1,4 @@
-active_version = "v4_evf"
+active_version = "v5_hsgsa"
 
 [versions.v1_brd]
 paper_name = "BRD-MAD"
@@ -7,8 +7,8 @@ source_commit = "9ef1f6e"
 config_sha256 = "51bc92cb06a52f30a76540ff3db88d3c1acd8c8b32c3c7d9bd95dd6ec38fe205"
 methods = ["conditional_resample_3", "gsa_quorum_3", "brd_quorum_3", "brd_visible_support_3"]
 representative_run = "local/runs/blind_reconstructive_mad/brd_mad_locked/count300/20260711T054458Z-dashscope-qwen-flash"
-retirement_reason = "强制证伪评审没有形成可归因的净纠正，并暴露协议不稳定性。"
-claim_boundary = "保留为负结果；精确复现需检出 source_commit。"
+retirement_reason = "Forced adversarial review produced no attributable net correction and exposed protocol instability."
+claim_boundary = "Negative historical evidence; exact reproduction requires the recorded source commit."
 
 [versions.v2_sgsa]
 paper_name = "SGSA-MAD"
@@ -17,8 +17,8 @@ source_commit = "c8712fc"
 config_sha256 = "eb0f48c6ce25f7b92ec4ec558d6ad426339e41b3c6f5a36d087aa3c723b22cd6"
 methods = ["conditional_resample_3", "gsa_quorum_3", "sgsa_unanimous_3"]
 representative_run = "local/runs/selective_gsa_mad/sgsa_mad/count300_seed42/20260711T174756Z-xiaomimimo-mimo-v2.5"
-retirement_reason = "收紧为一致晋级后覆盖稀少，未优于共享 SC5 锚点。"
-claim_boundary = "保留为负结果；精确复现需检出 source_commit。"
+retirement_reason = "Unanimous promotion was sparse and did not beat the shared same-budget resampling baseline."
+claim_boundary = "Negative historical evidence; exact reproduction requires the recorded source commit."
 
 [versions.v3_rcta]
 paper_name = "RCTA-MAD"
@@ -27,15 +27,25 @@ source_commit = "8d860d1"
 config_sha256 = "d8d8b9f729cd59b1b551daca0a5b5194a44082f686773a0e7a2471fa9647d0a7"
 methods = ["gsa_trace_1", "rcta_certificate_shadow_1", "rcta_1"]
 representative_run = "local/runs/risk_controlled_trace_mad/rcta_mad/count100_seed42/20260712T090005Z-xiaomimimo-mimo-v2.5"
-retirement_reason = "GSA 为 7 次纠正、20 次伤害，证书仅 3/200 通过，风险路由的前提不成立。"
-claim_boundary = "只证伪综合器与证书前提；该 run 未拟合或启用冻结 router，不能声称完整证伪风险路由。"
+retirement_reason = "Executable certificates covered only 3/200 cases, so the risk-routing prerequisite failed."
+claim_boundary = "Evidence about the failed verifier/certificate prerequisite only."
 
 [versions.v4_evf]
 paper_name = "EVF-MAD"
+status = "retired_prerequisite_failure"
+source_commit = "77061d3"
+config_sha256 = "historical-v4-config"
+methods = ["evf_mad_1"]
+representative_run = "local/runs/risk_controlled_trace_mad/mad_innovation/count100_seed42/20260713T081631Z-qwen-flash+mimo-v2.5"
+retirement_reason = "Historical coverage failure: EVF matched heterogeneous majority, accepted zero overrides, and did not instantiate its claimed mechanism."
+claim_boundary = "Read-only negative evidence for a heterogeneous Qwen-Flash + MiMo-v2.5 system."
+
+[versions.v5_hsgsa]
+paper_name = "Homogeneous Support-Blind SGSA"
 status = "active"
 source_commit = "working-tree"
 config_sha256 = "generated-at-run-time"
-methods = ["evf_mad_1"]
+methods = ["cot_1", "sc_3", "sc_5", "adaptive_sc_8", "conditional_resample_3", "blind_gsa_1", "blind_gsa_quorum_3", "hsgsa_unanimous_3"]
 representative_run = ""
 retirement_reason = ""
-claim_boundary = "固定 Qwen-Flash + MiMo-v2.5 复合系统、最多十次逻辑模型调用。"
+claim_boundary = "Fixed MiMo-v2.5, fixed prompt, homogeneous sampling, and matched test-time calls/tokens; at most an accuracy-cost Pareto claim on held-out BBEH."

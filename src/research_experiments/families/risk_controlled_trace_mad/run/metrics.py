@@ -67,6 +67,8 @@ def build_diagnostics(rows: list[dict[str, Any]]) -> dict[str, Any]:
 def evaluate_gate(
     phase_name: str, rows: list[dict[str, Any]], paired: dict[str, Any], abstention_limit: float
 ) -> dict[str, Any]:
+    if any(row.get("method_name") == "hsgsa_unanimous_3" for row in rows):
+        return _evaluate_hsgsa_gate(phase_name, rows, paired, abstention_limit)
     if phase_name == "count20_seed42":
         return {"phase": phase_name, "evaluated": False, "passed": None, "reason": "engineering_only"}
     evf = [row for row in rows if row.get("method_name") == "evf_mad_1"]
@@ -165,6 +167,106 @@ def evaluate_gate(
     }
 
 
+def _evaluate_hsgsa_gate(phase_name, rows, paired, abstention_limit):
+    hsgsa = [row for row in rows if row.get("method_name") == "hsgsa_unanimous_3"]
+    adaptive = [row for row in rows if row.get("method_name") == "adaptive_sc_8"]
+    failures: list[str] = []
+    if not hsgsa or not adaptive:
+        return {
+            "phase": phase_name,
+            "evaluated": True,
+            "passed": False,
+            "failures": ["missing_primary_comparison_rows"],
+        }
+    reviewer_calls = sum(int(row.get("reviewer_calls_per_question") or 0) for row in hsgsa)
+    reviewer_protocol_failures = sum(
+        int(row.get("reviewer_protocol_failures_per_question") or 0) for row in hsgsa
+    )
+    reviewer_parse_rate = 1.0 - reviewer_protocol_failures / reviewer_calls if reviewer_calls else 1.0
+    request_failures = sum(
+        int(
+            row.get("shared_physical_request_failures_per_question")
+            if row.get("shared_physical_request_failures_per_question") is not None
+            else row.get("request_failures_per_question")
+            or 0
+        )
+        for row in hsgsa
+    )
+    abstentions = sum(int(row.get("provider_abstentions_per_question") or 0) for row in hsgsa)
+    logical_calls = sum(int(row.get("logical_calls_per_question") or 0) for row in hsgsa)
+    abstention_rate = abstentions / logical_calls if logical_calls else 0.0
+    if reviewer_parse_rate < 0.995:
+        failures.append("reviewer_parse_rate_below_99_5_percent")
+    if request_failures:
+        failures.append("nonzero_request_failures")
+    if abstention_rate >= abstention_limit:
+        failures.append("provider_abstention_limit")
+
+    bbeh_hsgsa = [row for row in hsgsa if row.get("dataset") == "bbeh"]
+    coverage = [row for row in bbeh_hsgsa if row.get("override_accepted")]
+    corrected = sum(bool(row.get("corrected_by_debate")) for row in coverage)
+    harmed = sum(bool(row.get("harmed_by_debate")) for row in coverage)
+    precision = corrected / (corrected + harmed) if corrected + harmed else 0.0
+    precision_lower = _clopper_pearson_lower(corrected, corrected + harmed, 0.05)
+    if corrected <= harmed:
+        failures.append("nonpositive_net_correction")
+    if precision_lower <= 0.5:
+        failures.append("coverage_precision_lower_bound")
+
+    primary = next(
+        (
+            item
+            for item in paired.get("tests", [])
+            if item.get("dataset") == "bbeh" and item.get("comparison_method") == "adaptive_sc_8"
+        ),
+        None,
+    )
+    if primary is None:
+        failures.append("missing_bbeh_hsgsa_vs_adaptive_sc8_test")
+        point, interval, adjusted_p = 0.0, [0.0, 0.0], 1.0
+    else:
+        point = float(primary.get("mean_accuracy_delta") or 0.0)
+        interval = list(primary.get("bootstrap_ci_95") or [0.0, 0.0])
+        adjusted_p = float(primary.get("holm_adjusted_p") or 1.0)
+        if point < 0.01:
+            failures.append("bbeh_harmonic_delta_below_1pp")
+        if float(interval[0]) <= 0.0:
+            failures.append("bbeh_stratified_ci_not_positive")
+        if adjusted_p >= 0.05:
+            failures.append("bbeh_mcnemar_holm_not_significant")
+
+    h_calls = _mean(float(row.get("logical_calls_per_question") or 0) for row in hsgsa)
+    a_calls = _mean(float(row.get("logical_calls_per_question") or 0) for row in adaptive)
+    h_tokens = _mean(float(row.get("total_tokens_per_question") or 0) for row in hsgsa)
+    a_tokens = _mean(float(row.get("total_tokens_per_question") or 0) for row in adaptive)
+    if abs(h_calls - a_calls) > 1e-12:
+        failures.append("logical_call_budget_mismatch")
+    if h_tokens > a_tokens + 1e-9:
+        failures.append("token_budget_dominated_by_adaptive_sc8")
+
+    return {
+        "phase": phase_name,
+        "evaluated": True,
+        "passed": not failures,
+        "failures": sorted(set(failures)),
+        "primary_comparison": "hsgsa_unanimous_3_vs_adaptive_sc_8",
+        "bbeh_harmonic_delta": point,
+        "bbeh_stratified_bootstrap_ci_95": interval,
+        "bbeh_mcnemar_holm_adjusted_p": adjusted_p,
+        "mean_logical_calls": {"hsgsa_unanimous_3": h_calls, "adaptive_sc_8": a_calls},
+        "mean_total_tokens": {"hsgsa_unanimous_3": h_tokens, "adaptive_sc_8": a_tokens},
+        "coverage": len(coverage),
+        "corrected": corrected,
+        "harmed": harmed,
+        "coverage_precision": precision,
+        "coverage_precision_lower_one_sided_95": precision_lower,
+        "reviewer_parse_rate": reviewer_parse_rate,
+        "reviewer_protocol_failures": reviewer_protocol_failures,
+        "request_failures": request_failures,
+        "provider_abstention_rate": abstention_rate,
+    }
+
+
 def write_paper_summary(path: str | Path, metrics: dict[str, Any]) -> None:
     fields = [
         "dataset",
@@ -230,6 +332,14 @@ def _clopper_pearson_upper(harmed: int, total: int, alpha: float) -> float:
     if harmed >= total:
         return 1.0
     return float(beta.ppf(1 - alpha, harmed + 1, total - harmed))
+
+
+def _clopper_pearson_lower(successes: int, total: int, alpha: float) -> float:
+    if total <= 0 or successes <= 0:
+        return 0.0
+    if successes >= total:
+        return float(alpha ** (1 / total))
+    return float(beta.ppf(alpha, successes, total - successes + 1))
 
 
 def _mean(values) -> float:

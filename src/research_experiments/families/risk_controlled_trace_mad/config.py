@@ -21,6 +21,13 @@ METHODS = (
     "hcp_mad_budget10",
     "minority_sentinel_reproduction",
     "evf_mad_1",
+    "sc_3",
+    "sc_5",
+    "adaptive_sc_8",
+    "conditional_resample_3",
+    "blind_gsa_1",
+    "blind_gsa_quorum_3",
+    "hsgsa_unanimous_3",
 )
 
 
@@ -71,6 +78,30 @@ class EvfProtocolConfig:
     provider_abstention_limit: float
     challenger_required_passes: int
     anchor_required_falsifications: int
+
+
+@dataclass(frozen=True)
+class HsgsaProtocolConfig:
+    protocol_kind: str
+    stage_candidates: int
+    resample_candidates: int
+    reviewer_count: int
+    trigger_mode: str
+    stage_temperature: float
+    reviewer_temperature: float
+    top_p: float
+    stage_max_tokens: int
+    reviewer_max_tokens: int
+    trace_max_chars: int
+    board_max_chars: int
+    max_logical_calls: int
+    max_network_attempts: int
+    minimum_valid_stage_traces: int
+    provider_abstention_limit: float
+    quorum_size: int
+    unanimity_size: int
+    hide_support_counts: bool
+    allow_novel_answer: bool
 
 
 @dataclass(frozen=True)
@@ -132,8 +163,61 @@ def require_active_version(registry: VersionRegistry, requested: str | None) -> 
     return record
 
 
-def load_protocol_config(path: str | Path) -> EvfProtocolConfig:
+def load_protocol_config(path: str | Path) -> EvfProtocolConfig | HsgsaProtocolConfig:
     raw = load_toml(path)
+    if str(raw.get("protocol_kind") or "evf") == "hsgsa":
+        protocol = HsgsaProtocolConfig(
+            **{
+                field: caster(raw[field])
+                for field, caster in {
+                    "protocol_kind": str,
+                    "stage_candidates": int,
+                    "resample_candidates": int,
+                    "reviewer_count": int,
+                    "trigger_mode": str,
+                    "stage_temperature": float,
+                    "reviewer_temperature": float,
+                    "top_p": float,
+                    "stage_max_tokens": int,
+                    "reviewer_max_tokens": int,
+                    "trace_max_chars": int,
+                    "board_max_chars": int,
+                    "max_logical_calls": int,
+                    "max_network_attempts": int,
+                    "minimum_valid_stage_traces": int,
+                    "provider_abstention_limit": float,
+                    "quorum_size": int,
+                    "unanimity_size": int,
+                    "hide_support_counts": bool,
+                    "allow_novel_answer": bool,
+                }.items()
+            }
+        )
+        required = {
+            "stage_candidates": (protocol.stage_candidates, 5),
+            "resample_candidates": (protocol.resample_candidates, 3),
+            "reviewer_count": (protocol.reviewer_count, 3),
+            "trigger_mode": (protocol.trigger_mode, "answer_class_disagreement"),
+            "max_logical_calls": (protocol.max_logical_calls, 11),
+            "quorum_size": (protocol.quorum_size, 2),
+            "unanimity_size": (protocol.unanimity_size, 3),
+            "hide_support_counts": (protocol.hide_support_counts, True),
+            "allow_novel_answer": (protocol.allow_novel_answer, False),
+        }
+        errors = [
+            f"{key}={actual!r}, required {expected!r}"
+            for key, (actual, expected) in required.items()
+            if actual != expected
+        ]
+        if errors:
+            raise ValueError("H-SGSA v5 frozen invariant violation: " + "; ".join(errors))
+        if protocol.max_network_attempts != 50_000:
+            raise ValueError("H-SGSA v5 max_network_attempts must be exactly 50000.")
+        if protocol.minimum_valid_stage_traces < 3:
+            raise ValueError("minimum_valid_stage_traces must be at least three.")
+        if not 0 <= protocol.provider_abstention_limit < 1:
+            raise ValueError("provider_abstention_limit must lie in [0, 1).")
+        return protocol
     protocol = EvfProtocolConfig(
         **{
             field: caster(raw[field])
@@ -206,9 +290,9 @@ def load_experiment_config(path: str | Path) -> MadInnovationExperimentConfig:
         version_registry=registry_path,
         protocol=Path(str(raw["protocol"])),
         benchmark_configs=[Path(item) for item in raw["benchmark_configs"]],
-        qwen_model_ref=str(raw["qwen_model_ref"]),
-        mimo_model_ref=str(raw["mimo_model_ref"]),
-        primary_model_ref=str(raw["qwen_model_ref"]),
+        qwen_model_ref=str(raw.get("qwen_model_ref") or raw["primary_model_ref"]),
+        mimo_model_ref=str(raw.get("mimo_model_ref") or raw["primary_model_ref"]),
+        primary_model_ref=str(raw.get("primary_model_ref") or raw["qwen_model_ref"]),
         global_seed=int(raw.get("global_seed", 42)),
         max_concurrent_requests=int(raw.get("max_concurrent_requests", 1000)),
         requests_per_minute_limit=int(raw.get("requests_per_minute_limit", 1000)),

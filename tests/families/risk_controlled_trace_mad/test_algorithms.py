@@ -1,6 +1,9 @@
 from research_experiments.families.risk_controlled_trace_mad.algorithms import (
     build_candidate_board,
+    build_support_blind_board,
     decide_override,
+    homogeneous_stage_decision,
+    reviewer_selected_key,
     stage_decision,
 )
 
@@ -64,3 +67,30 @@ def test_override_requires_agreement_two_challenger_passes_and_anchor_falsificat
         )[0]
         is False
     )
+
+
+def test_homogeneous_answer_classes_merge_formatting_and_hash_ties() -> None:
+    rows = [_row("(b)", 1), _row("b", 2), _row("[b]", 3), _row("c", 4), _row("c", 5)]
+    decision = homogeneous_stage_decision(rows, dataset="bbeh", seed=42, sample_id="s")
+    assert decision.vote_counts == {"b": 3, "c": 2}
+    assert decision.anchor_key == "b"
+
+
+def test_blind_board_permutation_and_unanimous_existing_non_anchor_gate() -> None:
+    rows = [_row("A", 1), _row("A", 2), _row("B", 3), _row("C", 4), _row("C", 5)]
+    first = build_support_blind_board(
+        rows, dataset="bbeh", seed=42, sample_id="s", reviewer_index=1,
+        trace_max_chars=100, board_max_chars=2000
+    )
+    second = build_support_blind_board(
+        rows, dataset="bbeh", seed=42, sample_id="s", reviewer_index=2,
+        trace_max_chars=100, board_max_chars=2000
+    )
+    assert set(first[1].values()) == set(second[1].values()) == {"a", "b", "c"}
+    reviews = [
+        {"output_status": "ok", "validated_output": {"picked_answer_class_key": "b"}}
+        for _ in range(3)
+    ]
+    assert reviewer_selected_key(reviews, anchor_key="a", candidate_keys={"a", "b", "c"}, required=3)[0] == "b"
+    reviews[2] = {"output_status": "protocol_fail", "validated_output": {}}
+    assert reviewer_selected_key(reviews, anchor_key="a", candidate_keys={"a", "b", "c"}, required=3)[0] == "a"
