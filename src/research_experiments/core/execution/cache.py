@@ -217,10 +217,13 @@ def build_request_cache_key(
     return sha256(json_dump(fingerprint).encode("utf-8")).hexdigest()
 
 
+_IGNORED_CACHE_KEY_FIELDS = frozenset({"max_tokens"})
+
+
 def normalize_payload_for_cache_key(payload: dict[str, Any]) -> dict[str, Any]:
     """Return the canonical payload fingerprint used for cache keys."""
 
-    return dict(payload)
+    return {k: v for k, v in payload.items() if k not in _IGNORED_CACHE_KEY_FIELDS}
 
 
 def cache_successful_response(
@@ -234,6 +237,16 @@ def cache_successful_response(
 
     if response_payload.get("request_error") is not None:
         raise ValueError("Request failures must not be cached.")
+
+    # Reject API rejections (soft rejections)
+    assistant_text = str(response_payload.get("assistant_text") or "")
+    if looks_like_soft_rejection(assistant_text):
+        raise ValueError("API rejection responses must not be cached.")
+
+    # Reject truncated outputs (missing FINAL_ANSWER for free-text protocols)
+    if _is_truncated_output(assistant_text):
+        raise ValueError("Truncated outputs must not be cached.")
+
     cache.put(
         CachedResponse(
             cache_key=cache_key,
@@ -419,3 +432,29 @@ def _read_rows_with_salvage(
         left_rows, left_skipped = _read_rows_with_salvage(connection, start_rowid, midpoint)
         right_rows, right_skipped = _read_rows_with_salvage(connection, midpoint, end_rowid)
         return left_rows + right_rows, left_skipped + right_skipped
+
+
+def looks_like_soft_rejection(text: str) -> bool:
+    """Check if the response is an API rejection (soft rejection)."""
+
+    normalized = " ".join(str(text or "").split()).lower()
+    if not normalized:
+        return False
+    return normalized in {
+        "content omitted due to provider safety policy",
+        "provider_refused_due_to_policy",
+        "the request was rejected because it was considered high risk",
+        "request rejected because it was considered high risk",
+    }
+
+
+def _is_truncated_output(text: str) -> bool:
+    """Check if the output is truncated (has REASONING but no FINAL_ANSWER)."""
+
+    if not text:
+        return False
+    text_upper = text.upper()
+    # Has REASONING but no FINAL_ANSWER - indicates truncated output
+    has_reasoning = "REASONING:" in text_upper
+    has_final_answer = "FINAL_ANSWER:" in text_upper
+    return has_reasoning and not has_final_answer

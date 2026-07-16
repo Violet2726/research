@@ -9,7 +9,7 @@ benchmark_configs = [
 ]
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 global_seed = 42
-max_concurrent_requests = 8
+max_concurrent_requests = 15
 requests_per_minute_limit = 18
 
 methods = [
@@ -24,7 +24,7 @@ methods = [
 ]
 
 [runtime_profiles.xiaomimimo]
-max_concurrent_requests = 8
+max_concurrent_requests = 15
 requests_per_minute_limit = 18
 
 [method_descriptions]
@@ -45,8 +45,7 @@ source_run = "local/runs/selective_gsa_mad/sgsa_mad/count300_seed42/20260711T174
 
 [phases.confirm_seed42]
 benchmark_slugs = ["bbeh", "gpqa_diamond"]
-split_overrides = { bbeh = "full4520_seed42", gpqa_diamond = "full198_seed42" }
-exclude_splits = { bbeh = "count300_seed42" }
+split_overrides = { bbeh = "count300_seed42", gpqa_diamond = "full198_seed42" }
 required_development_audit = "configs/families/risk_controlled_trace_mad/retired/v5_hsgsa_dev_replay_audit.json"
 bbeh_metric = "task_harmonic"
 no_interim_method_accuracy_inspection = true

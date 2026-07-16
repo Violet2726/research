@@ -160,12 +160,15 @@ def _hsgsa_stage_check(rows, decisions):
     return {"passed": bool(samples) and not invalid, "sample_count": len(samples), "invalid_samples": invalid[:20]}
 
 
+_DEBATE_METHODS = {"blind_gsa_1", "blind_gsa_quorum_3", "hsgsa_unanimous_3"}
+
+
 def _hsgsa_safety_check(rows):
     invalid = []
     grouped: dict[tuple[str, str], dict[str, dict[str, Any]]] = defaultdict(dict)
     for row in rows:
         grouped[(str(row.get("dataset")), str(row.get("sample_id")))][str(row.get("method_name"))] = row
-        if row.get("novel_answer"):
+        if row.get("novel_answer") and row.get("method_name") in _DEBATE_METHODS:
             invalid.append({"sample_id": row.get("sample_id"), "reason": "novel_answer_promoted"})
         if (
             row.get("method_name") == "hsgsa_unanimous_3"

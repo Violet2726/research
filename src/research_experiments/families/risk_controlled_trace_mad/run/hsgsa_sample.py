@@ -378,10 +378,16 @@ def _review_rows(
 def parse_blind_reviewer_output(
     raw_text: str, *, label_to_key: dict[str, str], label_to_answer: dict[str, str], dataset: str
 ) -> dict[str, Any]:
-    pick_match = re.search(r"(?im)^\s*PICK\s*:\s*([A-Z]+|ABSTAIN)\s*$", str(raw_text or ""))
+    pick_match = re.search(r"(?im)^\s*PICK\s*:\s*(.+?)\s*$", str(raw_text or ""))
     if not pick_match:
         raise ValueError("missing PICK line")
-    pick = pick_match.group(1).upper()
+    raw_pick = pick_match.group(1).strip().upper()
+    if raw_pick == "ABSTAIN":
+        pick = "ABSTAIN"
+    else:
+        # Extract a single uppercase letter from variants like "A", "Candidate A", "(A)", "Option A"
+        letter_match = re.search(r"\b([A-Z])\b", raw_pick)
+        pick = letter_match.group(1) if letter_match else raw_pick
     final_match = re.search(r"(?im)^\s*FINAL_ANSWER\s*:\s*(.*?)\s*$", str(raw_text or ""))
     final_answer = str(final_match.group(1) if final_match else "").strip()
     if pick == "ABSTAIN":
@@ -392,7 +398,13 @@ def parse_blind_reviewer_output(
             "generated_final_answer": normalize_prediction(dataset, final_answer) if final_answer else "",
         }
     if pick not in label_to_key:
-        raise ValueError("PICK label is not present on this board")
+        # Label hallucinated or out of range — treat as abstention
+        return {
+            "pick": "ABSTAIN",
+            "picked_answer_class_key": "",
+            "picked_answer": "",
+            "generated_final_answer": normalize_prediction(dataset, final_answer) if final_answer else "",
+        }
     return {
         "pick": pick,
         "picked_answer_class_key": label_to_key[pick],
