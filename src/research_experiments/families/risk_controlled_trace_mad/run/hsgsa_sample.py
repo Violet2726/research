@@ -16,7 +16,7 @@ from typing import Any
 
 from research_experiments.core.controls.control_prompts import build_cot_messages
 from research_experiments.core.data.datasets import DatasetSample
-from research_experiments.core.data.evaluation import answer_class_key, normalize_prediction, score_prediction
+from research_experiments.core.data.evaluation import canonicalize_answer, normalize_prediction, score_prediction
 from research_experiments.core.execution.runner_common import execute_cached_request, iter_indexed_batch
 from research_experiments.families.risk_controlled_trace_mad.algorithms import (
     build_support_blind_board,
@@ -317,7 +317,13 @@ def _solve_rows(
             raise
         network_budget.settle(reservation, int(row.get("network_attempt_count") or 0))
         answer = normalized_answer(row)
-        row["answer_class_key"] = answer_class_key(dataset, answer) if answer else ""
+        canonical = canonicalize_answer(sample, answer) if answer else None
+        row["answer_class_key"] = canonical.key if canonical is not None else ""
+        row["canonicalization_status"] = "valid" if canonical is not None and canonical.valid else "invalid"
+        row["canonicalization_invalid_reason"] = canonical.invalid_reason if canonical is not None else "empty_answer"
+        if dataset == "bbeh":
+            row["prediction"] = canonical.key if canonical is not None and canonical.valid else ""
+            row["normalized_answer"] = row["prediction"]
         row["stage_name"] = "stage_a" if seed_offset == 0 else "resample"
         return row
 
@@ -398,13 +404,7 @@ def parse_blind_reviewer_output(
             "generated_final_answer": normalize_prediction(dataset, final_answer) if final_answer else "",
         }
     if pick not in label_to_key:
-        # Label hallucinated or out of range — treat as abstention
-        return {
-            "pick": "ABSTAIN",
-            "picked_answer_class_key": "",
-            "picked_answer": "",
-            "generated_final_answer": normalize_prediction(dataset, final_answer) if final_answer else "",
-        }
+        raise ValueError("PICK references a label absent from the anonymous candidate board")
     return {
         "pick": pick,
         "picked_answer_class_key": label_to_key[pick],
@@ -505,8 +505,12 @@ def _hsgsa_prediction(
     *, run_id, dataset, split_name, sample, method_name, model_name, final_key, prediction, stage,
     stage_rows, resample_rows, reviewer_rows, reviewer_metadata, logical_rows, physical_rows, triggered, resolver
 ):
-    score = score_prediction(dataset, prediction, sample.reference_answer) if prediction else 0.0
-    initial_score = score_prediction(dataset, stage.anchor_answer, sample.reference_answer) if stage.anchor_answer else 0.0
+    score = score_prediction(dataset, prediction, sample.reference_answer, sample=sample) if prediction else 0.0
+    initial_score = (
+        score_prediction(dataset, stage.anchor_answer, sample.reference_answer, sample=sample)
+        if stage.anchor_answer
+        else 0.0
+    )
     override = bool(final_key and final_key != stage.anchor_key)
     reviewer_picks = [str((row.get("validated_output") or {}).get("pick") or "ABSTAIN") for row in reviewer_rows]
     generated_answers = [
@@ -581,7 +585,7 @@ def _hsgsa_prediction(
         "candidate_answers": sorted(stage.answer_by_key.values()),
         "candidate_answer_class_keys": sorted(stage.vote_counts),
         "candidate_oracle_correct": any(
-            score_prediction(dataset, answer, sample.reference_answer) == 1.0
+            score_prediction(dataset, answer, sample.reference_answer, sample=sample) == 1.0
             for answer in stage.answer_by_key.values()
         ),
         "reviewer_picks": reviewer_picks,

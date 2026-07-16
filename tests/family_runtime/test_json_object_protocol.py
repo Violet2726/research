@@ -124,4 +124,5 @@ def test_execute_json_object_answer_protocol_uses_provider_response_format(tmp_p
 
     assert result.output_status == "ok"
     assert captured_payloads[0]["response_format"] == {"type": "json_object"}
-    assert captured_payloads[0]["max_tokens"] == 512
+    assert captured_payloads[0]["max_completion_tokens"] == 512
+    assert "max_tokens" not in captured_payloads[0]

@@ -1,0 +1,10 @@
+stage_candidates = 5
+resample_candidates = 3
+panel_count = 2
+temperature = 0.7
+top_p = 1.0
+solver_max_tokens = 16384
+role_max_tokens = 2048
+span_min_chars = 8
+span_max_chars = 256
+forbid_options_span = true

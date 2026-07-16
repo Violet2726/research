@@ -8,7 +8,9 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from research_experiments.core.data.evaluation import answer_class_key, normalize_prediction, score_prediction
+from research_experiments.core.config import load_benchmark_config
+from research_experiments.core.data.datasets import DatasetSample, load_samples
+from research_experiments.core.data.evaluation import canonicalize_answer, score_prediction
 from research_experiments.families.risk_controlled_trace_mad.algorithms import (
     class_majority,
     homogeneous_stage_decision,
@@ -24,6 +26,7 @@ def replay_historical_development(source_run: str | Path) -> dict[str, Any]:
     predictions_path = root / "views" / "predictions.jsonl"
     if not turns_path.exists() or not predictions_path.exists():
         raise FileNotFoundError(f"Historical replay artifacts are incomplete under {root}")
+    sample_map = _load_bbeh_sample_map()
     metadata: dict[str, dict[str, Any]] = {}
     with predictions_path.open(encoding="utf-8") as handle:
         for line in handle:
@@ -32,7 +35,11 @@ def replay_historical_development(source_run: str | Path) -> dict[str, Any]:
                 continue
             metadata.setdefault(
                 str(row["sample_id"]),
-                {"gold": row.get("gold", ""), "task": row.get("task") or "unknown"},
+                {
+                    "gold": row.get("gold", ""),
+                    "task": row.get("task") or "unknown",
+                    "sample": sample_map.get(str(row["sample_id"])),
+                },
             )
     grouped: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
     with turns_path.open(encoding="utf-8") as handle:
@@ -41,33 +48,46 @@ def replay_historical_development(source_run: str | Path) -> dict[str, Any]:
             if row.get("dataset") != "bbeh":
                 continue
             method = str(row.get("method_name") or "")
-            if method not in {"brd_stage_a_shared", "conditional_resample_3", "gsa_shared_panel"}:
+            if method not in {
+                "brd_stage_a_shared",
+                "conditional_resample_3",
+                "gsa_shared_panel",
+                "hsgsa_stage_a_shared",
+                "hsgsa_resample_shared",
+                "hsgsa_blind_reviewer_shared",
+            }:
                 continue
             answer = _recover_legacy_answer(row)
-            row["normalized_answer"] = answer
-            row["answer_class_key"] = answer_class_key("bbeh", answer) if answer else ""
+            sample = sample_map.get(str(row.get("sample_id") or ""))
+            canonical = canonicalize_answer(sample, answer) if sample is not None and answer else None
+            row["normalized_answer"] = canonical.key if canonical is not None and canonical.valid else ""
+            row["answer_class_key"] = row["normalized_answer"]
+            row["canonicalization_status"] = "valid" if canonical is not None and canonical.valid else "invalid"
+            row["canonicalization_invalid_reason"] = canonical.invalid_reason if canonical is not None else "missing_sample"
             grouped[str(row["sample_id"])][method].append(row)
 
     replay_rows: list[dict[str, Any]] = []
-    reviewer_total = reviewer_valid = 0
-    override_count = corrected = harmed = 0
+    invalid_answer_count = 0
     malformed_samples: list[str] = []
     for sample_id in sorted(metadata):
         pools = grouped.get(sample_id, {})
-        stage_rows = sorted(pools.get("brd_stage_a_shared", []), key=lambda row: int(row.get("agent_id") or 0))
+        sample = metadata[sample_id].get("sample")
+        if not isinstance(sample, DatasetSample):
+            malformed_samples.append(sample_id)
+            continue
+        stage_rows = sorted(
+            pools.get("hsgsa_stage_a_shared") or pools.get("brd_stage_a_shared", []),
+            key=lambda row: int(row.get("agent_id") or 0),
+        )
         if len(stage_rows) != 5:
             malformed_samples.append(sample_id)
             continue
         stage = homogeneous_stage_decision(stage_rows, dataset="bbeh", seed=42, sample_id=sample_id)
-        resamples = sorted(pools.get("conditional_resample_3", []), key=lambda row: int(row.get("agent_id") or 0))
-        reviewers = sorted(pools.get("gsa_shared_panel", []), key=lambda row: int(row.get("agent_id") or 0))
-        reviewer_total += len(reviewers)
-        valid_reviewer_keys = []
-        for row in reviewers:
-            key = str(row.get("answer_class_key") or "")
-            if key:
-                reviewer_valid += 1
-                valid_reviewer_keys.append(key)
+        resamples = sorted(
+            pools.get("hsgsa_resample_shared") or pools.get("conditional_resample_3", []),
+            key=lambda row: int(row.get("agent_id") or 0),
+        )
+        invalid_answer_count += sum(not row.get("answer_class_key") for row in [*stage_rows, *resamples])
         adaptive_key, adaptive_answer, _, _ = class_majority(
             [*stage_rows, *resamples],
             dataset="bbeh",
@@ -77,29 +97,15 @@ def replay_historical_development(source_run: str | Path) -> dict[str, Any]:
             fallback_key=stage.anchor_key,
             fallback_answer=stage.anchor_answer,
         )
-        hsgsa_key = stage.anchor_key
-        if (
-            len(valid_reviewer_keys) == 3
-            and len(set(valid_reviewer_keys)) == 1
-            and valid_reviewer_keys[0] in stage.vote_counts
-            and valid_reviewer_keys[0] != stage.anchor_key
-        ):
-            hsgsa_key = valid_reviewer_keys[0]
-        hsgsa_answer = stage.answer_by_key.get(hsgsa_key, stage.anchor_answer)
         gold = str(metadata[sample_id]["gold"])
         task = str(metadata[sample_id]["task"])
-        initial_score = score_prediction("bbeh", stage.anchor_answer, gold)
-        hsgsa_score = score_prediction("bbeh", hsgsa_answer, gold)
-        adaptive_score = score_prediction("bbeh", adaptive_answer, gold)
-        override = hsgsa_key != stage.anchor_key
-        override_count += int(override)
-        corrected += int(override and initial_score < 1 and hsgsa_score == 1)
-        harmed += int(override and initial_score == 1 and hsgsa_score < 1)
+        initial_score = score_prediction("bbeh", stage.anchor_answer, gold, sample=sample)
+        adaptive_score = score_prediction("bbeh", adaptive_answer, gold, sample=sample)
         replay_rows.extend(
             [
                 _replay_prediction(
-                    sample_id, task, "hsgsa_unanimous_3", hsgsa_score, stage_rows + reviewers, override,
-                    initial_score, hsgsa_score
+                    sample_id, task, "sc_5", initial_score, stage_rows, False,
+                    initial_score, initial_score
                 ),
                 _replay_prediction(
                     sample_id, task, "adaptive_sc_8", adaptive_score, stage_rows + resamples, False,
@@ -110,7 +116,7 @@ def replay_historical_development(source_run: str | Path) -> dict[str, Any]:
     metrics = build_metrics(
         replay_rows,
         dataset_order=["bbeh"],
-        method_order=["hsgsa_unanimous_3", "adaptive_sc_8"],
+        method_order=["sc_5", "adaptive_sc_8"],
         bbeh_harmonic=True,
     )
     summaries = {
@@ -118,52 +124,44 @@ def replay_historical_development(source_run: str | Path) -> dict[str, Any]:
         for row in metrics["summary"]
         if row.get("dataset") == "bbeh"
     }
-    hsgsa_harmonic = float(summaries.get("hsgsa_unanimous_3", {}).get("accuracy_mean") or 0.0)
+    sc5_harmonic = float(summaries.get("sc_5", {}).get("accuracy_mean") or 0.0)
     adaptive_harmonic = float(summaries.get("adaptive_sc_8", {}).get("accuracy_mean") or 0.0)
-    hsgsa_accuracy = float(summaries.get("hsgsa_unanimous_3", {}).get("micro_accuracy") or 0.0)
+    sc5_accuracy = float(summaries.get("sc_5", {}).get("micro_accuracy") or 0.0)
     adaptive_accuracy = float(summaries.get("adaptive_sc_8", {}).get("micro_accuracy") or 0.0)
-    delta = hsgsa_accuracy - adaptive_accuracy
-    parse_rate = reviewer_valid / reviewer_total if reviewer_total else 0.0
-    failures = []
-    if parse_rate < 0.995:
-        failures.append("historical_reviewer_parse_rate_below_99_5_percent")
-    if delta < 0.01:
-        failures.append("historical_replay_hsgsa_lead_below_1pp")
-    if corrected <= harmed:
-        failures.append("historical_replay_nonpositive_net_correction")
-    if malformed_samples:
-        failures.append("malformed_historical_stage_pool")
+    delta = adaptive_accuracy - sc5_accuracy
+    replay_failures = ["malformed_historical_stage_pool"] if malformed_samples else []
+    # The old H-SGSA board was formed before sample-aware canonicalization.  A
+    # SC5/adaptive-SC8 diagnostic can be replayed, but the discarded board can
+    # neither be re-scored nor used as evidence for the old confirmation gate.
+    # Keep the historical positive route locked even when the diagnostic itself
+    # is mechanically complete.
+    failures = [*replay_failures, "hsgsa_positive_route_unconfirmable"]
     return {
-        "audit_kind": "label_free_historical_trajectory_replay",
+        "audit_kind": "sample_aware_historical_sc5_adaptive_replay",
         "source_run": str(root),
         "dataset": "bbeh",
         "sample_count": len(replay_rows) // 2,
         "network_calls_made": 0,
-        "passed": not failures,
+        "passed": False,
+        "diagnostic_replay_completed": not replay_failures,
         "failures": failures,
         "development_thresholds": {
-            "reviewer_parse_rate_min": 0.995,
-            "hsgsa_minus_adaptive_sc8_min": 0.01,
-            "net_correction_positive": True,
+            "historical_claim": "diagnostic_only",
+            "hsgsa_replay": "prohibited_due_to_precanonicalized_candidate_board",
         },
         "results": {
-            "hsgsa_micro_accuracy": hsgsa_accuracy,
+            "sc5_micro_accuracy": sc5_accuracy,
             "adaptive_sc8_micro_accuracy": adaptive_accuracy,
-            "hsgsa_task_harmonic_accuracy": hsgsa_harmonic,
+            "sc5_task_harmonic_accuracy": sc5_harmonic,
             "adaptive_sc8_task_harmonic_accuracy": adaptive_harmonic,
-            "hsgsa_minus_adaptive_sc8": delta,
-            "reviewer_parse_rate": parse_rate,
-            "reviewer_valid": reviewer_valid,
-            "reviewer_total": reviewer_total,
-            "override_count": override_count,
-            "corrected": corrected,
-            "harmed": harmed,
+            "adaptive_sc8_minus_sc5": delta,
+            "invalid_answer_count": invalid_answer_count,
             "malformed_sample_count": len(malformed_samples),
         },
         "limitations": [
-            "The v5 PICK protocol cannot be counterfactually reconstructed from v2 text; legacy FINAL_ANSWER is used as the conservative reviewer pick proxy.",
-            "Passing this replay would be necessary but not sufficient evidence for the new prompt. Failing it activates the pre-registered stop rule.",
-            "No OmniMath row is used in the positive gate.",
+            "Only recorded Stage-A and resample calls are replayed; this function makes no provider or cache request.",
+            "H-SGSA candidate boards were grouped before sample-aware canonicalization and are explicitly not replayed.",
+            "The output is a normalization-impact audit, never confirmation evidence.",
         ],
     }
 
@@ -177,11 +175,17 @@ def write_replay_audit(source_run: str | Path, output_path: str | Path) -> dict[
 
 
 def _recover_legacy_answer(row: dict[str, Any]) -> str:
-    answer = str(row.get("normalized_answer") or row.get("prediction") or "").strip()
+    validated = row.get("validated_output") or {}
+    answer = str(validated.get("final_answer") or "").strip() if isinstance(validated, dict) else ""
     if answer:
-        return normalize_prediction("bbeh", answer)
+        return answer
     match = re.search(r"(?im)^\s*FINAL_ANSWER\s*:\s*(.*?)\s*$", str(row.get("assistant_text") or ""))
-    return normalize_prediction("bbeh", match.group(1)) if match else ""
+    return str(match.group(1)).strip() if match else str(row.get("prediction") or "").strip()
+
+
+def _load_bbeh_sample_map() -> dict[str, DatasetSample]:
+    benchmark = load_benchmark_config("configs/core/shared/benchmarks/bbeh/bbeh-main.toml")
+    return {sample.sample_id: sample for sample in load_samples(benchmark)}
 
 
 def _replay_prediction(sample_id, task, method, score, rows, override, initial_score, final_score):

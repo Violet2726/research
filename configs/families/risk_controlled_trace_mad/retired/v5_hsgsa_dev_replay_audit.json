@@ -1,33 +1,30 @@
 {
-  "audit_kind": "label_free_historical_trajectory_replay",
-  "source_run": "local/runs/selective_gsa_mad/sgsa_mad/count300_seed42/20260715T074155Z-xiaomimimo-mimo-v2.5",
+  "audit_kind": "sample_aware_historical_sc5_adaptive_replay",
+  "source_run": "local\\runs\\risk_controlled_trace_mad\\mad_innovation\\confirm_seed42\\20260716T092211Z-xiaomimimo-mimo-v2.5",
   "dataset": "bbeh",
   "sample_count": 300,
   "network_calls_made": 0,
-  "passed": true,
-  "failures": [],
+  "passed": false,
+  "diagnostic_replay_completed": true,
+  "failures": [
+    "hsgsa_positive_route_unconfirmable"
+  ],
   "development_thresholds": {
-    "reviewer_parse_rate_min": 0.995,
-    "hsgsa_minus_adaptive_sc8_min": 0.01,
-    "net_correction_positive": true
+    "historical_claim": "diagnostic_only",
+    "hsgsa_replay": "prohibited_due_to_precanonicalized_candidate_board"
   },
   "results": {
-    "hsgsa_micro_accuracy": 0.47333333333333333,
-    "adaptive_sc8_micro_accuracy": 0.4533333333333333,
-    "hsgsa_task_harmonic_accuracy": 0.0,
+    "sc5_micro_accuracy": 0.3433333333333333,
+    "adaptive_sc8_micro_accuracy": 0.37333333333333335,
+    "sc5_task_harmonic_accuracy": 0.0,
     "adaptive_sc8_task_harmonic_accuracy": 0.0,
-    "hsgsa_minus_adaptive_sc8": 0.020000000000000018,
-    "reviewer_parse_rate": 0.9960629921259843,
-    "reviewer_valid": 759,
-    "reviewer_total": 762,
-    "override_count": 38,
-    "corrected": 17,
-    "harmed": 7,
+    "adaptive_sc8_minus_sc5": 0.030000000000000027,
+    "invalid_answer_count": 6,
     "malformed_sample_count": 0
   },
   "limitations": [
-    "The v5 PICK protocol cannot be counterfactually reconstructed from v2 text; legacy FINAL_ANSWER is used as the conservative reviewer pick proxy.",
-    "Passing this replay would be necessary but not sufficient evidence for the new prompt. Failing it activates the pre-registered stop rule.",
-    "No OmniMath row is used in the positive gate."
+    "Only recorded Stage-A and resample calls are replayed; this function makes no provider or cache request.",
+    "H-SGSA candidate boards were grouped before sample-aware canonicalization and are explicitly not replayed.",
+    "The output is a normalization-impact audit, never confirmation evidence."
   ]
 }

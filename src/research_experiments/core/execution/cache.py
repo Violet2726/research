@@ -150,8 +150,9 @@ class RequestCache:
 class RequestCacheRouter:
     """Route provider/model/dataset tuples to cache shards."""
 
-    def __init__(self, cache_root: str | Path) -> None:
+    def __init__(self, cache_root: str | Path, *, namespace: str | None = None) -> None:
         self.cache_root = Path(cache_root)
+        self.namespace = _normalize_namespace(namespace)
         self.cache_root.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self._caches: dict[str, RequestCache] = {}
@@ -169,6 +170,7 @@ class RequestCacheRouter:
             provider=provider,
             request_model=request_model,
             dataset=dataset,
+            namespace=self.namespace,
         )
         with self._lock:
             cache = self._caches.get(shard_identity)
@@ -180,6 +182,7 @@ class RequestCacheRouter:
                     provider=provider,
                     request_model=request_model,
                     dataset=dataset,
+                    namespace=self.namespace,
                 )
             )
             self._caches[shard_identity] = cache
@@ -217,13 +220,13 @@ def build_request_cache_key(
     return sha256(json_dump(fingerprint).encode("utf-8")).hexdigest()
 
 
-_IGNORED_CACHE_KEY_FIELDS = frozenset({"max_tokens"})
-
-
 def normalize_payload_for_cache_key(payload: dict[str, Any]) -> dict[str, Any]:
     """Return the canonical payload fingerprint used for cache keys."""
 
-    return {k: v for k, v in payload.items() if k not in _IGNORED_CACHE_KEY_FIELDS}
+    # Every submitted payload field is semantically relevant, including the
+    # provider's completion cap.  Historical caches that elided a cap are not
+    # valid confirmation evidence.
+    return dict(payload)
 
 
 def cache_successful_response(
@@ -269,10 +272,14 @@ def resolve_cache_shard_path(
     provider: str,
     request_model: str,
     dataset: str,
+    namespace: str | None = None,
 ) -> Path:
     """Resolve the shard path for a provider/model/dataset tuple."""
 
     root = Path(cache_root)
+    normalized_namespace = _normalize_namespace(namespace)
+    if normalized_namespace:
+        root = root / "namespaces" / _slugify_segment(normalized_namespace)
     return (
         root
         / "providers"
@@ -331,12 +338,13 @@ def repair_cache_shard(shard_path: str | Path) -> dict[str, Any]:
     }
 
 
-def _shard_identity(*, provider: str, request_model: str, dataset: str) -> str:
+def _shard_identity(*, provider: str, request_model: str, dataset: str, namespace: str | None) -> str:
     return json_dump(
         {
             "provider": provider,
             "request_model": request_model,
             "dataset": dataset,
+            "namespace": namespace,
         }
     )
 
@@ -356,6 +364,15 @@ def _slugify_dataset_path(dataset: str) -> Path:
         return Path("default")
     parts = [part for part in normalized.split("/") if part]
     return Path(*[_slugify_segment(part) for part in parts])
+
+
+def _normalize_namespace(value: str | None) -> str | None:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    if normalized in {".", ".."} or "/" in normalized or "\\" in normalized:
+        raise ValueError("Cache namespace must be a single non-path segment.")
+    return normalized
 
 
 def _open_cache_connection(db_path: Path) -> sqlite3.Connection:

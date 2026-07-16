@@ -539,22 +539,46 @@ def _load_bbeh(config: BenchmarkConfig) -> list[DatasetSample]:
     raw_index = 0
     for task_name, payload in task_payloads:
         for task_index, record in enumerate(payload.get("examples") or []):
+            question = str(record.get("input") or "").strip()
+            options = _parse_bbeh_options(question)
             samples.append(
                 DatasetSample(
                     dataset=config.slug,
                     sample_id=f"{config.sample_id_prefix}-{task_name}-{task_index:04d}",
-                    question=str(record.get("input") or "").strip(),
+                    question=question,
                     reference_answer=str(record.get("target") or "").strip(),
                     prompt_context="",
                     metadata={
                         "raw_index": raw_index,
                         "task": task_name,
                         "task_index": task_index,
+                        "options": options,
                     },
                 )
             )
             raw_index += 1
     return samples
+
+
+def _parse_bbeh_options(question: str) -> list[dict[str, str]]:
+    """Extract a terminal BBEH ``Options:`` table without semantic guessing."""
+
+    marker = re.search(r"(?:^|\n)Options:\s*\n(?P<body>.+)\Z", str(question or ""), flags=re.DOTALL)
+    if marker is None:
+        return []
+    options: list[dict[str, str]] = []
+    seen_labels: set[str] = set()
+    for line in marker.group("body").splitlines():
+        matched = re.fullmatch(r"\s*\(([A-Za-z])\)\s+(.+?)\s*", line)
+        if matched is None:
+            return []
+        label = matched.group(1).upper()
+        text = matched.group(2).strip()
+        if label in seen_labels or not text:
+            return []
+        seen_labels.add(label)
+        options.append({"label": label, "text": text})
+    return options
 
 
 def _load_competition_math(config: BenchmarkConfig) -> list[DatasetSample]:

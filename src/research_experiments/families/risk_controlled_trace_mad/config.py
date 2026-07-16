@@ -52,7 +52,7 @@ class VersionRecord:
 
 @dataclass(frozen=True)
 class VersionRegistry:
-    active_version: str
+    active_version: str | None
     versions: dict[str, VersionRecord]
 
 
@@ -108,7 +108,7 @@ class HsgsaProtocolConfig:
 class MadInnovationExperimentConfig:
     name: str
     description: str
-    active_version: str
+    active_version: str | None
     version_registry: Path
     protocol: Path
     benchmark_configs: list[Path]
@@ -142,8 +142,12 @@ def load_version_registry(path: str | Path) -> VersionRegistry:
             retirement_reason=str(raw.get("retirement_reason") or ""),
             claim_boundary=str(raw.get("claim_boundary") or ""),
         )
-    active = str(payload.get("active_version") or "")
+    active = str(payload.get("active_version") or "").strip()
     active_records = [record.version_id for record in records.values() if record.status == "active"]
+    if not active:
+        if active_records:
+            raise ValueError("A registry without active_version cannot contain active records.")
+        return VersionRegistry(active_version=None, versions=records)
     if active not in records or active_records != [active]:
         raise ValueError("Version registry must contain exactly one active version matching active_version.")
     return VersionRegistry(active_version=active, versions=records)
@@ -151,6 +155,8 @@ def load_version_registry(path: str | Path) -> VersionRegistry:
 
 def require_active_version(registry: VersionRegistry, requested: str | None) -> VersionRecord:
     version_id = requested or registry.active_version
+    if version_id is None:
+        raise ValueError("This MAD family is historical-only and has no active version to run.")
     if version_id not in registry.versions:
         raise ValueError(f"Unknown MAD innovation version: {version_id}")
     record = registry.versions[version_id]
@@ -273,7 +279,7 @@ def load_experiment_config(path: str | Path) -> MadInnovationExperimentConfig:
         raise ValueError(f"Invalid MAD innovation methods: unsupported={unsupported}")
     registry_path = Path(str(raw["version_registry"]))
     registry = load_version_registry(registry_path)
-    active_version = str(raw["active_version"])
+    active_version = str(raw.get("active_version") or "").strip() or None
     if active_version != registry.active_version:
         raise ValueError("Experiment active_version must match the version registry.")
     profiles = {

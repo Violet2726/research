@@ -26,7 +26,10 @@ def build_payload(
     if seed is not None:
         payload["seed"] = seed
     if max_tokens is not None and max_tokens > 0:
-        payload["max_tokens"] = int(max_tokens)
+        # MiMo's OpenAI-compatible endpoint deliberately does not interpret the
+        # legacy ``max_tokens`` field as the completion cap.  Keep the internal
+        # API provider-neutral while emitting the documented wire field.
+        payload["max_completion_tokens" if config.provider == "xiaomimimo" else "max_tokens"] = int(max_tokens)
     apply_thinking_control(config, payload)
     if use_response_format and config.supports_response_format and config.response_format:
         payload["response_format"] = {"type": config.response_format}

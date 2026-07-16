@@ -64,6 +64,17 @@ def test_build_payload_maps_thinking_control_by_provider() -> None:
     assert xiaomimimo_payload_no_format["thinking"] == {"type": "disabled"}
     assert "response_format" not in xiaomimimo_payload_no_format
 
+    capped_mimo_payload = build_payload(
+        xiaomimimo_model,
+        [{"role": "user", "content": "hi"}],
+        temperature=0.7,
+        top_p=1.0,
+        seed=42,
+        max_tokens=16384,
+    )
+    assert capped_mimo_payload["max_completion_tokens"] == 16384
+    assert "max_tokens" not in capped_mimo_payload
+
 def test_extract_message_channels_supports_reasoning_metadata() -> None:
     assistant_text, provider_reasoning_text = _extract_message_channels(
         {

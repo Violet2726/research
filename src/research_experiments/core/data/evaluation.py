@@ -17,8 +17,22 @@ import tempfile
 import unicodedata
 from collections import Counter
 from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import sympy
+
+if TYPE_CHECKING:
+    from research_experiments.core.data.datasets import DatasetSample
+
+
+@dataclass(frozen=True)
+class AnswerCanonicalization:
+    """The sample-aware, conservative result used by scoring and voting."""
+
+    key: str
+    valid: bool
+    invalid_reason: str | None = None
 
 
 def normalize_prediction(dataset: str, final_answer: str) -> str:
@@ -63,7 +77,31 @@ def normalize_gold(dataset: str, answer: str) -> str:
     return normalize_prediction(dataset, answer)
 
 
-def answer_class_key(dataset: str, answer: str) -> str:
+def canonicalize_answer(sample: "DatasetSample", raw_answer: str) -> AnswerCanonicalization:
+    """Canonicalize an answer using the current sample's exact answer contract.
+
+    BBEH includes both free-form tasks and multiple-choice tasks.  For the
+    latter, a label only has meaning in the context of that sample's option
+    table, so callers must use this entry point rather than normalizing a
+    string in isolation.  Invalid answers deliberately have no key: they
+    cannot create a vote class, trigger an intervention, or be promoted.
+    """
+
+    value = str(raw_answer or "").strip()
+    if not value:
+        return AnswerCanonicalization("", False, "empty_answer")
+    if sample.dataset != "bbeh":
+        key = normalize_prediction(sample.dataset, value)
+        return AnswerCanonicalization(key, bool(key), None if key else "empty_normalized_answer")
+
+    options = sample.metadata.get("options")
+    if not isinstance(options, list) or not options:
+        key = _bbeh_format_key(value)
+        return AnswerCanonicalization(key, bool(key), None if key else "empty_normalized_answer")
+    return _canonicalize_bbeh_multiple_choice(value, options)
+
+
+def answer_class_key(dataset: str, answer: str, *, sample: "DatasetSample | None" = None) -> str:
     """Return the conservative, label-free equivalence key used by voting and scoring.
 
     BBEH's official scorer accepts a small set of formatting variants.  Keeping
@@ -72,8 +110,18 @@ def answer_class_key(dataset: str, answer: str) -> str:
     This intentionally does not attempt semantic or model-based equivalence.
     """
 
+    if sample is not None:
+        if sample.dataset != dataset:
+            raise ValueError(f"Sample dataset {sample.dataset!r} does not match {dataset!r}.")
+        return canonicalize_answer(sample, answer).key
     if dataset != "bbeh":
         return normalize_prediction(dataset, answer)
+    return _bbeh_format_key(answer)
+
+
+def _bbeh_format_key(answer: str) -> str:
+    """Legacy conservative BBEH formatting key for non-option samples."""
+
     value = unicodedata.normalize("NFKC", normalize_bbeh_prediction(answer)).strip()
     quote_pairs = {('"', '"'), ("'", "'"), ("“", "”"), ("‘", "’")}
     while len(value) >= 2 and (value[0], value[-1]) in quote_pairs:
@@ -96,7 +144,64 @@ def answer_class_key(dataset: str, answer: str) -> str:
     return format(numeric, ".15g")
 
 
-def score_prediction(dataset: str, predicted: str, gold: str) -> float:
+def _canonicalize_bbeh_multiple_choice(
+    raw_answer: str,
+    options: list[object],
+) -> AnswerCanonicalization:
+    option_by_label: dict[str, str] = {}
+    labels_by_text: dict[str, list[str]] = {}
+    for option in options:
+        if not isinstance(option, dict):
+            continue
+        label = str(option.get("label") or "").strip().upper()
+        text = _exact_option_text(str(option.get("text") or ""))
+        if not re.fullmatch(r"[A-Z]", label) or not text or label in option_by_label:
+            continue
+        option_by_label[label] = text
+        labels_by_text.setdefault(text, []).append(label)
+    if not option_by_label:
+        return AnswerCanonicalization("", False, "invalid_option_metadata")
+
+    value = _strip_bbeh_answer_wrapper(raw_answer)
+    label_match = re.fullmatch(r"\(?\s*([A-Za-z])\s*\)?\s*(?:[\]\).:]\s*)?(.*)", value, flags=re.DOTALL)
+    explicit_label = bool(re.match(r"^\s*\(?\s*[A-Za-z](?:\s*\)?\s*(?:[\]\).:]|\s)|\s*$)", value))
+    if label_match and (label_match.group(1).upper() in option_by_label or explicit_label):
+        label = label_match.group(1).upper()
+        remainder = _exact_option_text(label_match.group(2))
+        if label not in option_by_label:
+            return AnswerCanonicalization("", False, "unknown_option_label")
+        if not remainder:
+            return AnswerCanonicalization(label, True)
+        if remainder == option_by_label[label]:
+            return AnswerCanonicalization(label, True)
+        return AnswerCanonicalization("", False, "label_text_conflict")
+
+    exact_text = _exact_option_text(value)
+    labels = labels_by_text.get(exact_text, [])
+    if len(labels) == 1:
+        return AnswerCanonicalization(labels[0], True)
+    if len(labels) > 1:
+        return AnswerCanonicalization("", False, "ambiguous_option_text")
+    return AnswerCanonicalization("", False, "unmapped_option_answer")
+
+
+def _strip_bbeh_answer_wrapper(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", str(value or "")).replace("\r\n", "\n").strip()
+    normalized = re.sub(r"^(?:the\s+)?(?:final\s+)?answer\s+is\s*:?\s*", "", normalized, flags=re.IGNORECASE)
+    return normalized.strip().rstrip(".").strip()
+
+
+def _exact_option_text(value: str) -> str:
+    return unicodedata.normalize("NFKC", str(value or "")).replace("\r\n", "\n").strip()
+
+
+def score_prediction(
+    dataset: str,
+    predicted: str,
+    gold: str,
+    *,
+    sample: "DatasetSample | None" = None,
+) -> float:
     """计算单题得分。
 
     当前仓库统一采用精确匹配：归一化后完全一致记为 `1.0`，否则记为 `0.0`。
@@ -108,7 +213,7 @@ def score_prediction(dataset: str, predicted: str, gold: str) -> float:
     if dataset == "commongen_hard":
         return score_commongen_hard(predicted, gold)
     if dataset == "bbeh":
-        return score_bbeh(predicted, gold)
+        return score_bbeh(predicted, gold, sample=sample)
     if dataset in {
         "realmistake_math_problem_generation",
         "realmistake_fine_grained_fact_verification",
@@ -213,8 +318,10 @@ def normalize_bbeh_reference(value: str) -> str:
     return str(value or "").strip().lower().replace(", ", ",")
 
 
-def score_bbeh(predicted: str, gold: str) -> float:
-    return 1.0 if answer_class_key("bbeh", predicted) == answer_class_key("bbeh", gold) else 0.0
+def score_bbeh(predicted: str, gold: str, *, sample: "DatasetSample | None" = None) -> float:
+    predicted_key = answer_class_key("bbeh", predicted, sample=sample)
+    gold_key = answer_class_key("bbeh", gold, sample=sample)
+    return 1.0 if predicted_key and predicted_key == gold_key else 0.0
 
 
 def _strip_bbeh_latex(value: str) -> str:

@@ -11,7 +11,7 @@ from typing import Any
 
 from research_experiments.core.controls.control_prompts import build_cot_messages
 from research_experiments.core.data.datasets import DatasetSample, select_samples
-from research_experiments.core.data.evaluation import normalize_prediction, score_prediction
+from research_experiments.core.data.evaluation import canonicalize_answer, normalize_prediction, score_prediction
 from research_experiments.core.execution.runner_common import execute_cached_request, iter_indexed_batch
 from research_experiments.families.risk_controlled_trace_mad.algorithms import (
     StageDecision,
@@ -348,7 +348,12 @@ def _execute_free_text_turn(
         endpoint.cache.delete(result.cache_key)
     abstention = finish_reason == "content_filter"
     answer = str(result.validated_output.get("final_answer") or "")
-    normalized = normalize_prediction(dataset, answer) if answer and result.output_status == "ok" else ""
+    canonical = canonicalize_answer(sample, answer) if answer and result.output_status == "ok" else None
+    normalized = (
+        canonical.key
+        if canonical is not None and canonical.valid
+        else (normalize_prediction(dataset, answer) if answer and result.output_status == "ok" and dataset != "bbeh" else "")
+    )
     usage = {
         key: sum(float(item.usage.get(key) or 0) for item in results)
         for key in ("prompt_tokens", "completion_tokens", "total_tokens")
@@ -374,6 +379,9 @@ def _execute_free_text_turn(
         "cache_key": result.cache_key,
         "prediction": normalized,
         "normalized_answer": normalized,
+        "answer_class_key": canonical.key if canonical is not None else "",
+        "canonicalization_status": "valid" if canonical is not None and canonical.valid else "invalid",
+        "canonicalization_invalid_reason": canonical.invalid_reason if canonical is not None else "empty_answer",
         "score": None,
         "output_status": "abstain" if abstention else result.output_status,
         "provider_abstention": abstention,
@@ -408,7 +416,9 @@ def _run_evf(*, run_id, dataset, split_name, sample, experiment, protocol, mixed
     turns: list[dict[str, Any]] = []
     messages: list[dict[str, Any]] = []
     anchor_score = (
-        score_prediction(dataset, stage.anchor_answer, sample.reference_answer) if stage.anchor_answer else 0.0
+        score_prediction(dataset, stage.anchor_answer, sample.reference_answer, sample=sample)
+        if stage.anchor_answer
+        else 0.0
     )
     if stage.valid_trace_count < protocol.minimum_valid_stage_traces:
         prediction = _prediction(
@@ -605,7 +615,8 @@ def _run_evf(*, run_id, dataset, split_name, sample, experiment, protocol, mixed
             "evidence_results": [item for audit in audits for item in audit.get("evidence_results", [])],
             "candidate_answers": sorted(stage.vote_counts),
             "candidate_oracle_correct": any(
-                score_prediction(dataset, answer, sample.reference_answer) == 1.0 for answer in stage.vote_counts
+                score_prediction(dataset, answer, sample.reference_answer, sample=sample) == 1.0
+                for answer in stage.vote_counts
             ),
             "selector_board_char_count": len(selector_board),
             "selector_trace_char_counts": selector_counts,
@@ -945,9 +956,11 @@ def _prediction(
     method_metadata=None,
     logical_rows=None,
 ):
-    score = score_prediction(dataset, prediction, sample.reference_answer) if prediction else 0.0
+    score = score_prediction(dataset, prediction, sample.reference_answer, sample=sample) if prediction else 0.0
     initial_score = (
-        score_prediction(dataset, stage.anchor_answer, sample.reference_answer) if stage.anchor_answer else 0.0
+        score_prediction(dataset, stage.anchor_answer, sample.reference_answer, sample=sample)
+        if stage.anchor_answer
+        else 0.0
     )
     rows = list(logical_rows or [*initial_rows, *additional_rows])
     override = bool(prediction and prediction != stage.anchor_answer)

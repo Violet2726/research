@@ -1,4 +1,4 @@
-active_version = "v5_hsgsa"
+active_version = ""
 
 [versions.v1_brd]
 paper_name = "BRD-MAD"
@@ -42,10 +42,10 @@ claim_boundary = "Read-only negative evidence for a heterogeneous Qwen-Flash + M
 
 [versions.v5_hsgsa]
 paper_name = "Homogeneous Support-Blind SGSA"
-status = "active"
+status = "retired_superseded"
 source_commit = "working-tree"
 config_sha256 = "generated-at-run-time"
 methods = ["cot_1", "sc_3", "sc_5", "adaptive_sc_8", "conditional_resample_3", "blind_gsa_1", "blind_gsa_quorum_3", "hsgsa_unanimous_3"]
 representative_run = ""
-retirement_reason = ""
-claim_boundary = "Fixed MiMo-v2.5, fixed prompt, homogeneous sampling, and matched test-time calls/tokens; at most an accuracy-cost Pareto claim on held-out BBEH."
+retirement_reason = "Historical H-SGSA candidate boards are unconfirmable after sample-aware canonicalization; DGCR is the only new positive research line."
+claim_boundary = "Legacy family retained only for reproduction and diagnostics. No H-SGSA confirmation, Pareto, or SOTA claim is permitted."

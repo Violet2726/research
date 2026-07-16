@@ -1,6 +1,6 @@
 name = "mad_innovation"
-description = "H-SGSA v5: homogeneous MiMo-v2.5 generation with support-blind adjudication; v4 EVF is read-only historical evidence."
-active_version = "v5_hsgsa"
+description = "Historical H-SGSA/EVF replay metadata only; DGCR is the active gated research line."
+active_version = ""
 version_registry = "configs/families/risk_controlled_trace_mad/versions.toml"
 protocol = "configs/families/risk_controlled_trace_mad/protocols/v5_hsgsa.toml"
 benchmark_configs = [
@@ -41,7 +41,7 @@ hsgsa_unanimous_3 = "All three valid support-blind homogeneous reviewers must se
 benchmark_slugs = ["bbeh"]
 split_overrides = { bbeh = "count300_seed42" }
 replay_only = true
-source_run = "local/runs/selective_gsa_mad/sgsa_mad/count300_seed42/20260711T174756Z-xiaomimimo-mimo-v2.5"
+source_run = "local/runs/risk_controlled_trace_mad/mad_innovation/confirm_seed42/20260716T092211Z-xiaomimimo-mimo-v2.5"
 
 [phases.confirm_seed42]
 benchmark_slugs = ["bbeh", "gpqa_diamond"]

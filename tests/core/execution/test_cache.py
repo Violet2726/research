@@ -145,3 +145,17 @@ def test_resolve_cache_shard_path_preserves_dataset_hierarchy(tmp_path: Path) ->
 
     assert resolved.as_posix().endswith("providers/xiaomimimo/mimo-v2-5/hotpotqa/validation/requests.sqlite")
 
+
+def test_cache_namespace_isolated_and_completion_cap_changes_key(tmp_path: Path) -> None:
+    payload = {"model": "mimo-v2.5", "messages": [{"role": "user", "content": "hi"}], "max_completion_tokens": 2048}
+    changed_cap = {**payload, "max_completion_tokens": 16384}
+    assert build_request_cache_key(provider="xiaomimimo", request_model="mimo-v2.5", payload=payload) != build_request_cache_key(
+        provider="xiaomimimo", request_model="mimo-v2.5", payload=changed_cap
+    )
+    default_path = resolve_cache_shard_path(tmp_path, provider="xiaomimimo", request_model="mimo-v2.5", dataset="bbeh")
+    namespaced_path = resolve_cache_shard_path(
+        tmp_path, provider="xiaomimimo", request_model="mimo-v2.5", dataset="bbeh", namespace="dgcr-dev-v1"
+    )
+    assert "namespaces" not in default_path.parts
+    assert namespaced_path.as_posix().endswith("namespaces/dgcr-dev-v1/providers/xiaomimimo/mimo-v2-5/bbeh/requests.sqlite")
+
