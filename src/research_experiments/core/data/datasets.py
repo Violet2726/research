@@ -540,7 +540,8 @@ def _load_bbeh(config: BenchmarkConfig) -> list[DatasetSample]:
     for task_name, payload in task_payloads:
         for task_index, record in enumerate(payload.get("examples") or []):
             question = str(record.get("input") or "").strip()
-            options = _parse_bbeh_options(question)
+            option_block = _parse_bbeh_option_block(question)
+            options = option_block["options"] if option_block is not None else []
             samples.append(
                 DatasetSample(
                     dataset=config.slug,
@@ -553,6 +554,9 @@ def _load_bbeh(config: BenchmarkConfig) -> list[DatasetSample]:
                         "task": task_name,
                         "task_index": task_index,
                         "options": options,
+                        "options_block_start": option_block["start"] if option_block is not None else None,
+                        "options_block_end": option_block["end"] if option_block is not None else None,
+                        "options_trailing_note": option_block["trailing_note"] if option_block is not None else "",
                     },
                 )
             )
@@ -563,22 +567,75 @@ def _load_bbeh(config: BenchmarkConfig) -> list[DatasetSample]:
 def _parse_bbeh_options(question: str) -> list[dict[str, str]]:
     """Extract a terminal BBEH ``Options:`` table without semantic guessing."""
 
-    marker = re.search(r"(?:^|\n)Options:\s*\n(?P<body>.+)\Z", str(question or ""), flags=re.DOTALL)
+    block = _parse_bbeh_option_block(question)
+    return list(block["options"]) if block is not None else []
+
+
+def _parse_bbeh_option_block(question: str) -> dict[str, Any] | None:
+    """Return the final BBEH option table and its source boundary.
+
+    ``geometric_shapes`` appends a fixed coordinate-rounding note after its
+    choices.  That corpus-authored note is part of the terminal option region,
+    not an additional choice or an arbitrary explanation.
+    """
+
+    source = str(question or "")
+    markers = list(re.finditer(r"(?:^|\n)(?P<label>Options:)\s*\n", source))
+    marker = markers[-1] if markers else None
     if marker is None:
-        return []
+        return None
     options: list[dict[str, str]] = []
     seen_labels: set[str] = set()
-    for line in marker.group("body").splitlines():
+    option_lines: list[str] = []
+    trailing_lines: list[str] = []
+    in_trailing_note = False
+    for line in source[marker.end() :].splitlines():
         matched = re.fullmatch(r"\s*\(([A-Za-z])\)\s+(.+?)\s*", line)
         if matched is None:
-            return []
+            in_trailing_note = True
+            trailing_lines.append(line)
+            continue
+        if in_trailing_note:
+            return None
         label = matched.group(1).upper()
         text = matched.group(2).strip()
         if label in seen_labels or not text:
-            return []
+            return None
         seen_labels.add(label)
         options.append({"label": label, "text": text})
-    return options
+        option_lines.append(line)
+    if not options:
+        return None
+    trailing_note = "\n".join(trailing_lines).strip()
+    if trailing_note and re.fullmatch(
+        r"Coordinates have been rounded to \d+ decimal places so ignore slight differences\.",
+        trailing_note,
+        flags=re.IGNORECASE,
+    ) is None:
+        return None
+    option_start = marker.start("label")
+    option_text = "\n".join(option_lines)
+    option_end = marker.end() + len(option_text)
+    return {
+        "options": options,
+        "start": option_start,
+        "end": option_end,
+        "trailing_note": trailing_note,
+    }
+
+
+def question_without_bbeh_options(sample: DatasetSample) -> str:
+    """Remove the structured final option region for blinded measurement."""
+
+    if sample.dataset != "bbeh":
+        return sample.question
+    start = sample.metadata.get("options_block_start")
+    if isinstance(start, int) and 0 <= start <= len(sample.question):
+        return sample.question[:start].rstrip()
+    block = _parse_bbeh_option_block(sample.question)
+    if block is None:
+        return sample.question
+    return sample.question[: int(block["start"])].rstrip()
 
 
 def _load_competition_math(config: BenchmarkConfig) -> list[DatasetSample]:

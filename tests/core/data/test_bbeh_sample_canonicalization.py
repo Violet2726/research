@@ -1,4 +1,8 @@
-from research_experiments.core.data.datasets import DatasetSample, _parse_bbeh_options
+from research_experiments.core.data.datasets import (
+    DatasetSample,
+    _parse_bbeh_options,
+    question_without_bbeh_options,
+)
 from research_experiments.core.data.evaluation import canonicalize_answer, score_prediction
 
 
@@ -39,3 +43,15 @@ def test_bbeh_options_metadata_is_taken_only_from_a_terminal_options_block() -> 
     question = "Options: mentioned in the stem only.\nQuestion body\nOptions:\n(A) Alpha\n(B) Beta"
     assert _parse_bbeh_options(question) == [{"label": "A", "text": "Alpha"}, {"label": "B", "text": "Beta"}]
     assert _parse_bbeh_options(question + "\nExplanation after choices") == []
+
+
+def test_bbeh_geometric_shapes_rounding_note_is_part_of_terminal_option_region() -> None:
+    question = (
+        "SVG geometry question\nOptions:\n(A) triangle\n(B) square\n"
+        "Coordinates have been rounded to 5 decimal places so ignore slight differences."
+    )
+    options = _parse_bbeh_options(question)
+    sample = DatasetSample("bbeh", "geo", question, "A", "", {"options": options})
+
+    assert options == [{"label": "A", "text": "triangle"}, {"label": "B", "text": "square"}]
+    assert question_without_bbeh_options(sample) == "SVG geometry question"

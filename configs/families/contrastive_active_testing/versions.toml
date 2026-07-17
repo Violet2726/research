@@ -1,0 +1,15 @@
+active_version = "catch_v1"
+
+[versions.dgcr_v1]
+status = "retired_failed_predecessor"
+family = "disagreement_guided_crux_reconstruction"
+failure = "Exact hidden-span reconstruction produced zero exact matches and zero overrides on the frozen dev100 run."
+historical_run = "local/runs/disagreement_guided_crux_reconstruction/dgcr_gate/development/20260716T150534Z-xiaomimimo-mimo-v2.5"
+replayable = false
+reason_not_replayable = "The candidate-panel route is a historical failed mechanism and receives no reruns or board reconstruction."
+
+[versions.catch_v1]
+status = "active_preregistered"
+family = "contrastive_active_testing"
+paper_name = "CATCH"
+mechanism = "blinded finite diagnostic measurements plus error-correcting candidate decoding"

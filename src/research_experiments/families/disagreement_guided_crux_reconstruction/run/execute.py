@@ -10,13 +10,12 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from research_experiments.core.data.datasets import select_samples
 from research_experiments.core.execution.cache import RequestCacheRouter
 from research_experiments.core.execution.provider_audit import evaluate_mimo_provider_audit
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
 from research_experiments.core.execution.rate_limits import RequestThrottle
-from research_experiments.core.execution.runtime import build_run_id, finalize_run_outputs
-from research_experiments.family_runtime.layout import prepare_registered_run_layout
-from research_experiments.family_runtime.manifest import finalize_family_manifest
+from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
 from research_experiments.families.disagreement_guided_crux_reconstruction.config import (
     load_phase_benchmarks,
     load_protocol_config,
@@ -24,8 +23,12 @@ from research_experiments.families.disagreement_guided_crux_reconstruction.confi
 )
 from research_experiments.families.disagreement_guided_crux_reconstruction.run.sample import run_dgcr_sample
 from research_experiments.families.disagreement_guided_crux_reconstruction.run.validate import validate_run
-from research_experiments.families.disagreement_guided_crux_reconstruction.statistics import build_metrics, evaluate_gate
-from research_experiments.core.data.datasets import select_samples
+from research_experiments.families.disagreement_guided_crux_reconstruction.statistics import (
+    build_metrics,
+    evaluate_gate,
+)
+from research_experiments.family_runtime.layout import prepare_registered_run_layout
+from research_experiments.family_runtime.manifest import finalize_family_manifest
 from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
 
@@ -65,6 +68,19 @@ def run_experiment(experiment, phase_name: str, backbone, run_root: str | Path |
     run_id = build_run_id(backbone.name)
     layout = prepare_registered_run_layout("disagreement_guided_crux_reconstruction", run_root, experiment.name, phase_name, run_id)
     benchmarks = load_phase_benchmarks(experiment, phase_name)
+    selected_by_benchmark = {
+        benchmark.slug: select_samples(benchmark, str(phase["split_overrides"][benchmark.slug]))
+        for benchmark in benchmarks
+    }
+    sample_count = sum(len(samples) for samples in selected_by_benchmark.values())
+    progress = RunProgressTracker(
+        layout.progress,
+        total_planned_calls=sample_count * 11,
+        total_planned_predictions=sample_count * 3,
+        planned_calls_are_upper_bound=True,
+        target_network_rpm=experiment.requests_per_minute_limit,
+        rate_limit_snapshot_provider=throttle.snapshot,
+    )
     manifest = finalize_family_manifest(
         {
             "run_id": run_id,
@@ -96,18 +112,20 @@ def run_experiment(experiment, phase_name: str, backbone, run_root: str | Path |
                 split_name = str(phase["split_overrides"][benchmark.slug])
                 cache = router.for_request_target(provider=backbone.provider, request_model=backbone.model_id, dataset=benchmark.slug)
                 endpoint = DgcrEndpoint(backbone=backbone, provider=provider, cache=cache, throttle=throttle, cache_namespace=cache_namespace)
-                for sample in select_samples(benchmark, split_name):
+                for sample in selected_by_benchmark[benchmark.slug]:
                     sample_turns, router_row, sample_predictions = run_dgcr_sample(
                         sample, run_id=run_id, split_name=split_name, experiment=experiment, protocol=protocol, endpoint=endpoint
                     )
                     for row in sample_turns:
                         turns.append(row)
                         turns_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+                        progress.record_call(row)
                     routers.append(router_row)
                     routers_handle.write(json.dumps(router_row, ensure_ascii=False) + "\n")
                     for row in sample_predictions:
                         predictions.append(row)
                         predictions_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+                    progress.record_predictions(len(sample_predictions), sample.dataset, "dgcr_sample")
         metrics = build_metrics(predictions)
         gate = evaluate_gate(phase_name=phase_name, predictions=predictions, turns=turns, routers=routers)
         layout.metrics.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -115,8 +133,13 @@ def run_experiment(experiment, phase_name: str, backbone, run_root: str | Path |
         layout.run_summary.write_text(json.dumps({"metrics": metrics, "gate": gate}, ensure_ascii=False, indent=2), encoding="utf-8")
         layout.report.write_text(_render_markdown(metrics, gate), encoding="utf-8")
         finalize_run_outputs(layout.root, validator=validate_run, validation_path=layout.validation)
+        progress.mark_completed()
         return layout.root
+    except BaseException as exc:
+        progress.mark_failed(type(exc).__name__, str(exc), last_sample_id=progress.last_sample_id)
+        raise
     finally:
+        progress.close()
         provider.close()
         router.close()
 

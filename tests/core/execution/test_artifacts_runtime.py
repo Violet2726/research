@@ -82,6 +82,42 @@ def test_run_progress_tracker_close_stops_heartbeat(tmp_path: Path) -> None:
     assert after_close["last_updated_at"] == frozen["last_updated_at"]
 
 
+def test_run_progress_tracker_persists_terminal_failure(tmp_path: Path) -> None:
+    progress_path = tmp_path / "progress.json"
+    tracker = RunProgressTracker(
+        progress_path,
+        total_planned_calls=10,
+        total_planned_predictions=2,
+        heartbeat_interval_seconds=10.0,
+    )
+    tracker.mark_failed("TimeoutError", "provider timed out", last_sample_id="sample-7")
+
+    payload = json.loads(progress_path.read_text(encoding="utf-8"))
+    assert payload["status"] == "failed"
+    assert payload["last_write_reason"] == "failed"
+    assert payload["last_sample_id"] == "sample-7"
+    assert payload["failure"] == {"error_type": "TimeoutError", "message": "provider timed out"}
+
+
+def test_finalize_run_outputs_writes_validation_before_reraising(tmp_path: Path) -> None:
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({"run_id": "failed-run"}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    def fail_validation(_path: Path) -> dict[str, object]:
+        raise ValueError("missing usage")
+
+    with pytest.raises(ValueError, match="missing usage"):
+        finalize_run_outputs(tmp_path, validator=fail_validation)
+
+    payload = json.loads((tmp_path / "run_validation.json").read_text(encoding="utf-8"))
+    assert payload["passed"] is False
+    assert payload["validator_exception"] == {"error_type": "ValueError", "message": "missing usage"}
+    assert "validator_exception" in payload["artifact_violations"]
+    assert payload["archive_integrity"]["passed"] is True
+
+
 def test_run_progress_tracker_separates_rolling_and_lifetime_network_rpm(tmp_path: Path) -> None:
     progress_path = tmp_path / "progress.json"
     tracker = RunProgressTracker(

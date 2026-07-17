@@ -1,0 +1,670 @@
+"""共享 Stage-A、CATCH、adaptive-SC8 与 Judge-3 的逐样本执行。"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import threading
+from typing import Any
+
+from research_experiments.core.controls.control_prompts import build_cot_messages
+from research_experiments.core.data.datasets import DatasetSample
+from research_experiments.core.data.evaluation import canonicalize_answer, score_prediction
+from research_experiments.core.execution.runner_common import execute_cached_request
+from research_experiments.families.contrastive_active_testing.algorithms import (
+    build_hypothesis_labels,
+    build_stage_decision,
+    build_witness_packet,
+    decide_direct_judges,
+    decode_witnesses,
+    parse_witness_answers,
+    select_tests,
+    test_to_dict,
+    validate_test_bank,
+)
+from research_experiments.families.contrastive_active_testing.prompts import (
+    build_designer_messages,
+    build_direct_judge_messages,
+    build_witness_messages,
+)
+from research_experiments.family_runtime.free_text_protocol import FREE_TEXT_ANSWER_PROTOCOL_V1
+from research_experiments.family_runtime.output_protocols import execute_output_protocol_turn
+
+
+class NetworkAttemptLimitExceeded(RuntimeError):
+    pass
+
+
+class NetworkAttemptBudget:
+    """Thread-safe hard cap with retry reserve before each physical request."""
+
+    def __init__(self, limit: int) -> None:
+        self.limit = int(limit)
+        self.actual = 0
+        self._reserved = 0
+        self._lock = threading.Lock()
+
+    def reserve(self, maximum: int = 10) -> int:
+        with self._lock:
+            if self.actual + self._reserved + maximum > self.limit:
+                raise NetworkAttemptLimitExceeded(
+                    f"network-attempt hard stop: actual={self.actual}, reserved={self._reserved}, "
+                    f"requested_reserve={maximum}, limit={self.limit}"
+                )
+            self._reserved += maximum
+        return maximum
+
+    def settle(self, reservation: int, actual: int) -> None:
+        with self._lock:
+            self._reserved -= reservation
+            self.actual += int(actual)
+            if self.actual > self.limit:
+                raise NetworkAttemptLimitExceeded(
+                    f"network-attempt hard stop exceeded: actual={self.actual}, limit={self.limit}"
+                )
+
+
+def run_catch_sample(
+    sample: DatasetSample,
+    *,
+    run_id: str,
+    split_name: str,
+    experiment,
+    protocol,
+    endpoint,
+    network_budget: NetworkAttemptBudget,
+    phase_name: str,
+    frozen_decoding: dict[str, int] | None = None,
+    run_direct_judge: bool = True,
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    stage_rows = [
+        _answer_turn(
+            sample,
+            run_id=run_id,
+            split_name=split_name,
+            endpoint=endpoint,
+            network_budget=network_budget,
+            method_name="catch_stage_a_shared",
+            role="stage_a_solver",
+            agent_id=index,
+            seed=42_000 + index,
+            max_tokens=protocol.solver_max_tokens,
+        )
+        for index in range(1, protocol.stage_candidates + 1)
+    ]
+    stage = build_stage_decision(stage_rows, seed=experiment.global_seed, sample_id=sample.sample_id)
+    physical_rows = list(stage_rows)
+    resample_rows: list[dict[str, Any]] = []
+    designer_row: dict[str, Any] | None = None
+    witness_rows: list[dict[str, Any]] = []
+    judge_rows: list[dict[str, Any]] = []
+    catch_variants: list[tuple[int, int, Any, list[dict[str, Any]], dict[str, Any]]] = []
+    bank_validation = None
+    hypothesis_to_key: dict[str, str] = {}
+    judge_selections: list[str | None] = []
+
+    if stage.triggered:
+        resample_rows = [
+            _answer_turn(
+                sample,
+                run_id=run_id,
+                split_name=split_name,
+                endpoint=endpoint,
+                network_budget=network_budget,
+                method_name="catch_adaptive_resample_shared",
+                role="independent_resample",
+                agent_id=index,
+                seed=45_000 + index,
+                max_tokens=protocol.solver_max_tokens,
+            )
+            for index in range(1, protocol.resample_candidates + 1)
+        ]
+        hypothesis_to_key = build_hypothesis_labels(
+            stage,
+            seed=experiment.global_seed,
+            sample_id=sample.sample_id,
+        )
+        designer_row, designer_payload = _json_turn(
+            sample,
+            run_id=run_id,
+            split_name=split_name,
+            endpoint=endpoint,
+            network_budget=network_budget,
+            method_name="catch_test_designer_shared",
+            role="test_designer",
+            agent_id=1,
+            seed=43_000,
+            max_tokens=protocol.role_max_tokens,
+            messages=build_designer_messages(
+                sample,
+                stage=stage,
+                hypothesis_to_key=hypothesis_to_key,
+            ),
+        )
+        designer_row["hypothesis_to_answer_class_key"] = hypothesis_to_key
+        bank_validation = validate_test_bank(
+            designer_payload,
+            stage=stage,
+            hypothesis_to_key=hypothesis_to_key,
+            max_tests=protocol.max_proposed_tests,
+        )
+        designer_row["test_bank_protocol_error"] = bank_validation.protocol_error
+        designer_row["dropped_tests"] = list(bank_validation.dropped)
+        designer_row["validated_test_bank"] = [test_to_dict(test) for test in bank_validation.tests]
+        if bank_validation.protocol_error is not None:
+            designer_row["protocol_parse_status"] = "failed"
+            designer_row["protocol_parse_error"] = bank_validation.protocol_error
+
+        d_values = (
+            [int(frozen_decoding["d_min"])]
+            if frozen_decoding is not None
+            else list(protocol.d_min_grid)
+        )
+        margin_values = (
+            [int(frozen_decoding["margin"])]
+            if frozen_decoding is not None
+            else list(protocol.margin_grid)
+        )
+        for d_min in d_values:
+            selection = select_tests(
+                bank_validation.tests,
+                stage=stage,
+                d_min=d_min,
+                max_selected=protocol.max_selected_tests,
+            )
+            panel_vectors: list[dict[str, str] | None] = []
+            current_witness_rows: list[dict[str, Any]] = []
+            for panel_index in range(1, protocol.witness_count + 1):
+                packet = build_witness_packet(
+                    selection.tests,
+                    seed=experiment.global_seed,
+                    sample_id=f"{sample.sample_id}:d{d_min}",
+                    panel_index=panel_index,
+                )
+                witness_row, witness_payload = _json_turn(
+                    sample,
+                    run_id=run_id,
+                    split_name=split_name,
+                    endpoint=endpoint,
+                    network_budget=network_budget,
+                    method_name=f"catch_witness_d{d_min}",
+                    role="blinded_witness",
+                    agent_id=panel_index,
+                    seed=44_000 + d_min * 10 + panel_index,
+                    max_tokens=protocol.role_max_tokens,
+                    messages=build_witness_messages(sample, packet=packet),
+                )
+                vector = parse_witness_answers(witness_payload, packet=packet)
+                if vector is None:
+                    witness_row["protocol_parse_status"] = "failed"
+                    witness_row["protocol_parse_error"] = "witness_schema_or_id_failure"
+                witness_row["selection_d_min"] = d_min
+                witness_row["witness_packet"] = {
+                    "panel_index": packet.panel_index,
+                    "tests": list(packet.tests),
+                    "public_test_to_internal": packet.public_test_to_internal,
+                    "public_outcome_to_internal": packet.public_outcome_to_internal,
+                }
+                witness_row["witness_vector"] = vector
+                current_witness_rows.append(witness_row)
+                witness_rows.append(witness_row)
+                panel_vectors.append(vector)
+            for margin in margin_values:
+                decision = decode_witnesses(
+                    stage,
+                    selection.tests,
+                    panel_vectors,
+                    d_min=d_min,
+                    margin=margin,
+                )
+                diagnostic = {
+                    "d_min": d_min,
+                    "margin": margin,
+                    "selected_test_ids": [test.test_id for test in selection.tests],
+                    "pair_distances": selection.pair_distances,
+                    "selection_objective": list(selection.objective),
+                    "selection_tie_break_sha256": selection.tie_break_sha256,
+                    "witness_vectors": panel_vectors,
+                    "decision": {
+                        "answer": decision.answer,
+                        "answer_key": decision.answer_key,
+                        "override_accepted": decision.override_accepted,
+                        "resolver": decision.resolver,
+                        "passing_challengers": list(decision.passing_challengers),
+                        "panel_diagnostics": list(decision.panel_diagnostics),
+                    },
+                }
+                catch_variants.append((d_min, margin, decision, current_witness_rows, diagnostic))
+
+        if run_direct_judge:
+            for judge_index in range(1, protocol.direct_judge_count + 1):
+                judge_labels = build_hypothesis_labels(
+                    stage,
+                    seed=experiment.global_seed,
+                    sample_id=f"{sample.sample_id}:judge:{judge_index}",
+                )
+                judge_row, judge_payload = _json_turn(
+                    sample,
+                    run_id=run_id,
+                    split_name=split_name,
+                    endpoint=endpoint,
+                    network_budget=network_budget,
+                    method_name="direct_judge_3",
+                    role="direct_judge",
+                    agent_id=judge_index,
+                    seed=46_000 + judge_index,
+                    max_tokens=protocol.role_max_tokens,
+                    messages=build_direct_judge_messages(
+                        sample,
+                        stage=stage,
+                        hypothesis_to_key=judge_labels,
+                    ),
+                )
+                selected_id = str(judge_payload.get("selected_id") or "") if isinstance(judge_payload, dict) else ""
+                selected_key = judge_labels.get(selected_id)
+                if selected_key is None:
+                    judge_row["protocol_parse_status"] = "failed"
+                    judge_row["protocol_parse_error"] = "unknown_or_missing_candidate_id"
+                judge_row["hypothesis_to_answer_class_key"] = judge_labels
+                judge_row["selected_answer_class_key"] = selected_key
+                judge_rows.append(judge_row)
+                judge_selections.append(selected_key)
+        physical_rows.extend([*resample_rows, designer_row, *witness_rows, *judge_rows])
+
+    adaptive = build_stage_decision(
+        [*stage_rows, *resample_rows],
+        seed=experiment.global_seed,
+        sample_id=sample.sample_id,
+    )
+    adaptive_answer = adaptive.anchor_answer or stage.anchor_answer
+    candidate_oracle = any(_score(sample, candidate.answer) == 1.0 for candidate in stage.candidates)
+    predictions = [
+        _prediction(
+            sample,
+            run_id,
+            split_name,
+            "sc_5",
+            stage.anchor_answer,
+            stage.anchor_answer,
+            stage,
+            stage_rows,
+            [],
+            False,
+            "stage_a_plurality",
+            candidate_oracle,
+        ),
+        _prediction(
+            sample,
+            run_id,
+            split_name,
+            "adaptive_sc_8",
+            adaptive_answer,
+            stage.anchor_answer,
+            stage,
+            [*stage_rows, *resample_rows],
+            resample_rows,
+            adaptive_answer != stage.anchor_answer,
+            "adaptive_answer_class_plurality" if stage.triggered else "no_answer_class_disagreement",
+            candidate_oracle,
+        ),
+    ]
+    catch_diagnostics: list[dict[str, Any]] = []
+    for d_min, margin, decision, variant_witness_rows, diagnostic in catch_variants:
+        method_name = "catch" if frozen_decoding is not None else f"catch_d{d_min}_m{margin}"
+        predictions.append(
+            _prediction(
+                sample,
+                run_id,
+                split_name,
+                method_name,
+                decision.answer,
+                stage.anchor_answer,
+                stage,
+                [*stage_rows, *([designer_row] if designer_row is not None else []), *variant_witness_rows],
+                [*([designer_row] if designer_row is not None else []), *variant_witness_rows],
+                decision.override_accepted,
+                decision.resolver,
+                candidate_oracle,
+                extra={"d_min": d_min, "margin": margin},
+            )
+        )
+        catch_diagnostics.append(diagnostic)
+    if not stage.triggered:
+        predictions.append(
+            _prediction(
+                sample,
+                run_id,
+                split_name,
+                "catch" if frozen_decoding is not None else "catch_d2_m1",
+                stage.anchor_answer,
+                stage.anchor_answer,
+                stage,
+                stage_rows,
+                [],
+                False,
+                "no_answer_class_disagreement",
+                candidate_oracle,
+                extra={
+                    "d_min": int((frozen_decoding or {}).get("d_min", 2)),
+                    "margin": int((frozen_decoding or {}).get("margin", 1)),
+                },
+            )
+        )
+        if frozen_decoding is None:
+            for d_min in protocol.d_min_grid:
+                for margin in protocol.margin_grid:
+                    if (d_min, margin) == (2, 1):
+                        continue
+                    clone = dict(predictions[-1])
+                    clone.update({"method_name": f"catch_d{d_min}_m{margin}", "d_min": d_min, "margin": margin})
+                    predictions.append(clone)
+    if run_direct_judge:
+        judge_answer, judge_override, judge_resolver = (
+            decide_direct_judges(stage, judge_selections)
+            if stage.triggered
+            else (stage.anchor_answer, False, "no_answer_class_disagreement")
+        )
+        predictions.append(
+            _prediction(
+                sample,
+                run_id,
+                split_name,
+                "direct_judge_3",
+                judge_answer,
+                stage.anchor_answer,
+                stage,
+                [*stage_rows, *judge_rows],
+                judge_rows,
+                judge_override,
+                judge_resolver,
+                candidate_oracle,
+            )
+        )
+    router = {
+        "run_id": run_id,
+        "dataset": sample.dataset,
+        "split": split_name,
+        "sample_id": sample.sample_id,
+        "task": sample.metadata.get("task"),
+        "phase_name": phase_name,
+        "triggered": stage.triggered,
+        "valid_stage_answers": stage.valid_count,
+        "anchor_answer": stage.anchor_answer,
+        "anchor_key": stage.anchor_key,
+        "answer_class_vote_counts": stage.vote_counts,
+        "candidate_count": len(stage.candidates),
+        "candidate_oracle_correct": candidate_oracle,
+        "hypothesis_to_answer_class_key": hypothesis_to_key,
+        "test_bank_protocol_error": bank_validation.protocol_error if bank_validation is not None else None,
+        "valid_test_count": len(bank_validation.tests) if bank_validation is not None else 0,
+        "dropped_tests": list(bank_validation.dropped) if bank_validation is not None else [],
+        "catch_variants": catch_diagnostics,
+        "judge_selections": judge_selections,
+    }
+    return [row for row in physical_rows if row is not None], router, predictions
+
+
+def _answer_turn(
+    sample: DatasetSample,
+    *,
+    run_id: str,
+    split_name: str,
+    endpoint,
+    network_budget: NetworkAttemptBudget,
+    method_name: str,
+    role: str,
+    agent_id: int,
+    seed: int,
+    max_tokens: int,
+) -> dict[str, Any]:
+    reservation = network_budget.reserve()
+    try:
+        result = execute_output_protocol_turn(
+            backbone=endpoint.backbone,
+            provider=endpoint.provider,
+            cache=endpoint.cache,
+            throttle=endpoint.throttle,
+            sample=sample,
+            messages=build_cot_messages(sample, agent_id, "single_agent_free_text_v1"),
+            temperature=0.7,
+            top_p=1.0,
+            seed=seed,
+            dataset=sample.dataset,
+            role=role,
+            output_protocol=FREE_TEXT_ANSWER_PROTOCOL_V1,
+            max_tokens=max_tokens,
+        )
+        network_budget.settle(reservation, result.network_request_count)
+    except BaseException:
+        network_budget.settle(reservation, 0)
+        raise
+    raw_answer = str(result.validated_output.get("final_answer") or "")
+    canonical = canonicalize_answer(sample, raw_answer) if result.output_status == "ok" else None
+    row = _turn_base(
+        run_id,
+        sample,
+        split_name,
+        method_name,
+        role,
+        agent_id,
+        seed,
+        result.payload,
+        result.response_payload,
+        result.cache_key,
+        result.cache_hit,
+        result.request_error,
+        result.raw_finish_reason,
+        result.usage,
+        "ok" if canonical is not None and canonical.valid else "failed",
+        dict(result.validated_output),
+        canonical.key if canonical is not None and canonical.valid else "",
+        canonical.invalid_reason if canonical is not None else "request_or_protocol_failure",
+        request_count=result.request_count,
+        cache_request_count=result.cache_request_count,
+        network_request_count=result.network_request_count,
+    )
+    row["cache_namespace"] = endpoint.cache_namespace
+    return row
+
+
+def _json_turn(
+    sample: DatasetSample,
+    *,
+    run_id: str,
+    split_name: str,
+    endpoint,
+    network_budget: NetworkAttemptBudget,
+    method_name: str,
+    role: str,
+    agent_id: int,
+    seed: int,
+    max_tokens: int,
+    messages: list[dict[str, str]],
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    reservation = network_budget.reserve()
+    try:
+        request = execute_cached_request(
+            backbone=endpoint.backbone,
+            provider=endpoint.provider,
+            cache=endpoint.cache,
+            throttle=endpoint.throttle,
+            messages=messages,
+            temperature=0.7,
+            top_p=1.0,
+            seed=seed,
+            use_response_format=True,
+            max_tokens=max_tokens,
+        )
+        attempts = 0 if request.cache_hit else max(1, int(request.response_payload.get("network_attempt_count") or 1))
+        network_budget.settle(reservation, attempts)
+    except BaseException:
+        network_budget.settle(reservation, 0)
+        raise
+    parsed: dict[str, Any] | None = None
+    parse_error = request.request_error
+    if not parse_error:
+        try:
+            candidate = json.loads(str(request.response_payload.get("assistant_text") or ""))
+            if not isinstance(candidate, dict):
+                raise ValueError("JSON output must be an object")
+            parsed = candidate
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            parse_error = str(exc)
+    row = _turn_base(
+        run_id,
+        sample,
+        split_name,
+        method_name,
+        role,
+        agent_id,
+        seed,
+        request.payload,
+        request.response_payload,
+        request.cache_key,
+        request.cache_hit,
+        request.request_error,
+        request.response_payload.get("finish_reason"),
+        request.usage,
+        "ok" if parsed is not None else "failed",
+        parsed or {},
+        "",
+        parse_error,
+        request_count=max(1, attempts),
+        cache_request_count=int(request.cache_hit),
+        network_request_count=attempts,
+    )
+    row["cache_namespace"] = endpoint.cache_namespace
+    return row, parsed
+
+
+def _turn_base(
+    run_id,
+    sample,
+    split_name,
+    method_name,
+    role,
+    agent_id,
+    seed,
+    payload,
+    response,
+    cache_key,
+    cache_hit,
+    request_error,
+    finish_reason,
+    usage,
+    parse_status,
+    validated,
+    answer_key,
+    invalid_reason,
+    *,
+    request_count,
+    cache_request_count,
+    network_request_count,
+):
+    reported_usage = dict(response.get("usage_reported") or {})
+    details = reported_usage.get("completion_tokens_details") or {}
+    return {
+        "run_id": run_id,
+        "dataset": sample.dataset,
+        "split": split_name,
+        "sample_id": sample.sample_id,
+        "task": sample.metadata.get("task"),
+        "method_name": method_name,
+        "role": role,
+        "agent_id": agent_id,
+        "request_seed": seed,
+        "payload": payload,
+        "cache_key": cache_key,
+        "cache_namespace": None,
+        "request_source": "catch_confirmation_cache",
+        "prompt_hash": _sha256(json.dumps(payload.get("messages") or [], ensure_ascii=False, sort_keys=True)),
+        "cache_hit": cache_hit,
+        "request_error": request_error,
+        "request_status": "request_fail" if request_error else "ok",
+        "raw_finish_reason": finish_reason,
+        "network_attempt_count": network_request_count,
+        "network_request_count": network_request_count,
+        "request_count": request_count,
+        "cache_request_count": cache_request_count,
+        "prompt_tokens": float(usage.get("prompt_tokens") or 0),
+        "completion_tokens": float(usage.get("completion_tokens") or 0),
+        "total_tokens": float(usage.get("total_tokens") or 0),
+        "reasoning_tokens": reported_usage.get("reasoning_tokens", details.get("reasoning_tokens")),
+        "usage_source": response.get("usage_source"),
+        "usage_reported": reported_usage,
+        "actual_prompt_tokens": reported_usage.get("prompt_tokens"),
+        "actual_completion_tokens": reported_usage.get("completion_tokens"),
+        "actual_total_tokens": reported_usage.get("total_tokens"),
+        "latency_ms": float(response.get("latency_ms") or 0),
+        "assistant_text": str(response.get("assistant_text") or ""),
+        "provider_reasoning_text": str(response.get("provider_reasoning_text") or ""),
+        "validated_output": validated,
+        "protocol_parse_status": parse_status,
+        "protocol_parse_error": invalid_reason,
+        "prediction": answer_key,
+        "normalized_answer": answer_key,
+        "answer_class_key": answer_key,
+        "canonicalization_invalid_reason": invalid_reason,
+    }
+
+
+def _prediction(
+    sample,
+    run_id,
+    split_name,
+    method_name,
+    prediction,
+    initial,
+    stage,
+    logical_rows,
+    intervention_rows,
+    override,
+    resolver,
+    candidate_oracle,
+    *,
+    extra: dict[str, Any] | None = None,
+):
+    score = _score(sample, prediction)
+    initial_score = _score(sample, initial)
+    planned_intervention_calls = 3 if stage.triggered and method_name != "sc_5" else 0
+    logical_calls = 5 + planned_intervention_calls
+    payload = {
+        "run_id": run_id,
+        "dataset": sample.dataset,
+        "split": split_name,
+        "sample_id": sample.sample_id,
+        "task": sample.metadata.get("task"),
+        "method_name": method_name,
+        "prediction": prediction,
+        "gold": sample.reference_answer,
+        "score": score,
+        "initial_vote_prediction": initial,
+        "initial_vote_score": initial_score,
+        "initial_answer_class_key": stage.anchor_key,
+        "initial_vote_counts": stage.vote_counts,
+        "candidate_oracle_correct": candidate_oracle,
+        "triggered": stage.triggered,
+        "override_accepted": override,
+        "vote_flipped": override,
+        "corrected_by_debate": override and initial_score < 1 and score == 1,
+        "harmed_by_debate": override and initial_score == 1 and score < 1,
+        "resolver": resolver,
+        "calls_per_question": logical_calls,
+        "logical_calls_per_question": logical_calls,
+        "actual_executed_calls_per_question": len(logical_rows),
+        "total_tokens_per_question": sum(float(row.get("actual_total_tokens") or row.get("total_tokens") or 0) for row in logical_rows),
+        "completion_tokens_per_question": sum(float(row.get("actual_completion_tokens") or row.get("completion_tokens") or 0) for row in logical_rows),
+        "network_attempts_per_question": sum(int(row.get("network_attempt_count") or 0) for row in logical_rows),
+        "intervention_calls_per_question": planned_intervention_calls,
+        "actual_intervention_calls_per_question": len(intervention_rows),
+    }
+    payload.update(extra or {})
+    return payload
+
+
+def _score(sample: DatasetSample, answer: str) -> float:
+    return score_prediction(sample.dataset, answer, sample.reference_answer, sample=sample) if answer else 0.0
+
+
+def _sha256(value: str) -> str:
+    return hashlib.sha256(str(value).encode("utf-8")).hexdigest()

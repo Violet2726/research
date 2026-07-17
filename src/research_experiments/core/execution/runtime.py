@@ -12,6 +12,7 @@ from typing import Any
 
 from research_experiments.core.io import write_json
 from research_experiments.workspace.hf.runs import pack_run_artifacts, publish_run_if_configured
+from research_experiments.workspace.run_archives import validate_archive_contract
 
 
 class RunProgressTracker:
@@ -51,6 +52,7 @@ class RunProgressTracker:
         self.last_method: str | None = None
         self.last_sample_id: str | None = None
         self.status = "running"
+        self.failure: dict[str, Any] | None = None
         self.write_interval_seconds = max(0.1, float(write_interval_seconds))
         self.heartbeat_interval_seconds = max(0.1, float(heartbeat_interval_seconds))
         self.last_write_monotonic = 0.0
@@ -115,6 +117,27 @@ class RunProgressTracker:
         self.write(force=True, reason="completed")
         self.close()
 
+    def mark_failed(
+        self,
+        error_type: str,
+        message: str,
+        *,
+        last_sample_id: str | None = None,
+    ) -> None:
+        """Persist a terminal failure snapshot before stopping the heartbeat."""
+
+        with self._lock:
+            self.status = "failed"
+            if last_sample_id is not None:
+                self.last_sample_id = str(last_sample_id)
+            self.failure = {
+                "error_type": str(error_type or "RuntimeError"),
+                "message": str(message or "run failed"),
+            }
+            self._note_progress_event_locked(time.monotonic())
+        self.write(force=True, reason="failed")
+        self.close()
+
     def close(self) -> None:
         """停止后台心跳线程，避免异常路径持续改写 progress.json。"""
 
@@ -173,6 +196,7 @@ class RunProgressTracker:
                 "last_dataset": self.last_dataset,
                 "last_method": self.last_method,
                 "last_sample_id": self.last_sample_id,
+                "failure": self.failure,
             }
             if self.rate_limit_snapshot_provider is not None:
                 payload.update(self.rate_limit_snapshot_provider())
@@ -215,12 +239,66 @@ def finalize_run_outputs(
     """打包、校验并按配置发布已完成 run。"""
 
     root = Path(run_dir)
-    pack_run_artifacts(root)
-    validation = validator(root)
     output_path = Path(validation_path) if validation_path is not None else root / "run_validation.json"
+    generated_at = datetime.now(UTC).isoformat()
+    validation: dict[str, Any] = {
+        "passed": False,
+        "scientific_violations": [],
+        "artifact_violations": [],
+        "validator_exception": None,
+        "archive_integrity": {"passed": False, "archive_manifest_present": False},
+        "generated_at": generated_at,
+    }
+    pending_error: BaseException | None = None
+
+    try:
+        candidate = validator(root)
+        if not isinstance(candidate, dict):
+            raise TypeError("run validator must return a dictionary")
+        validation.update(candidate)
+    except BaseException as exc:
+        pending_error = exc
+        validation["passed"] = False
+        validation["validator_exception"] = {
+            "error_type": type(exc).__name__,
+            "message": str(exc),
+        }
+        validation["artifact_violations"] = [
+            *list(validation.get("artifact_violations") or []),
+            "validator_exception",
+        ]
+
+    try:
+        pack_run_artifacts(root)
+        archive_integrity = validate_archive_contract(root, verify_sha256=True)
+        validation["archive_integrity"] = archive_integrity
+        if not archive_integrity.get("passed"):
+            validation["passed"] = False
+            validation["artifact_violations"] = [
+                *list(validation.get("artifact_violations") or []),
+                "archive_integrity_failed",
+            ]
+    except BaseException as exc:
+        if pending_error is None:
+            pending_error = exc
+        validation["passed"] = False
+        validation["archive_integrity"] = {
+            "passed": False,
+            "error_type": type(exc).__name__,
+            "message": str(exc),
+        }
+        validation["artifact_violations"] = [
+            *list(validation.get("artifact_violations") or []),
+            "archive_packaging_failed",
+        ]
+
+    validation["generated_at"] = generated_at
     write_json(output_path, validation)
-    publish_payload = publish_run_if_configured(root, validation=validation)
-    if publish_payload is not None:
-        validation["hf_publish"] = publish_payload
-        write_json(output_path, validation)
+    if pending_error is None:
+        publish_payload = publish_run_if_configured(root, validation=validation)
+        if publish_payload is not None:
+            validation["hf_publish"] = publish_payload
+            write_json(output_path, validation)
+    if pending_error is not None:
+        raise pending_error
     return validation

@@ -1,0 +1,15 @@
+{
+  "audit_kind": "catch_human_validity_v1",
+  "passed": false,
+  "sample_seed": 42,
+  "sample_count": 100,
+  "annotator_count": 2,
+  "decidable_rate": 0.0,
+  "entailment_rate": 0.0,
+  "answer_leakage_rate": 1.0,
+  "outcome_coverage_rate": 0.0,
+  "cohen_kappa": null,
+  "adjudication_complete": false,
+  "records_path": ""
+}
+

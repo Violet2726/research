@@ -8,7 +8,6 @@ from typing import Any
 from research_experiments.core.execution.providers import build_payload
 from research_experiments.core.execution.runner_common import _execute_request_with_retries
 
-
 AUDIT_PROMPTS = (
     "Return exactly the JSON object {\"audit\":\"one\"}.",
     "Return exactly the JSON object {\"audit\":\"two\"}.",
@@ -29,8 +28,9 @@ def run_mimo_provider_audit(
 
     specs: list[tuple[str, int, int]] = [
         (AUDIT_PROMPTS[0], 2_048, 42),
+        (AUDIT_PROMPTS[0], 4_096, 42),
         (AUDIT_PROMPTS[1], 16_384, 42),
-        *[(AUDIT_PROMPTS[0], 2_048, 42) for _ in range(5)],
+        *[(AUDIT_PROMPTS[0], 2_048, 42) for _ in range(4)],
         (AUDIT_PROMPTS[0], 2_048, 41),
         (AUDIT_PROMPTS[0], 2_048, 43),
         (AUDIT_PROMPTS[0], 2_048, 44),
