@@ -13,7 +13,6 @@ from research_experiments.families.contrastive_active_testing.config import (
     load_phase_benchmarks,
 )
 from research_experiments.families.contrastive_active_testing.run import execute
-from research_experiments.families.contrastive_active_testing.run.preflight import PreflightGateFailed
 from research_experiments.family_runtime.config_helpers import resolve_model
 from research_experiments.family_runtime.manifest import finalize_family_manifest
 
@@ -50,21 +49,17 @@ def test_execute_always_lands_progress_and_validation_without_live_network(tmp_p
     experiment = load_experiment_config(
         "configs/families/contrastive_active_testing/experiments/catch_gate.toml"
     )
-    audit_path = tmp_path / "completed_preflight_human_audit.json"
-    audit_path.write_text(json.dumps({"audit_version": "fixture"}), encoding="utf-8")
-    audit_sha = execute.hashlib.sha256(audit_path.read_bytes()).hexdigest()
-    experiment = replace(experiment, preflight_human_audit_path=audit_path)
+    experiment = replace(experiment, provider_audit_path=tmp_path / "missing-provider-audit.json")
     backbone = resolve_model(experiment.primary_model_ref)
     sample = DatasetSample("bbeh", "unit", "Question", "A", "", {"task": "unit", "options": []})
     benchmark = load_phase_benchmarks(experiment, "development")[0]
 
-    monkeypatch.setattr(execute, "_require_passing_provider_audit", lambda *args, **kwargs: {"passed": True})
+    monkeypatch.setattr(execute, "OpenAICompatibleProvider", _DummyProvider)
     monkeypatch.setattr(
         execute,
-        "_require_passing_icv_preflight",
-        lambda *args, **kwargs: {"human_audit": {"sha256": audit_sha}},
+        "_require_passing_provider_audit",
+        lambda *_args, **_kwargs: pytest.fail("provider audit must not be consulted"),
     )
-    monkeypatch.setattr(execute, "OpenAICompatibleProvider", _DummyProvider)
     monkeypatch.setattr(execute, "RequestCacheRouter", _DummyRouter)
     monkeypatch.setattr(execute, "RequestThrottle", _DummyThrottle)
     monkeypatch.setattr(execute, "load_phase_benchmarks", lambda *_args: [benchmark])
@@ -148,11 +143,16 @@ def test_execute_always_lands_progress_and_validation_without_live_network(tmp_p
 
     progress = json.loads((run_dir / "progress.json").read_text(encoding="utf-8"))
     validation = json.loads((run_dir / "run_validation.json").read_text(encoding="utf-8"))
-    gate = json.loads((run_dir / "diagnostics" / "gate.json").read_text(encoding="utf-8"))
+    report = (run_dir / "report.md").read_text(encoding="utf-8")
     assert progress["status"] == "completed"
     assert validation["passed"] is True
-    assert validation["performance_gate_passed"] is False
-    assert gate["passed"] is False
+    assert validation["scientific_gate_applicable"] is False
+    assert validation["performance_gate_passed"] is None
+    assert not (run_dir / "diagnostics" / "gate.json").exists()
+    assert not (run_dir / "diagnostics" / "preflight.json").exists()
+    assert not (run_dir / "archive_manifest.json").exists()
+    assert "Complete-case" in report
+    assert "Wilson 95% CI" in report
 
 
 def test_bounded_sample_executor_uses_parallel_workers_without_exceeding_cap() -> None:
@@ -209,7 +209,7 @@ def test_parallel_completion_order_has_same_stable_predictions_as_serial() -> No
     assert parallel == serial
 
 
-def test_bounded_executor_stops_submitting_after_worker_failure() -> None:
+def test_bounded_executor_records_worker_failure_and_finishes_siblings() -> None:
     class Endpoint:
         def __init__(self) -> None:
             self.stop_event = threading.Event()
@@ -234,10 +234,15 @@ def test_bounded_executor_stops_submitting_after_worker_failure() -> None:
         def update_scheduler_state(self, **_kwargs):
             pass
 
-    with pytest.raises(RuntimeError, match="worker failed"):
-        list(execute._execute_jobs_bounded(jobs, max_workers=15, worker=worker, progress=Progress()))
-    assert len(started) <= 15
-    assert all(endpoint.stop_event.is_set() for endpoint in endpoints)
+    completed = list(
+        execute._execute_jobs_bounded(jobs, max_workers=15, worker=worker, progress=Progress())
+    )
+    assert len(completed) == 60
+    assert len(started) == 60
+    failed = [router for _, _, router, _ in completed if router.get("sample_error")]
+    assert len(failed) == 1
+    assert failed[0]["sample_error"]["error_type"] == "RuntimeError"
+    assert not any(endpoint.stop_event.is_set() for endpoint in endpoints)
 
 
 def test_partial_finalizer_persists_completed_predictions_into_precreated_file(tmp_path) -> None:
@@ -281,19 +286,19 @@ def test_partial_finalizer_persists_completed_predictions_into_precreated_file(t
         error=RuntimeError("boom"),
     )
     assert json.loads(layout.predictions.read_text(encoding="utf-8")) == prediction
-    gate = json.loads(layout.gate.read_text(encoding="utf-8"))
-    assert gate["completed_sample_count"] == 1
-    assert gate["incomplete_sample_count"] == 1
+    summary = json.loads(layout.run_summary.read_text(encoding="utf-8"))
+    assert summary["execution"]["attempted_sample_count"] == 1
+    assert summary["execution"]["incomplete_sample_count"] == 1
+    assert not layout.gate.exists()
 
 
-def test_failed_preflight_stops_main_run_and_lands_terminal_artifacts(tmp_path, monkeypatch) -> None:
+def test_legacy_preflight_mode_no_longer_blocks_full_run(tmp_path, monkeypatch) -> None:
     experiment = load_experiment_config(
         "configs/families/contrastive_active_testing/experiments/catch_gate.toml"
     )
     backbone = resolve_model(experiment.primary_model_ref)
     sample = DatasetSample("bbeh", "unit", "Question", "A", "", {"task": "unit", "options": []})
     benchmark = load_phase_benchmarks(experiment, "development")[0]
-    monkeypatch.setattr(execute, "_require_passing_provider_audit", lambda *args, **kwargs: {"passed": True})
     monkeypatch.setattr(execute, "OpenAICompatibleProvider", _DummyProvider)
     monkeypatch.setattr(execute, "RequestCacheRouter", _DummyRouter)
     monkeypatch.setattr(execute, "RequestThrottle", _DummyThrottle)
@@ -301,98 +306,21 @@ def test_failed_preflight_stops_main_run_and_lands_terminal_artifacts(tmp_path, 
     monkeypatch.setattr(execute, "_select_phase_samples", lambda *_args: [sample])
     main_called = False
 
-    def fail_preflight(_jobs, *, turns_path, output_path, **_kwargs):
-        turns_path.write_text("", encoding="utf-8")
-        payload = {"status": "designer_failed", "passed": False}
-        output_path.write_text(json.dumps(payload), encoding="utf-8")
-        raise PreflightGateFailed(payload)
-
     def main_sample(*_args, **_kwargs):
         nonlocal main_called
         main_called = True
-        return [], {}, []
+        return [], {"dataset": "bbeh", "sample_id": "unit", "triggered": False}, []
 
     monkeypatch.setattr(
         execute,
         "_run_required_canonicalization_replay",
         lambda *_args, **_kwargs: {"passed": True, "metrics": {}, "hashes": {}},
     )
-    monkeypatch.setattr(execute, "run_icv_structural_preflight", fail_preflight)
-    monkeypatch.setattr(execute, "run_catch_sample", main_sample)
-    with pytest.raises(PreflightGateFailed):
-        execute.run_experiment(
-            experiment,
-            "development",
-            backbone,
-            run_root=tmp_path / "runs",
-            cache_root=tmp_path / "cache",
-            run_mode="structural_preflight",
-        )
-    run_dir = next((tmp_path / "runs" / "catch_gate" / "development").iterdir())
-    progress = json.loads((run_dir / "progress.json").read_text(encoding="utf-8"))
-    validation = json.loads((run_dir / "run_validation.json").read_text(encoding="utf-8"))
-    assert main_called is False
-    assert progress["status"] == "failed"
-    assert progress["failure"]["termination_reason"] == "structural_preflight_failed"
-    assert validation["passed"] is False
-
-
-def test_passing_v3_preflight_is_terminal_and_emits_no_predictions(tmp_path, monkeypatch) -> None:
-    experiment = load_experiment_config(
-        "configs/families/contrastive_active_testing/experiments/catch_gate.toml"
+    monkeypatch.setattr(
+        execute,
+        "run_icv_structural_preflight",
+        lambda *_args, **_kwargs: pytest.fail("preflight must not run"),
     )
-    backbone = resolve_model(experiment.primary_model_ref)
-    sample = DatasetSample("bbeh", "unit", "Question", "A", "", {"task": "unit", "options": []})
-    benchmark = load_phase_benchmarks(experiment, "development")[0]
-    monkeypatch.setattr(execute, "_require_passing_provider_audit", lambda *args, **kwargs: {"passed": True})
-    monkeypatch.setattr(execute, "OpenAICompatibleProvider", _DummyProvider)
-    monkeypatch.setattr(execute, "RequestCacheRouter", _DummyRouter)
-    monkeypatch.setattr(execute, "RequestThrottle", _DummyThrottle)
-    monkeypatch.setattr(execute, "load_phase_benchmarks", lambda *_args: [benchmark])
-    monkeypatch.setattr(execute, "_select_phase_samples", lambda *_args: [sample])
-
-    def fake_replay(*_args, output_path, **_kwargs):
-        payload = {
-            "passed": True,
-            "network_requests": 0,
-            "metrics": {"sc5_micro": 0.43},
-            "hashes": {"new_replay_sha256": "h"},
-        }
-        output_path.write_text(json.dumps(payload), encoding="utf-8")
-        return payload
-
-    def fake_preflight(_jobs, *, turns_path, output_path, **_kwargs):
-        turns_path.write_text("", encoding="utf-8")
-        payload = {
-            "status": "passed_awaiting_human_audit",
-            "passed": True,
-            "selected_sample_ids": [f"s{index}" for index in range(20)],
-        }
-        output_path.write_text(json.dumps(payload), encoding="utf-8")
-        audit_sample = {
-            "audit_version": "catch_v3_icv_blind_coordinate_audit_v1",
-            "source_preflight_run_id": _kwargs["run_id"],
-            "source_config_sha256": _kwargs["config_sha"],
-            "items": [
-                {"coordinate_sha256": f"hash-{index}"}
-                for index in range(40)
-            ],
-        }
-        output_path.with_name("preflight_human_audit_sample.json").write_text(
-            json.dumps(audit_sample),
-            encoding="utf-8",
-        )
-        return payload
-
-    main_called = False
-
-    def main_sample(*_args, **_kwargs):
-        nonlocal main_called
-        main_called = True
-        return [], {}, []
-
-    monkeypatch.setattr(execute, "_run_required_canonicalization_replay", fake_replay)
-    monkeypatch.setattr(execute, "run_icv_structural_preflight", fake_preflight)
     monkeypatch.setattr(execute, "run_catch_sample", main_sample)
     run_dir = execute.run_experiment(
         experiment,
@@ -402,16 +330,50 @@ def test_passing_v3_preflight_is_terminal_and_emits_no_predictions(tmp_path, mon
         cache_root=tmp_path / "cache",
         run_mode="structural_preflight",
     )
+    progress = json.loads((run_dir / "progress.json").read_text(encoding="utf-8"))
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert main_called is True
+    assert progress["status"] == "completed"
+    assert manifest["run_mode"] == "full"
+    assert "legacy_structural_preflight_request_ignored_running_full_phase" in manifest["execution_warnings"]
+
+
+def test_heldout_runs_without_frozen_file_or_prior_development(tmp_path, monkeypatch) -> None:
+    experiment = load_experiment_config(
+        "configs/families/contrastive_active_testing/experiments/catch_gate.toml"
+    )
+    backbone = resolve_model(experiment.primary_model_ref)
+    sample = DatasetSample("bbeh", "unit", "Question", "A", "", {"task": "unit", "options": []})
+    experiment = replace(experiment, frozen_decoding_path=tmp_path / "missing.json")
+    benchmark = load_phase_benchmarks(experiment, "heldout")[0]
+    monkeypatch.setattr(execute, "OpenAICompatibleProvider", _DummyProvider)
+    monkeypatch.setattr(execute, "RequestCacheRouter", _DummyRouter)
+    monkeypatch.setattr(execute, "RequestThrottle", _DummyThrottle)
+    monkeypatch.setattr(execute, "load_phase_benchmarks", lambda *_args: [benchmark])
+    monkeypatch.setattr(execute, "_select_phase_samples", lambda *_args: [sample])
+
+    main_called = False
+
+    def main_sample(*_args, **_kwargs):
+        nonlocal main_called
+        main_called = True
+        return [], {"dataset": "bbeh", "sample_id": "unit", "triggered": False}, []
+
+    monkeypatch.setattr(execute, "run_catch_sample", main_sample)
+    run_dir = execute.run_experiment(
+        experiment,
+        "heldout",
+        backbone,
+        run_root=tmp_path / "runs",
+        cache_root=tmp_path / "cache",
+    )
 
     progress = json.loads((run_dir / "progress.json").read_text(encoding="utf-8"))
-    validation = json.loads((run_dir / "run_validation.json").read_text(encoding="utf-8"))
-    gate = json.loads((run_dir / "diagnostics" / "gate.json").read_text(encoding="utf-8"))
-    assert main_called is False
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert main_called is True
     assert progress["status"] == "completed"
-    assert progress["completed_predictions"] == 0
-    assert progress["completed_samples"] == 20
-    assert validation["passed"] is True
-    assert gate["performance_gate_applicable"] is False
+    assert manifest["frozen_decoding"]["source"] == "built_in_fixed_v3_decoder"
+    assert "confirmatory_evidence_missing_or_not_enforced" in manifest["execution_warnings"]
 
 
 def test_preflight_human_audit_requires_completed_adjudication(tmp_path) -> None:
@@ -512,7 +474,8 @@ def test_hard_stopped_v1_run_can_be_finalized_as_failed_futility(tmp_path) -> No
     assert progress["status"] == "failed"
     assert progress["completed_samples"] == 1
     assert progress["incomplete_samples"] == 99
-    assert validation["passed"] is False
+    assert validation["passed"] is True
+    assert validation["artifact_valid"] is True
     assert validation["counts"]["completed_samples"] == 1
     assert validation["counts"]["incomplete_samples"] == 99
     assert (run_dir / "diagnostics" / "gate.json").exists()

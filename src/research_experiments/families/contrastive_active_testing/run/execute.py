@@ -23,7 +23,7 @@ from research_experiments.core.execution.cache import RequestCacheRouter
 from research_experiments.core.execution.provider_audit import evaluate_mimo_provider_audit
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
 from research_experiments.core.execution.rate_limits import RequestThrottle
-from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id, finalize_run_outputs
+from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id
 from research_experiments.families.contrastive_active_testing.cache_layers import ReadThroughRequestCache
 from research_experiments.families.contrastive_active_testing.config import (
     load_phase_benchmarks,
@@ -35,22 +35,23 @@ from research_experiments.families.contrastive_active_testing.prompts import (
     CATCH_SCHEMA_VERSION,
 )
 from research_experiments.families.contrastive_active_testing.replay import replay_canonicalization
+from research_experiments.families.contrastive_active_testing.run.lifecycle import (
+    render_report_with_fallback,
+    write_nonblocking_validation,
+)
 from research_experiments.families.contrastive_active_testing.run.preflight import (
-    PreflightGateFailed,
     PreflightJob,
     evaluate_icv_human_audit,
     run_icv_structural_preflight,
-    run_structural_preflight,
 )
 from research_experiments.families.contrastive_active_testing.run.report import render_report
 from research_experiments.families.contrastive_active_testing.run.sample import (
     NetworkAttemptBudget,
     run_catch_sample,
 )
-from research_experiments.families.contrastive_active_testing.run.validate import validate_run
 from research_experiments.families.contrastive_active_testing.statistics import (
+    build_best_effort_diagnostics,
     build_metrics,
-    evaluate_gate,
     materialize_development_catch,
 )
 from research_experiments.family_runtime.layout import prepare_registered_run_layout
@@ -112,8 +113,11 @@ def run_experiment(
 
         return run_boundary_audit(experiment, backbone, run_root=run_root, cache_root=cache_root)
     load_dotenv(".env.local", override=False)
+    execution_warnings: list[str] = list(getattr(experiment, "config_warnings", ()))
     if backbone.provider != "xiaomimimo":
-        raise ValueError("CATCH is frozen to the audited xiaomimimo provider.")
+        execution_warnings.append(
+            f"provider_differs_from_original_study:{backbone.provider}"
+        )
     phase = phase_metadata(experiment, phase_name)
     protocol = load_protocol_config(experiment.protocol)
     if run_mode not in {"full", "structural_preflight"}:
@@ -122,55 +126,53 @@ def run_experiment(
         phase_name != "development" or protocol.protocol_version != "catch_v3"
     ):
         raise ValueError("The one-shot structural preflight is defined only for CATCH-v3 development.")
-    frozen_components = _frozen_component_hashes(experiment)
+    if run_mode == "structural_preflight":
+        execution_warnings.append("legacy_structural_preflight_request_ignored_running_full_phase")
+        run_mode = "full"
+    try:
+        frozen_components = _frozen_component_hashes(experiment)
+    except (OSError, KeyError, ValueError) as exc:
+        execution_warnings.append(f"component_hash_unavailable:{type(exc).__name__}:{exc}")
+        frozen_components = {
+            "best_effort_hash_status": hashlib.sha256(str(exc).encode("utf-8")).hexdigest()
+        }
     config_sha = _frozen_config_sha(experiment, component_hashes=frozen_components)
-    provider_audit = _require_passing_provider_audit(
-        experiment.provider_audit_path,
-        expected_cache_namespace=experiment.cache_namespaces["provider_audit"],
-        expected_provider=backbone.provider,
-        expected_model_id=backbone.model_id,
-    )
+    provider_audit = {
+        "required": False,
+        "status": "not_run",
+        "path": experiment.provider_audit_path.as_posix(),
+    }
     run_root = Path(run_root or default_runs_root("contrastive_active_testing"))
     cache_root = Path(cache_root or default_cache_root())
-    if run_mode == "structural_preflight":
-        _require_unused_v3_preflight_attempt(run_root, experiment_name=experiment.name)
-    elif protocol.protocol_version == "catch_v3" and phase_name in {"development", "heldout"}:
-        _require_unused_v3_full_phase_attempt(
-            run_root,
-            experiment_name=experiment.name,
-            phase_name=phase_name,
-        )
     preflight_dependency = None
-    if phase_name == "development" and protocol.protocol_version == "catch_v3" and run_mode == "full":
-        preflight_dependency = _require_passing_icv_preflight(
-            run_root,
-            experiment_name=experiment.name,
-            model_name=backbone.name,
-            config_sha=config_sha,
-            human_audit_path=experiment.preflight_human_audit_path,
-        )
     frozen_decoding = None
     if phase_name in {"heldout", "confirmation"}:
-        frozen_decoding = _load_frozen_decoding(experiment.frozen_decoding_path, config_sha=config_sha)
-        _require_passing_gate(
-            run_root,
-            experiment_name=experiment.name,
-            phase_name="development",
-            model_name=backbone.name,
-            config_sha=config_sha,
-            frozen_sha=str(frozen_decoding["sha256"]),
-        )
-    if phase_name == "confirmation":
-        _require_passing_gate(
-            run_root,
-            experiment_name=experiment.name,
-            phase_name="heldout",
-            model_name=backbone.name,
-            config_sha=config_sha,
-            frozen_sha=str(frozen_decoding["sha256"]),
-        )
-        if protocol.protocol_version != "catch_v3":
-            _require_passing_human_audit(experiment.human_audit_path)
+        if protocol.protocol_version == "catch_v3":
+            frozen_decoding = _build_frozen_protocol_candidate(
+                run_id="built_in_fixed_protocol",
+                config_sha=config_sha,
+            )
+            frozen_decoding["source"] = "built_in_fixed_v3_decoder"
+        else:
+            try:
+                frozen_decoding = _load_frozen_decoding(
+                    experiment.frozen_decoding_path,
+                    config_sha=config_sha,
+                )
+                frozen_decoding["source"] = "optional_frozen_file"
+            except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as exc:
+                execution_warnings.append(
+                    f"frozen_decoding_unavailable_using_default_d2_m1:{type(exc).__name__}:{exc}"
+                )
+                frozen_decoding = {
+                    "freeze_kind": "catch_decoding_best_effort_default",
+                    "d_min": 2,
+                    "margin": 1,
+                    "selection_constraints_passed": False,
+                    "source": "protocol_default",
+                }
+    if phase_name in {"heldout", "confirmation"}:
+        execution_warnings.append("confirmatory_evidence_missing_or_not_enforced")
 
     cache_namespace = experiment.cache_namespaces[phase_name]
     provider = OpenAICompatibleProvider(backbone)
@@ -203,10 +205,25 @@ def run_experiment(
             "archived_human_audit_path": archived_audit.relative_to(layout.root).as_posix(),
         }
     benchmarks = load_phase_benchmarks(experiment, phase_name)
-    selected_by_benchmark = {
-        benchmark.slug: _select_phase_samples(benchmark, phase, phase_name)
-        for benchmark in benchmarks
-    }
+    selected_by_benchmark: dict[str, list[Any]] = {}
+    dataset_errors: list[dict[str, Any]] = []
+    for benchmark in benchmarks:
+        try:
+            selected_by_benchmark[benchmark.slug] = _select_phase_samples(
+                benchmark, phase, phase_name
+            )
+        except Exception as exc:
+            selected_by_benchmark[benchmark.slug] = []
+            dataset_errors.append(
+                {
+                    "dataset": benchmark.slug,
+                    "error_type": type(exc).__name__,
+                    "message": str(exc),
+                }
+            )
+            execution_warnings.append(
+                f"{benchmark.slug}:dataset_skipped:{type(exc).__name__}:{exc}"
+            )
     sample_count = sum(len(samples) for samples in selected_by_benchmark.values())
     endpoints: dict[str, CatchEndpoint] = {}
     stop_event = Event()
@@ -280,7 +297,10 @@ def run_experiment(
         total_planned_samples=total_planned_samples,
         planned_calls_are_upper_bound=True,
         target_network_rpm=experiment.requests_per_minute_limit,
-        rate_limit_snapshot_provider=throttle.snapshot,
+        rate_limit_snapshot_provider=lambda: {
+            **throttle.snapshot(),
+            "network_attempt_budget": network_budget.snapshot(),
+        },
     )
     manifest = finalize_family_manifest(
         {
@@ -304,16 +324,20 @@ def run_experiment(
             "request_source": "role_aware_versioned_catch_cache",
             "provider_audit": provider_audit,
             "preflight_dependency": preflight_dependency,
+            "execution_policy": "best_effort_non_blocking",
+            "execution_warnings": execution_warnings,
             "frozen_config_sha256": config_sha,
             "frozen_component_sha256": frozen_components,
             "frozen_decoding": frozen_decoding,
             "phase_metadata": phase,
             "benchmarks": [asdict(item) for item in benchmarks],
+            "dataset_errors": dataset_errors,
             "sample_count": sample_count,
             "source_split_sample_count": sample_count,
             "planned_sample_count": total_planned_samples,
             "method_order": ["sc_5", "adaptive_sc_8", "catch", "direct_judge_3", "pair_judge_3"],
             "max_network_attempts": protocol.max_network_attempts,
+            "network_attempt_limit_mode": "soft_warning",
             "calls_per_triggered_question_upper_bound": calls_per_triggered,
             "preflight_call_upper_bound": preflight_call_upper_bound,
             "run_status": "running",
@@ -322,19 +346,10 @@ def run_experiment(
         family_name="contrastive_active_testing",
     )
     layout.manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    if not (
-        phase_name == "development"
-        and protocol.protocol_version in {"catch_v2", "catch_v3"}
-        and (protocol.protocol_version == "catch_v2" or run_mode == "structural_preflight")
-    ):
-        layout.preflight_turns.write_text("", encoding="utf-8")
-        layout.preflight.write_text(
-            json.dumps({"status": "not_applicable", "passed": True}, indent=2),
-            encoding="utf-8",
-        )
     turns: list[dict[str, Any]] = []
     routers: list[dict[str, Any]] = []
     predictions: list[dict[str, Any]] = []
+    sample_errors: list[dict[str, Any]] = []
     try:
         preflight = None
         if run_mode == "structural_preflight":
@@ -374,17 +389,6 @@ def run_experiment(
             )
             progress.mark_completed("structural_preflight_completed")
             return layout.root
-        if phase_name == "development" and protocol.protocol_version == "catch_v2":
-            preflight = run_structural_preflight(
-                [PreflightJob(job.sequence_index, job.sample, job.split_name, job.endpoint) for job in jobs],
-                run_id=run_id,
-                experiment=experiment,
-                protocol=protocol,
-                network_budget=network_budget,
-                progress=progress,
-                turns_path=layout.root / "turns" / "preflight_turns.jsonl",
-                output_path=layout.root / "diagnostics" / "preflight.json",
-            )
         with (
             layout.agent_turns.open("w", encoding="utf-8") as turns_handle,
             layout.router_decisions.open("w", encoding="utf-8") as routers_handle,
@@ -418,6 +422,8 @@ def run_experiment(
                     {**row, "sample_sequence_index": job.sequence_index} for row in sample_predictions
                 ]
                 predictions.extend(indexed_predictions)
+                if router_row.get("sample_error"):
+                    sample_errors.append(dict(router_row["sample_error"]))
                 turns_handle.flush()
                 routers_handle.flush()
                 progress.record_predictions(
@@ -432,76 +438,106 @@ def run_experiment(
         predictions.sort(key=_prediction_sort_key)
         development_selection = None
         if phase_name == "development" and protocol.protocol_version != "catch_v3":
-            predictions, development_selection = materialize_development_catch(predictions, routers)
+            try:
+                predictions, development_selection = materialize_development_catch(predictions, routers)
+            except (KeyError, TypeError, ValueError) as exc:
+                execution_warnings.append(
+                    f"development_selection_unavailable:{type(exc).__name__}:{exc}"
+                )
+                default_method = "catch_d2_m1"
+                predictions = [
+                    {**row, "method_name": "catch", "selected_grid_method_name": default_method}
+                    if row.get("method_name") == default_method
+                    else row
+                    for row in predictions
+                ]
+                development_selection = {
+                    "selection_rule": "best_effort_default_d2_m1",
+                    "selected": {"method_name": default_method, "d_min": 2, "margin": 1},
+                    "positive_constraints_satisfied": False,
+                    "error": {"error_type": type(exc).__name__, "message": str(exc)},
+                }
         with layout.predictions.open("w", encoding="utf-8") as predictions_handle:
             for row in predictions:
                 predictions_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
         metrics = build_metrics(predictions)
-        preflight_turn_rows = _read_jsonl(layout.preflight_turns)
-        gate = evaluate_gate(
-            phase_name=phase_name,
-            predictions=predictions,
-            turns=[*preflight_turn_rows, *turns],
-            routers=routers,
-            development_selection=development_selection,
-            protocol_version=protocol.protocol_version,
+        metrics.update(
+            build_best_effort_diagnostics(
+                predictions=predictions,
+                turns=turns,
+                routers=routers,
+                planned_by_dataset={
+                    dataset: len(samples) for dataset, samples in selected_by_benchmark.items()
+                },
+            )
         )
-        gate["actual_network_attempts"] = network_budget.actual
-        gate["network_attempt_cap"] = protocol.max_network_attempts
-        gate["run_mode"] = run_mode
-        gate["planned_sample_count"] = sample_count
-        gate["completed_sample_count"] = len(routers)
-        gate["incomplete_sample_count"] = max(0, sample_count - len(routers))
-        gate["termination_reason"] = f"{phase_name}_completed"
+        request_failure_count = sum(bool(row.get("request_error")) for row in turns)
+        parse_failure_count = sum(row.get("protocol_parse_status") == "failed" for row in turns)
+        execution = {
+            "policy": "best_effort_non_blocking",
+            "planned_sample_count": sample_count,
+            "attempted_sample_count": len(routers),
+            "evaluable_sample_count": len({row.get("sample_id") for row in predictions}),
+            "missing_sample_count": max(
+                0, sample_count - len({row.get("sample_id") for row in predictions})
+            ),
+            "sample_error_count": len(sample_errors),
+            "dataset_error_count": len(dataset_errors),
+            "request_failure_count": request_failure_count,
+            "parse_failure_count": parse_failure_count,
+            "network_attempt_budget": network_budget.snapshot(),
+            "warnings": execution_warnings,
+        }
+        metrics["execution"] = execution
         layout.metrics.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
-        layout.gate.write_text(json.dumps(gate, ensure_ascii=False, indent=2), encoding="utf-8")
-        if phase_name == "development" and protocol.protocol_version == "catch_v3":
-            frozen_candidate = _build_frozen_protocol_candidate(run_id=run_id, config_sha=config_sha)
-            layout.frozen_decoding_candidate.write_text(
-                json.dumps(frozen_candidate, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-        elif development_selection is not None:
-            frozen_candidate = _build_frozen_decoding_candidate(
-                run_id=run_id,
-                config_sha=config_sha,
-                selection=development_selection,
-            )
-            layout.frozen_decoding_candidate.write_text(
-                json.dumps(frozen_candidate, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
         layout.run_summary.write_text(
             json.dumps(
                 {
                     "metrics": metrics,
-                    "gate": gate,
+                    "execution": execution,
                     "development_selection": development_selection,
                     "preflight": preflight,
+                    "planned_sample_count": sample_count,
+                    "sample_errors": sample_errors,
+                    "dataset_errors": dataset_errors,
                 },
                 ensure_ascii=False,
                 indent=2,
             ),
             encoding="utf-8",
         )
-        _update_manifest_status(
-            layout.manifest,
-            "completed",
-            termination_reason=f"{phase_name}_completed",
+        has_errors = bool(
+            request_failure_count or parse_failure_count or sample_errors or dataset_errors
         )
-        render_report(layout.root)
-        finalize_run_outputs(layout.root, validator=validate_run, validation_path=layout.validation)
-        progress.mark_completed(f"{phase_name}_completed")
+        terminal_status = "completed_with_errors" if has_errors else "completed"
+        termination_reason = f"{phase_name}_{terminal_status}"
+        _update_manifest_status(layout.manifest, terminal_status, termination_reason=termination_reason)
+        report_result = render_report_with_fallback(layout.root, render_report)
+        report_failed = bool(report_result.get("error_type"))
+        if report_failed and terminal_status == "completed":
+            terminal_status = "completed_with_errors"
+            termination_reason = f"{phase_name}_completed_with_errors"
+            _update_manifest_status(layout.manifest, terminal_status, termination_reason=termination_reason)
+        validation = write_nonblocking_validation(layout.root)
+        if not validation.get("artifact_valid") and terminal_status == "completed":
+            terminal_status = "completed_with_errors"
+            termination_reason = f"{phase_name}_completed_with_errors"
+            _update_manifest_status(layout.manifest, terminal_status, termination_reason=termination_reason)
+            write_nonblocking_validation(layout.root)
+        if terminal_status == "completed":
+            progress.mark_completed(termination_reason)
+        else:
+            progress.mark_completed_with_errors(
+                termination_reason,
+                error_count=request_failure_count
+                + len(sample_errors)
+                + len(dataset_errors)
+                + int(report_failed),
+                warning_count=len(execution_warnings) + int(parse_failure_count),
+            )
         return layout.root
     except BaseException as exc:
-        if isinstance(exc, PreflightGateFailed) and progress.completed_samples == 0:
-            progress.record_completed_samples(len(exc.payload.get("selected_sample_ids") or []))
-        termination_reason = (
-            "structural_preflight_failed"
-            if isinstance(exc, PreflightGateFailed)
-            else "interrupted_by_user"
-            if isinstance(exc, KeyboardInterrupt)
-            else "execution_failure"
-        )
+        termination_reason = "interrupted_by_user" if isinstance(exc, KeyboardInterrupt) else "fatal_startup_error"
         _write_partial_outputs(
             layout,
             turns=turns,
@@ -510,16 +546,18 @@ def run_experiment(
             termination_reason=termination_reason,
             error=exc,
         )
-        _update_manifest_status(layout.manifest, "failed", termination_reason=termination_reason)
-        if not layout.validation.exists():
-            with suppress(BaseException):
-                finalize_run_outputs(layout.root, validator=validate_run, validation_path=layout.validation)
-        progress.mark_failed(
-            type(exc).__name__,
-            str(exc),
-            last_sample_id=progress.last_sample_id,
+        _update_manifest_status(
+            layout.manifest,
+            "interrupted" if isinstance(exc, KeyboardInterrupt) else "fatal_startup_error",
             termination_reason=termination_reason,
         )
+        with suppress(BaseException):
+            render_report_with_fallback(layout.root, render_report)
+            write_nonblocking_validation(layout.root)
+        if isinstance(exc, KeyboardInterrupt):
+            progress.mark_interrupted(str(exc) or "interrupted by user")
+        else:
+            progress.mark_fatal_startup_error(type(exc).__name__, str(exc))
         raise
     finally:
         progress.close()
@@ -561,31 +599,13 @@ def _execute_jobs_bounded(
         while pending:
             done, _ = wait(tuple(pending), return_when=FIRST_COMPLETED)
             completed_batch: list[tuple[CatchSampleJob, Any]] = []
-            failure: BaseException | None = None
             for future in sorted(done, key=lambda item: pending[item].sequence_index):
                 job = pending.pop(future)
                 try:
                     result = future.result()
-                except BaseException as exc:
-                    if failure is None:
-                        failure = exc
-                    continue
+                except Exception as exc:
+                    result = _failed_sample_result(job, exc)
                 completed_batch.append((job, result))
-
-            if failure is not None:
-                for job in jobs:
-                    if job.endpoint.stop_event is not None:
-                        job.endpoint.stop_event.set()
-                for future in pending:
-                    future.cancel()
-                for job, result in completed_batch:
-                    completed += 1
-                    progress.update_scheduler_state(
-                        in_flight_samples=len(pending),
-                        queued_samples=max(0, len(jobs) - completed - len(pending)),
-                    )
-                    yield (job, *result)
-                raise failure
 
             for job, result in completed_batch:
                 completed += 1
@@ -596,15 +616,42 @@ def _execute_jobs_bounded(
                 )
                 yield (job, *result)
     except BaseException:
-        for job in jobs:
-            if job.endpoint.stop_event is not None:
-                job.endpoint.stop_event.set()
         for future in pending:
             future.cancel()
         raise
     finally:
         executor.shutdown(wait=True, cancel_futures=True)
         progress.update_scheduler_state(in_flight_samples=0, queued_samples=0)
+
+
+def _failed_sample_result(
+    job: CatchSampleJob,
+    error: Exception,
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    """Represent an unexpected sample exception without cancelling sibling work."""
+
+    sample = job.sample
+    dataset = str(getattr(sample, "dataset", "unknown"))
+    sample_id = str(getattr(sample, "sample_id", job.sequence_index))
+    metadata = getattr(sample, "metadata", {})
+    failure = {
+        "dataset": dataset,
+        "sample_id": sample_id,
+        "sample_sequence_index": job.sequence_index,
+        "error_type": type(error).__name__,
+        "message": str(error),
+    }
+    router = {
+        "dataset": dataset,
+        "sample_id": sample_id,
+        "task": metadata.get("task") if isinstance(metadata, dict) else None,
+        "split": job.split_name,
+        "triggered": None,
+        "protocol_version": None,
+        "resolver": "sample_execution_error",
+        "sample_error": failure,
+    }
+    return [], router, []
 
 
 def _turn_sort_key(row: dict[str, Any]) -> tuple[int, str, int]:
@@ -642,100 +689,59 @@ def _write_partial_outputs(
     termination_reason: str,
     error: BaseException,
 ) -> None:
-    """Land a self-describing failed run without fabricating missing scientific outputs."""
+    """Preserve the core result set for an interrupted or fatal run."""
 
-    if not layout.agent_turns.exists():
-        layout.agent_turns.write_text("", encoding="utf-8")
-    if turns and layout.agent_turns.stat().st_size == 0:
-        layout.agent_turns.write_text(
-            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in turns),
-            encoding="utf-8",
-        )
-    if not layout.router_decisions.exists():
-        layout.router_decisions.write_text("", encoding="utf-8")
-    if not layout.preflight_turns.exists():
-        layout.preflight_turns.write_text("", encoding="utf-8")
-    if not layout.preflight.exists():
-        layout.preflight.write_text(
-            json.dumps({"status": "not_completed", "passed": False}, indent=2),
-            encoding="utf-8",
-        )
-    if routers and layout.router_decisions.stat().st_size == 0:
-        layout.router_decisions.write_text(
-            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in routers),
-            encoding="utf-8",
-        )
-    if not layout.predictions.exists():
-        layout.predictions.write_text("", encoding="utf-8")
-    if predictions and layout.predictions.stat().st_size == 0:
-        layout.predictions.write_text(
-            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in predictions),
-            encoding="utf-8",
-        )
+    layout.agent_turns.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in turns),
+        encoding="utf-8",
+    )
+    layout.router_decisions.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in routers),
+        encoding="utf-8",
+    )
+    layout.predictions.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in predictions),
+        encoding="utf-8",
+    )
     manifest_payload = json.loads(layout.manifest.read_text(encoding="utf-8"))
-    planned_sample_count = int(manifest_payload.get("planned_sample_count") or manifest_payload.get("sample_count") or 0)
-    completed_sample_ids = {str(row.get("sample_id")) for row in routers if row.get("sample_id")}
-    if manifest_payload.get("run_mode") == "structural_preflight" and layout.preflight.exists():
-        with suppress(OSError, json.JSONDecodeError):
-            completed_sample_ids.update(
-                str(value)
-                for value in json.loads(layout.preflight.read_text(encoding="utf-8")).get("selected_sample_ids") or []
-            )
-    completed_sample_count = min(planned_sample_count, len(completed_sample_ids))
-    failure_gate = {
-        "gate_name": f"catch_failed_partial_{manifest_payload.get('method_version') or 'unknown'}",
-        "passed": False,
-        "run_mode": manifest_payload.get("run_mode", "full"),
-        "termination_reason": termination_reason,
-        "planned_sample_count": planned_sample_count,
-        "completed_sample_count": completed_sample_count,
-        "incomplete_sample_count": max(0, planned_sample_count - completed_sample_count),
-        "completed_prediction_count": len(predictions),
-        "error": {"error_type": type(error).__name__, "message": str(error)},
-    }
-    if not layout.metrics.exists():
-        layout.metrics.write_text(json.dumps({"summary": []}, indent=2), encoding="utf-8")
-    if layout.gate.exists():
-        with suppress(OSError, json.JSONDecodeError):
-            existing_gate = json.loads(layout.gate.read_text(encoding="utf-8"))
-            existing_gate["scientific_conditions_passed_before_terminal_failure"] = bool(
-                existing_gate.get("passed")
-            )
-            existing_gate.update(
-                {
-                    "passed": False,
-                    "run_terminal_status": "failed",
-                    "termination_reason": termination_reason,
-                    "planned_sample_count": planned_sample_count,
-                    "completed_sample_count": completed_sample_count,
-                    "incomplete_sample_count": max(0, planned_sample_count - completed_sample_count),
-                }
-            )
-            layout.gate.write_text(
-                json.dumps(existing_gate, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-    else:
-        layout.gate.write_text(json.dumps(failure_gate, ensure_ascii=False, indent=2), encoding="utf-8")
-    if layout.run_summary.exists():
-        with suppress(OSError, json.JSONDecodeError):
-            summary_payload = json.loads(layout.run_summary.read_text(encoding="utf-8"))
-            summary_payload["termination_reason"] = termination_reason
-            summary_payload["run_terminal_status"] = "failed"
-            summary_payload["gate"] = json.loads(layout.gate.read_text(encoding="utf-8"))
-            layout.run_summary.write_text(
-                json.dumps(summary_payload, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-    else:
-        layout.run_summary.write_text(
-            json.dumps(
-                {"metrics": {"summary": []}, "gate": failure_gate, "termination_reason": termination_reason},
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
+    planned = int(
+        manifest_payload.get("planned_sample_count")
+        or manifest_payload.get("sample_count")
+        or 0
+    )
+    completed = len({str(row.get("sample_id")) for row in routers if row.get("sample_id")})
     with suppress(BaseException):
-        render_report(layout.root)
+        metrics = build_metrics(predictions)
+        metrics["execution"] = {
+            "policy": "best_effort_non_blocking",
+            "planned_sample_count": planned,
+            "attempted_sample_count": completed,
+            "evaluable_sample_count": len(
+                {str(row.get("sample_id")) for row in predictions if row.get("sample_id")}
+            ),
+            "missing_sample_count": max(0, planned - completed),
+            "termination_reason": termination_reason,
+        }
+        layout.metrics.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
+    if not layout.metrics.exists():
+        layout.metrics.write_text(json.dumps({"summary": [], "execution": {}}, indent=2), encoding="utf-8")
+    summary = {
+        "metrics": json.loads(layout.metrics.read_text(encoding="utf-8")),
+        "execution": {
+            "policy": "best_effort_non_blocking",
+            "termination_reason": termination_reason,
+            "planned_sample_count": planned,
+            "attempted_sample_count": completed,
+            "incomplete_sample_count": max(0, planned - completed),
+            "error": {"error_type": type(error).__name__, "message": str(error)},
+        },
+        "planned_sample_count": planned,
+        "sample_errors": [
+            row["sample_error"] for row in routers if isinstance(row.get("sample_error"), dict)
+        ],
+        "dataset_errors": [],
+    }
+    layout.run_summary.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _update_manifest_status(path: Path, status: str, *, termination_reason: str | None = None) -> None:
@@ -892,7 +898,7 @@ def finalize_partial_run_directory(
             encoding="utf-8",
         )
     render_report(root)
-    validation = finalize_run_outputs(root, validator=validate_run, validation_path=root / "run_validation.json")
+    validation = write_nonblocking_validation(root)
     return {"run_dir": root.as_posix(), "termination_reason": termination_reason, "validation": validation}
 
 
@@ -931,7 +937,7 @@ def _finalize_preflight_run(
     )
     _update_manifest_status(manifest_path, "completed", termination_reason="structural_preflight_completed")
     render_report(layout.root)
-    finalize_run_outputs(layout.root, validator=validate_run, validation_path=layout.validation)
+    write_nonblocking_validation(layout.root)
 
 
 def _require_passing_icv_preflight(

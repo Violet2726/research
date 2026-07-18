@@ -17,7 +17,7 @@ from research_experiments.families.registry import get_family_registration
 EXPERIMENT = "configs/families/contrastive_active_testing/experiments/catch_gate.toml"
 
 
-def test_frozen_protocol_and_registration_are_discoverable() -> None:
+def test_best_effort_protocol_and_registration_are_discoverable() -> None:
     experiment = load_experiment_config(EXPERIMENT)
     protocol = load_protocol_config(experiment.protocol)
     registration = get_family_registration("contrastive_active_testing")
@@ -28,7 +28,7 @@ def test_frozen_protocol_and_registration_are_discoverable() -> None:
     assert protocol.role_max_tokens == 4_096
     assert protocol.max_network_attempts == 62_000
     assert protocol.protocol_version == "catch_v3"
-    assert protocol.preflight_sample_count == 20
+    assert protocol.preflight_sample_count == 0
     assert protocol.coordinates_per_pair == 3
     assert protocol.pair_judge_count == 3
     assert experiment.cache_namespaces["development"] == "catch-dev-v3"
@@ -36,6 +36,7 @@ def test_frozen_protocol_and_registration_are_discoverable() -> None:
     assert registration.prototype == "shared_stage_policy"
     assert registration.artifact_schema.progress_path == "progress.json"
     assert registration.artifact_schema.validation_path == "run_validation.json"
+    assert registration.artifact_schema.diagnostic_paths == ()
     frozen_components = _frozen_component_hashes(experiment)
     assert "src/research_experiments/families/contrastive_active_testing/icv.py" in frozen_components
     assert "configs/core/shared/benchmarks/splits/dgcr_dev100/bbeh/bbeh-main-seed42.json" in frozen_components

@@ -47,30 +47,29 @@ from research_experiments.family_runtime.free_text_protocol import FREE_TEXT_ANS
 from research_experiments.family_runtime.output_protocols import execute_output_protocol_turn
 
 
-class NetworkAttemptLimitExceeded(RuntimeError):
-    pass
-
-
 class CatchRunCancelled(RuntimeError):
     pass
 
 
 class NetworkAttemptBudget:
-    """Thread-safe hard cap with retry reserve before each physical request."""
+    """Thread-safe soft network-attempt counter.
+
+    ``limit`` is an operational warning threshold, not an admission gate.  The
+    counter deliberately never raises when the configured threshold is crossed:
+    long-running CATCH experiments must finish collecting the remaining samples
+    so an isolated retry burst cannot invalidate an otherwise usable run.
+    """
 
     def __init__(self, limit: int) -> None:
         self.limit = int(limit)
         self.actual = 0
         self._reserved = 0
+        self.limit_exceeded = False
+        self.first_exceeded_at: int | None = None
         self._lock = threading.Lock()
 
     def reserve(self, maximum: int = 5) -> int:
         with self._lock:
-            if self.actual + self._reserved + maximum > self.limit:
-                raise NetworkAttemptLimitExceeded(
-                    f"network-attempt hard stop: actual={self.actual}, reserved={self._reserved}, "
-                    f"requested_reserve={maximum}, limit={self.limit}"
-                )
             self._reserved += maximum
         return maximum
 
@@ -78,10 +77,25 @@ class NetworkAttemptBudget:
         with self._lock:
             self._reserved -= reservation
             self.actual += int(actual)
-            if self.actual > self.limit:
-                raise NetworkAttemptLimitExceeded(
-                    f"network-attempt hard stop exceeded: actual={self.actual}, limit={self.limit}"
-                )
+            if self.actual > self.limit and not self.limit_exceeded:
+                self.limit_exceeded = True
+                self.first_exceeded_at = self.actual
+
+    @property
+    def overage(self) -> int:
+        with self._lock:
+            return max(0, self.actual - self.limit)
+
+    def snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "configured_limit": self.limit,
+                "actual": self.actual,
+                "overage": max(0, self.actual - self.limit),
+                "limit_exceeded": self.limit_exceeded,
+                "first_exceeded_at": self.first_exceeded_at,
+                "reserved_retry_capacity": self._reserved,
+            }
 
 
 def run_catch_sample(

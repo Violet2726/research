@@ -107,6 +107,172 @@ def build_metrics(predictions: list[dict[str, Any]]) -> dict[str, Any]:
     return {"summary": summaries, "paired_statistics": paired}
 
 
+def build_best_effort_diagnostics(
+    *,
+    predictions: list[dict[str, Any]],
+    turns: list[dict[str, Any]],
+    routers: list[dict[str, Any]],
+    planned_by_dataset: dict[str, int],
+) -> dict[str, Any]:
+    """Build denominator-aware result and failure diagnostics without gates."""
+
+    datasets: dict[str, Any] = {}
+    for dataset in sorted(
+        set(planned_by_dataset)
+        | {str(row.get("dataset") or "") for row in predictions if row.get("dataset")}
+        | {str(row.get("dataset") or "") for row in routers if row.get("dataset")}
+    ):
+        planned = int(planned_by_dataset.get(dataset, 0))
+        dataset_predictions = [row for row in predictions if row.get("dataset") == dataset]
+        dataset_routers = [row for row in routers if row.get("dataset") == dataset]
+        methods: dict[str, Any] = {}
+        by_method: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row in dataset_predictions:
+            by_method[str(row.get("method_name") or "unknown")].append(row)
+        for method, rows in sorted(by_method.items()):
+            evaluable = [row for row in rows if row.get("prediction") not in {None, ""}]
+            score_sum = sum(float(row.get("score") or 0) for row in evaluable)
+            overrides = [row for row in evaluable if row.get("override_accepted")]
+            correct_overrides = sum(float(row.get("score") or 0) == 1.0 for row in overrides)
+            methods[method] = {
+                "planned": planned,
+                "available_prediction_rows": len(rows),
+                "evaluable": len(evaluable),
+                "missing": max(0, planned - len(evaluable)),
+                "complete_case_accuracy": _ratio(score_sum, len(evaluable)),
+                "conservative_accuracy_missing_as_wrong": _ratio(score_sum, planned),
+                "override_count": len(overrides),
+                "override_precision": _ratio(correct_overrides, len(overrides)),
+                "corrected": sum(bool(row.get("corrected_by_debate")) for row in evaluable),
+                "harmed": sum(bool(row.get("harmed_by_debate")) for row in evaluable),
+                "candidate_oracle": _ratio(
+                    sum(bool(row.get("candidate_oracle_correct")) for row in evaluable),
+                    len(evaluable),
+                ),
+                "target_oracle": _ratio(
+                    sum(bool(row.get("target_oracle_correct")) for row in evaluable),
+                    len(evaluable),
+                ),
+            }
+        catch_by_id = {
+            str(row.get("sample_id")): row
+            for row in by_method.get("catch", [])
+            if row.get("prediction") not in {None, ""}
+        }
+        paired: dict[str, Any] = {}
+        for competitor in ("adaptive_sc_8", "pair_judge_3", "direct_judge_3", "sc_5"):
+            other = {
+                str(row.get("sample_id")): row
+                for row in by_method.get(competitor, [])
+                if row.get("prediction") not in {None, ""}
+            }
+            common = sorted(set(catch_by_id) & set(other))
+            if common:
+                paired[competitor] = {
+                    "paired_sample_count": len(common),
+                    "catch_accuracy": _ratio(
+                        sum(float(catch_by_id[key].get("score") or 0) for key in common), len(common)
+                    ),
+                    "competitor_accuracy": _ratio(
+                        sum(float(other[key].get("score") or 0) for key in common), len(common)
+                    ),
+                }
+        datasets[dataset] = {
+            "planned": planned,
+            "attempted": len(dataset_routers),
+            "sample_errors": sum(bool(row.get("sample_error")) for row in dataset_routers),
+            "methods": methods,
+            "paired_complete_cases": paired,
+        }
+
+    failure_counts: dict[tuple[str, str, str], int] = defaultdict(int)
+    failure_examples: dict[tuple[str, str, str], str] = {}
+    for row in turns:
+        if not row.get("request_error") and row.get("protocol_parse_status") != "failed":
+            continue
+        error = str(
+            row.get("request_error")
+            or row.get("protocol_parse_error")
+            or "unknown_failure"
+        )
+        key = (
+            str(row.get("dataset") or "unknown"),
+            str(row.get("role") or "unknown"),
+            _failure_category(error, request_error=bool(row.get("request_error"))),
+        )
+        failure_counts[key] += 1
+        failure_examples.setdefault(key, error)
+    total_calls = len(turns)
+    request_failures = sum(bool(row.get("request_error")) for row in turns)
+    parse_failures = sum(row.get("protocol_parse_status") == "failed" for row in turns)
+    failure_rate = _ratio(request_failures, total_calls)
+    lower, upper = _wilson_interval(request_failures, total_calls)
+    triggered = [row for row in routers if row.get("triggered")]
+    eligible = [row for row in triggered if row.get("eligible_challengers")]
+    return {
+        "datasets": datasets,
+        "failures": {
+            "logical_call_count": total_calls,
+            "request_failure_count": request_failures,
+            "request_failure_rate": failure_rate,
+            "request_failure_rate_wilson_95": [lower, upper],
+            "parse_failure_count": parse_failures,
+            "by_dataset_role_error": [
+                {
+                    "dataset": key[0],
+                    "role": key[1],
+                    "error_type": key[2],
+                    "example": failure_examples[key],
+                    "count": count,
+                }
+                for key, count in sorted(failure_counts.items())
+            ],
+        },
+        "mechanism": {
+            "triggered_sample_count": len(triggered),
+            "eligible_sample_count": len(eligible),
+            "eligible_rate": _ratio(len(eligible), len(triggered)),
+            "panel_false_pass_dependence": _v3_panel_dependence(routers),
+            "witness_position_and_agreement": _v3_observation_diagnostics(routers, turns),
+        },
+        "costs": {
+            "logical_calls": total_calls,
+            "cache_hits": sum(bool(row.get("cache_hit")) for row in turns),
+            "physical_network_attempts": sum(
+                int(row.get("network_attempt_count") or 0) for row in turns
+            ),
+            "retry_attempts": sum(
+                max(0, int(row.get("network_attempt_count") or 0) - 1)
+                for row in turns
+                if int(row.get("network_attempt_count") or 0) > 0
+            ),
+            "actual_total_tokens": sum(float(row.get("actual_total_tokens") or 0) for row in turns),
+            "mean_latency_ms": _ratio(
+                sum(float(row.get("latency_ms") or 0) for row in turns), len(turns)
+            ),
+        },
+    }
+
+
+def _failure_category(message: str, *, request_error: bool) -> str:
+    text = message.casefold()
+    if not request_error:
+        return f"parse:{message[:80]}"
+    if "timeout" in text or "timed out" in text:
+        return "request:timeout"
+    if "429" in text or "rate limit" in text:
+        return "request:http_429"
+    if any(f"http {code}" in text for code in range(500, 600)):
+        return "request:http_5xx"
+    if any(f"http {code}" in text for code in range(400, 500)):
+        return "request:http_4xx"
+    if "connection" in text or "transport" in text or "network" in text:
+        return "request:connection"
+    if "content filter" in text or "content_filter" in text:
+        return "request:content_filter"
+    return "request:other"
+
+
 def evaluate_gate(
     *,
     phase_name: str,
@@ -461,3 +627,17 @@ def _wilson_lower(successes: int, total: int, z: float) -> float:
     centre = proportion + z**2 / (2 * total)
     margin = z * math.sqrt((proportion * (1 - proportion) + z**2 / (4 * total)) / total)
     return (centre - margin) / denominator
+
+
+def _wilson_interval(successes: int, total: int, z: float = 1.959964) -> tuple[float, float]:
+    if total <= 0:
+        return (0.0, 0.0)
+    proportion = successes / total
+    denominator = 1 + z**2 / total
+    centre = (proportion + z**2 / (2 * total)) / denominator
+    margin = (
+        z
+        * math.sqrt((proportion * (1 - proportion) + z**2 / (4 * total)) / total)
+        / denominator
+    )
+    return max(0.0, centre - margin), min(1.0, centre + margin)

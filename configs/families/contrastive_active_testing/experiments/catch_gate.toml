@@ -1,18 +1,12 @@
 name = "catch_gate"
-description = "CATCH-ICV indexed contrast verification BBEH 100-to-200 frozen gate."
+description = "Best-effort CATCH-ICV indexed contrast verification on BBEH development, heldout, or confirmation splits."
 benchmark_configs = ["configs/core/shared/benchmarks/bbeh/bbeh-main.toml"]
 protocol = "configs/families/contrastive_active_testing/protocols/catch_v3.toml"
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 global_seed = 42
 max_concurrent_requests = 15
 requests_per_minute_limit = 18
-provider_audit_path = "configs/families/contrastive_active_testing/provider_audits/catch_provider_audit_v1.json"
-frozen_decoding_path = "configs/families/contrastive_active_testing/frozen/catch_v3_protocol.json"
-human_audit_path = "configs/families/contrastive_active_testing/frozen/catch_v3_human_audit.json"
-preflight_human_audit_path = "configs/families/contrastive_active_testing/frozen/catch_v3_preflight_human_audit.json"
-
 [cache_namespaces]
-provider_audit = "catch-provider-audit-v1"
 development = "catch-dev-v3"
 heldout = "catch-heldout-v3"
 confirmation = "catch-confirm-v3"

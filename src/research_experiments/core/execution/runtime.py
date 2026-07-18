@@ -209,6 +209,57 @@ class RunProgressTracker:
         self.write(force=True, reason="completed")
         self.close()
 
+    def mark_completed_with_errors(
+        self,
+        termination_reason: str = "completed_with_errors",
+        *,
+        error_count: int = 0,
+        warning_count: int = 0,
+    ) -> None:
+        """Land a usable best-effort run without mislabelling it as failed."""
+
+        with self._lock:
+            self.status = "completed_with_errors"
+            self.termination_reason = str(termination_reason)
+            self.failure = {
+                "error_count": max(0, int(error_count)),
+                "warning_count": max(0, int(warning_count)),
+                "recoverable": True,
+            }
+            self._note_progress_event_locked(time.monotonic())
+        self.write(force=True, reason="completed_with_errors")
+        self.close()
+
+    def mark_interrupted(self, message: str = "interrupted by user") -> None:
+        """Persist an intentional partial stop distinctly from execution failure."""
+
+        with self._lock:
+            self.status = "interrupted"
+            self.termination_reason = "interrupted_by_user"
+            self.failure = {
+                "error_type": "KeyboardInterrupt",
+                "message": str(message),
+                "recoverable": True,
+            }
+            self._note_progress_event_locked(time.monotonic())
+        self.write(force=True, reason="interrupted")
+        self.close()
+
+    def mark_fatal_startup_error(self, error_type: str, message: str) -> None:
+        """Record the small class of errors for which no experiment can run."""
+
+        with self._lock:
+            self.status = "fatal_startup_error"
+            self.termination_reason = "fatal_startup_error"
+            self.failure = {
+                "error_type": str(error_type),
+                "message": str(message),
+                "recoverable": False,
+            }
+            self._note_progress_event_locked(time.monotonic())
+        self.write(force=True, reason="fatal_startup_error")
+        self.close()
+
     def mark_failed(
         self,
         error_type: str,
@@ -266,7 +317,8 @@ class RunProgressTracker:
                     eta_seconds = remaining_calls / eta_rpm * 60
             effective_total_calls = (
                 max(self.completed_calls, 1)
-                if self.status == "completed" and self.planned_calls_are_upper_bound
+                if self.status in {"completed", "completed_with_errors"}
+                and self.planned_calls_are_upper_bound
                 else self.total_planned_calls
             )
             self.last_write_reason = reason or self.last_write_reason

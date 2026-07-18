@@ -5,8 +5,6 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
-import pytest
-
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.families.contrastive_active_testing.artifact_replay import (
     audit_v3_artifact_recomputation,
@@ -15,34 +13,75 @@ from research_experiments.families.contrastive_active_testing.config import Catc
 from research_experiments.families.contrastive_active_testing.run import sample as sample_runner
 
 
-def test_network_attempt_budget_reserves_exact_retry_bound() -> None:
+def test_network_attempt_budget_is_a_soft_warning_counter() -> None:
     budget = sample_runner.NetworkAttemptBudget(10)
     first = budget.reserve()
     second = budget.reserve()
-    assert (first, second) == (5, 5)
-    with pytest.raises(sample_runner.NetworkAttemptLimitExceeded):
-        budget.reserve()
+    third = budget.reserve()
+    assert (first, second, third) == (5, 5, 5)
     budget.settle(first, 3)
     budget.settle(second, 5)
-    assert budget.actual == 8
+    budget.settle(third, 4)
+    assert budget.actual == 12
+    assert budget.snapshot()["limit_exceeded"] is True
+    assert budget.overage == 2
 
 
-def test_network_attempt_budget_cannot_overreserve_under_competition() -> None:
+def test_network_attempt_budget_never_blocks_competing_workers() -> None:
     budget = sample_runner.NetworkAttemptBudget(25)
 
     def reserve_once(_index):
-        try:
-            return budget.reserve()
-        except sample_runner.NetworkAttemptLimitExceeded:
-            return 0
+        return budget.reserve()
 
     with ThreadPoolExecutor(max_workers=20) as executor:
         reservations = list(executor.map(reserve_once, range(100)))
-    assert sum(reservations) == 25
+    assert sum(reservations) == 500
     for reservation in reservations:
         if reservation:
             budget.settle(reservation, reservation)
-    assert budget.actual == 25
+    assert budget.actual == 500
+    assert budget.overage == 475
+
+
+def test_all_failed_stage_requests_produce_unavailable_predictions_without_raising() -> None:
+    sample = DatasetSample(
+        dataset="bbeh",
+        sample_id="all-failed",
+        question="Return yes.",
+        reference_answer="yes",
+        prompt_context="",
+        metadata={"task": "fixture", "answer_contract": {"kind": "free_text"}},
+    )
+    stage_rows = tuple(
+        {
+            "dataset": "bbeh",
+            "sample_id": sample.sample_id,
+            "role": "stage_a_solver",
+            "agent_id": index,
+            "answer_class_key": "",
+            "prediction": "",
+            "normalized_answer": "",
+            "request_error": "timeout after retries",
+            "network_attempt_count": 5,
+        }
+        for index in range(1, 6)
+    )
+    turns, router, predictions = sample_runner.run_catch_sample(
+        sample,
+        run_id="run",
+        split_name="dev",
+        experiment=SimpleNamespace(global_seed=42),
+        protocol=SimpleNamespace(protocol_version="catch_v3", stage_candidates=5),
+        endpoint=None,
+        network_budget=sample_runner.NetworkAttemptBudget(1),
+        phase_name="development",
+        run_direct_judge=False,
+        precomputed_stage_rows=stage_rows,
+    )
+    assert len(turns) == 5
+    assert router["triggered"] is False
+    assert {row["method_name"] for row in predictions} == {"sc_5", "adaptive_sc_8", "catch"}
+    assert all(not row["prediction"] for row in predictions)
 
 
 def test_development_grid_keeps_each_catch_variant_at_five_plus_three_calls(monkeypatch) -> None:

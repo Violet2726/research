@@ -14,6 +14,7 @@ from typing import Any
 from research_experiments.families.contrastive_active_testing.statistics import (
     _v3_observation_diagnostics,
     _v3_panel_dependence,
+    build_best_effort_diagnostics,
     build_metrics,
 )
 
@@ -29,10 +30,7 @@ def materialize_boundary_artifacts(
     checkpoints: dict[str, Any],
 ) -> dict[str, Any]:
     root.mkdir(parents=True, exist_ok=True)
-    source_manifest = {
-        **source_manifest,
-        "turn_contract_hashes": _turn_contract_hashes(turns),
-    }
+    source_manifest = {**source_manifest, "turn_contract_hashes": _turn_contract_hashes(turns)}
     screening = _screening_metrics(screening_rows)
     conditional = _conditional_metrics(predictions)
     selector = _selector_funnel(turns, routers)
@@ -49,18 +47,24 @@ def materialize_boundary_artifacts(
         "costs": costs,
         "mechanism_assessment": mechanism,
     }
-    _write_json(root / "metrics.json", metrics)
+    metrics.update(
+        build_best_effort_diagnostics(
+            predictions=predictions,
+            turns=turns,
+            routers=routers,
+            planned_by_dataset={
+                dataset: int(row.get("selected_disagreement_count") or 0)
+                for dataset, row in checkpoints.items()
+            },
+        )
+    )
+    metrics["execution"] = {
+        "policy": "best_effort_non_blocking",
+        "dataset_checkpoints": checkpoints,
+        "warnings": list(source_manifest.get("execution_warnings") or []),
+        "network_attempt_budget": dict(source_manifest.get("network_attempt_budget") or {}),
+    }
     _write_json(root / "views" / "metrics.json", metrics)
-    _write_json(root / "selector_funnel.json", selector)
-    _write_json(root / "witness_analysis.json", witness)
-    _write_json(root / "reproducibility_manifest.json", source_manifest)
-    _write_jsonl(root / "sample_outcomes.jsonl", sample_outcomes)
-    _write_json(root / "diagnostics" / "dataset_checkpoints.json", checkpoints)
-    _write_human_audit_sample(root, routers)
-    (root / "failure_cases.md").write_text(_failure_cases(routers), encoding="utf-8")
-    (root / "index.md").write_text(_index_markdown(root), encoding="utf-8")
-    report = _render_report(metrics, selector, witness, source_manifest, checkpoints)
-    (root / "report.md").write_text(report, encoding="utf-8")
     return {
         "metrics": metrics,
         "selector_funnel": selector,

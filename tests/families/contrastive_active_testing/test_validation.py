@@ -14,7 +14,7 @@ def _write(path: Path, payload) -> None:
         path.write_text(json.dumps(payload), encoding="utf-8")
 
 
-def test_validation_separates_scientific_usage_failure_from_artifact_failure(tmp_path: Path) -> None:
+def test_validation_is_descriptive_and_does_not_apply_scientific_gates(tmp_path: Path) -> None:
     _write(
         tmp_path / "manifest.json",
         {
@@ -41,11 +41,11 @@ def test_validation_separates_scientific_usage_failure_from_artifact_failure(tmp
     _write(tmp_path / "views" / "predictions.jsonl", [prediction])
     _write(tmp_path / "views" / "metrics.json", {"summary": []})
     _write(tmp_path / "views" / "run_summary.json", {})
-    _write(tmp_path / "diagnostics" / "gate.json", {"passed": False})
+    _write(tmp_path / "progress.json", {"status": "completed"})
+    (tmp_path / "report.md").write_text("# report\n", encoding="utf-8")
 
     result = validate_run(tmp_path)
     assert result["artifact_violations"] == []
-    assert result["scientific_violations"] == ["missing_actual_or_reasoning_tokens"]
-    assert result["passed"] is False
-    assert result["performance_gate_passed"] is False
-
+    assert result["scientific_violations"] == []
+    assert result["passed"] is True
+    assert result["performance_gate_passed"] is None

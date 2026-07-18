@@ -1,83 +1,47 @@
 # CATCH-ICV
 
-The active registered study is now the non-confirmatory
-`catch_cross_domain_boundary_audit`. The preregistered BBEH CATCH-v3 structural
-preflight is terminally recorded as `failed_structural_preflight`; the new study
-maps whether that failure is BBEH-specific and cannot authorize heldout or full
-confirmation. See `PREREGISTRATION_BOUNDARY_AUDIT.md`.
+CATCH now uses a best-effort execution policy. Scientific thresholds, provider
+audits, human audits, and prior phase results are descriptive evidence only;
+they do not authorize or block a run. The indexed-contrast selector, blinded
+witnesses, abstention rules, and fixed v3 decoder are unchanged.
 
-CATCH-ICV is the active `catch_v3` protocol in the existing
-`contrastive_active_testing` family. It converts the plurality anchor and at
-most two strongest Stage-A challengers into pair-local indexed reasoning
-contrasts. A selector may choose IDs only; two blinded witnesses compare the
-selected statements; the runner applies the fixed two-of-three, two-panel,
-unique-challenger decoder.
+## Running experiments
 
-`catch_v1` and `catch_v2` are immutable failed predecessors. They remain in
-the same family and run tree for audit, but cannot be rerun, frozen, or used as
-active gate candidates. Their exact failure registrations are in
-`versions.toml`. The frozen v3 scientific contract is in
-`PREREGISTRATION_V3.md`.
+Inspect a configuration without network access:
 
-## Reproducible one-shot order
+`research_cli experiment --family contrastive_active_testing inspect-experiment --experiment configs/families/contrastive_active_testing/experiments/catch_cross_domain_boundary_audit.toml`
 
-1. Restore the two new pinned public assets if they are absent:
+Run the four-dataset experiment:
 
-   `research_cli tools dataset-assets download-used`
+`research_cli experiment --family contrastive_active_testing run --experiment configs/families/contrastive_active_testing/experiments/catch_cross_domain_boundary_audit.toml --phase boundary_audit`
 
-2. Inspect the non-confirmatory experiment without network access:
+The runner screens BBEH, MuSR, seqBench, and GPQA independently. A failed
+request, sample, or dataset is recorded and the remaining work continues. The
+configured network-attempt count is a visible warning threshold; the 18 RPM
+limiter remains the actual admission control. Re-running creates a new run and
+reuses only exact successful cache entries.
 
-   `research_cli experiment --family contrastive_active_testing inspect-experiment --experiment configs/families/contrastive_active_testing/experiments/catch_cross_domain_boundary_audit.toml`
+Development, heldout, and confirmation can also be invoked directly with
+`catch_gate.toml`. Missing preflight, frozen decoder, human audit, or earlier
+phase result is recorded as a warning. For v3 the built-in fixed decoder is
+used; legacy v1/v2 default to `d_min=2, margin=1` when no decoder file exists.
 
-3. The one-shot runner reuses the already passing MiMo provider audit. If the
-   audit file is absent on a fresh server, the same command first performs the
-   required ten live, cache-bypassed checks and stops before the scientific run
-   if any provider-contract condition fails.
+## Result files
 
-4. Run the four-dataset audit once:
+New runs keep a compact result contract:
 
-   `research_cli experiment --family contrastive_active_testing run --experiment configs/families/contrastive_active_testing/experiments/catch_cross_domain_boundary_audit.toml --phase boundary_audit`
+- `manifest.json` and terminal `progress.json`;
+- raw `turns/agent_turns.jsonl` and `turns/router_decisions.jsonl`;
+- `views/predictions.jsonl`, `views/metrics.json`, and `views/run_summary.json`;
+- researcher-facing `report.md`;
+- compatibility-only, non-blocking `run_validation.json`.
 
-   The command screens 100 items per dataset, selects at most twenty Stage-A
-   disagreements without gold, runs all matched methods, writes a checkpoint
-   after every dataset, and exits. It never dispatches heldout or confirmation.
+The report gives planned, attempted, evaluable, and missing denominators; both
+complete-case and missing-as-wrong accuracy; paired method comparisons; request
+and parse failures with a Wilson 95% interval; mechanism diagnostics; and
+cache/network/token costs. No `gate.json`, preflight artifact, manual-audit
+artifact, or archive-integrity package is required for a new run.
 
-5. After completion, fill `diagnostics/human_audit_sample.json` with two blind
-   annotations if the manuscript will discuss coordinate validity. The labels
-   explain mechanism validity and cannot select prompts, samples, or thresholds.
-
-   Install and independently recompute the completed annotations with:
-
-   `research_cli experiment --family contrastive_active_testing boundary-human-audit --run <run-directory> --input <completed-human-audit.json>`
-
-Do not monitor, poll, or auto-resume any of these commands. Each process is
-finite and terminal; inspect its artifacts once after the user reports that it
-has completed.
-
-## Cache and compute contract
-
-The audit writes to four isolated `catch-boundary-v3-*` namespaces. BBEH may
-read byte-identical v3 selector/witness results and v1/v3 shared-solver results
-from read-only predecessor namespaces. MuSR, seqBench, and GPQA never reuse
-intervention responses across datasets or study versions.
-
-On a disagreement, each reported comparison method uses the same five shared
-Stage-A calls and at most three method-specific calls. CATCH uses selector plus
-two witnesses only for an eligible packet and abstains early otherwise.
-Adaptive-SC8, DirectJudge-3, and PairJudge-3 each use three calls. Scientific
-cost gates use actual input, output, and reported reasoning tokens.
-
-## Artifact contract
-
-Every run starts with `progress.json` and ends with terminal `progress.json`
-plus `run_validation.json`, even on scientific failure, validator exception,
-packaging failure, cancellation, or futility. Turns record real payloads,
-cache namespace/source, logical and physical attempts, retry timing, provider
-request ID, finish reason, actual usage, evidence/codebook, permutations,
-witness vectors, and deterministic decoder diagnostics. Archived v3 turns
-must independently reproduce predictions, target oracle, overrides, calls,
-tokens, and gate results.
-
-The confirmation BBEH population is the version-controlled
-`full4520_seed42` population minus the disjoint `dgcr_dev100_seed42` and
-`dgcr_holdout200_seed42` manifests, yielding 4,220 samples.
+Historical CATCH-v1/v2/v3 runs and their old audit artifacts remain read-only.
+The optional `canonicalization-replay` command is retained only for reproducing
+those archived results.

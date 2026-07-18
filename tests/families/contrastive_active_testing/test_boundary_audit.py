@@ -43,7 +43,6 @@ def test_boundary_config_is_nonconfirmatory_isolated_and_capped() -> None:
         "gpqa_diamond",
     ]
     assert set(experiment.cache_namespaces.values()) == {
-        "catch-provider-audit-v1",
         "catch-boundary-v3-bbeh",
         "catch-boundary-v3-musr",
         "catch-boundary-v3-seqbench",
@@ -52,7 +51,7 @@ def test_boundary_config_is_nonconfirmatory_isolated_and_capped() -> None:
     assert verify_frozen_v3_mechanism()["exact_component_hash_match"] is True
 
 
-def test_boundary_report_materializes_full_researcher_contract(tmp_path: Path) -> None:
+def test_boundary_materializer_keeps_diagnostics_inside_core_metrics(tmp_path: Path) -> None:
     prediction_base = {
         "run_id": "run",
         "dataset": "bbeh",
@@ -123,8 +122,8 @@ def test_boundary_report_materializes_full_researcher_contract(tmp_path: Path) -
         source_manifest=source_manifest,
         checkpoints={"bbeh": {"status": "completed"}},
     )
+    assert (tmp_path / "views" / "metrics.json").exists()
     for relative in (
-        "report.md",
         "metrics.json",
         "sample_outcomes.jsonl",
         "selector_funnel.json",
@@ -134,10 +133,12 @@ def test_boundary_report_materializes_full_researcher_contract(tmp_path: Path) -
         "index.md",
         "diagnostics/human_audit_sample.json",
     ):
-        assert (tmp_path / relative).exists(), relative
-    metrics = json.loads((tmp_path / "metrics.json").read_text(encoding="utf-8"))
+        assert not (tmp_path / relative).exists(), relative
+    metrics = json.loads((tmp_path / "views" / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["confirmatory"] is False
     assert metrics["mechanism_assessment"]["heldout_authorized"] is False
+    assert "mechanism" in metrics
+    assert "failures" in metrics
 
 
 def test_boundary_human_audit_recomputes_complete_blinded_annotations() -> None:
@@ -194,6 +195,23 @@ def test_boundary_scheduler_keeps_multiple_samples_in_flight_without_exceeding_c
     rows = list(_bounded(range(60), max_workers=15, worker=worker, progress=Progress()))
     assert len(rows) == 60
     assert 1 < peak <= 15
+
+
+def test_boundary_scheduler_returns_one_worker_error_and_continues() -> None:
+    class Progress:
+        def update_scheduler_state(self, **kwargs) -> None:
+            del kwargs
+
+    def worker(value: int) -> int:
+        if value == 3:
+            raise RuntimeError("isolated sample failure")
+        return value
+
+    rows = list(_bounded(range(20), max_workers=5, worker=worker, progress=Progress()))
+    assert len(rows) == 20
+    failures = [result for _, result in rows if isinstance(result, Exception)]
+    assert len(failures) == 1
+    assert str(failures[0]) == "isolated sample failure"
 
 
 def test_boundary_selected_protocol_reuses_screening_stage_rows_without_calls() -> None:
