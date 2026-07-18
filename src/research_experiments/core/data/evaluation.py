@@ -58,12 +58,14 @@ def normalize_prediction(dataset: str, final_answer: str) -> str:
         return normalize_text(final_answer)
     if dataset == "bbeh":
         return normalize_bbeh_prediction(final_answer)
-    if dataset in {"mmlu_pro", "gpqa_diamond", "mmlu_abstract_algebra"}:
+    if dataset in {"mmlu_pro", "gpqa_diamond", "mmlu_abstract_algebra", "musr"}:
         return normalize_multiple_choice(final_answer)
     if dataset == "mmlu":
         return normalize_multiple_choice(final_answer)
     if dataset == "humaneval":
         return normalize_code_completion(final_answer)
+    if dataset == "seqbench":
+        return _canonical_sequence_key(final_answer).key
     raise ValueError(f"Unsupported dataset {dataset}")
 
 
@@ -90,6 +92,19 @@ def canonicalize_answer(sample: DatasetSample, raw_answer: str) -> AnswerCanonic
     value = str(raw_answer or "").strip()
     if not value:
         return AnswerCanonicalization("", False, "empty_answer")
+    contract = sample.metadata.get("answer_contract")
+    contract_kind = str(contract.get("kind") or "") if isinstance(contract, dict) else ""
+    contract_options = contract.get("options") if isinstance(contract, dict) else None
+    if contract_kind == "ordered_sequence" or sample.dataset == "seqbench":
+        return _canonical_sequence_key(value)
+    if contract_kind in {"single_choice", "multi_choice"}:
+        options = contract_options if isinstance(contract_options, list) else sample.metadata.get("options")
+        if not isinstance(options, list) or not options:
+            return AnswerCanonicalization("", False, "invalid_option_metadata")
+        selection_mode = str(contract.get("selection_mode") or "single")
+        if selection_mode == "concatenated":
+            return _canonicalize_bbeh_multi_select(value, options)
+        return _canonicalize_bbeh_multiple_choice(value, options)
     if sample.dataset != "bbeh":
         key = normalize_prediction(sample.dataset, value)
         return AnswerCanonicalization(key, bool(key), None if key else "empty_normalized_answer")
@@ -267,6 +282,42 @@ def _exact_option_text(value: str) -> str:
     return unicodedata.normalize("NFKC", str(value or "")).replace("\r\n", "\n").strip()
 
 
+def _canonical_sequence_key(raw_answer: str) -> AnswerCanonicalization:
+    """Strictly canonicalize an ordered list of seqBench actions."""
+
+    value = unicodedata.normalize("NFKC", str(raw_answer or "")).replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not value:
+        return AnswerCanonicalization("", False, "empty_answer")
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        try:
+            parsed = ast.literal_eval(value)
+        except (SyntaxError, ValueError, TypeError):
+            return AnswerCanonicalization("", False, "invalid_sequence_syntax")
+    if not isinstance(parsed, list) or not parsed:
+        return AnswerCanonicalization("", False, "sequence_must_be_nonempty_list")
+    if not all(isinstance(item, str) and item.strip() for item in parsed):
+        return AnswerCanonicalization("", False, "sequence_elements_must_be_nonempty_strings")
+    normalized = [
+        unicodedata.normalize("NFKC", item).replace("\r\n", "\n").replace("\r", "\n").strip()
+        for item in parsed
+    ]
+    return AnswerCanonicalization(json.dumps(normalized, ensure_ascii=False, separators=(",", ":")), True)
+
+
+def canonical_reference_key(sample: DatasetSample) -> AnswerCanonicalization:
+    """Resolve gold through the same sample-level contract used for predictions."""
+
+    contract = sample.metadata.get("answer_contract")
+    kind = str(contract.get("kind") or "") if isinstance(contract, dict) else ""
+    if kind in {"single_choice", "multi_choice"}:
+        answer_label = str(sample.metadata.get("answer_letter") or "").strip()
+        if answer_label:
+            return canonicalize_answer(sample, answer_label)
+    return canonicalize_answer(sample, sample.reference_answer)
+
+
 def score_prediction(
     dataset: str,
     predicted: str,
@@ -278,7 +329,15 @@ def score_prediction(
 
     当前仓库统一采用精确匹配：归一化后完全一致记为 `1.0`，否则记为 `0.0`。
     """
-    if dataset in {"mmlu_pro", "gpqa_diamond", "mmlu_abstract_algebra"}:
+    if sample is not None and (
+        sample.dataset == "seqbench"
+        or isinstance(sample.metadata.get("answer_contract"), dict)
+        and str(sample.metadata["answer_contract"].get("kind") or "") in {"single_choice", "multi_choice", "ordered_sequence"}
+    ):
+        predicted_key = canonicalize_answer(sample, predicted)
+        gold_key = canonical_reference_key(sample)
+        return 1.0 if predicted_key.valid and gold_key.valid and predicted_key.key == gold_key.key else 0.0
+    if dataset in {"mmlu_pro", "gpqa_diamond", "mmlu_abstract_algebra", "musr"}:
         return score_multiple_choice(predicted, gold)
     if dataset == "webquestions":
         return score_text_answer_set(predicted, gold)

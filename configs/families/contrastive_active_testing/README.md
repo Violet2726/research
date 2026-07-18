@@ -1,5 +1,11 @@
 # CATCH-ICV
 
+The active registered study is now the non-confirmatory
+`catch_cross_domain_boundary_audit`. The preregistered BBEH CATCH-v3 structural
+preflight is terminally recorded as `failed_structural_preflight`; the new study
+maps whether that failure is BBEH-specific and cannot authorize heldout or full
+confirmation. See `PREREGISTRATION_BOUNDARY_AUDIT.md`.
+
 CATCH-ICV is the active `catch_v3` protocol in the existing
 `contrastive_active_testing` family. It converts the plurality anchor and at
 most two strongest Stage-A challengers into pair-local indexed reasoning
@@ -15,43 +21,34 @@ active gate candidates. Their exact failure registrations are in
 
 ## Reproducible one-shot order
 
-1. Inspect the active experiment without network access:
+1. Restore the two new pinned public assets if they are absent:
 
-   `research_cli experiment --family contrastive_active_testing inspect-experiment --experiment configs/families/contrastive_active_testing/experiments/catch_gate.toml`
+   `research_cli tools dataset-assets download-used`
 
-2. Run the cache-bypassed live provider audit. Any payload, usage, finish,
-   retry, or attempt-timeline failure blocks all subsequent commands:
+2. Inspect the non-confirmatory experiment without network access:
 
-   `research_cli experiment --family contrastive_active_testing provider-audit --experiment configs/families/contrastive_active_testing/experiments/catch_gate.toml`
+   `research_cli experiment --family contrastive_active_testing inspect-experiment --experiment configs/families/contrastive_active_testing/experiments/catch_cross_domain_boundary_audit.toml`
 
-3. Run the one-shot 20-disagreement structural preflight as a separate
-   terminal process:
+3. The one-shot runner reuses the already passing MiMo provider audit. If the
+   audit file is absent on a fresh server, the same command first performs the
+   required ten live, cache-bypassed checks and stops before the scientific run
+   if any provider-contract condition fails.
 
-   `research_cli experiment --family contrastive_active_testing structural-preflight --experiment configs/families/contrastive_active_testing/experiments/catch_gate.toml`
+4. Run the four-dataset audit once:
 
-   It always stops after the preflight and writes terminal `progress.json`,
-   `run_validation.json`, `diagnostics/preflight.json`, and the 40-coordinate
-   blind-audit sample. A failed or already-attempted v3 preflight permanently
-   blocks another v3 attempt; it never falls through into dev100.
+   `research_cli experiment --family contrastive_active_testing run --experiment configs/families/contrastive_active_testing/experiments/catch_cross_domain_boundary_audit.toml --phase boundary_audit`
 
-4. Only if the machine preflight passes, complete the two-annotator blind
-   audit. Write the adjudicated summary to
-   `configs/families/contrastive_active_testing/frozen/catch_v3_preflight_human_audit.json`
-   using `preflight_human_audit_schema.example.json`. The source run ID and
-   full config hash must exactly match the preflight artifacts. The gate also
-   requires the exact 40 coordinate hashes, two complete item-level boolean
-   label sets, and adjudication of every disagreement; it recomputes all rates
-   and pooled non-leakage Cohen's kappa instead of trusting entered summaries.
+   The command screens 100 items per dataset, selects at most twenty Stage-A
+   disagreements without gold, runs all matched methods, writes a checkpoint
+   after every dataset, and exits. It never dispatches heldout or confirmation.
 
-5. Only after that audit passes, run dev100 once:
+5. After completion, fill `diagnostics/human_audit_sample.json` with two blind
+   annotations if the manuscript will discuss coordinate validity. The labels
+   explain mechanism validity and cannot select prompts, samples, or thresholds.
 
-   `research_cli experiment --family contrastive_active_testing run --experiment configs/families/contrastive_active_testing/experiments/catch_gate.toml --phase development`
+   Install and independently recompute the completed annotations with:
 
-6. Only for a fully passing dev100, freeze its exact protocol/config/split
-   candidate with `freeze-development`, then run heldout200 once with
-   `--phase heldout`. Run confirmation only if heldout passes; v3 inherits the
-   exact-config 40-coordinate record-level audit completed before dev100 and
-   does not substitute the retired v1/v2 100-item summary audit.
+   `research_cli experiment --family contrastive_active_testing boundary-human-audit --run <run-directory> --input <completed-human-audit.json>`
 
 Do not monitor, poll, or auto-resume any of these commands. Each process is
 finite and terminal; inspect its artifacts once after the user reports that it
@@ -59,11 +56,10 @@ has completed.
 
 ## Cache and compute contract
 
-The active intervention namespace is `catch-dev-v3` (then
-`catch-heldout-v3`/`catch-confirm-v3`). Only byte-identical Stage-A, adaptive
-resample, and DirectJudge payloads may read exact hits from the read-only
-`catch-dev-v1` fallback. ICV selector/witness and PairJudge responses cannot
-cross protocol namespaces.
+The audit writes to four isolated `catch-boundary-v3-*` namespaces. BBEH may
+read byte-identical v3 selector/witness results and v1/v3 shared-solver results
+from read-only predecessor namespaces. MuSR, seqBench, and GPQA never reuse
+intervention responses across datasets or study versions.
 
 On a disagreement, each reported comparison method uses the same five shared
 Stage-A calls and at most three method-specific calls. CATCH uses selector plus

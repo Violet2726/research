@@ -66,7 +66,8 @@ class CatchEndpoint:
     intervention_cache: object
     throttle: RequestThrottle
     cache_namespace: str
-    baseline_cache_namespace: str | None = None
+    baseline_cache_namespace: str | tuple[str, ...] | None = None
+    intervention_cache_namespaces: tuple[str, ...] = ()
     stop_event: Event | None = None
 
     def cache_for_role(self, role: str):
@@ -76,8 +77,13 @@ class CatchEndpoint:
 
     def cache_lookup_namespaces_for_role(self, role: str) -> tuple[str, ...]:
         if role in {"stage_a_solver", "independent_resample", "direct_judge"} and self.baseline_cache_namespace:
-            return (self.cache_namespace, self.baseline_cache_namespace)
-        return (self.cache_namespace,)
+            predecessors = (
+                self.baseline_cache_namespace
+                if isinstance(self.baseline_cache_namespace, tuple)
+                else tuple(item for item in self.baseline_cache_namespace.split(",") if item)
+            )
+            return (self.cache_namespace, *predecessors)
+        return (self.cache_namespace, *self.intervention_cache_namespaces)
 
 
 @dataclass(frozen=True)
@@ -97,6 +103,14 @@ def run_experiment(
     *,
     run_mode: str = "full",
 ) -> Path:
+    if experiment.study_type == "post_failure_cross_domain_boundary_audit":
+        if phase_name != "boundary_audit":
+            raise ValueError("The cross-domain boundary study exposes only the boundary_audit phase.")
+        from research_experiments.families.contrastive_active_testing.run.boundary_execute import (
+            run_boundary_audit,
+        )
+
+        return run_boundary_audit(experiment, backbone, run_root=run_root, cache_root=cache_root)
     load_dotenv(".env.local", override=False)
     if backbone.provider != "xiaomimimo":
         raise ValueError("CATCH is frozen to the audited xiaomimimo provider.")
@@ -792,7 +806,9 @@ def finalize_partial_run_directory(
         raise FileNotFoundError("partial finalization requires manifest.json and progress.json")
     _update_manifest_status(manifest_path, "failed", termination_reason=termination_reason)
     manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    planned_sample_count = int(manifest_payload.get("sample_count") or 0)
+    planned_sample_count = int(
+        manifest_payload.get("planned_sample_count") or manifest_payload.get("sample_count") or 0
+    )
     router_path = root / "turns" / "router_decisions.jsonl"
     completed_sample_ids: set[str] = set()
     if router_path.exists():
@@ -806,6 +822,15 @@ def finalize_partial_run_directory(
             if sample_id:
                 completed_sample_ids.add(str(sample_id))
     completed_sample_count = len(completed_sample_ids)
+    preflight_path = root / "diagnostics" / "preflight.json"
+    is_structural_preflight = manifest_payload.get("run_mode") == "structural_preflight"
+    preflight_payload: dict[str, Any] = {}
+    if is_structural_preflight and preflight_path.exists():
+        try:
+            preflight_payload = json.loads(preflight_path.read_text(encoding="utf-8"))
+            completed_sample_count = len(preflight_payload.get("selected_sample_ids") or [])
+        except json.JSONDecodeError:
+            preflight_payload = {}
     incomplete_sample_count = max(0, planned_sample_count - completed_sample_count)
     progress_payload = json.loads(progress_path.read_text(encoding="utf-8"))
     progress_payload.update(
@@ -837,19 +862,23 @@ def finalize_partial_run_directory(
             path.write_text("", encoding="utf-8")
     metrics_path = root / "views" / "metrics.json"
     gate_path = root / "diagnostics" / "gate.json"
-    preflight_path = root / "diagnostics" / "preflight.json"
     summary_path = root / "views" / "run_summary.json"
     metrics_path.parent.mkdir(parents=True, exist_ok=True)
     gate_path.parent.mkdir(parents=True, exist_ok=True)
     if not metrics_path.exists():
         metrics_path.write_text(json.dumps({"summary": []}, indent=2), encoding="utf-8")
     failure_gate = {
-        "gate_name": "catch_failed_partial",
+        "gate_name": (
+            "catch_v3_structural_preflight" if is_structural_preflight else "catch_failed_partial"
+        ),
         "passed": False,
+        "run_mode": manifest_payload.get("run_mode"),
         "termination_reason": termination_reason,
         "planned_sample_count": planned_sample_count,
         "completed_sample_count": completed_sample_count,
         "incomplete_sample_count": incomplete_sample_count,
+        "performance_gate_applicable": not is_structural_preflight,
+        "preflight_status": preflight_payload.get("status") if is_structural_preflight else None,
     }
     gate_path.write_text(json.dumps(failure_gate, ensure_ascii=False, indent=2), encoding="utf-8")
     if not preflight_path.exists():
@@ -1127,6 +1156,14 @@ def _frozen_component_hashes(experiment) -> dict[str, str]:
         repo_root / "src" / "research_experiments" / "family_runtime" / "free_text_protocol.py",
         repo_root / "src" / "research_experiments" / "family_runtime" / "output_protocols.py",
     }
+    if experiment.study_type == "post_failure_cross_domain_boundary_audit":
+        boundary_phase = dict((experiment.raw.get("phases") or {}).get("boundary_audit") or {})
+        selected_manifest = boundary_phase.get("bbeh_selected_manifest")
+        if selected_manifest:
+            paths.add(Path(str(selected_manifest)).resolve())
+        paths.add(family_root / "boundary.py")
+        paths.add(Path(__file__).with_name("boundary_execute.py").resolve())
+        paths.add(Path(__file__).with_name("boundary_report.py").resolve())
     for phase_name, phase in (experiment.raw.get("phases") or {}).items():
         benchmarks = {item.slug: item for item in load_phase_benchmarks(experiment, str(phase_name))}
         for slug, split_name in dict(phase.get("split_overrides") or {}).items():

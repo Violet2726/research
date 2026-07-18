@@ -1,0 +1,33 @@
+name = "MuSR"
+slug = "musr"
+loader = "musr_csv"
+source_path = "musr/all.csv"
+source_split = "all"
+sample_id_prefix = "musr"
+question_field = "question"
+answer_field = "answer_index"
+options_field = "choices"
+answer_index_field = "answer_index"
+smoke_size = 20
+pilot_size = 100
+main_size = 756
+random_seed = 42
+source_revision = "7c365b439a222150f317764d4f16ae6c96d7d94a"
+source_sha256 = "f825539ca1893f105943231e7ad5d0721a48c1570500fdf2a78080de27336531"
+source_url = "https://huggingface.co/datasets/TAUR-Lab/MuSR"
+notes = "官方 MuSR all.csv：250 道 murder mystery、256 道 object placement 与 250 道 team allocation。"
+
+[[split_presets]]
+name = "count20_seed42"
+strategy = "shuffle"
+size = 20
+
+[[split_presets]]
+name = "count100_seed42"
+strategy = "shuffle"
+size = 100
+
+[[split_presets]]
+name = "full756_seed42"
+strategy = "full"
+size = 756

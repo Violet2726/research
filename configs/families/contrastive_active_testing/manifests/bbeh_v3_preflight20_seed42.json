@@ -1,0 +1,30 @@
+{
+  "manifest_version": "catch_boundary_fixed_selection_v1",
+  "dataset": "bbeh",
+  "source_run_id": "20260718T090517Z-xiaomimimo-mimo-v2.5",
+  "seed": 42,
+  "uses_gold": false,
+  "sample_count": 20,
+  "sample_ids": [
+    "bbeh-hyperbaton-0011",
+    "bbeh-zebra_puzzles-0134",
+    "bbeh-dyck_languages-0071",
+    "bbeh-geometric_shapes-0126",
+    "bbeh-spatial_reasoning-0010",
+    "bbeh-multistep_arithmetic-0007",
+    "bbeh-sarc_triples-0174",
+    "bbeh-nycc-0146",
+    "bbeh-causal_understanding-0023",
+    "bbeh-disambiguation_qa-0114",
+    "bbeh-movie_recommendation-0118",
+    "bbeh-sportqa-0168",
+    "bbeh-temporal_sequence-0130",
+    "bbeh-boardgame_qa-0020",
+    "bbeh-object_properties-0117",
+    "bbeh-web_of_lies-0037",
+    "bbeh-time_arithmetic-0011",
+    "bbeh-object_counting-0014",
+    "bbeh-word_sorting-0052",
+    "bbeh-linguini-0008"
+  ]
+}

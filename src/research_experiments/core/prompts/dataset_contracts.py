@@ -72,7 +72,7 @@ def dataset_instruction(
             "The final_answer must be the shortest judgeable entity span or literal answer. "
             "Return the entity or literal answer span itself, with qualifiers only when they are part of that span."
         )
-    if dataset in {"mmlu_pro", "gpqa_diamond", "mmlu_abstract_algebra"}:
+    if dataset in {"mmlu_pro", "gpqa_diamond", "mmlu_abstract_algebra", "musr"}:
         if multiple_choice_scope == "visible":
             return (
                 "Choose the single best option using only the context visible to you. "
@@ -94,6 +94,11 @@ def dataset_instruction(
         )
     if dataset == "bbeh":
         return "Solve the reasoning task carefully. The final_answer must contain only the exact answer requested by the task."
+    if dataset == "seqbench":
+        return (
+            "Return the complete ordered action sequence needed for the agent to reach and rescue the target. "
+            "The final_answer must be only a JSON or Python-style list of action strings, in execution order."
+        )
     raise ValueError(f"Unsupported dataset: {dataset}")
 
 

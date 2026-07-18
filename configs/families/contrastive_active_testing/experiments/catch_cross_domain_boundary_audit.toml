@@ -1,0 +1,38 @@
+name = "catch_cross_domain_boundary_audit"
+description = "Exploratory post-failure CATCH-v3 mechanism boundary audit across BBEH, MuSR, seqBench, and GPQA Diamond."
+study_type = "post_failure_cross_domain_boundary_audit"
+confirmatory = false
+benchmark_configs = [
+  "configs/core/shared/benchmarks/bbeh/bbeh-main.toml",
+  "configs/core/shared/benchmarks/musr/all.toml",
+  "configs/core/shared/benchmarks/seqbench/seqBench_compact.jsonl.toml",
+  "configs/core/shared/benchmarks/gpqa/dataset.toml",
+]
+protocol = "configs/families/contrastive_active_testing/protocols/catch_v3_boundary.toml"
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+global_seed = 42
+max_concurrent_requests = 15
+requests_per_minute_limit = 18
+provider_audit_path = "configs/families/contrastive_active_testing/provider_audits/catch_provider_audit_v1.json"
+frozen_decoding_path = "configs/families/contrastive_active_testing/frozen/catch_v3_protocol.json"
+human_audit_path = "configs/families/contrastive_active_testing/frozen/catch_v3_boundary_human_audit.json"
+preflight_human_audit_path = "configs/families/contrastive_active_testing/frozen/catch_v3_preflight_human_audit.json"
+
+[cache_namespaces]
+provider_audit = "catch-provider-audit-v1"
+bbeh = "catch-boundary-v3-bbeh"
+musr = "catch-boundary-v3-musr"
+seqbench = "catch-boundary-v3-seqbench"
+gpqa_diamond = "catch-boundary-v3-gpqa"
+
+[baseline_cache_namespaces]
+bbeh = "catch-dev-v3,catch-dev-v1"
+
+[phases.boundary_audit]
+benchmark_slugs = ["bbeh", "musr", "seqbench", "gpqa_diamond"]
+screening_sample_count = 100
+disagreement_sample_count = 20
+bbeh_screening_split = "dgcr_dev100_seed42"
+bbeh_selected_manifest = "configs/families/contrastive_active_testing/manifests/bbeh_v3_preflight20_seed42.json"
+run_direct_judge = true
+run_pair_judge = true

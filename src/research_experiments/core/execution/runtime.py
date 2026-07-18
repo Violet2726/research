@@ -176,6 +176,29 @@ class RunProgressTracker:
             self._note_progress_event_locked(now)
         self.write(force=True, reason="samples_completed")
 
+    def reconcile_dynamic_plan(
+        self,
+        *,
+        total_planned_samples: int | None = None,
+        total_planned_predictions: int | None = None,
+    ) -> None:
+        """Reconcile an upper-bound plan after gold-free dynamic selection.
+
+        动态分歧筛选在 Stage-A 结束前只能登记上限；终止产物应回写实际计划分母。
+        """
+
+        with self._lock:
+            if total_planned_samples is not None:
+                if int(total_planned_samples) < self.completed_samples:
+                    raise ValueError("reconciled sample plan cannot be below completed samples")
+                self.total_planned_samples = int(total_planned_samples)
+            if total_planned_predictions is not None:
+                if int(total_planned_predictions) < self.completed_predictions:
+                    raise ValueError("reconciled prediction plan cannot be below completed predictions")
+                self.total_planned_predictions = int(total_planned_predictions)
+            self._note_progress_event_locked(time.monotonic())
+        self.write(force=True, reason="plan_reconciled")
+
     def mark_completed(self, termination_reason: str = "completed") -> None:
         """标记 run 完成并停止后台心跳。"""
 

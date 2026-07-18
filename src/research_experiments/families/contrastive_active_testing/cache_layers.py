@@ -17,20 +17,27 @@ class ReadThroughRequestCache:
         primary_namespace: str,
         fallback: RequestCache | None = None,
         fallback_namespace: str | None = None,
+        fallbacks: list[tuple[RequestCache, str]] | None = None,
     ) -> None:
         self.primary = primary
         self.primary_namespace = primary_namespace
         self.fallback = fallback
         self.fallback_namespace = fallback_namespace
+        self.fallbacks = list(fallbacks or [])
+        if fallback is not None:
+            self.fallbacks.insert(0, (fallback, str(fallback_namespace or "predecessor")))
         self._sources: dict[str, str] = {}
         self._lock = threading.Lock()
 
     def get(self, cache_key: str) -> CachedResponse | None:
         record = self.primary.get(cache_key)
         source = self.primary_namespace
-        if record is None and self.fallback is not None:
-            record = self.fallback.get(cache_key)
-            source = str(self.fallback_namespace or "predecessor")
+        if record is None:
+            for fallback, fallback_namespace in self.fallbacks:
+                record = fallback.get(cache_key)
+                if record is not None:
+                    source = fallback_namespace
+                    break
         with self._lock:
             self._sources[cache_key] = source if record is not None else "network"
         return record

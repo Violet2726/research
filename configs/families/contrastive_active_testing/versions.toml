@@ -1,4 +1,4 @@
-active_version = "catch_v3"
+active_version = "catch_v3_boundary_audit"
 
 [versions.dgcr_v1]
 status = "retired_failed_predecessor"
@@ -29,10 +29,26 @@ historical_run = "local/runs/contrastive_active_testing/catch_gate/development/2
 heldout_authorized = false
 
 [versions.catch_v3]
-status = "active_unrun_preregistered"
+status = "failed_structural_preflight"
 family = "contrastive_active_testing"
 paper_name = "CATCH-ICV"
 mechanism = "indexed pairwise reasoning contrasts, two blinded witnesses, and fixed 2-of-3 selective decoding"
 predecessor = "catch_v2"
 last_attempt = true
 experiment_directory_policy = "reuse contrastive_active_testing/catch_gate; isolate by manifest hash and cache namespace"
+failure = "The one-shot BBEH preflight parsed 20/20 selectors but achieved only 75% coordinate reference validity, 40% eligible-packet coverage, and one automated answer leakage; even the raw-output coverage upper bound was 55%."
+historical_run = "local/runs/contrastive_active_testing/catch_gate/development/20260718T090517Z-xiaomimimo-mimo-v2.5"
+heldout_authorized = false
+
+[versions.catch_v3_boundary_audit]
+status = "registered_post_failure_exploration"
+family = "contrastive_active_testing"
+paper_name = "CATCH-ICV boundary audit"
+mechanism = "Frozen CATCH-v3 indexed contrasts evaluated conditionally on disagreement across BBEH, MuSR, seqBench, and GPQA Diamond"
+predecessor = "catch_v3"
+study_type = "post_failure_cross_domain_boundary_audit"
+confirmatory = false
+heldout_authorized = false
+screening_sample_count_per_dataset = 100
+selected_disagreement_cap_per_dataset = 20
+max_network_attempts = 3000

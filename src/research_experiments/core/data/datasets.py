@@ -10,7 +10,10 @@
 
 from __future__ import annotations
 
+import ast
 import csv
+import gzip
+import hashlib
 import json
 import random
 import re
@@ -59,6 +62,8 @@ def load_samples(config: BenchmarkConfig) -> list[DatasetSample]:
         "webquestions_json": _load_webquestions,
         "mmlu_pro_parquet": _load_mmlu_pro,
         "gpqa_zip_csv": _load_gpqa_zip_csv,
+        "musr_csv": _load_musr_csv,
+        "seqbench_jsonl_gz": _load_seqbench_jsonl_gz,
         "realmistake_error_detection_zip": _load_realmistake_error_detection,
     }
     return _apply_record_filters(loader_map[config.loader](config), config.record_filters)
@@ -723,14 +728,14 @@ def _parse_bbeh_option_block(question: str) -> dict[str, Any] | None:
 def question_without_answer_contract(sample: DatasetSample) -> str:
     """Remove a structured answer region before blinded measurement."""
 
-    if sample.dataset != "bbeh":
-        return sample.question
     contract = sample.metadata.get("answer_contract")
     start = contract.get("block_start") if isinstance(contract, dict) else None
     if not isinstance(start, int):
         start = sample.metadata.get("options_block_start")
     if isinstance(start, int) and 0 <= start <= len(sample.question):
         return sample.question[:start].rstrip()
+    if sample.dataset != "bbeh":
+        return sample.question
     parsed = _parse_bbeh_answer_contract(sample.question)
     start = parsed.get("block_start")
     if not isinstance(start, int):
@@ -1106,6 +1111,7 @@ def _load_gpqa_zip_csv(config: BenchmarkConfig) -> list[DatasetSample]:
                         "raw_index": index,
                         "record_id": sample_id,
                         "options": options,
+                        "answer_contract": _multiple_choice_answer_contract(options),
                         "answer_letter": answer_letter,
                         "answer_text": correct,
                         "high_level_domain": record.get("High-level domain"),
@@ -1114,6 +1120,134 @@ def _load_gpqa_zip_csv(config: BenchmarkConfig) -> list[DatasetSample]:
                 )
             )
     return samples
+
+
+def _load_musr_csv(config: BenchmarkConfig) -> list[DatasetSample]:
+    """Load the pinned official MuSR CSV and preserve its three domains."""
+
+    path = resolve_dataset_source_path(config.source_path)
+    samples: list[DatasetSample] = []
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        for index, record in enumerate(csv.DictReader(handle)):
+            raw_choices = ast.literal_eval(str(record.get("choices") or "[]"))
+            if not isinstance(raw_choices, list) or len(raw_choices) < 2:
+                raise ValueError(f"MuSR row {index} has invalid choices.")
+            choices = [str(value).strip() for value in raw_choices]
+            answer_index = int(record.get("answer_index") or 0)
+            if not 0 <= answer_index < len(choices):
+                raise ValueError(f"MuSR row {index} has an out-of-range answer_index.")
+            sample_id = f"{config.sample_id_prefix}-{index:04d}"
+            indexed = list(enumerate(choices))
+            indexed.sort(
+                key=lambda item: hashlib.sha256(
+                    f"{config.random_seed}\0{sample_id}\0{item[0]}".encode()
+                ).hexdigest()
+            )
+            options = [text for _, text in indexed]
+            answer_position = next(position for position, (source, _) in enumerate(indexed) if source == answer_index)
+            answer_letter = _choice_letter(answer_position)
+            domain = _musr_domain(index)
+            narrative = str(record.get("narrative") or "").strip()
+            question = str(record.get("question") or "").strip()
+            samples.append(
+                DatasetSample(
+                    dataset=config.slug,
+                    sample_id=sample_id,
+                    question=f"Narrative:\n{narrative}\n\nQuestion:\n{question}",
+                    reference_answer=f"{answer_letter}|||{choices[answer_index]}",
+                    prompt_context=_render_multiple_choice_options(options),
+                    metadata={
+                        "raw_index": index,
+                        "task": domain,
+                        "domain": domain,
+                        "options": options,
+                        "answer_contract": _multiple_choice_answer_contract(options),
+                        "answer_index": answer_position,
+                        "answer_letter": answer_letter,
+                        "answer_text": choices[answer_index],
+                        "source_answer_index": answer_index,
+                    },
+                )
+            )
+    return samples
+
+
+def _musr_domain(index: int) -> str:
+    # The official all.csv is the documented concatenation 250/256/250.
+    if index < 250:
+        return "murder_mysteries"
+    if index < 506:
+        return "object_placements"
+    return "team_allocation"
+
+
+def _load_seqbench_jsonl_gz(config: BenchmarkConfig) -> list[DatasetSample]:
+    """Load seqBench without materializing its 289 MB compressed source."""
+
+    path = resolve_dataset_source_path(config.source_path)
+    samples: list[DatasetSample] = []
+    with gzip.open(path, "rt", encoding="utf-8") as handle:
+        for index, line in enumerate(handle):
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            parameters = dict(record.get("complexity_parameters") or {})
+            completion = _parse_sequence_completion(record.get("completion"), row_index=index)
+            sample_id = str(record.get("instance_id") or f"{config.sample_id_prefix}-{index:05d}")
+            backtracking = int(parameters.get("backtracking_count_B") or 0)
+            noise = float(parameters.get("noise_ratio_N") or 0.0)
+            logical_depth = int(parameters.get("logical_depth_L") or 0)
+            samples.append(
+                DatasetSample(
+                    dataset=config.slug,
+                    sample_id=sample_id,
+                    question=str(record.get("context") or "").strip(),
+                    reference_answer=json.dumps(completion, ensure_ascii=False, separators=(",", ":")),
+                    prompt_context="",
+                    metadata={
+                        "raw_index": index,
+                        "task": f"B{backtracking}_N{noise:g}",
+                        "backtracking_count_B": backtracking,
+                        "noise_ratio_N": noise,
+                        "logical_depth_L": logical_depth,
+                        "answer_contract": {
+                            "kind": "ordered_sequence",
+                            "options": [],
+                            "block_start": None,
+                            "block_end": None,
+                            "source_style": "none",
+                            "selection_mode": "ordered",
+                        },
+                    },
+                )
+            )
+    return samples
+
+
+def _parse_sequence_completion(value: Any, *, row_index: int) -> list[str]:
+    parsed = value
+    if isinstance(value, str):
+        try:
+            parsed = ast.literal_eval(value)
+        except (SyntaxError, ValueError) as exc:
+            raise ValueError(f"seqBench row {row_index} has an invalid completion list.") from exc
+    if not isinstance(parsed, list) or not parsed or not all(isinstance(item, str) and item.strip() for item in parsed):
+        raise ValueError(f"seqBench row {row_index} has an invalid completion list.")
+    return [str(item).strip() for item in parsed]
+
+
+def _multiple_choice_answer_contract(options: list[str]) -> dict[str, Any]:
+    return {
+        "kind": "single_choice",
+        "options": [
+            {"label": _choice_letter(index), "text": text}
+            for index, text in enumerate(options)
+        ],
+        "block_start": None,
+        "block_end": None,
+        "source_style": "prompt_context",
+        "selection_mode": "single",
+    }
 
 
 def _load_realmistake_records(

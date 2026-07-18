@@ -1,0 +1,31 @@
+name = "seqBench Compact"
+slug = "seqbench"
+loader = "seqbench_jsonl_gz"
+source_path = "seqbench/seqBench_compact.jsonl.gz"
+source_split = "compact"
+sample_id_prefix = "seqbench"
+question_field = "context"
+answer_field = "completion"
+smoke_size = 20
+pilot_size = 100
+main_size = 7079
+random_seed = 42
+source_revision = "03e4dcb823a62a5e31b5ac2b765459265700a149"
+source_sha256 = "2b58a2f7b65def3445f2572726d5ff30d5ecab9cc841fffcb57a8bceb937b0c3"
+source_url = "https://huggingface.co/datasets/emnlp-submission/seqBench"
+notes = "官方 seqBench compact JSONL.GZ，金标为保留顺序的完整动作序列。"
+
+[[split_presets]]
+name = "count20_seed42"
+strategy = "shuffle"
+size = 20
+
+[[split_presets]]
+name = "count100_seed42"
+strategy = "shuffle"
+size = 100
+
+[[split_presets]]
+name = "full7079_seed42"
+strategy = "full"
+size = 7079

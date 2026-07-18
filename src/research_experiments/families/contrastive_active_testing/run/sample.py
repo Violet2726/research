@@ -8,7 +8,7 @@ import threading
 from typing import Any
 
 from research_experiments.core.controls.control_prompts import build_cot_messages
-from research_experiments.core.data.datasets import DatasetSample
+from research_experiments.core.data.datasets import DatasetSample, question_without_answer_contract
 from research_experiments.core.data.evaluation import canonicalize_answer, score_prediction
 from research_experiments.core.execution.runner_common import execute_cached_request
 from research_experiments.families.contrastive_active_testing.algorithms import (
@@ -96,6 +96,7 @@ def run_catch_sample(
     phase_name: str,
     frozen_decoding: dict[str, int] | None = None,
     run_direct_judge: bool = True,
+    precomputed_stage_rows: tuple[dict[str, Any], ...] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
     if protocol.protocol_version == "catch_v3":
         return run_catch_icv_sample(
@@ -108,7 +109,10 @@ def run_catch_sample(
             network_budget=network_budget,
             phase_name=phase_name,
             run_direct_judge=run_direct_judge,
+            precomputed_stage_rows=precomputed_stage_rows,
         )
+    if precomputed_stage_rows is not None:
+        raise ValueError("Precomputed Stage-A rows are supported only by the frozen CATCH-v3 protocol.")
     stage_rows = [
         _answer_turn(
             sample,
@@ -471,24 +475,34 @@ def run_catch_icv_sample(
     network_budget: NetworkAttemptBudget,
     phase_name: str,
     run_direct_judge: bool = True,
+    precomputed_stage_rows: tuple[dict[str, Any], ...] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
     """Execute the frozen CATCH-v3 indexed contrast protocol for one sample."""
 
-    stage_rows = [
-        _answer_turn(
-            sample,
-            run_id=run_id,
-            split_name=split_name,
-            endpoint=endpoint,
-            network_budget=network_budget,
-            method_name="catch_stage_a_shared",
-            role="stage_a_solver",
-            agent_id=index,
-            seed=42_000 + index,
-            max_tokens=protocol.solver_max_tokens,
-        )
-        for index in range(1, protocol.stage_candidates + 1)
-    ]
+    if precomputed_stage_rows is None:
+        stage_rows = [
+            _answer_turn(
+                sample,
+                run_id=run_id,
+                split_name=split_name,
+                endpoint=endpoint,
+                network_budget=network_budget,
+                method_name="catch_stage_a_shared",
+                role="stage_a_solver",
+                agent_id=index,
+                seed=42_000 + index,
+                max_tokens=protocol.solver_max_tokens,
+            )
+            for index in range(1, protocol.stage_candidates + 1)
+        ]
+    else:
+        stage_rows = list(precomputed_stage_rows)
+        if (
+            len(stage_rows) != protocol.stage_candidates
+            or any(row.get("role") != "stage_a_solver" for row in stage_rows)
+            or any(str(row.get("sample_id") or "") != sample.sample_id for row in stage_rows)
+        ):
+            raise ValueError("Precomputed Stage-A rows do not match the current CATCH-v3 sample contract.")
     stage = build_stage_decision(stage_rows, seed=experiment.global_seed, sample_id=sample.sample_id)
     physical_rows: list[dict[str, Any]] = list(stage_rows)
     resample_rows: list[dict[str, Any]] = []
@@ -839,6 +853,7 @@ def run_catch_icv_sample(
         "split": split_name,
         "sample_id": sample.sample_id,
         "task": sample.metadata.get("task"),
+        "audit_source_question": question_without_answer_contract(sample),
         "phase_name": phase_name,
         "protocol_version": "catch_v3",
         "triggered": stage.triggered,

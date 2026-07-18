@@ -10,6 +10,9 @@ from typing import Any
 from research_experiments.families.contrastive_active_testing.artifact_replay import (
     audit_v3_artifact_recomputation,
 )
+from research_experiments.families.contrastive_active_testing.run.boundary_report import (
+    evaluate_boundary_human_audit,
+)
 
 
 def validate_run(run_dir: str | Path) -> dict[str, Any]:
@@ -35,6 +38,41 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             artifact_violations.append("invalid:manifest.json")
+    is_boundary = manifest.get("study_type") == "post_failure_cross_domain_boundary_audit"
+    if is_boundary:
+        boundary_required = [
+            root / "report.md",
+            root / "metrics.json",
+            root / "sample_outcomes.jsonl",
+            root / "selector_funnel.json",
+            root / "witness_analysis.json",
+            root / "failure_cases.md",
+            root / "reproducibility_manifest.json",
+            root / "index.md",
+            root / "diagnostics" / "dataset_checkpoints.json",
+            root / "diagnostics" / "screening_samples.jsonl",
+            root / "diagnostics" / "human_audit_sample.json",
+        ]
+        artifact_violations.extend(
+            f"missing:{path.relative_to(root).as_posix()}" for path in boundary_required if not path.exists()
+        )
+        completed_audit = root / "diagnostics" / "human_audit_completed.json"
+        audit_evaluation = root / "diagnostics" / "human_audit_evaluation.json"
+        if completed_audit.exists() != audit_evaluation.exists():
+            artifact_violations.append("incomplete_boundary_human_audit_artifact_pair")
+        elif completed_audit.exists():
+            try:
+                recomputed_audit = evaluate_boundary_human_audit(
+                    json.loads(completed_audit.read_text(encoding="utf-8")),
+                    expected_sample=json.loads(
+                        (root / "diagnostics" / "human_audit_sample.json").read_text(encoding="utf-8")
+                    ),
+                )
+                recorded_audit = json.loads(audit_evaluation.read_text(encoding="utf-8"))
+                if recomputed_audit != recorded_audit:
+                    artifact_violations.append("boundary_human_audit_recomputation_failed")
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                artifact_violations.append("invalid_boundary_human_audit_artifact")
     for path, target, label in (
         (root / "turns" / "agent_turns.jsonl", turns, "agent_turns"),
         (root / "turns" / "preflight_turns.jsonl", turns, "preflight_turns"),
@@ -61,15 +99,36 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
         "catch-heldout-v3",
         "catch-confirm-v3",
     }
-    if expected_namespace not in allowed:
+    boundary_namespaces = {
+        str(value) for value in dict(manifest.get("cache_namespaces") or {}).values()
+    }
+    boundary_predecessors = {
+        namespace.strip()
+        for value in dict(manifest.get("baseline_read_cache_namespaces") or {}).values()
+        for namespace in str(value).split(",")
+        if namespace.strip()
+    }
+    if not is_boundary and expected_namespace not in allowed:
         artifact_violations.append("unexpected_cache_namespace")
+    if is_boundary and boundary_namespaces != {
+        "catch-boundary-v3-bbeh",
+        "catch-boundary-v3-musr",
+        "catch-boundary-v3-seqbench",
+        "catch-boundary-v3-gpqa",
+    }:
+        artifact_violations.append("unexpected_boundary_cache_namespaces")
     if manifest.get("request_source") not in {
         "fresh_catch_confirmation_cache",
         "role_aware_catch_v2_cache",
         "role_aware_versioned_catch_cache",
+        "role_aware_cross_domain_boundary_cache",
     }:
         artifact_violations.append("missing_request_source_declaration")
-    permitted_turn_namespaces = {expected_namespace, predecessor_namespace} - {""}
+    permitted_turn_namespaces = (
+        boundary_namespaces | boundary_predecessors
+        if is_boundary
+        else {expected_namespace, predecessor_namespace} - {""}
+    )
     invalid_turns = [
         row
         for row in turns
@@ -200,8 +259,19 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             gate_passed = bool(gate_payload.get("passed"))
         except (OSError, json.JSONDecodeError):
             artifact_violations.append("invalid:gate.json")
+    artifact_valid = not artifact_violations
+    scientific_gate_passed = (
+        False if is_boundary else gate_passed
+    )
+    termination_reason = str(
+        manifest.get("termination_reason") or gate_payload.get("termination_reason") or ""
+    )
     return {
         "passed": not artifact_violations and not scientific_violations,
+        "artifact_valid": artifact_valid,
+        "scientific_gate_passed": scientific_gate_passed,
+        "scientific_gate_applicable": not is_boundary,
+        "termination_reason": termination_reason,
         "family_name": "contrastive_active_testing",
         "artifact_violations": sorted(set(artifact_violations)),
         "scientific_violations": sorted(set(scientific_violations)),
@@ -210,6 +280,17 @@ def validate_run(run_dir: str | Path) -> dict[str, Any]:
             "turns": len(turns),
             "predictions": len(predictions),
             "request_failures": sum(bool(row.get("request_error")) for row in turns),
+            "logical_calls": len(turns),
+            "cached_logical_calls": sum(bool(row.get("cache_hit")) for row in turns),
+            "physical_network_attempts": sum(int(row.get("network_attempt_count") or 0) for row in turns),
+            "retry_attempts": sum(
+                max(0, int(row.get("network_attempt_count") or 0) - int(int(row.get("network_attempt_count") or 0) > 0))
+                for row in turns
+            ),
+            "actual_prompt_tokens": sum(float(row.get("actual_prompt_tokens") or 0) for row in turns),
+            "actual_completion_tokens": sum(float(row.get("actual_completion_tokens") or 0) for row in turns),
+            "actual_total_tokens": sum(float(row.get("actual_total_tokens") or 0) for row in turns),
+            "reported_reasoning_tokens": sum(float(row.get("reasoning_tokens") or 0) for row in turns),
             "planned_samples": gate_payload.get("planned_sample_count"),
             "completed_samples": gate_payload.get("completed_sample_count"),
             "incomplete_samples": gate_payload.get("incomplete_sample_count"),

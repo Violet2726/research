@@ -516,3 +516,49 @@ def test_hard_stopped_v1_run_can_be_finalized_as_failed_futility(tmp_path) -> No
     assert validation["counts"]["completed_samples"] == 1
     assert validation["counts"]["incomplete_samples"] == 99
     assert (run_dir / "diagnostics" / "gate.json").exists()
+
+
+def test_partial_finalizer_preserves_structural_preflight_sample_semantics(tmp_path) -> None:
+    run_dir = tmp_path / "structural-preflight"
+    (run_dir / "turns").mkdir(parents=True)
+    (run_dir / "diagnostics").mkdir(parents=True)
+    manifest = finalize_family_manifest(
+        {
+            "run_id": "structural-preflight",
+            "family_name": "contrastive_active_testing",
+            "phase_name": "development",
+            "method_version": "catch_v3",
+            "run_mode": "structural_preflight",
+            "sample_count": 100,
+            "planned_sample_count": 20,
+            "cache_namespace": "catch-dev-v3",
+            "request_source": "role_aware_versioned_catch_cache",
+        },
+        family_name="contrastive_active_testing",
+    )
+    (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (run_dir / "progress.json").write_text(json.dumps({"status": "running"}), encoding="utf-8")
+    (run_dir / "diagnostics" / "preflight.json").write_text(
+        json.dumps(
+            {
+                "passed": False,
+                "status": "selector_failed",
+                "selected_sample_ids": [f"sample-{index}" for index in range(20)],
+                "selector_gate": {"evidence": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    execute.finalize_partial_run_directory(
+        run_dir,
+        termination_reason="structural_preflight_failed",
+    )
+    progress = json.loads((run_dir / "progress.json").read_text(encoding="utf-8"))
+    gate = json.loads((run_dir / "diagnostics" / "gate.json").read_text(encoding="utf-8"))
+    assert progress["total_planned_samples"] == 20
+    assert progress["completed_samples"] == 20
+    assert progress["incomplete_samples"] == 0
+    assert gate["gate_name"] == "catch_v3_structural_preflight"
+    assert gate["planned_sample_count"] == 20
+    assert gate["completed_sample_count"] == 20

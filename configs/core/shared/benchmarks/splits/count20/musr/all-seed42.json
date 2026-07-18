@@ -1,0 +1,29 @@
+{
+  "dataset": "musr",
+  "split_name": "count20_seed42",
+  "source_split": "all",
+  "sample_count": 20,
+  "sample_ids": [
+    "musr-0092",
+    "musr-0268",
+    "musr-0534",
+    "musr-0303",
+    "musr-0585",
+    "musr-0487",
+    "musr-0393",
+    "musr-0086",
+    "musr-0164",
+    "musr-0402",
+    "musr-0454",
+    "musr-0613",
+    "musr-0513",
+    "musr-0424",
+    "musr-0703",
+    "musr-0673",
+    "musr-0701",
+    "musr-0105",
+    "musr-0184",
+    "musr-0036"
+  ],
+  "random_seed": 42
+}

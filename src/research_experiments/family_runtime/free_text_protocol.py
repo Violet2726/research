@@ -16,6 +16,7 @@ _MULTIPLE_CHOICE_DATASETS = {
     "mmlu",
     "mmlu_abstract_algebra",
     "mmlu_pro",
+    "musr",
 }
 _MATH_DATASETS = {
     "gsm8k",
@@ -362,6 +363,11 @@ def _dataset_specific_rules(dataset: str) -> list[str]:
         return [
             "- FINAL_ANSWER must be the shortest judgeable text span.",
             "- Do not add category words, explanations, or extra qualifiers.",
+        ]
+    if dataset == "seqbench":
+        return [
+            "- FINAL_ANSWER must be exactly one JSON or Python-style list of action strings.",
+            "- Preserve action order and do not add prose outside the list.",
         ]
     return []
 

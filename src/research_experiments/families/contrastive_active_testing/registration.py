@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from research_experiments.core.contracts import FamilyCliHelp, FamilyRunRequest
 from research_experiments.core.execution.provider_audit import run_mimo_provider_audit
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
+from research_experiments.core.execution.runtime import finalize_run_outputs
 from research_experiments.families.contrastive_active_testing.config import (
     load_experiment_config,
     load_phase_benchmarks,
@@ -19,6 +20,9 @@ from research_experiments.families.contrastive_active_testing.config import (
     phase_metadata,
 )
 from research_experiments.families.contrastive_active_testing.replay import replay_from_experiment
+from research_experiments.families.contrastive_active_testing.run.boundary_report import (
+    install_boundary_human_audit,
+)
 from research_experiments.families.contrastive_active_testing.run.execute import (
     _frozen_config_sha,
     _load_frozen_decoding,
@@ -38,17 +42,21 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
     experiment = load_experiment_config(experiment_path)
     resolved = resolve_model(model_override or experiment.primary_model_ref)
     protocol = load_protocol_config(experiment.protocol)
+    phase_names = (
+        ("boundary_audit",)
+        if experiment.study_type == "post_failure_cross_domain_boundary_audit"
+        else ("development", "heldout", "confirmation")
+    )
     return {
         "name": experiment.name,
         "description": experiment.description,
         "paper_method_name": "CATCH-ICV" if protocol.protocol_version == "catch_v3" else "CATCH",
         "method_version": protocol.protocol_version,
         "protocol": asdict(protocol),
-        "benchmarks": [benchmark.slug for benchmark in load_phase_benchmarks(experiment, "development")],
-        "phases": {
-            name: phase_metadata(experiment, name)
-            for name in ("development", "heldout", "confirmation")
-        },
+        "benchmarks": [benchmark.slug for benchmark in load_phase_benchmarks(experiment, phase_names[0])],
+        "study_type": experiment.study_type,
+        "confirmatory": experiment.confirmatory,
+        "phases": {name: phase_metadata(experiment, name) for name in phase_names},
         "cache_namespaces": experiment.cache_namespaces,
         "baseline_cache_namespaces": experiment.baseline_cache_namespaces,
         "provider_audit_path": str(experiment.provider_audit_path),
@@ -97,6 +105,12 @@ def configure_parser(parser) -> None:
         replay.add_argument("--experiment", required=True)
         replay.add_argument("--run", required=True, action="append")
         replay.add_argument("--output", required=True)
+        boundary_audit = action.add_parser(
+            "boundary-human-audit",
+            help="Validate and install completed blinded annotations for a boundary-audit run.",
+        )
+        boundary_audit.add_argument("--run", required=True)
+        boundary_audit.add_argument("--input", required=True)
         return
     raise RuntimeError("CATCH parser is missing subcommands.")
 
@@ -151,6 +165,17 @@ def dispatch_extra_command(args) -> bool:
                 indent=2,
             )
         )
+        return True
+    if args.command == "boundary-human-audit":
+        run_root = Path(args.run)
+        payload = json.loads(Path(args.input).read_text(encoding="utf-8"))
+        evaluation = install_boundary_human_audit(run_root, payload)
+        finalize_run_outputs(
+            run_root,
+            validator=validate_run,
+            validation_path=run_root / "run_validation.json",
+        )
+        print(json.dumps(evaluation, ensure_ascii=False, indent=2))
         return True
     return False
 
@@ -225,6 +250,17 @@ REGISTRATION = make_family_registration(
         "preflight": "diagnostics/preflight.json",
         "frozen_decoding_candidate": "diagnostics/frozen_decoding_candidate.json",
         "canonicalization_replay": "diagnostics/canonicalization_replay.json",
+        "screening_samples": "diagnostics/screening_samples.jsonl",
+        "dataset_checkpoints": "diagnostics/dataset_checkpoints.json",
+        "boundary_human_audit_sample": "diagnostics/human_audit_sample.json",
+        "boundary_human_audit_completed": "diagnostics/human_audit_completed.json",
+        "boundary_human_audit_evaluation": "diagnostics/human_audit_evaluation.json",
+        "selector_funnel": "selector_funnel.json",
+        "witness_analysis": "witness_analysis.json",
+        "sample_outcomes": "sample_outcomes.jsonl",
+        "boundary_reproducibility_manifest": "reproducibility_manifest.json",
+        "failure_cases": "failure_cases.md",
+        "boundary_index": "index.md",
     },
     metrics_view_path="views/metrics.json",
     prediction_records_path="views/predictions.jsonl",
@@ -238,5 +274,10 @@ REGISTRATION = make_family_registration(
         "diagnostics/preflight.json",
         "diagnostics/frozen_decoding_candidate.json",
         "diagnostics/canonicalization_replay.json",
+        "diagnostics/screening_samples.jsonl",
+        "diagnostics/dataset_checkpoints.json",
+        "diagnostics/human_audit_sample.json",
+        "diagnostics/human_audit_completed.json",
+        "diagnostics/human_audit_evaluation.json",
     ),
 )

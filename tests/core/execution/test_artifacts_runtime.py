@@ -99,6 +99,27 @@ def test_run_progress_tracker_persists_terminal_failure(tmp_path: Path) -> None:
     assert payload["failure"] == {"error_type": "TimeoutError", "message": "provider timed out"}
 
 
+def test_run_progress_tracker_reconciles_dynamic_selection_denominators(tmp_path: Path) -> None:
+    progress_path = tmp_path / "progress.json"
+    tracker = RunProgressTracker(
+        progress_path,
+        total_planned_calls=100,
+        total_planned_predictions=40,
+        total_planned_samples=20,
+        planned_calls_are_upper_bound=True,
+        heartbeat_interval_seconds=10.0,
+    )
+    tracker.record_completed_samples(12)
+    tracker.reconcile_dynamic_plan(total_planned_samples=12, total_planned_predictions=0)
+    tracker.mark_completed()
+
+    payload = json.loads(progress_path.read_text(encoding="utf-8"))
+    assert payload["total_planned_samples"] == 12
+    assert payload["completed_samples"] == 12
+    assert payload["total_planned_predictions"] == 0
+    assert payload["eta_seconds"] == 0.0
+
+
 def test_finalize_run_outputs_writes_validation_before_reraising(tmp_path: Path) -> None:
     (tmp_path / "manifest.json").write_text(
         json.dumps({"run_id": "failed-run"}, ensure_ascii=False, indent=2),

@@ -91,6 +91,9 @@ class BenchmarkConfig:
     config_path: str | None = None
     cache_namespace_override: str | None = None
     cache_namespace: str | None = None
+    source_revision: str | None = None
+    source_sha256: str | None = None
+    source_url: str | None = None
 
 
 def _load_toml(path: str | Path) -> dict[str, Any]:

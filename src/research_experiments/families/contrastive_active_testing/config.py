@@ -35,6 +35,7 @@ class CatchProtocolConfig:
     pair_judge_count: int = 3
     preflight_decisive_threshold: float = 0.0
     preflight_panel_agreement_threshold: float = 0.0
+    budget_scope: str = "confirmatory_gate"
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,8 @@ class CatchExperimentConfig:
     frozen_decoding_path: Path
     human_audit_path: Path
     preflight_human_audit_path: Path
+    study_type: str
+    confirmatory: bool
     raw: dict[str, Any]
 
 
@@ -90,7 +93,9 @@ def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
         pair_judge_count=int(raw.get("pair_judge_count", 3)),
         preflight_decisive_threshold=float(raw.get("preflight_decisive_threshold", 0.0)),
         preflight_panel_agreement_threshold=float(raw.get("preflight_panel_agreement_threshold", 0.0)),
+        budget_scope=str(raw.get("budget_scope") or "confirmatory_gate"),
     )
+    expected_attempt_cap = 3_000 if config.budget_scope == "boundary_audit" else 62_000
     required = {
         "stage_candidates": (config.stage_candidates, 5),
         "resample_candidates": (config.resample_candidates, 3),
@@ -100,7 +105,7 @@ def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
         "top_p": (config.top_p, 1.0),
         "solver_max_tokens": (config.solver_max_tokens, 16_384),
         "role_max_tokens": (config.role_max_tokens, 4_096),
-        "max_network_attempts": (config.max_network_attempts, 62_000),
+        "max_network_attempts": (config.max_network_attempts, expected_attempt_cap),
     }
     invalid = [name for name, (actual, expected) in required.items() if actual != expected]
     if invalid:
@@ -174,22 +179,40 @@ def load_experiment_config(path: str | Path) -> CatchExperimentConfig:
         str(key): str(value)
         for key, value in dict(raw.get("baseline_cache_namespaces") or {}).items()
     }
-    required_namespaces = {"provider_audit", "development", "heldout", "confirmation"}
+    study_type = str(raw.get("study_type") or "confirmatory_gate")
+    is_boundary = study_type == "post_failure_cross_domain_boundary_audit"
+    required_namespaces = (
+        {"provider_audit", "bbeh", "musr", "seqbench", "gpqa_diamond"}
+        if is_boundary
+        else {"provider_audit", "development", "heldout", "confirmation"}
+    )
     if set(namespaces) != required_namespaces:
         raise ValueError(f"CATCH cache_namespaces must exactly contain {sorted(required_namespaces)}.")
     protocol_path = Path(str(raw["protocol"]))
     protocol = load_protocol_config(protocol_path)
     namespace_version = protocol.protocol_version.removeprefix("catch_")
-    expected_namespaces = {
-        "provider_audit": "catch-provider-audit-v1",
-        "development": f"catch-dev-{namespace_version}",
-        "heldout": f"catch-heldout-{namespace_version}",
-        "confirmation": f"catch-confirm-{namespace_version}",
-    }
+    expected_namespaces = (
+        {
+            "provider_audit": "catch-provider-audit-v1",
+            "bbeh": "catch-boundary-v3-bbeh",
+            "musr": "catch-boundary-v3-musr",
+            "seqbench": "catch-boundary-v3-seqbench",
+            "gpqa_diamond": "catch-boundary-v3-gpqa",
+        }
+        if is_boundary
+        else {
+            "provider_audit": "catch-provider-audit-v1",
+            "development": f"catch-dev-{namespace_version}",
+            "heldout": f"catch-heldout-{namespace_version}",
+            "confirmation": f"catch-confirm-{namespace_version}",
+        }
+    )
     if namespaces != expected_namespaces:
         raise ValueError(f"{protocol.protocol_version} cache namespaces are frozen and must remain isolated.")
     expected_baseline = (
-        {"development": "catch-dev-v1"}
+        {"bbeh": "catch-dev-v3,catch-dev-v1"}
+        if is_boundary
+        else {"development": "catch-dev-v1"}
         if protocol.protocol_version in {"catch_v2", "catch_v3"}
         else {}
     )
@@ -214,12 +237,15 @@ def load_experiment_config(path: str | Path) -> CatchExperimentConfig:
         preflight_human_audit_path=Path(
             str(raw.get("preflight_human_audit_path") or raw["human_audit_path"])
         ),
+        study_type=study_type,
+        confirmatory=bool(raw.get("confirmatory", not is_boundary)),
         raw=raw,
     )
 
 
 def phase_metadata(experiment: CatchExperimentConfig, phase_name: str) -> dict[str, Any]:
-    if phase_name not in {"development", "heldout", "confirmation"}:
+    allowed = {"boundary_audit"} if experiment.study_type == "post_failure_cross_domain_boundary_audit" else {"development", "heldout", "confirmation"}
+    if phase_name not in allowed:
         raise ValueError(f"Unsupported CATCH phase {phase_name!r}.")
     phase = dict(experiment.raw.get("phases", {}).get(phase_name, {}))
     if not phase:
