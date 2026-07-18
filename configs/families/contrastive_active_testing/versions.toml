@@ -1,4 +1,4 @@
-active_version = "catch_v2"
+active_version = "catch_v3"
 
 [versions.dgcr_v1]
 status = "retired_failed_predecessor"
@@ -9,18 +9,30 @@ replayable = false
 reason_not_replayable = "The candidate-panel route is a historical failed mechanism and receives no reruns or board reconstruction."
 
 [versions.catch_v1]
-status = "failed_futility"
+status = "catch_v1_failed_no_observation_signal"
 family = "contrastive_active_testing"
 paper_name = "CATCH"
 mechanism = "blinded finite diagnostic measurements plus error-correcting candidate decoding"
-failure = "On 87 completed dev100 samples CATCH made zero overrides; d_min=2 coverage was 16.0%, structured parsing was 83.3%, and the frozen gate was mathematically unreachable."
+failure = "On the completed dev100 run SC5/adaptive/CATCH/DirectJudge were 43/45/43/38 percent; CATCH made zero overrides and the exact observation channel carried no signal."
 historical_run = "local/runs/contrastive_active_testing/catch_gate/development/20260717T140404Z-xiaomimimo-mimo-v2.5"
 heldout_authorized = false
 
 [versions.catch_v2]
-status = "active_preflight"
+status = "catch_v2_failed_undefined_generated_measurement"
 family = "contrastive_active_testing"
 paper_name = "CATCH"
 mechanism = "evidence-quote compiled contrast atoms, blinded finite measurements, and error-correcting candidate decoding"
 predecessor = "catch_v1"
+experiment_directory_policy = "reuse contrastive_active_testing/catch_gate; isolate by manifest hash and cache namespace"
+failure = "The one-shot preflight stopped automatically: selector parsing was 19/20, quote alignment 66.4%, d2 packet coverage 25%, and most accepted questions referred to hidden hypotheses or reasoning."
+historical_run = "local/runs/contrastive_active_testing/catch_gate/development/20260718T040024Z-xiaomimimo-mimo-v2.5"
+heldout_authorized = false
+
+[versions.catch_v3]
+status = "active_unrun_preregistered"
+family = "contrastive_active_testing"
+paper_name = "CATCH-ICV"
+mechanism = "indexed pairwise reasoning contrasts, two blinded witnesses, and fixed 2-of-3 selective decoding"
+predecessor = "catch_v2"
+last_attempt = true
 experiment_directory_policy = "reuse contrastive_active_testing/catch_gate; isolate by manifest hash and cache namespace"

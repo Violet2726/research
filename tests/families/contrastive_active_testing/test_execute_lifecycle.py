@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from dataclasses import replace
 
 import pytest
 
@@ -49,33 +50,34 @@ def test_execute_always_lands_progress_and_validation_without_live_network(tmp_p
     experiment = load_experiment_config(
         "configs/families/contrastive_active_testing/experiments/catch_gate.toml"
     )
+    audit_path = tmp_path / "completed_preflight_human_audit.json"
+    audit_path.write_text(json.dumps({"audit_version": "fixture"}), encoding="utf-8")
+    audit_sha = execute.hashlib.sha256(audit_path.read_bytes()).hexdigest()
+    experiment = replace(experiment, preflight_human_audit_path=audit_path)
     backbone = resolve_model(experiment.primary_model_ref)
     sample = DatasetSample("bbeh", "unit", "Question", "A", "", {"task": "unit", "options": []})
     benchmark = load_phase_benchmarks(experiment, "development")[0]
 
     monkeypatch.setattr(execute, "_require_passing_provider_audit", lambda *args, **kwargs: {"passed": True})
+    monkeypatch.setattr(
+        execute,
+        "_require_passing_icv_preflight",
+        lambda *args, **kwargs: {"human_audit": {"sha256": audit_sha}},
+    )
     monkeypatch.setattr(execute, "OpenAICompatibleProvider", _DummyProvider)
     monkeypatch.setattr(execute, "RequestCacheRouter", _DummyRouter)
     monkeypatch.setattr(execute, "RequestThrottle", _DummyThrottle)
     monkeypatch.setattr(execute, "load_phase_benchmarks", lambda *_args: [benchmark])
     monkeypatch.setattr(execute, "_select_phase_samples", lambda *_args: [sample])
 
-    def fake_preflight(_jobs, *, turns_path, output_path, **_kwargs):
-        turns_path.write_text("", encoding="utf-8")
-        payload = {"status": "passed", "passed": True, "uses_gold": False}
-        output_path.write_text(json.dumps(payload), encoding="utf-8")
-        return payload
-
-    monkeypatch.setattr(execute, "run_structural_preflight", fake_preflight)
-
     def fake_sample(*_args, **_kwargs):
         turn = {
             "dataset": "bbeh",
             "sample_id": "unit",
-            "method_name": "catch_test_designer_shared",
-            "role": "test_designer",
-            "cache_namespace": "catch-dev-v1",
-            "request_source": "catch_confirmation_cache",
+            "method_name": "catch_stage_a_shared",
+            "role": "stage_a_solver",
+            "cache_namespace": "catch-dev-v3",
+            "request_source": "active_cache",
             "payload": {"max_completion_tokens": 4096},
             "cache_key": "key",
             "raw_finish_reason": "stop",
@@ -90,7 +92,12 @@ def test_execute_always_lands_progress_and_validation_without_live_network(tmp_p
             "actual_completion_tokens": 1,
             "reasoning_tokens": 0,
             "protocol_parse_status": "ok",
+            "answer_class_key": "A",
+            "normalized_answer": "A",
+            "prediction": "A",
+            "validated_output": {"reasoning": "r", "final_answer": "A"},
         }
+        turns = [{**turn, "agent_id": index} for index in range(1, 6)]
         base = {
             "dataset": "bbeh",
             "sample_id": "unit",
@@ -99,31 +106,36 @@ def test_execute_always_lands_progress_and_validation_without_live_network(tmp_p
             "gold": "A",
             "score": 1.0,
             "candidate_oracle_correct": True,
-            "triggered": True,
+            "target_oracle_correct": True,
+            "triggered": False,
             "override_accepted": False,
             "corrected_by_debate": False,
             "harmed_by_debate": False,
-            "total_tokens_per_question": 2,
-            "network_attempts_per_question": 1,
-            "logical_calls_per_question": 8,
+            "total_tokens_per_question": 10,
+            "network_attempts_per_question": 5,
+            "logical_calls_per_question": 5,
         }
         predictions = [
             {**base, "method_name": "sc_5", "logical_calls_per_question": 5},
             {**base, "method_name": "adaptive_sc_8"},
-            *[
-                {**base, "method_name": f"catch_d{d_min}_m{margin}"}
-                for d_min in (2, 3, 4)
-                for margin in (1, 2)
-            ],
+            {**base, "method_name": "catch"},
             {**base, "method_name": "direct_judge_3"},
+            {**base, "method_name": "pair_judge_3"},
         ]
-        variants = [
-            {"d_min": d_min, "margin": margin, "pair_distances": {"B": d_min}}
-            for d_min in (2, 3, 4)
-            for margin in (1, 2)
-        ]
-        router = {"triggered": True, "catch_variants": variants}
-        return [turn], router, predictions
+        router = {
+            "sample_id": "unit",
+            "protocol_version": "catch_v3",
+            "triggered": False,
+            "candidate_oracle_correct": True,
+            "target_oracle_correct": True,
+            "eligible_challengers": [],
+            "validated_contrasts": [],
+            "witness_panels": [],
+            "direct_judge_selections": [],
+            "pair_judge_selections": [],
+            "decision": {"override_accepted": False, "resolver": ""},
+        }
+        return turns, router, predictions
 
     monkeypatch.setattr(execute, "run_catch_sample", fake_sample)
     run_dir = execute.run_experiment(
@@ -197,6 +209,83 @@ def test_parallel_completion_order_has_same_stable_predictions_as_serial() -> No
     assert parallel == serial
 
 
+def test_bounded_executor_stops_submitting_after_worker_failure() -> None:
+    class Endpoint:
+        def __init__(self) -> None:
+            self.stop_event = threading.Event()
+
+    endpoints = [Endpoint() for _ in range(60)]
+    jobs = [
+        execute.CatchSampleJob(index, index, "dev", endpoints[index])
+        for index in range(60)
+    ]
+    started: list[int] = []
+    lock = threading.Lock()
+
+    def worker(job):
+        with lock:
+            started.append(job.sequence_index)
+        if job.sequence_index == 0:
+            raise RuntimeError("worker failed")
+        time.sleep(0.02)
+        return [], {}, []
+
+    class Progress:
+        def update_scheduler_state(self, **_kwargs):
+            pass
+
+    with pytest.raises(RuntimeError, match="worker failed"):
+        list(execute._execute_jobs_bounded(jobs, max_workers=15, worker=worker, progress=Progress()))
+    assert len(started) <= 15
+    assert all(endpoint.stop_event.is_set() for endpoint in endpoints)
+
+
+def test_partial_finalizer_persists_completed_predictions_into_precreated_file(tmp_path) -> None:
+    root = tmp_path / "partial"
+    (root / "turns").mkdir(parents=True)
+    (root / "views").mkdir()
+    (root / "diagnostics").mkdir()
+
+    class Layout:
+        pass
+
+    layout = Layout()
+    layout.root = root
+    layout.agent_turns = root / "turns" / "agent_turns.jsonl"
+    layout.router_decisions = root / "turns" / "router_decisions.jsonl"
+    layout.preflight_turns = root / "turns" / "preflight_turns.jsonl"
+    layout.predictions = root / "views" / "predictions.jsonl"
+    layout.preflight = root / "diagnostics" / "preflight.json"
+    layout.metrics = root / "views" / "metrics.json"
+    layout.gate = root / "diagnostics" / "gate.json"
+    layout.run_summary = root / "views" / "run_summary.json"
+    layout.manifest = root / "manifest.json"
+    layout.predictions.write_text("", encoding="utf-8")
+    layout.manifest.write_text(
+        json.dumps(
+            {
+                "method_version": "catch_v3",
+                "run_mode": "full",
+                "planned_sample_count": 2,
+            }
+        ),
+        encoding="utf-8",
+    )
+    prediction = {"sample_id": "s0", "method_name": "catch", "prediction": "A"}
+    execute._write_partial_outputs(
+        layout,
+        turns=[],
+        routers=[{"sample_id": "s0"}],
+        predictions=[prediction],
+        termination_reason="execution_failure",
+        error=RuntimeError("boom"),
+    )
+    assert json.loads(layout.predictions.read_text(encoding="utf-8")) == prediction
+    gate = json.loads(layout.gate.read_text(encoding="utf-8"))
+    assert gate["completed_sample_count"] == 1
+    assert gate["incomplete_sample_count"] == 1
+
+
 def test_failed_preflight_stops_main_run_and_lands_terminal_artifacts(tmp_path, monkeypatch) -> None:
     experiment = load_experiment_config(
         "configs/families/contrastive_active_testing/experiments/catch_gate.toml"
@@ -223,7 +312,12 @@ def test_failed_preflight_stops_main_run_and_lands_terminal_artifacts(tmp_path, 
         main_called = True
         return [], {}, []
 
-    monkeypatch.setattr(execute, "run_structural_preflight", fail_preflight)
+    monkeypatch.setattr(
+        execute,
+        "_run_required_canonicalization_replay",
+        lambda *_args, **_kwargs: {"passed": True, "metrics": {}, "hashes": {}},
+    )
+    monkeypatch.setattr(execute, "run_icv_structural_preflight", fail_preflight)
     monkeypatch.setattr(execute, "run_catch_sample", main_sample)
     with pytest.raises(PreflightGateFailed):
         execute.run_experiment(
@@ -232,6 +326,7 @@ def test_failed_preflight_stops_main_run_and_lands_terminal_artifacts(tmp_path, 
             backbone,
             run_root=tmp_path / "runs",
             cache_root=tmp_path / "cache",
+            run_mode="structural_preflight",
         )
     run_dir = next((tmp_path / "runs" / "catch_gate" / "development").iterdir())
     progress = json.loads((run_dir / "progress.json").read_text(encoding="utf-8"))
@@ -240,6 +335,153 @@ def test_failed_preflight_stops_main_run_and_lands_terminal_artifacts(tmp_path, 
     assert progress["status"] == "failed"
     assert progress["failure"]["termination_reason"] == "structural_preflight_failed"
     assert validation["passed"] is False
+
+
+def test_passing_v3_preflight_is_terminal_and_emits_no_predictions(tmp_path, monkeypatch) -> None:
+    experiment = load_experiment_config(
+        "configs/families/contrastive_active_testing/experiments/catch_gate.toml"
+    )
+    backbone = resolve_model(experiment.primary_model_ref)
+    sample = DatasetSample("bbeh", "unit", "Question", "A", "", {"task": "unit", "options": []})
+    benchmark = load_phase_benchmarks(experiment, "development")[0]
+    monkeypatch.setattr(execute, "_require_passing_provider_audit", lambda *args, **kwargs: {"passed": True})
+    monkeypatch.setattr(execute, "OpenAICompatibleProvider", _DummyProvider)
+    monkeypatch.setattr(execute, "RequestCacheRouter", _DummyRouter)
+    monkeypatch.setattr(execute, "RequestThrottle", _DummyThrottle)
+    monkeypatch.setattr(execute, "load_phase_benchmarks", lambda *_args: [benchmark])
+    monkeypatch.setattr(execute, "_select_phase_samples", lambda *_args: [sample])
+
+    def fake_replay(*_args, output_path, **_kwargs):
+        payload = {
+            "passed": True,
+            "network_requests": 0,
+            "metrics": {"sc5_micro": 0.43},
+            "hashes": {"new_replay_sha256": "h"},
+        }
+        output_path.write_text(json.dumps(payload), encoding="utf-8")
+        return payload
+
+    def fake_preflight(_jobs, *, turns_path, output_path, **_kwargs):
+        turns_path.write_text("", encoding="utf-8")
+        payload = {
+            "status": "passed_awaiting_human_audit",
+            "passed": True,
+            "selected_sample_ids": [f"s{index}" for index in range(20)],
+        }
+        output_path.write_text(json.dumps(payload), encoding="utf-8")
+        audit_sample = {
+            "audit_version": "catch_v3_icv_blind_coordinate_audit_v1",
+            "source_preflight_run_id": _kwargs["run_id"],
+            "source_config_sha256": _kwargs["config_sha"],
+            "items": [
+                {"coordinate_sha256": f"hash-{index}"}
+                for index in range(40)
+            ],
+        }
+        output_path.with_name("preflight_human_audit_sample.json").write_text(
+            json.dumps(audit_sample),
+            encoding="utf-8",
+        )
+        return payload
+
+    main_called = False
+
+    def main_sample(*_args, **_kwargs):
+        nonlocal main_called
+        main_called = True
+        return [], {}, []
+
+    monkeypatch.setattr(execute, "_run_required_canonicalization_replay", fake_replay)
+    monkeypatch.setattr(execute, "run_icv_structural_preflight", fake_preflight)
+    monkeypatch.setattr(execute, "run_catch_sample", main_sample)
+    run_dir = execute.run_experiment(
+        experiment,
+        "development",
+        backbone,
+        run_root=tmp_path / "runs",
+        cache_root=tmp_path / "cache",
+        run_mode="structural_preflight",
+    )
+
+    progress = json.loads((run_dir / "progress.json").read_text(encoding="utf-8"))
+    validation = json.loads((run_dir / "run_validation.json").read_text(encoding="utf-8"))
+    gate = json.loads((run_dir / "diagnostics" / "gate.json").read_text(encoding="utf-8"))
+    assert main_called is False
+    assert progress["status"] == "completed"
+    assert progress["completed_predictions"] == 0
+    assert progress["completed_samples"] == 20
+    assert validation["passed"] is True
+    assert gate["performance_gate_applicable"] is False
+
+
+def test_preflight_human_audit_requires_completed_adjudication(tmp_path) -> None:
+    path = tmp_path / "audit.json"
+    hashes = {f"hash-{index}" for index in range(40)}
+    payload = {
+        "audit_version": "catch_v3_icv_blind_coordinate_audit_v1",
+        "adjudication_complete": False,
+        "source_preflight_run_id": "preflight-run",
+        "source_config_sha256": "config-sha",
+        "seed": 42,
+        "blind_to_gold_votes_and_candidate_answers": True,
+        "items": [
+            {
+                "coordinate_sha256": coordinate_hash,
+                "annotator_1": {
+                    "decidable": True,
+                    "mutually_exclusive": True,
+                    "atomic": index >= 4,
+                    "answer_leakage": False,
+                },
+                "annotator_2": {
+                    "decidable": True,
+                    "mutually_exclusive": True,
+                    "atomic": index >= 4,
+                    "answer_leakage": False,
+                },
+                "adjudication": None,
+            }
+            for index, coordinate_hash in enumerate(sorted(hashes))
+        ],
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="adjudication_complete"):
+        execute._require_passing_preflight_human_audit(
+            path,
+            expected_run_id="preflight-run",
+            expected_config_sha="config-sha",
+            expected_coordinate_hashes=hashes,
+        )
+    payload["adjudication_complete"] = True
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    execute._require_passing_preflight_human_audit(
+        path,
+        expected_run_id="preflight-run",
+        expected_config_sha="config-sha",
+        expected_coordinate_hashes=hashes,
+    )
+
+
+def test_v3_development_and_heldout_are_one_shot_by_manifest(tmp_path) -> None:
+    for phase in ("development", "heldout"):
+        run_dir = tmp_path / "catch_gate" / phase / f"{phase}-run"
+        run_dir.mkdir(parents=True)
+        (run_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "method_version": "catch_v3",
+                    "run_mode": "full",
+                    "run_status": "failed",
+                }
+            ),
+            encoding="utf-8",
+        )
+        with pytest.raises(RuntimeError, match="one shot"):
+            execute._require_unused_v3_full_phase_attempt(
+                tmp_path,
+                experiment_name="catch_gate",
+                phase_name=phase,
+            )
 
 
 def test_hard_stopped_v1_run_can_be_finalized_as_failed_futility(tmp_path) -> None:

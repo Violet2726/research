@@ -1,0 +1,38 @@
+{
+  "audit_version": "catch_v3_icv_blind_coordinate_audit_v1",
+  "source_preflight_run_id": "COPY_FROM_PREFLIGHT_MANIFEST",
+  "source_config_sha256": "COPY_FROM_PREFLIGHT_MANIFEST",
+  "seed": 42,
+  "blind_to_gold_votes_and_candidate_answers": true,
+  "adjudication_complete": false,
+  "instructions": "Copy the 40 items from diagnostics/preflight_human_audit_sample.json. Each annotator independently fills every boolean. Fill adjudication only for criteria on which the two annotators disagree. Aggregate rates and kappa are recomputed by the runner and are not trusted as input.",
+  "items": [
+    {
+      "sample_id": "COPY_FROM_SAMPLE",
+      "task": "COPY_FROM_SAMPLE",
+      "contrast_id": "COPY_FROM_SAMPLE",
+      "source_material": "COPY_FROM_SAMPLE",
+      "statement_left": "COPY_FROM_SAMPLE",
+      "statement_right": "COPY_FROM_SAMPLE",
+      "coordinate_sha256": "COPY_FROM_SAMPLE",
+      "annotator_1": {
+        "decidable": true,
+        "mutually_exclusive": true,
+        "atomic": true,
+        "answer_leakage": false
+      },
+      "annotator_2": {
+        "decidable": true,
+        "mutually_exclusive": true,
+        "atomic": true,
+        "answer_leakage": false
+      },
+      "adjudication": {
+        "decidable": null,
+        "mutually_exclusive": null,
+        "atomic": null,
+        "answer_leakage": null
+      }
+    }
+  ]
+}

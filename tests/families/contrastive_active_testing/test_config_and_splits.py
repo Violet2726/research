@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+from collections import Counter
+
 from research_experiments.core.data.datasets import load_samples
 from research_experiments.families.contrastive_active_testing.config import (
     load_experiment_config,
     load_phase_benchmarks,
     load_protocol_config,
 )
-from research_experiments.families.contrastive_active_testing.run.execute import _select_phase_samples
+from research_experiments.families.contrastive_active_testing.run.execute import (
+    _frozen_component_hashes,
+    _select_phase_samples,
+)
 from research_experiments.families.registry import get_family_registration
 
 EXPERIMENT = "configs/families/contrastive_active_testing/experiments/catch_gate.toml"
@@ -17,17 +22,23 @@ def test_frozen_protocol_and_registration_are_discoverable() -> None:
     protocol = load_protocol_config(experiment.protocol)
     registration = get_family_registration("contrastive_active_testing")
 
-    assert protocol.d_min_grid == (2, 3, 4)
-    assert protocol.margin_grid == (1, 2)
+    assert protocol.d_min_grid == ()
+    assert protocol.margin_grid == ()
+    assert protocol.max_proposed_tests == 0
     assert protocol.role_max_tokens == 4_096
     assert protocol.max_network_attempts == 62_000
-    assert protocol.protocol_version == "catch_v2"
+    assert protocol.protocol_version == "catch_v3"
     assert protocol.preflight_sample_count == 20
-    assert experiment.cache_namespaces["development"] == "catch-dev-v2"
+    assert protocol.coordinates_per_pair == 3
+    assert protocol.pair_judge_count == 3
+    assert experiment.cache_namespaces["development"] == "catch-dev-v3"
     assert experiment.baseline_cache_namespaces == {"development": "catch-dev-v1"}
     assert registration.prototype == "shared_stage_policy"
     assert registration.artifact_schema.progress_path == "progress.json"
     assert registration.artifact_schema.validation_path == "run_validation.json"
+    frozen_components = _frozen_component_hashes(experiment)
+    assert "src/research_experiments/families/contrastive_active_testing/icv.py" in frozen_components
+    assert "configs/core/shared/benchmarks/splits/dgcr_dev100/bbeh/bbeh-main-seed42.json" in frozen_components
 
 
 def test_bbeh_100_200_and_confirmation_remainder_are_disjoint() -> None:
@@ -52,3 +63,25 @@ def test_all_geometric_shapes_samples_have_structured_options_after_rounding_not
     samples = [sample for sample in load_samples(benchmark) if sample.metadata.get("task") == "geometric_shapes"]
     assert len(samples) == 200
     assert all(sample.metadata.get("options") for sample in samples)
+
+
+def test_full_bbeh_answer_contract_scan_has_frozen_inline_counts() -> None:
+    experiment = load_experiment_config(EXPERIMENT)
+    benchmark = load_phase_benchmarks(experiment, "development")[0]
+    samples = load_samples(benchmark)
+    inline = [sample for sample in samples if sample.metadata["answer_contract"]["source_style"] == "inline"]
+    counts = Counter(sample.metadata["task"] for sample in inline)
+
+    assert len(samples) == 4_520
+    assert len(inline) == 720
+    assert counts == {
+        "boolean_expressions": 200,
+        "disambiguation_qa": 120,
+        "nycc": 200,
+        "hyperbaton": 200,
+    }
+    assert all(
+        sample.metadata["answer_contract"]["kind"] == "multi_choice"
+        for sample in inline
+        if sample.metadata["task"] == "hyperbaton"
+    )

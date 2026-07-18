@@ -156,10 +156,13 @@ def execute_completion_request(
     provider 返回的 Retry-After 只用于推进共享限流器的全局冷却窗口。
     """
     throttle_context = throttle.reserve() if throttle is not None else None
+    queued_at = datetime.now(UTC).isoformat()
+    queued_monotonic = time.monotonic()
     try:
         if throttle_context is not None:
             throttle_context.__enter__()
         request_started_at = datetime.now(UTC).isoformat()
+        throttle_wait_ms = max(0.0, (time.monotonic() - queued_monotonic) * 1000)
         response = provider.chat_completion(payload)
         response_payload = {
             "http_status": response.http_status,
@@ -174,6 +177,11 @@ def execute_completion_request(
             "provider_request_id": response.provider_request_id,
             "response_id": response.response_id,
             "request_started_at": request_started_at,
+            "network_queued_at": queued_at,
+            "rate_admitted_at": request_started_at,
+            "network_started_at": request_started_at,
+            "network_finished_at": datetime.now(UTC).isoformat(),
+            "throttle_wait_ms": throttle_wait_ms,
             "request_error": None,
         }
         return response_payload
@@ -198,6 +206,11 @@ def execute_completion_request(
             "provider_request_id": provider_request_id,
             "response_id": None,
             "request_started_at": request_started_at,
+            "network_queued_at": queued_at,
+            "rate_admitted_at": request_started_at,
+            "network_started_at": request_started_at,
+            "network_finished_at": datetime.now(UTC).isoformat(),
+            "throttle_wait_ms": throttle_wait_ms,
             "request_error": f"Provider returned HTTP {exc.response.status_code}: {response_text}",
             "retry_after_seconds": provider_cooldown_seconds(exc.response),
         }
@@ -218,6 +231,11 @@ def execute_completion_request(
             "provider_request_id": None,
             "response_id": None,
             "request_started_at": request_started_at,
+            "network_queued_at": queued_at,
+            "rate_admitted_at": request_started_at,
+            "network_started_at": request_started_at,
+            "network_finished_at": datetime.now(UTC).isoformat(),
+            "throttle_wait_ms": throttle_wait_ms,
             "request_error": f"Provider connection error: {exc}",
         }
     except ProviderRequestError as exc:
@@ -236,6 +254,11 @@ def execute_completion_request(
             "provider_request_id": exc.provider_request_id,
             "response_id": None,
             "request_started_at": request_started_at,
+            "network_queued_at": queued_at,
+            "rate_admitted_at": request_started_at,
+            "network_started_at": request_started_at,
+            "network_finished_at": datetime.now(UTC).isoformat(),
+            "throttle_wait_ms": throttle_wait_ms,
             "request_error": exc.message,
         }
     finally:

@@ -97,10 +97,28 @@ def evaluate_mimo_provider_audit(
             and "max_tokens" not in row.get("payload", {})
             for row in rows
         ),
+        "all_payloads_record_sampling_contract": bool(rows) and all(
+            row.get("payload", {}).get("temperature") == 0.7
+            and row.get("payload", {}).get("top_p") == 1.0
+            and row.get("payload", {}).get("seed") == row.get("seed")
+            for row in rows
+        ),
         "all_responses_report_finish_reason": bool(rows) and all(row.get("finish_reason") for row in rows),
         "all_responses_report_usage": bool(rows) and all(isinstance(row.get("usage_reported"), dict) for row in rows),
         "reported_reasoning_tokens_zero": bool(rows) and all(row.get("reasoning_tokens") == 0 for row in rows),
         "network_attempts_recorded": bool(rows) and all(int(row.get("network_attempt_count") or 0) >= 1 for row in rows),
+        "physical_attempt_timeline_complete": bool(rows) and all(
+            len(row.get("attempt_timeline") or []) == int(row.get("network_attempt_count") or 0)
+            and all(
+                attempt.get("attempt_index") == index
+                and attempt.get("queued_at")
+                and attempt.get("rate_admitted_at")
+                and attempt.get("network_started_at")
+                and attempt.get("network_finished_at")
+                for index, attempt in enumerate(row.get("attempt_timeline") or [], start=1)
+            )
+            for row in rows
+        ),
         "all_requests_are_uncached_live_audit_calls": bool(rows) and all(
             row.get("request_source") == "live_uncached_provider_audit" and not row.get("cache_hit")
             for row in rows
@@ -154,6 +172,9 @@ def _audit_record(
         "actual_total_tokens": usage.get("total_tokens"),
         "network_attempt_count": int(response.get("network_attempt_count") or 1),
         "request_started_at_events": list(response.get("request_started_at_events") or []),
+        "attempt_timeline": list(response.get("attempt_timeline") or []),
+        "provider_request_id": response.get("provider_request_id"),
+        "response_id": response.get("response_id"),
         "request_error": response.get("request_error"),
         "assistant_text": str(response.get("assistant_text") or ""),
         "usage_reported": usage,

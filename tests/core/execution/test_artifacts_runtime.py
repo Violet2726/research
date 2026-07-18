@@ -191,13 +191,21 @@ def test_progress_separates_logical_calls_from_physical_retries_and_samples(tmp_
         }
     )
     tracker.record_predictions(9, "bbeh", "catch_sample", sample_completed=True)
+    tracker.record_phase_sample("stage_a_ready")
+    tracker.record_phase_sample("selector_completed")
+    tracker.record_phase_sample("witness_completed")
     tracker.write(force=True, reason="test")
     payload = json.loads(path.read_text(encoding="utf-8"))
     tracker.mark_completed()
 
     assert payload["completed_logical_calls"] == 2
     assert payload["physical_network_attempts"] == 3
+    assert payload["retry_attempts"] == 2
     assert payload["cached_logical_calls"] == 1
     assert payload["completed_samples"] == 1
+    assert payload["prediction_completed_samples"] == 1
+    assert payload["stage_a_ready_samples"] == 1
+    assert payload["selector_completed_samples"] == 1
+    assert payload["witness_completed_samples"] == 1
     assert payload["eta_seconds"] == 0
 

@@ -540,8 +540,8 @@ def _load_bbeh(config: BenchmarkConfig) -> list[DatasetSample]:
     for task_name, payload in task_payloads:
         for task_index, record in enumerate(payload.get("examples") or []):
             question = str(record.get("input") or "").strip()
-            option_block = _parse_bbeh_option_block(question)
-            options = option_block["options"] if option_block is not None else []
+            answer_contract = _parse_bbeh_answer_contract(question)
+            options = list(answer_contract["options"])
             samples.append(
                 DatasetSample(
                     dataset=config.slug,
@@ -554,9 +554,11 @@ def _load_bbeh(config: BenchmarkConfig) -> list[DatasetSample]:
                         "task": task_name,
                         "task_index": task_index,
                         "options": options,
-                        "options_block_start": option_block["start"] if option_block is not None else None,
-                        "options_block_end": option_block["end"] if option_block is not None else None,
-                        "options_trailing_note": option_block["trailing_note"] if option_block is not None else "",
+                        "answer_contract": answer_contract,
+                        "options_block_start": answer_contract["block_start"],
+                        "options_block_end": answer_contract["block_end"],
+                        "options_trailing_note": answer_contract["trailing_note"],
+                        "option_selection_mode": answer_contract["selection_mode"],
                     },
                 )
             )
@@ -565,10 +567,104 @@ def _load_bbeh(config: BenchmarkConfig) -> list[DatasetSample]:
 
 
 def _parse_bbeh_options(question: str) -> list[dict[str, str]]:
-    """Extract a terminal BBEH ``Options:`` table without semantic guessing."""
+    """Extract the sample's structured BBEH option table."""
 
-    block = _parse_bbeh_option_block(question)
-    return list(block["options"]) if block is not None else []
+    return list(_parse_bbeh_answer_contract(question)["options"])
+
+
+def _parse_bbeh_answer_contract(question: str) -> dict[str, Any]:
+    """Return the exact answer contract embedded in a BBEH question.
+
+    BBEH uses both titled terminal option blocks and four task families whose
+    choices are rendered directly as consecutive ``(A) ...`` lines.  The
+    latter were previously treated as free text, which split a label and its
+    option text into artificial answer classes.
+    """
+
+    source = str(question or "")
+    titled = _parse_bbeh_option_block(source)
+    if titled is not None:
+        return {
+            "kind": "single_choice",
+            "options": list(titled["options"]),
+            "block_start": int(titled["start"]),
+            "block_end": int(titled["end"]),
+            "source_style": "titled_terminal",
+            "selection_mode": "single",
+            "trailing_note": str(titled["trailing_note"]),
+        }
+    # A malformed titled table must not be reinterpreted as an inline table.
+    if re.search(r"(?:^|\n)Options:\s*\n", source):
+        return _free_text_bbeh_contract()
+
+    inline = _parse_bbeh_inline_option_block(source)
+    if inline is None:
+        return _free_text_bbeh_contract()
+    concatenated = bool(
+        re.search(
+            r"concatenation\s+of\s+all\s+the\s+correct\s+choices",
+            source,
+            flags=re.IGNORECASE,
+        )
+    )
+    return {
+        "kind": "multi_choice" if concatenated else "single_choice",
+        "options": list(inline["options"]),
+        "block_start": int(inline["start"]),
+        "block_end": int(inline["end"]),
+        "source_style": "inline",
+        "selection_mode": "concatenated" if concatenated else "single",
+        "trailing_note": "",
+    }
+
+
+def _free_text_bbeh_contract() -> dict[str, Any]:
+    return {
+        "kind": "free_text",
+        "options": [],
+        "block_start": None,
+        "block_end": None,
+        "source_style": "none",
+        "selection_mode": "none",
+        "trailing_note": "",
+    }
+
+
+def _parse_bbeh_inline_option_block(question: str) -> dict[str, Any] | None:
+    """Find one unique longest, consecutive, A-led inline option table."""
+
+    source = str(question or "")
+    matches = list(
+        re.finditer(r"(?m)^\s*\(([A-Za-z])\)\s+(.+?)\s*$", source)
+    )
+    sequences: list[list[re.Match[str]]] = []
+    for start_index, match in enumerate(matches):
+        if match.group(1).upper() != "A":
+            continue
+        expected = ord("A")
+        sequence: list[re.Match[str]] = []
+        for candidate in matches[start_index:]:
+            if ord(candidate.group(1).upper()) != expected:
+                break
+            sequence.append(candidate)
+            expected += 1
+        if len(sequence) >= 2:
+            sequences.append(sequence)
+    if not sequences:
+        return None
+    longest = max(len(sequence) for sequence in sequences)
+    winners = [sequence for sequence in sequences if len(sequence) == longest]
+    if len(winners) != 1:
+        return None
+    winner = winners[0]
+    return {
+        "options": [
+            {"label": match.group(1).upper(), "text": match.group(2).strip()}
+            for match in winner
+        ],
+        "start": winner[0].start(),
+        "end": winner[-1].end(),
+    }
 
 
 def _parse_bbeh_option_block(question: str) -> dict[str, Any] | None:
@@ -624,18 +720,28 @@ def _parse_bbeh_option_block(question: str) -> dict[str, Any] | None:
     }
 
 
-def question_without_bbeh_options(sample: DatasetSample) -> str:
-    """Remove the structured final option region for blinded measurement."""
+def question_without_answer_contract(sample: DatasetSample) -> str:
+    """Remove a structured answer region before blinded measurement."""
 
     if sample.dataset != "bbeh":
         return sample.question
-    start = sample.metadata.get("options_block_start")
+    contract = sample.metadata.get("answer_contract")
+    start = contract.get("block_start") if isinstance(contract, dict) else None
+    if not isinstance(start, int):
+        start = sample.metadata.get("options_block_start")
     if isinstance(start, int) and 0 <= start <= len(sample.question):
         return sample.question[:start].rstrip()
-    block = _parse_bbeh_option_block(sample.question)
-    if block is None:
+    parsed = _parse_bbeh_answer_contract(sample.question)
+    start = parsed.get("block_start")
+    if not isinstance(start, int):
         return sample.question
-    return sample.question[: int(block["start"])].rstrip()
+    return sample.question[:start].rstrip()
+
+
+def question_without_bbeh_options(sample: DatasetSample) -> str:
+    """Backward-compatible alias for answer-contract removal."""
+
+    return question_without_answer_contract(sample)
 
 
 def _load_competition_math(config: BenchmarkConfig) -> list[DatasetSample]:

@@ -52,15 +52,21 @@ class RunProgressTracker:
         self.cached_logical_calls = 0
         self.network_calls = 0
         self.physical_network_attempts = 0
+        self.retry_attempts = 0
         self._network_call_events: deque[float] = deque()
         self._call_events: deque[float] = deque()
         self._sample_events: deque[float] = deque()
         self.in_flight_samples = 0
         self.queued_samples = 0
+        self.stage_a_ready_samples = 0
+        self.selector_completed_samples = 0
+        self.witness_completed_samples = 0
+        self.prediction_completed_samples = 0
         self.last_dataset: str | None = None
         self.last_method: str | None = None
         self.last_sample_id: str | None = None
         self.status = "running"
+        self.termination_reason: str | None = None
         self.failure: dict[str, Any] | None = None
         self.write_interval_seconds = max(0.1, float(write_interval_seconds))
         self.heartbeat_interval_seconds = max(0.1, float(heartbeat_interval_seconds))
@@ -100,6 +106,7 @@ class RunProgressTracker:
             self.cached_logical_calls += cached_logical
             self.network_calls += network_request_count
             self.physical_network_attempts += network_request_count
+            self.retry_attempts += max(0, network_request_count - int(network_request_count > 0))
             for _ in range(network_request_count):
                 self._network_call_events.append(now)
             self.last_dataset = str(row.get("dataset") or "")
@@ -124,6 +131,7 @@ class RunProgressTracker:
             self.completed_predictions += count
             if sample_completed:
                 self.completed_samples += 1
+                self.prediction_completed_samples += 1
                 self._sample_events.append(now)
             self.last_dataset = dataset
             self.last_method = method_name
@@ -136,11 +144,44 @@ class RunProgressTracker:
             self.queued_samples = max(0, int(queued_samples))
         self.write(reason="scheduler")
 
-    def mark_completed(self) -> None:
+    def record_phase_sample(self, phase: str) -> None:
+        """Record a sample-level protocol milestone without fabricating predictions."""
+
+        field_by_phase = {
+            "stage_a_ready": "stage_a_ready_samples",
+            "selector_completed": "selector_completed_samples",
+            "witness_completed": "witness_completed_samples",
+            "prediction_completed": "prediction_completed_samples",
+        }
+        try:
+            field = field_by_phase[phase]
+        except KeyError as exc:
+            raise ValueError(f"Unknown sample progress phase {phase!r}.") from exc
+        with self._lock:
+            setattr(self, field, int(getattr(self, field)) + 1)
+            self._note_progress_event_locked(time.monotonic())
+        self.write(force=True, reason=phase)
+
+    def record_completed_samples(self, count: int, *, method_name: str = "structural_preflight") -> None:
+        """Complete sample work that intentionally emits no prediction rows."""
+
+        if count < 0:
+            raise ValueError("completed sample count cannot be negative")
+        with self._lock:
+            now = time.monotonic()
+            self.completed_samples += int(count)
+            for _ in range(int(count)):
+                self._sample_events.append(now)
+            self.last_method = method_name
+            self._note_progress_event_locked(now)
+        self.write(force=True, reason="samples_completed")
+
+    def mark_completed(self, termination_reason: str = "completed") -> None:
         """标记 run 完成并停止后台心跳。"""
 
         with self._lock:
             self.status = "completed"
+            self.termination_reason = str(termination_reason)
             self._note_progress_event_locked(time.monotonic())
         self.write(force=True, reason="completed")
         self.close()
@@ -165,6 +206,7 @@ class RunProgressTracker:
             }
             if termination_reason is not None:
                 self.failure["termination_reason"] = str(termination_reason)
+                self.termination_reason = str(termination_reason)
             self._note_progress_event_locked(time.monotonic())
         self.write(force=True, reason="failed")
         self.close()
@@ -226,6 +268,7 @@ class RunProgressTracker:
                 "cached_logical_calls": self.cached_logical_calls,
                 "network_calls": self.network_calls,
                 "physical_network_attempts": self.physical_network_attempts,
+                "retry_attempts": self.retry_attempts,
                 "cache_hit_ratio": round(self.cache_hits / self.completed_calls, 6) if self.completed_calls else 0.0,
                 "network_rpm_window_seconds": self.network_rpm_window_seconds,
                 "observed_network_rpm": round(observed_network_rpm, 2),
@@ -236,12 +279,17 @@ class RunProgressTracker:
                 "completed_samples": self.completed_samples,
                 "in_flight_samples": self.in_flight_samples,
                 "queued_samples": self.queued_samples,
+                "stage_a_ready_samples": self.stage_a_ready_samples,
+                "selector_completed_samples": self.selector_completed_samples,
+                "witness_completed_samples": self.witness_completed_samples,
+                "prediction_completed_samples": self.prediction_completed_samples,
                 "target_network_rpm": self.target_network_rpm,
                 "eta_seconds": round(eta_seconds, 2) if eta_seconds is not None else None,
                 "last_dataset": self.last_dataset,
                 "last_method": self.last_method,
                 "last_sample_id": self.last_sample_id,
                 "failure": self.failure,
+                "termination_reason": self.termination_reason,
             }
             if self.rate_limit_snapshot_provider is not None:
                 payload.update(self.rate_limit_snapshot_provider())

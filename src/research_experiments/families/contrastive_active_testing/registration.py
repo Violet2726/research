@@ -18,6 +18,7 @@ from research_experiments.families.contrastive_active_testing.config import (
     load_protocol_config,
     phase_metadata,
 )
+from research_experiments.families.contrastive_active_testing.replay import replay_from_experiment
 from research_experiments.families.contrastive_active_testing.run.execute import (
     _frozen_config_sha,
     _load_frozen_decoding,
@@ -36,12 +37,13 @@ FAMILY_NAME = "contrastive_active_testing"
 def inspect_experiment(experiment_path: str, model_override: str | None) -> dict[str, object]:
     experiment = load_experiment_config(experiment_path)
     resolved = resolve_model(model_override or experiment.primary_model_ref)
+    protocol = load_protocol_config(experiment.protocol)
     return {
         "name": experiment.name,
         "description": experiment.description,
-        "paper_method_name": "CATCH",
-        "method_version": load_protocol_config(experiment.protocol).protocol_version,
-        "protocol": asdict(load_protocol_config(experiment.protocol)),
+        "paper_method_name": "CATCH-ICV" if protocol.protocol_version == "catch_v3" else "CATCH",
+        "method_version": protocol.protocol_version,
+        "protocol": asdict(protocol),
         "benchmarks": [benchmark.slug for benchmark in load_phase_benchmarks(experiment, "development")],
         "phases": {
             name: phase_metadata(experiment, name)
@@ -52,6 +54,7 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "provider_audit_path": str(experiment.provider_audit_path),
         "frozen_decoding_path": str(experiment.frozen_decoding_path),
         "human_audit_path": str(experiment.human_audit_path),
+        "preflight_human_audit_path": str(experiment.preflight_human_audit_path),
         "resolved_model": asdict(resolved),
         "workspace_defaults": workspace_defaults(FAMILY_NAME),
     }
@@ -80,6 +83,20 @@ def configure_parser(parser) -> None:
         )
         partial.add_argument("--run", required=True)
         partial.add_argument("--termination-reason", default="futility_gate_impossible")
+        preflight = action.add_parser(
+            "structural-preflight",
+            help="Run the one-shot CATCH-v3 20-disagreement structural preflight and terminate.",
+        )
+        preflight.add_argument("--experiment", required=True)
+        preflight.add_argument("--runs-root", default=None)
+        preflight.add_argument("--cache-root", default=None)
+        replay = action.add_parser(
+            "canonicalization-replay",
+            help="Rejudge archived Stage-A/adaptive responses without network access.",
+        )
+        replay.add_argument("--experiment", required=True)
+        replay.add_argument("--run", required=True, action="append")
+        replay.add_argument("--output", required=True)
         return
     raise RuntimeError("CATCH parser is missing subcommands.")
 
@@ -98,6 +115,38 @@ def dispatch_extra_command(args) -> bool:
                     args.run,
                     termination_reason=args.termination_reason,
                 ),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return True
+    if args.command == "structural-preflight":
+        experiment = load_experiment_config(args.experiment)
+        backbone = resolve_model(experiment.primary_model_ref)
+        result = run_experiment(
+            experiment,
+            "development",
+            backbone,
+            args.runs_root,
+            args.cache_root,
+            run_mode="structural_preflight",
+        )
+        print(json.dumps({"run_dir": str(result), "run_mode": "structural_preflight"}, indent=2))
+        return True
+    if args.command == "canonicalization-replay":
+        experiment = load_experiment_config(args.experiment)
+        payload = replay_from_experiment(args.run, experiment, output_path=args.output)
+        print(
+            json.dumps(
+                {
+                    "output": str(args.output),
+                    "passed": payload["passed"],
+                    "network_requests": payload["network_requests"],
+                    "metrics": payload["metrics"],
+                    "feasibility_conditions": payload["feasibility_conditions"],
+                    "changed_turn_count": payload["changed_turn_count"],
+                    "hashes": payload["hashes"],
+                },
                 ensure_ascii=False,
                 indent=2,
             )
@@ -175,6 +224,7 @@ REGISTRATION = make_family_registration(
         "gate": "diagnostics/gate.json",
         "preflight": "diagnostics/preflight.json",
         "frozen_decoding_candidate": "diagnostics/frozen_decoding_candidate.json",
+        "canonicalization_replay": "diagnostics/canonicalization_replay.json",
     },
     metrics_view_path="views/metrics.json",
     prediction_records_path="views/predictions.jsonl",
@@ -187,5 +237,6 @@ REGISTRATION = make_family_registration(
         "diagnostics/gate.json",
         "diagnostics/preflight.json",
         "diagnostics/frozen_decoding_candidate.json",
+        "diagnostics/canonicalization_replay.json",
     ),
 )

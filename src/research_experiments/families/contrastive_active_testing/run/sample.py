@@ -23,9 +23,24 @@ from research_experiments.families.contrastive_active_testing.algorithms import 
     test_to_dict,
     validate_test_bank,
 )
+from research_experiments.families.contrastive_active_testing.icv import (
+    ContrastValidation,
+    IcvWitnessParseResult,
+    build_icv_witness_packet,
+    build_target_pairs,
+    coordinate_to_dict,
+    decode_icv,
+    evidence_unit_to_dict,
+    parse_icv_witness,
+    segment_stage_evidence,
+    validate_contrast_selector,
+)
 from research_experiments.families.contrastive_active_testing.prompts import (
     build_designer_messages,
     build_direct_judge_messages,
+    build_icv_selector_messages,
+    build_icv_witness_messages,
+    build_pair_judge_messages,
     build_witness_messages,
 )
 from research_experiments.family_runtime.free_text_protocol import FREE_TEXT_ANSWER_PROTOCOL_V1
@@ -82,6 +97,18 @@ def run_catch_sample(
     frozen_decoding: dict[str, int] | None = None,
     run_direct_judge: bool = True,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    if protocol.protocol_version == "catch_v3":
+        return run_catch_icv_sample(
+            sample,
+            run_id=run_id,
+            split_name=split_name,
+            experiment=experiment,
+            protocol=protocol,
+            endpoint=endpoint,
+            network_budget=network_budget,
+            phase_name=phase_name,
+            run_direct_judge=run_direct_judge,
+        )
     stage_rows = [
         _answer_turn(
             sample,
@@ -433,6 +460,441 @@ def run_catch_sample(
     return [row for row in physical_rows if row is not None], router, predictions
 
 
+def run_catch_icv_sample(
+    sample: DatasetSample,
+    *,
+    run_id: str,
+    split_name: str,
+    experiment,
+    protocol,
+    endpoint,
+    network_budget: NetworkAttemptBudget,
+    phase_name: str,
+    run_direct_judge: bool = True,
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    """Execute the frozen CATCH-v3 indexed contrast protocol for one sample."""
+
+    stage_rows = [
+        _answer_turn(
+            sample,
+            run_id=run_id,
+            split_name=split_name,
+            endpoint=endpoint,
+            network_budget=network_budget,
+            method_name="catch_stage_a_shared",
+            role="stage_a_solver",
+            agent_id=index,
+            seed=42_000 + index,
+            max_tokens=protocol.solver_max_tokens,
+        )
+        for index in range(1, protocol.stage_candidates + 1)
+    ]
+    stage = build_stage_decision(stage_rows, seed=experiment.global_seed, sample_id=sample.sample_id)
+    physical_rows: list[dict[str, Any]] = list(stage_rows)
+    resample_rows: list[dict[str, Any]] = []
+    selector_row: dict[str, Any] | None = None
+    witness_rows: list[dict[str, Any]] = []
+    direct_rows: list[dict[str, Any]] = []
+    pair_judge_rows: list[dict[str, Any]] = []
+    direct_selections: list[str | None] = []
+    pair_selections: list[str | None] = []
+    validation = ContrastValidation((), (), None, 0, ())
+    panels: list[IcvWitnessParseResult] = []
+    pairs = build_target_pairs(
+        stage,
+        seed=experiment.global_seed,
+        sample_id=sample.sample_id,
+    )
+    evidence = segment_stage_evidence(sample, stage)
+
+    decision = DecodeDecision(
+        stage.anchor_answer,
+        stage.anchor_key,
+        False,
+        "no_answer_class_disagreement",
+        (),
+        (),
+    )
+    if stage.triggered:
+        resample_rows = [
+            _answer_turn(
+                sample,
+                run_id=run_id,
+                split_name=split_name,
+                endpoint=endpoint,
+                network_budget=network_budget,
+                method_name="catch_adaptive_resample_shared",
+                role="independent_resample",
+                agent_id=index,
+                seed=45_000 + index,
+                max_tokens=protocol.solver_max_tokens,
+            )
+            for index in range(1, protocol.resample_candidates + 1)
+        ]
+        selector_row, selector_payload = _json_turn(
+            sample,
+            run_id=run_id,
+            split_name=split_name,
+            endpoint=endpoint,
+            network_budget=network_budget,
+            method_name="catch_icv_selector",
+            role="icv_selector",
+            agent_id=1,
+            seed=43_000,
+            max_tokens=protocol.role_max_tokens,
+            messages=build_icv_selector_messages(sample, pairs=pairs, evidence=evidence),
+        )
+        validation = validate_contrast_selector(
+            selector_payload,
+            pairs=pairs,
+            evidence=evidence,
+            max_per_pair=protocol.coordinates_per_pair,
+            max_total=protocol.max_selected_contrasts,
+        )
+        selector_row.update(
+            {
+                "target_pairs": [
+                    {
+                        "pair_id": pair.pair_id,
+                        "anchor_key": pair.anchor_key,
+                        "challenger_key": pair.challenger_key,
+                        "left_candidate_key": pair.left_candidate_key,
+                        "right_candidate_key": pair.right_candidate_key,
+                    }
+                    for pair in pairs
+                ],
+                "evidence_units": {
+                    key: [evidence_unit_to_dict(unit) for unit in units]
+                    for key, units in evidence.items()
+                },
+                "validated_contrasts": [coordinate_to_dict(item) for item in validation.coordinates],
+                "dropped_contrasts": list(validation.dropped),
+                "selector_protocol_error": validation.protocol_error,
+                "leakage_count": validation.leakage_count,
+                "eligible_challengers": list(validation.eligible_challengers),
+            }
+        )
+        if validation.protocol_error is not None:
+            selector_row["protocol_parse_status"] = "failed"
+            selector_row["protocol_parse_error"] = validation.protocol_error
+
+        if validation.eligible_challengers:
+            eligible_coordinates = tuple(
+                item
+                for item in validation.coordinates
+                if item.challenger_key in validation.eligible_challengers
+            )
+            for panel_index in range(1, protocol.witness_count + 1):
+                packet = build_icv_witness_packet(
+                    eligible_coordinates,
+                    seed=experiment.global_seed,
+                    sample_id=sample.sample_id,
+                    panel_index=panel_index,
+                )
+                witness_row, witness_payload = _json_turn(
+                    sample,
+                    run_id=run_id,
+                    split_name=split_name,
+                    endpoint=endpoint,
+                    network_budget=network_budget,
+                    method_name="catch_icv_witness",
+                    role="icv_witness",
+                    agent_id=panel_index,
+                    seed=44_000 + panel_index,
+                    max_tokens=protocol.role_max_tokens,
+                    messages=build_icv_witness_messages(sample, packet=packet),
+                )
+                parsed = parse_icv_witness(witness_payload, packet=packet)
+                if not parsed.top_level_valid:
+                    witness_row["protocol_parse_status"] = "failed"
+                    witness_row["protocol_parse_error"] = "witness_top_level_schema_failure"
+                witness_row.update(
+                    {
+                        "witness_packet": {
+                            "panel_index": packet.panel_index,
+                            "contrasts": list(packet.contrasts),
+                            "public_to_internal": packet.public_to_internal,
+                            "public_left_to_candidate": packet.public_left_to_candidate,
+                            "public_right_to_candidate": packet.public_right_to_candidate,
+                        },
+                        "witness_observations": parsed.observations,
+                        "witness_parse_diagnostics": {
+                            "top_level_valid": parsed.top_level_valid,
+                            "expected_coordinate_count": parsed.expected_coordinate_count,
+                            "valid_coordinate_count": parsed.valid_coordinate_count,
+                            "decisive_coordinate_count": parsed.decisive_coordinate_count,
+                            "erased_rows": list(parsed.erased_rows),
+                        },
+                    }
+                )
+                witness_rows.append(witness_row)
+                panels.append(parsed)
+            decision = decode_icv(stage, eligible_coordinates, tuple(panels))
+        else:
+            decision = DecodeDecision(
+                stage.anchor_answer,
+                stage.anchor_key,
+                False,
+                "insufficient_indexed_contrast",
+                (),
+                (),
+            )
+
+        if run_direct_judge:
+            for judge_index in range(1, protocol.direct_judge_count + 1):
+                labels = build_hypothesis_labels(
+                    stage,
+                    seed=experiment.global_seed,
+                    sample_id=f"{sample.sample_id}:direct:{judge_index}",
+                )
+                row, payload = _json_turn(
+                    sample,
+                    run_id=run_id,
+                    split_name=split_name,
+                    endpoint=endpoint,
+                    network_budget=network_budget,
+                    method_name="direct_judge_3",
+                    role="direct_judge",
+                    agent_id=judge_index,
+                    seed=46_000 + judge_index,
+                    max_tokens=protocol.role_max_tokens,
+                    messages=build_direct_judge_messages(sample, stage=stage, hypothesis_to_key=labels),
+                )
+                selected_id = str(payload.get("selected_id") or "") if isinstance(payload, dict) else ""
+                selected_key = labels.get(selected_id)
+                if selected_key is None:
+                    row["protocol_parse_status"] = "failed"
+                    row["protocol_parse_error"] = "unknown_or_missing_candidate_id"
+                row["hypothesis_to_answer_class_key"] = labels
+                row["selected_answer_class_key"] = selected_key
+                direct_rows.append(row)
+                direct_selections.append(selected_key)
+
+            target_keys = [stage.anchor_key, *(pair.challenger_key for pair in pairs)]
+            for judge_index in range(1, protocol.pair_judge_count + 1):
+                labels = _target_judge_labels(
+                    target_keys,
+                    seed=experiment.global_seed,
+                    sample_id=f"{sample.sample_id}:pair-judge:{judge_index}",
+                )
+                row, payload = _json_turn(
+                    sample,
+                    run_id=run_id,
+                    split_name=split_name,
+                    endpoint=endpoint,
+                    network_budget=network_budget,
+                    method_name="pair_judge_3",
+                    role="pair_judge",
+                    agent_id=judge_index,
+                    seed=47_000 + judge_index,
+                    max_tokens=protocol.role_max_tokens,
+                    messages=build_pair_judge_messages(sample, stage=stage, public_to_key=labels),
+                )
+                selected_id = str(payload.get("selected_id") or "") if isinstance(payload, dict) else ""
+                selected_key = labels.get(selected_id)
+                if selected_key is None:
+                    row["protocol_parse_status"] = "failed"
+                    row["protocol_parse_error"] = "unknown_or_missing_target_candidate_id"
+                row["hypothesis_to_answer_class_key"] = labels
+                row["selected_answer_class_key"] = selected_key
+                pair_judge_rows.append(row)
+                pair_selections.append(selected_key)
+
+        physical_rows.extend(
+            [
+                *resample_rows,
+                *([selector_row] if selector_row is not None else []),
+                *witness_rows,
+                *direct_rows,
+                *pair_judge_rows,
+            ]
+        )
+
+    adaptive = build_stage_decision(
+        [*stage_rows, *resample_rows],
+        seed=experiment.global_seed,
+        sample_id=sample.sample_id,
+    )
+    adaptive_answer = adaptive.anchor_answer or stage.anchor_answer
+    candidate_oracle = any(_score(sample, candidate.answer) == 1.0 for candidate in stage.candidates)
+    target_keys = {stage.anchor_key, *(pair.challenger_key for pair in pairs)}
+    target_oracle = any(
+        candidate.key in target_keys and _score(sample, candidate.answer) == 1.0
+        for candidate in stage.candidates
+    )
+    gold_candidate_key = next(
+        (candidate.key for candidate in stage.candidates if _score(sample, candidate.answer) == 1.0),
+        None,
+    )
+    common_extra = {
+        "target_oracle_correct": target_oracle,
+        "gold_candidate_key": gold_candidate_key,
+        "target_candidate_count": len(target_keys),
+        "protocol_version": "catch_v3",
+    }
+    predictions = [
+        _prediction(
+            sample,
+            run_id,
+            split_name,
+            "sc_5",
+            stage.anchor_answer,
+            stage.anchor_answer,
+            stage,
+            stage_rows,
+            [],
+            False,
+            "stage_a_plurality",
+            candidate_oracle,
+            extra=common_extra,
+        ),
+        _prediction(
+            sample,
+            run_id,
+            split_name,
+            "adaptive_sc_8",
+            adaptive_answer,
+            stage.anchor_answer,
+            stage,
+            [*stage_rows, *resample_rows],
+            resample_rows,
+            adaptive_answer != stage.anchor_answer,
+            "adaptive_answer_class_plurality" if stage.triggered else "no_answer_class_disagreement",
+            candidate_oracle,
+            extra=common_extra,
+        ),
+        _prediction(
+            sample,
+            run_id,
+            split_name,
+            "catch",
+            decision.answer,
+            stage.anchor_answer,
+            stage,
+            [
+                *stage_rows,
+                *([selector_row] if selector_row is not None else []),
+                *witness_rows,
+            ],
+            [*([selector_row] if selector_row is not None else []), *witness_rows],
+            decision.override_accepted,
+            decision.resolver,
+            candidate_oracle,
+            extra={
+                **common_extra,
+                "eligible_challenger_count": len(validation.eligible_challengers),
+                "validated_contrast_count": len(validation.coordinates),
+            },
+        ),
+    ]
+    if run_direct_judge:
+        direct_answer, direct_override, direct_resolver = (
+            decide_direct_judges(stage, direct_selections)
+            if stage.triggered
+            else (stage.anchor_answer, False, "no_answer_class_disagreement")
+        )
+        pair_answer, pair_override, pair_resolver = (
+            decide_direct_judges(stage, pair_selections)
+            if stage.triggered
+            else (stage.anchor_answer, False, "no_answer_class_disagreement")
+        )
+        predictions.extend(
+            [
+                _prediction(
+                    sample,
+                    run_id,
+                    split_name,
+                    "direct_judge_3",
+                    direct_answer,
+                    stage.anchor_answer,
+                    stage,
+                    [*stage_rows, *direct_rows],
+                    direct_rows,
+                    direct_override,
+                    direct_resolver,
+                    candidate_oracle,
+                    extra=common_extra,
+                ),
+                _prediction(
+                    sample,
+                    run_id,
+                    split_name,
+                    "pair_judge_3",
+                    pair_answer,
+                    stage.anchor_answer,
+                    stage,
+                    [*stage_rows, *pair_judge_rows],
+                    pair_judge_rows,
+                    pair_override,
+                    pair_resolver,
+                    candidate_oracle,
+                    extra=common_extra,
+                ),
+            ]
+        )
+
+    router = {
+        "run_id": run_id,
+        "dataset": sample.dataset,
+        "split": split_name,
+        "sample_id": sample.sample_id,
+        "task": sample.metadata.get("task"),
+        "phase_name": phase_name,
+        "protocol_version": "catch_v3",
+        "triggered": stage.triggered,
+        "valid_stage_answers": stage.valid_count,
+        "anchor_answer": stage.anchor_answer,
+        "anchor_key": stage.anchor_key,
+        "answer_class_vote_counts": stage.vote_counts,
+        "candidate_count": len(stage.candidates),
+        "candidate_oracle_correct": candidate_oracle,
+        "target_oracle_correct": target_oracle,
+        "gold_candidate_key": gold_candidate_key,
+        "target_pairs": [
+            {
+                "pair_id": pair.pair_id,
+                "anchor_key": pair.anchor_key,
+                "challenger_key": pair.challenger_key,
+                "left_candidate_key": pair.left_candidate_key,
+                "right_candidate_key": pair.right_candidate_key,
+            }
+            for pair in pairs
+        ],
+        "selector_protocol_error": validation.protocol_error,
+        "dropped_contrasts": list(validation.dropped),
+        "validated_contrasts": [coordinate_to_dict(item) for item in validation.coordinates],
+        "eligible_challengers": list(validation.eligible_challengers),
+        "witness_panels": [
+            {
+                "top_level_valid": panel.top_level_valid,
+                "observations": panel.observations,
+                "valid_coordinate_count": panel.valid_coordinate_count,
+                "decisive_coordinate_count": panel.decisive_coordinate_count,
+            }
+            for panel in panels
+        ],
+        "decision": {
+            "answer_key": decision.answer_key,
+            "override_accepted": decision.override_accepted,
+            "resolver": decision.resolver,
+            "passing_challengers": list(decision.passing_challengers),
+            "panel_diagnostics": list(decision.panel_diagnostics),
+        },
+        "direct_judge_selections": direct_selections,
+        "pair_judge_selections": pair_selections,
+    }
+    return physical_rows, router, predictions
+
+
+def _target_judge_labels(keys: list[str], *, seed: int, sample_id: str) -> dict[str, str]:
+    unique = list(dict.fromkeys(key for key in keys if key))
+    random_seed = int(_sha256(f"{seed}\0{sample_id}\0pair-judge")[:16], 16)
+    import random
+
+    random.Random(random_seed).shuffle(unique)
+    return {f"J{index}": key for index, key in enumerate(unique)}
+
+
 def _answer_turn(
     sample: DatasetSample,
     *,
@@ -471,6 +933,19 @@ def _answer_turn(
         raise
     raw_answer = str(result.validated_output.get("final_answer") or "")
     canonical = canonicalize_answer(sample, raw_answer) if result.output_status == "ok" else None
+    parsed_valid = result.validated_output.get("canonical_valid")
+    if parsed_valid is False:
+        canonical = None
+    canonical_key = (
+        str(result.validated_output.get("canonical_key") or "")
+        if parsed_valid is True
+        else canonical.key if canonical is not None and canonical.valid else ""
+    )
+    invalid_reason = (
+        str(result.validated_output.get("canonical_invalid_reason") or "invalid_sample_answer_output")
+        if parsed_valid is False
+        else canonical.invalid_reason if canonical is not None else "request_or_protocol_failure"
+    )
     row = _turn_base(
         run_id,
         sample,
@@ -486,10 +961,10 @@ def _answer_turn(
         result.request_error,
         result.raw_finish_reason,
         result.usage,
-        "ok" if canonical is not None and canonical.valid else "failed",
+        "ok" if canonical_key else "failed",
         dict(result.validated_output),
-        canonical.key if canonical is not None and canonical.valid else "",
-        canonical.invalid_reason if canonical is not None else "request_or_protocol_failure",
+        canonical_key,
+        invalid_reason,
         request_count=result.request_count,
         cache_request_count=result.cache_request_count,
         network_request_count=result.network_request_count,
@@ -609,12 +1084,19 @@ def _turn_base(
         "payload": payload,
         "cache_key": cache_key,
         "cache_namespace": None,
-        "request_source": "catch_v2_role_cache",
+        "request_source": "role_cache_pending",
         "prompt_hash": _sha256(json.dumps(payload.get("messages") or [], ensure_ascii=False, sort_keys=True)),
         "cache_hit": cache_hit,
         "request_error": request_error,
         "request_status": "request_fail" if request_error else "ok",
         "raw_finish_reason": finish_reason,
+        "provider_request_id": response.get("provider_request_id"),
+        "response_id": response.get("response_id"),
+        "attempt_timeline": [] if cache_hit else list(response.get("attempt_timeline") or []),
+        "cached_response_origin_attempt_timeline": (
+            list(response.get("attempt_timeline") or []) if cache_hit else []
+        ),
+        "cache_lookup_timeline": dict(response.get("cache_lookup_timeline") or {}),
         "network_attempt_count": network_request_count,
         "network_request_count": network_request_count,
         "request_count": request_count,

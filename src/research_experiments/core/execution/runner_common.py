@@ -5,6 +5,7 @@ import time
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, TypeVar
@@ -132,7 +133,11 @@ def execute_cached_request(
         request_model=backbone.model_id,
         payload=payload,
     )
+    cache_lookup_started_at = datetime.now(UTC).isoformat()
+    cache_lookup_started = time.monotonic()
     cached = cache.get(cache_key)
+    cache_lookup_ms = max(0.0, (time.monotonic() - cache_lookup_started) * 1000)
+    cache_lookup_finished_at = datetime.now(UTC).isoformat()
     if cached is None:
         response_payload = _execute_request_with_retries(
             payload=payload,
@@ -158,6 +163,14 @@ def execute_cached_request(
     else:
         response_payload = json.loads(cached.response_json)
         cache_hit = True
+
+    response_payload = dict(response_payload)
+    response_payload["cache_lookup_timeline"] = {
+        "started_at": cache_lookup_started_at,
+        "finished_at": cache_lookup_finished_at,
+        "duration_ms": cache_lookup_ms,
+        "hit": cache_hit,
+    }
 
     usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
     request_error = response_payload.get("request_error")
@@ -187,11 +200,28 @@ def _execute_request_with_retries(
     )
     last: dict[str, Any] = {}
     request_started_at_events: list[str] = []
+    attempt_timeline: list[dict[str, Any]] = []
     for attempt in range(1, max_attempts + 1):
         last = dict(executor(payload, provider, throttle))
         started_at = last.get("request_started_at")
         if started_at:
             request_started_at_events.append(str(started_at))
+        attempt_timeline.append(
+            {
+                "attempt_index": attempt,
+                "queued_at": last.get("network_queued_at"),
+                "rate_admitted_at": last.get("rate_admitted_at"),
+                "network_started_at": last.get("network_started_at") or started_at,
+                "network_finished_at": last.get("network_finished_at"),
+                "latency_ms": last.get("latency_ms"),
+                "throttle_wait_ms": last.get("throttle_wait_ms"),
+                "http_status": last.get("http_status"),
+                "error": last.get("request_error"),
+                "provider_request_id": last.get("provider_request_id"),
+                "response_id": last.get("response_id"),
+                "retry_delay_seconds": None,
+            }
+        )
         status = last.get("http_status")
         retryable = bool(last.get("request_error")) and (
             status is None or int(status) == 429 or 500 <= int(status) < 600
@@ -199,9 +229,11 @@ def _execute_request_with_retries(
         if not retryable or attempt == max_attempts:
             last["network_attempt_count"] = attempt
             last["request_started_at_events"] = request_started_at_events
+            last["attempt_timeline"] = attempt_timeline
             return last
         suggested = last.get("retry_after_seconds")
         delay = float(suggested) if suggested is not None else min(float(2 ** (attempt - 1)), 30.0)
+        attempt_timeline[-1]["retry_delay_seconds"] = max(0.0, delay)
         time.sleep(max(0.0, delay))
     return last
 

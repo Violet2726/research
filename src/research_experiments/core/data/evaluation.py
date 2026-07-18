@@ -77,7 +77,7 @@ def normalize_gold(dataset: str, answer: str) -> str:
     return normalize_prediction(dataset, answer)
 
 
-def canonicalize_answer(sample: "DatasetSample", raw_answer: str) -> AnswerCanonicalization:
+def canonicalize_answer(sample: DatasetSample, raw_answer: str) -> AnswerCanonicalization:
     """Canonicalize an answer using the current sample's exact answer contract.
 
     BBEH includes both free-form tasks and multiple-choice tasks.  For the
@@ -98,10 +98,18 @@ def canonicalize_answer(sample: "DatasetSample", raw_answer: str) -> AnswerCanon
     if not isinstance(options, list) or not options:
         key = _bbeh_format_key(value)
         return AnswerCanonicalization(key, bool(key), None if key else "empty_normalized_answer")
+    contract = sample.metadata.get("answer_contract")
+    selection_mode = (
+        str(contract.get("selection_mode") or "")
+        if isinstance(contract, dict)
+        else str(sample.metadata.get("option_selection_mode") or "")
+    )
+    if selection_mode == "concatenated":
+        return _canonicalize_bbeh_multi_select(value, options)
     return _canonicalize_bbeh_multiple_choice(value, options)
 
 
-def answer_class_key(dataset: str, answer: str, *, sample: "DatasetSample | None" = None) -> str:
+def answer_class_key(dataset: str, answer: str, *, sample: DatasetSample | None = None) -> str:
     """Return the conservative, label-free equivalence key used by voting and scoring.
 
     BBEH's official scorer accepts a small set of formatting variants.  Keeping
@@ -163,11 +171,10 @@ def _canonicalize_bbeh_multiple_choice(
         return AnswerCanonicalization("", False, "invalid_option_metadata")
 
     value = _strip_bbeh_answer_wrapper(raw_answer)
-    label_match = re.fullmatch(r"\(?\s*([A-Za-z])\s*\)?\s*(?:[\]\).:]\s*)?(.*)", value, flags=re.DOTALL)
-    explicit_label = bool(re.match(r"^\s*\(?\s*[A-Za-z](?:\s*\)?\s*(?:[\]\).:]|\s)|\s*$)", value))
-    if label_match and (label_match.group(1).upper() in option_by_label or explicit_label):
-        label = label_match.group(1).upper()
-        remainder = _exact_option_text(label_match.group(2))
+    label_match = _match_bbeh_option_label(value)
+    if label_match is not None:
+        label, raw_remainder = label_match
+        remainder = _exact_option_text(raw_remainder)
         if label not in option_by_label:
             return AnswerCanonicalization("", False, "unknown_option_label")
         if not remainder:
@@ -185,10 +192,75 @@ def _canonicalize_bbeh_multiple_choice(
     return AnswerCanonicalization("", False, "unmapped_option_answer")
 
 
+def _canonicalize_bbeh_multi_select(
+    raw_answer: str,
+    options: list[object],
+) -> AnswerCanonicalization:
+    option_by_label: dict[str, str] = {}
+    labels_by_text: dict[str, list[str]] = {}
+    for option in options:
+        if not isinstance(option, dict):
+            continue
+        label = str(option.get("label") or "").strip().upper()
+        text = _exact_option_text(str(option.get("text") or ""))
+        if not re.fullmatch(r"[A-Z]", label) or not text or label in option_by_label:
+            continue
+        option_by_label[label] = text
+        labels_by_text.setdefault(text, []).append(label)
+    if not option_by_label:
+        return AnswerCanonicalization("", False, "invalid_option_metadata")
+
+    value = _strip_bbeh_answer_wrapper(raw_answer)
+    exact_labels = labels_by_text.get(_exact_option_text(value), [])
+    if len(exact_labels) == 1:
+        return AnswerCanonicalization(exact_labels[0], True)
+    if len(exact_labels) > 1:
+        return AnswerCanonicalization("", False, "ambiguous_option_text")
+
+    labelled = _match_bbeh_option_label(value)
+    if labelled is not None and labelled[1]:
+        label, remainder = labelled
+        if label not in option_by_label:
+            return AnswerCanonicalization("", False, "unknown_option_label")
+        if _exact_option_text(remainder) == option_by_label[label]:
+            return AnswerCanonicalization(label, True)
+        return AnswerCanonicalization("", False, "label_text_conflict")
+
+    if re.fullmatch(r"[A-Za-z]+", value) is None:
+        return AnswerCanonicalization("", False, "invalid_multi_option_format")
+    labels = value.upper()
+    if len(set(labels)) != len(labels):
+        return AnswerCanonicalization("", False, "duplicate_multi_option_label")
+    if any(label not in option_by_label for label in labels):
+        return AnswerCanonicalization("", False, "unknown_option_label")
+    canonical = "".join(label for label in option_by_label if label in set(labels))
+    if labels != canonical:
+        return AnswerCanonicalization("", False, "multi_option_labels_out_of_order")
+    return AnswerCanonicalization(canonical, True)
+
+
+def _match_bbeh_option_label(value: str) -> tuple[str, str] | None:
+    parenthesized = re.fullmatch(
+        r"\(\s*([A-Za-z])\s*\)(?:\s+(.+))?",
+        value,
+        flags=re.DOTALL,
+    )
+    if parenthesized is not None:
+        return parenthesized.group(1).upper(), str(parenthesized.group(2) or "")
+    bare = re.fullmatch(
+        r"([A-Za-z])(?:[\]\).:]?)(?:\s+(.+))?",
+        value,
+        flags=re.DOTALL,
+    )
+    if bare is None:
+        return None
+    return bare.group(1).upper(), str(bare.group(2) or "")
+
+
 def _strip_bbeh_answer_wrapper(value: str) -> str:
     normalized = unicodedata.normalize("NFKC", str(value or "")).replace("\r\n", "\n").strip()
     normalized = re.sub(r"^(?:the\s+)?(?:final\s+)?answer\s+is\s*:?\s*", "", normalized, flags=re.IGNORECASE)
-    return normalized.strip().rstrip(".").strip()
+    return normalized.strip()
 
 
 def _exact_option_text(value: str) -> str:
@@ -200,7 +272,7 @@ def score_prediction(
     predicted: str,
     gold: str,
     *,
-    sample: "DatasetSample | None" = None,
+    sample: DatasetSample | None = None,
 ) -> float:
     """计算单题得分。
 
@@ -318,7 +390,7 @@ def normalize_bbeh_reference(value: str) -> str:
     return str(value or "").strip().lower().replace(", ", ",")
 
 
-def score_bbeh(predicted: str, gold: str, *, sample: "DatasetSample | None" = None) -> float:
+def score_bbeh(predicted: str, gold: str, *, sample: DatasetSample | None = None) -> float:
     predicted_key = answer_class_key("bbeh", predicted, sample=sample)
     gold_key = answer_class_key("bbeh", gold, sample=sample)
     return 1.0 if predicted_key and predicted_key == gold_key else 0.0

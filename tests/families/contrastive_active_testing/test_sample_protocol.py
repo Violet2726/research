@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
 
 from research_experiments.core.data.datasets import DatasetSample
+from research_experiments.families.contrastive_active_testing.artifact_replay import (
+    audit_v3_artifact_recomputation,
+)
 from research_experiments.families.contrastive_active_testing.config import CatchProtocolConfig
 from research_experiments.families.contrastive_active_testing.run import sample as sample_runner
 
@@ -21,6 +25,24 @@ def test_network_attempt_budget_reserves_exact_retry_bound() -> None:
     budget.settle(first, 3)
     budget.settle(second, 5)
     assert budget.actual == 8
+
+
+def test_network_attempt_budget_cannot_overreserve_under_competition() -> None:
+    budget = sample_runner.NetworkAttemptBudget(25)
+
+    def reserve_once(_index):
+        try:
+            return budget.reserve()
+        except sample_runner.NetworkAttemptLimitExceeded:
+            return 0
+
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        reservations = list(executor.map(reserve_once, range(100)))
+    assert sum(reservations) == 25
+    for reservation in reservations:
+        if reservation:
+            budget.settle(reservation, reservation)
+    assert budget.actual == 25
 
 
 def test_development_grid_keeps_each_catch_variant_at_five_plus_three_calls(monkeypatch) -> None:
@@ -44,6 +66,8 @@ def test_development_grid_keeps_each_catch_variant_at_five_plus_three_calls(monk
         calls.append(role)
         reasoning = "even fact first; parity check second; final relation third" if answer == "A" else "odd fact first; parity check second; final relation third"
         return {
+            "sample_id": sample.sample_id,
+            "role": role,
             "answer_class_key": answer,
             "normalized_answer": answer,
             "prediction": answer,
@@ -170,3 +194,118 @@ def test_empty_code_packet_abstains_without_witness_calls(monkeypatch) -> None:
         if row["method_name"].startswith("catch_d")
     )
     assert all(not variant["code_eligible"] for variant in router["catch_variants"])
+
+
+def test_v3_icv_runs_fixed_five_plus_three_and_pair_judge(monkeypatch) -> None:
+    sample = DatasetSample(
+        "bbeh",
+        "icv-integration",
+        "The beta facts are supported by the source.\nOptions:\n(A) alpha\n(B) beta",
+        "B",
+        "",
+        {"task": "unit", "options": [{"label": "A", "text": "alpha"}, {"label": "B", "text": "beta"}]},
+    )
+    protocol = CatchProtocolConfig(
+        5, 3, 2, 3, 6, 4, 0.7, 1.0, 16_384, 4_096, (2, 3, 4), (1, 2), 62_000,
+        protocol_version="catch_v3",
+        preflight_sample_count=20,
+        preflight_code_coverage_threshold=0.60,
+        preflight_coordinate_validity_threshold=0.95,
+        preflight_usable_pair_threshold=0.90,
+        coordinates_per_pair=3,
+        max_selected_contrasts=6,
+        pair_judge_count=3,
+        preflight_decisive_threshold=0.80,
+        preflight_panel_agreement_threshold=0.70,
+    )
+    stage_answers = {1: "A", 2: "A", 3: "A", 4: "B", 5: "B"}
+    calls: list[str] = []
+
+    def answer_turn(_sample, *, role, agent_id, **_kwargs):
+        answer = stage_answers[agent_id] if role == "stage_a_solver" else "B"
+        calls.append(role)
+        name = "alpha" if answer == "A" else "beta"
+        reasoning = (
+            f"The {name} premise is established from source. "
+            f"The {name} implication follows from context. "
+            f"The {name} boundary condition remains satisfied."
+        )
+        return {
+            "sample_id": sample.sample_id,
+            "role": role,
+            "answer_class_key": answer,
+            "normalized_answer": answer,
+            "prediction": answer,
+            "validated_output": {"reasoning": reasoning, "final_answer": answer},
+            "actual_total_tokens": 1,
+            "network_attempt_count": 1,
+        }
+
+    def json_turn(_sample, *, role, messages, **_kwargs):
+        calls.append(role)
+        content = messages[-1]["content"]
+        turn = {
+            "sample_id": sample.sample_id,
+            "role": role,
+            "actual_total_tokens": 1,
+            "network_attempt_count": 1,
+        }
+        if role == "icv_selector":
+            return turn, {
+                "contrasts": [
+                    {
+                        "pair_id": "P0",
+                        "contrast_id": f"C{index}",
+                        "left_unit_ids": [f"L:E{index}"],
+                        "right_unit_ids": [f"R:E{index}"],
+                    }
+                    for index in range(3)
+                ]
+            }
+        if role == "icv_witness":
+            contrasts = json.loads(re.search(r"Anonymous local contrasts:\n(.+?)\n\nFor every", content, re.S).group(1))
+            answers = []
+            for item in contrasts:
+                verdict = "LEFT_ONLY" if "beta" in item["statement_left"] else "RIGHT_ONLY"
+                answers.append({"contrast_id": item["contrast_id"], "verdict": verdict})
+            return turn, {"answers": answers}
+        selected = re.search(r'"id": "([HJ]\d+)", "answer": "B"', content).group(1)
+        return turn, {"selected_id": selected}
+
+    monkeypatch.setattr(sample_runner, "_answer_turn", answer_turn)
+    monkeypatch.setattr(sample_runner, "_json_turn", json_turn)
+    turns, router, predictions = sample_runner.run_catch_sample(
+        sample,
+        run_id="run",
+        split_name="dev",
+        experiment=SimpleNamespace(global_seed=42),
+        protocol=protocol,
+        endpoint=SimpleNamespace(cache_namespace="catch-dev-v3"),
+        network_budget=sample_runner.NetworkAttemptBudget(62_000),
+        phase_name="development",
+        frozen_decoding=None,
+        run_direct_judge=True,
+    )
+
+    by_method = {row["method_name"]: row for row in predictions}
+    assert len(turns) == 17
+    assert set(by_method) == {"sc_5", "adaptive_sc_8", "catch", "direct_judge_3", "pair_judge_3"}
+    assert by_method["catch"]["prediction"] == "B"
+    assert by_method["catch"]["logical_calls_per_question"] == 8
+    assert by_method["catch"]["actual_intervention_calls_per_question"] == 3
+    assert router["eligible_challengers"] == ["B"]
+    assert router["target_oracle_correct"] is True
+    assert calls.count("pair_judge") == 3
+    audit = audit_v3_artifact_recomputation(
+        turns=turns,
+        routers=[router],
+        predictions=predictions,
+    )
+    assert audit["passed"]
+    tampered = [dict(row) for row in predictions]
+    next(row for row in tampered if row["method_name"] == "catch")["prediction"] = "A"
+    assert not audit_v3_artifact_recomputation(
+        turns=turns,
+        routers=[router],
+        predictions=tampered,
+    )["passed"]

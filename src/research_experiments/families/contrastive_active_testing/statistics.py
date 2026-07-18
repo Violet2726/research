@@ -11,7 +11,7 @@ from scipy.stats import beta
 
 from research_experiments.reporting.paired_inference import paired_statistics
 
-BASE_METHODS = ("sc_5", "adaptive_sc_8", "catch", "direct_judge_3")
+BASE_METHODS = ("sc_5", "adaptive_sc_8", "catch", "direct_judge_3", "pair_judge_3")
 
 
 def materialize_development_catch(
@@ -99,7 +99,7 @@ def build_metrics(predictions: list[dict[str, Any]]) -> dict[str, Any]:
     paired = paired_statistics(
         predictions,
         reference="catch",
-        competitors=[method for method in ("adaptive_sc_8", "direct_judge_3", "sc_5") if method in available],
+        competitors=[method for method in ("adaptive_sc_8", "pair_judge_3", "direct_judge_3", "sc_5") if method in available],
         seed=42,
         bootstrap_samples=10_000,
         bbeh_harmonic=True,
@@ -114,32 +114,42 @@ def evaluate_gate(
     turns: list[dict[str, Any]],
     routers: list[dict[str, Any]],
     development_selection: dict[str, Any] | None = None,
+    protocol_version: str = "catch_v2",
 ) -> dict[str, Any]:
     summaries = {row["method_name"]: row for row in build_metrics(predictions)["summary"]}
     sc5 = summaries.get("sc_5", {})
     adaptive = summaries.get("adaptive_sc_8", {})
     catch = summaries.get("catch", {})
     judge = summaries.get("direct_judge_3", {})
+    pair_judge = summaries.get("pair_judge_3", {})
     catch_rows = [row for row in predictions if row.get("method_name") == "catch"]
     triggered = [row for row in routers if row.get("triggered")]
     selected_d_min = int(catch_rows[0].get("d_min") or 0) if catch_rows else 0
     selected_margin = int(catch_rows[0].get("margin") or 0) if catch_rows else 0
-    eligible = 0
-    for router in triggered:
-        variant = _router_variant(router, d_min=selected_d_min, margin=selected_margin)
-        if variant and any(
-            int(distance) >= selected_d_min
-            for distance in dict(variant.get("pair_distances") or {}).values()
-        ):
-            eligible += 1
+    if protocol_version == "catch_v3":
+        eligible = sum(bool(router.get("eligible_challengers")) for router in triggered)
+    else:
+        eligible = 0
+        for router in triggered:
+            variant = _router_variant(router, d_min=selected_d_min, margin=selected_margin)
+            if variant and any(
+                int(distance) >= selected_d_min
+                for distance in dict(variant.get("pair_distances") or {}).values()
+            ):
+                eligible += 1
     code_coverage = _ratio(eligible, len(triggered))
     overrides = [row for row in catch_rows if row.get("override_accepted")]
     correct_overrides = [row for row in overrides if float(row.get("score") or 0) == 1.0]
     precision = _ratio(len(correct_overrides), len(overrides))
     corrected = sum(bool(row.get("corrected_by_debate")) for row in catch_rows)
     harmed = sum(bool(row.get("harmed_by_debate")) for row in catch_rows)
+    panel_dependence = _v3_panel_dependence(routers)
+    observation_diagnostics = _v3_observation_diagnostics(routers, turns)
     structured_turns = [
-        row for row in turns if row.get("role") in {"test_designer", "blinded_witness", "direct_judge"}
+        row
+        for row in turns
+        if row.get("role")
+        in {"test_designer", "blinded_witness", "direct_judge", "icv_selector", "icv_witness", "pair_judge"}
     ]
     parse_rate = _ratio(
         sum(row.get("protocol_parse_status") == "ok" for row in structured_turns),
@@ -159,7 +169,34 @@ def evaluate_gate(
         "actual_tokens_not_above_adaptive": float(catch.get("mean_total_tokens") or 0)
         <= float(adaptive.get("mean_total_tokens") or 0),
     }
-    if phase_name == "development":
+    if phase_name == "development" and protocol_version == "catch_v3":
+        strongest_judge = max(
+            float(judge.get("micro_accuracy") or 0),
+            float(pair_judge.get("micro_accuracy") or 0),
+        )
+        conditions = {
+            **common,
+            "code_packet_on_40_percent_of_disagreements": code_coverage >= 0.40,
+            "candidate_oracle_micro_at_least_5pp_over_sc5": float(catch.get("candidate_oracle_micro") or 0)
+            - float(sc5.get("micro_accuracy") or 0)
+            >= 0.05,
+            "target_oracle_micro_at_least_8pp_over_sc5": float(catch.get("target_oracle_micro") or 0)
+            - float(sc5.get("micro_accuracy") or 0)
+            >= 0.08,
+            "target_oracle_micro_at_least_5pp_over_adaptive": float(catch.get("target_oracle_micro") or 0)
+            - float(adaptive.get("micro_accuracy") or 0)
+            >= 0.05,
+            "catch_micro_at_least_3pp_over_adaptive": float(catch.get("micro_accuracy") or 0)
+            - float(adaptive.get("micro_accuracy") or 0)
+            >= 0.03,
+            "catch_micro_at_least_2pp_over_strongest_judge": float(catch.get("micro_accuracy") or 0)
+            - strongest_judge
+            >= 0.02,
+            "net_corrections_at_least_three": corrected - harmed >= 3,
+            "override_precision_at_least_65_percent": precision >= 0.65,
+            "fixed_decoder_no_dev_search": development_selection is None,
+        }
+    elif phase_name == "development":
         conditions = {
             **common,
             "code_packet_on_40_percent_of_disagreements": code_coverage >= 0.40,
@@ -177,6 +214,23 @@ def evaluate_gate(
             "grid_selection_constraints_passed": bool(
                 (development_selection or {}).get("positive_constraints_satisfied")
             ),
+        }
+    elif phase_name == "heldout" and protocol_version == "catch_v3":
+        conditions = {
+            **common,
+            "code_packet_on_40_percent_of_disagreements": code_coverage >= 0.40,
+            "catch_task_harmonic_at_least_2pp_over_adaptive": float(catch.get("task_harmonic_accuracy") or 0)
+            - float(adaptive.get("task_harmonic_accuracy") or 0)
+            >= 0.02,
+            "catch_micro_not_below_pair_judge": float(catch.get("micro_accuracy") or 0)
+            >= float(pair_judge.get("micro_accuracy") or 0),
+            "catch_micro_not_below_direct_judge": float(catch.get("micro_accuracy") or 0)
+            >= float(judge.get("micro_accuracy") or 0),
+            "corrected_exceeds_harmed": corrected > harmed,
+            "override_precision_exact_one_sided_95_lower_above_half": _clopper_pearson_lower(
+                len(correct_overrides), len(overrides), alpha=0.05
+            )
+            > 0.5,
         }
     elif phase_name == "heldout":
         conditions = {
@@ -197,14 +251,21 @@ def evaluate_gate(
     else:
         raise ValueError(f"Unsupported CATCH gate phase {phase_name!r}.")
     return {
-        "gate_name": f"catch_{phase_name}_v1",
+        "gate_name": f"catch_{phase_name}_{protocol_version}",
         "passed": all(conditions.values()),
         "conditions": conditions,
         "evidence": {
             "summary": summaries,
             "triggered_count": len(triggered),
-            "selected_d_min": selected_d_min,
-            "selected_margin": selected_margin,
+            **(
+                {
+                    "decoder": "fixed_two_of_three_dual_panel_unique_challenger",
+                    "coordinates_per_pair": 3,
+                    "development_threshold_search": False,
+                }
+                if protocol_version == "catch_v3"
+                else {"selected_d_min": selected_d_min, "selected_margin": selected_margin}
+            ),
             "code_eligible_count": eligible,
             "code_packet_coverage": code_coverage,
             "structured_turn_count": len(structured_turns),
@@ -222,6 +283,9 @@ def evaluate_gate(
             "corrected": corrected,
             "harmed": harmed,
             "development_selection": development_selection,
+            "protocol_version": protocol_version,
+            "panel_false_pass_dependence": panel_dependence,
+            "witness_position_and_agreement": observation_diagnostics,
         },
     }
 
@@ -230,13 +294,18 @@ def _summary(method: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     scores = [float(row.get("score") or 0) for row in rows]
     per_task: dict[str, list[float]] = defaultdict(list)
     oracle_per_task: dict[str, list[float]] = defaultdict(list)
+    target_oracle_per_task: dict[str, list[float]] = defaultdict(list)
     for row in rows:
         task = str(row.get("task") or "unknown")
         per_task[task].append(float(row.get("score") or 0))
         oracle_per_task[task].append(float(bool(row.get("candidate_oracle_correct"))))
+        target_oracle_per_task[task].append(float(bool(row.get("target_oracle_correct"))))
     task_accuracies = {task: sum(values) / len(values) for task, values in per_task.items() if values}
     oracle_task_accuracies = {
         task: sum(values) / len(values) for task, values in oracle_per_task.items() if values
+    }
+    target_oracle_task_accuracies = {
+        task: sum(values) / len(values) for task, values in target_oracle_per_task.items() if values
     }
     return {
         "method_name": method,
@@ -248,6 +317,10 @@ def _summary(method: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
             sum(bool(row.get("candidate_oracle_correct")) for row in rows), len(rows)
         ),
         "candidate_oracle_task_harmonic": _harmonic_mean(oracle_task_accuracies.values()),
+        "target_oracle_micro": _ratio(
+            sum(bool(row.get("target_oracle_correct")) for row in rows), len(rows)
+        ),
+        "target_oracle_task_harmonic": _harmonic_mean(target_oracle_task_accuracies.values()),
         "mean_total_tokens": _ratio(
             sum(float(row.get("total_tokens_per_question") or 0) for row in rows), len(rows)
         ),
@@ -263,6 +336,92 @@ def _router_variant(router: dict[str, Any], *, d_min: int, margin: int) -> dict[
         if int(variant.get("d_min") or -1) == d_min and int(variant.get("margin") or -1) == margin:
             return variant
     return None
+
+
+def _v3_panel_dependence(routers: list[dict[str, Any]]) -> dict[str, Any]:
+    false_passes: list[tuple[int, int]] = []
+    for router in routers:
+        if router.get("protocol_version") != "catch_v3":
+            continue
+        gold_key = router.get("gold_candidate_key")
+        grouped: dict[str, dict[int, bool]] = defaultdict(dict)
+        for row in (router.get("decision") or {}).get("panel_diagnostics") or []:
+            challenger = str(row.get("challenger_key") or "")
+            panel_index = int(row.get("panel_index") or 0)
+            if challenger and panel_index in {1, 2}:
+                grouped[challenger][panel_index] = bool(row.get("passed"))
+        for challenger, panels in grouped.items():
+            if challenger == gold_key or set(panels) != {1, 2}:
+                continue
+            false_passes.append((int(panels[1]), int(panels[2])))
+    first_rate = _ratio(sum(first for first, _ in false_passes), len(false_passes))
+    second_rate = _ratio(sum(second for _, second in false_passes), len(false_passes))
+    joint_rate = _ratio(
+        sum(first and second for first, second in false_passes),
+        len(false_passes),
+    )
+    denominator = math.sqrt(
+        first_rate * (1 - first_rate) * second_rate * (1 - second_rate)
+    )
+    correlation = (
+        (joint_rate - first_rate * second_rate) / denominator
+        if denominator > 0
+        else None
+    )
+    return {
+        "false_challenger_panel_pair_count": len(false_passes),
+        "panel_1_false_pass_rate": first_rate,
+        "panel_2_false_pass_rate": second_rate,
+        "joint_false_pass_rate": joint_rate,
+        "bernoulli_correlation": correlation,
+        "correlation_defined": correlation is not None,
+    }
+
+
+def _v3_observation_diagnostics(
+    routers: list[dict[str, Any]],
+    turns: list[dict[str, Any]],
+) -> dict[str, Any]:
+    comparable = 0
+    agreements = 0
+    for router in routers:
+        panels = router.get("witness_panels") or []
+        if len(panels) != 2:
+            continue
+        first = dict(panels[0].get("observations") or {})
+        second = dict(panels[1].get("observations") or {})
+        for coordinate_id in set(first) & set(second):
+            left = first[coordinate_id]
+            right = second[coordinate_id]
+            if "ERASURE" in {left, right}:
+                continue
+            comparable += 1
+            agreements += int(left == right)
+
+    verdict_counts = {verdict: 0 for verdict in ("LEFT_ONLY", "RIGHT_ONLY", "BOTH", "NEITHER")}
+    for turn in turns:
+        if turn.get("role") != "icv_witness":
+            continue
+        known_ids = set((turn.get("witness_packet") or {}).get("public_to_internal") or {})
+        by_id: dict[str, list[str]] = defaultdict(list)
+        for row in (turn.get("validated_output") or {}).get("answers") or []:
+            if not isinstance(row, dict):
+                continue
+            public_id = str(row.get("contrast_id") or "")
+            verdict = str(row.get("verdict") or "")
+            if public_id in known_ids and verdict in verdict_counts:
+                by_id[public_id].append(verdict)
+        for verdicts in by_id.values():
+            if len(verdicts) == 1:
+                verdict_counts[verdicts[0]] += 1
+    decisive = verdict_counts["LEFT_ONLY"] + verdict_counts["RIGHT_ONLY"]
+    return {
+        "inverse_mapped_decisive_comparison_count": comparable,
+        "inverse_mapped_panel_agreement_count": agreements,
+        "inverse_mapped_panel_agreement_rate": _ratio(agreements, comparable),
+        "raw_verdict_counts": verdict_counts,
+        "left_only_share_among_decisive": _ratio(verdict_counts["LEFT_ONLY"], decisive),
+    }
 
 
 def _parse_variant(method_name: str) -> tuple[int, int]:

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import pytest
 
+from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.family_runtime.free_text_protocol import (
     parse_free_text_answer_output,
+    parse_sample_answer_output,
     task_format_ok,
 )
 
@@ -93,3 +95,27 @@ def test_parse_free_text_answer_output_does_not_guess_hotpot_natural_language() 
 def test_task_format_ok_enforces_multiple_choice_letter() -> None:
     assert task_format_ok("gpqa_diamond", "C") is True
     assert task_format_ok("gpqa_diamond", "Option C") is False
+
+
+def test_sample_parser_rejects_conflicting_duplicate_final_answers() -> None:
+    sample = DatasetSample(
+        "bbeh", "duplicate", "q", "A", "", {"options": [{"label": "A", "text": "yes"}, {"label": "B", "text": "no"}]}
+    )
+    payload = parse_sample_answer_output(
+        sample,
+        "REASONING: first\nFINAL_ANSWER: A\n</think>\nREASONING: second\nFINAL_ANSWER: B",
+    )
+    assert payload["canonical_valid"] is False
+    assert payload["canonical_invalid_reason"] == "conflicting_duplicate_final_answer"
+
+
+def test_sample_parser_accepts_equivalent_duplicate_forms_and_truncates_think_pollution() -> None:
+    sample = DatasetSample(
+        "bbeh", "duplicate", "q", "A", "", {"options": [{"label": "A", "text": "yes"}]}
+    )
+    payload = parse_sample_answer_output(
+        sample,
+        "REASONING: first\nFINAL_ANSWER: (A)</think>REASONING: polluted\nFINAL_ANSWER: A",
+    )
+    assert payload["canonical_valid"] is True
+    assert payload["canonical_key"] == "A"

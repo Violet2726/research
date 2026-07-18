@@ -17,6 +17,7 @@ from research_experiments.core.execution.runner_common import (
 from research_experiments.family_runtime.free_text_protocol import (
     FREE_TEXT_ANSWER_PROTOCOL_V1,
     parse_free_text_answer_output,
+    parse_sample_answer_output,
 )
 from research_experiments.family_runtime.json_object_protocol import (
     JSON_OBJECT_ANSWER_PROTOCOL_V3,
@@ -88,7 +89,12 @@ def execute_output_protocol_turn(
         max_tokens=max_tokens,
         request_executor=request_executor,
     )
-    return _finalize_turn_result(request, dataset=dataset, output_protocol=output_protocol)
+    return _finalize_turn_result(
+        request,
+        dataset=dataset,
+        output_protocol=output_protocol,
+        sample=sample,
+    )
 
 
 def refresh_output_protocol_turn(
@@ -101,7 +107,7 @@ def refresh_output_protocol_turn(
     throttle: RequestThrottle | None,
     output_protocol: OutputProtocol,
 ) -> OutputProtocolTurnResult:
-    del sample, backbone, provider, cache, throttle
+    del backbone, provider, cache, throttle
     response_payload = {
         "assistant_text": str(row.get("assistant_text") or ""),
         "provider_reasoning_text": str(row.get("provider_reasoning_text") or ""),
@@ -122,7 +128,12 @@ def refresh_output_protocol_turn(
             "total_tokens": float(row.get("raw_total_tokens") or row.get("total_tokens") or 0.0),
         },
     )
-    refreshed = _finalize_turn_result(request, dataset=str(row.get("dataset") or ""), output_protocol=output_protocol)
+    refreshed = _finalize_turn_result(
+        request,
+        dataset=str(row.get("dataset") or ""),
+        output_protocol=output_protocol,
+        sample=sample,
+    )
     return OutputProtocolTurnResult(
         payload=request.payload,
         prompt_hash=refreshed.prompt_hash,
@@ -219,6 +230,7 @@ def _finalize_turn_result(
     *,
     dataset: str,
     output_protocol: OutputProtocol,
+    sample: DatasetSample | None = None,
 ) -> OutputProtocolTurnResult:
     request_status = "request_fail" if request.request_error else "ok"
     network_attempts = 0 if request.cache_hit else max(
@@ -250,6 +262,7 @@ def _finalize_turn_result(
         str(request.response_payload.get("assistant_text") or ""),
         dataset=dataset,
         output_protocol=output_protocol,
+        sample=sample,
     )
     output_status = "ok" if parsed.status == "ok" else "protocol_fail"
     return OutputProtocolTurnResult(
@@ -279,6 +292,7 @@ def _parse_output_protocol_response(
     *,
     dataset: str,
     output_protocol: OutputProtocol,
+    sample: DatasetSample | None = None,
 ) -> ParsedOutputProtocol:
     cleaned = str(raw_text or "").strip()
     if not cleaned:
@@ -294,9 +308,10 @@ def _parse_output_protocol_response(
         if output_protocol == JSON_OBJECT_ANSWER_PROTOCOL_V3:
             validated = parse_json_object_answer_output(cleaned, dataset=dataset)
         else:
-            validated = parse_free_text_answer_output(
-                cleaned,
-                dataset=dataset,
+            validated = (
+                parse_sample_answer_output(sample, cleaned)
+                if sample is not None
+                else parse_free_text_answer_output(cleaned, dataset=dataset)
             )
         return ParsedOutputProtocol(
             status="ok",

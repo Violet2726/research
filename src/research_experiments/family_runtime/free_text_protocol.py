@@ -5,7 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from research_experiments.core.data.evaluation import normalize_prediction
+from research_experiments.core.data.datasets import DatasetSample
+from research_experiments.core.data.evaluation import canonicalize_answer, normalize_prediction
 from research_experiments.core.prompts.dataset_contracts import build_tagged_lines_system_prompt
 
 FREE_TEXT_ANSWER_PROTOCOL_V1 = "free_text_answer_v1"
@@ -94,6 +95,99 @@ def parse_free_text_answer_output(
         return fallback
 
     raise strict_error
+
+
+def parse_sample_answer_output(
+    sample: DatasetSample,
+    raw_text: str,
+) -> dict[str, Any]:
+    """Parse every explicit final marker and canonicalize them as one answer.
+
+    Some OpenAI-compatible transports have returned a complete tagged answer,
+    a ``</think>`` separator, and a second complete answer in the same text.
+    Selecting the first marker can therefore absorb the second reasoning trace
+    into the answer.  This parser accepts duplication only when every explicit
+    answer is valid for this sample and resolves to the same canonical class.
+    """
+
+    cleaned = _strip_code_fences(str(raw_text or "").strip())
+    if not cleaned:
+        return _invalid_sample_answer_output("empty_assistant_output")
+    raw_answers = _explicit_final_answers(cleaned)
+    if not raw_answers:
+        try:
+            parsed = parse_free_text_answer_output(cleaned, dataset=sample.dataset)
+        except ValueError:
+            return _invalid_sample_answer_output("missing_final_answer")
+        raw_answers = [str(parsed.get("final_answer") or "").strip()]
+        reasoning = str(parsed.get("reasoning") or "").strip()
+    else:
+        reasoning_matches = [
+            match.group(1).strip()
+            for match in re.finditer(
+                r"(?im)^\s*(?:REASONING|REASONNING|REASON|RATIONALE|WHY)\s*:\s*(.*?)\s*$",
+                cleaned,
+            )
+            if match.group(1).strip()
+        ]
+        reasoning = _collapse_whitespace(reasoning_matches[-1]) if reasoning_matches else _fallback_reasoning(cleaned)
+
+    canonical = [canonicalize_answer(sample, answer) for answer in raw_answers]
+    invalid = next((item.invalid_reason for item in canonical if not item.valid), None)
+    keys = {item.key for item in canonical if item.valid}
+    if invalid is not None or len(keys) != 1:
+        reason = invalid or "conflicting_duplicate_final_answer"
+        return {
+            "final_answer": "",
+            "reasoning": reasoning,
+            "raw_final_answers": raw_answers,
+            "canonical_answer_key": "",
+            "canonicalization_valid": False,
+            "canonicalization_invalid_reason": reason,
+            "canonical_key": "",
+            "canonical_valid": False,
+            "canonical_invalid_reason": reason,
+        }
+    key = next(iter(keys))
+    return {
+        "final_answer": raw_answers[-1],
+        "reasoning": reasoning,
+        "raw_final_answers": raw_answers,
+        "canonical_answer_key": key,
+        "canonicalization_valid": True,
+        "canonicalization_invalid_reason": None,
+        "canonical_key": key,
+        "canonical_valid": True,
+        "canonical_invalid_reason": None,
+    }
+
+
+def _invalid_sample_answer_output(reason: str) -> dict[str, Any]:
+    return {
+        "final_answer": "",
+        "reasoning": "",
+        "raw_final_answers": [],
+        "canonical_answer_key": "",
+        "canonicalization_valid": False,
+        "canonicalization_invalid_reason": reason,
+        "canonical_key": "",
+        "canonical_valid": False,
+        "canonical_invalid_reason": reason,
+    }
+
+
+def _explicit_final_answers(cleaned: str) -> list[str]:
+    values: list[str] = []
+    for match in re.finditer(r"(?im)^\s*FINAL_ANSWER\s*:\s*(.*?)\s*$", cleaned):
+        value = re.split(
+            r"(?i)</?think>|\b(?:REASONING|REASONNING|REASON|RATIONALE|WHY|FINAL_ANSWER)\s*:",
+            match.group(1),
+            maxsplit=1,
+        )[0]
+        value = _clean_extracted_value(value)
+        if value:
+            values.append(value)
+    return values
 
 
 def _parse_strict_free_text_answer(cleaned: str, *, dataset: str) -> dict[str, Any]:

@@ -30,6 +30,11 @@ class CatchProtocolConfig:
     preflight_code_coverage_threshold: float = 0.0
     preflight_coordinate_validity_threshold: float = 0.0
     preflight_usable_pair_threshold: float = 0.0
+    coordinates_per_pair: int = 3
+    max_selected_contrasts: int = 6
+    pair_judge_count: int = 3
+    preflight_decisive_threshold: float = 0.0
+    preflight_panel_agreement_threshold: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -47,6 +52,7 @@ class CatchExperimentConfig:
     provider_audit_path: Path
     frozen_decoding_path: Path
     human_audit_path: Path
+    preflight_human_audit_path: Path
     raw: dict[str, Any]
 
 
@@ -58,14 +64,18 @@ def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
         resample_candidates=int(raw.get("resample_candidates", 3)),
         witness_count=int(raw.get("witness_count", 2)),
         direct_judge_count=int(raw.get("direct_judge_count", 3)),
-        max_proposed_tests=int(raw.get("max_proposed_tests", 6)),
-        max_selected_tests=int(raw.get("max_selected_tests", 4)),
+        max_proposed_tests=int(raw.get("max_proposed_tests", 0 if protocol_version == "catch_v3" else 6)),
+        max_selected_tests=int(raw.get("max_selected_tests", 0 if protocol_version == "catch_v3" else 4)),
         temperature=float(raw.get("temperature", 0.7)),
         top_p=float(raw.get("top_p", 1.0)),
         solver_max_tokens=int(raw.get("solver_max_tokens", 16_384)),
         role_max_tokens=int(raw.get("role_max_tokens", 4_096)),
-        d_min_grid=tuple(int(item) for item in raw.get("d_min_grid", [2, 3, 4])),
-        margin_grid=tuple(int(item) for item in raw.get("margin_grid", [1, 2])),
+        d_min_grid=tuple(
+            int(item) for item in raw.get("d_min_grid", [] if protocol_version == "catch_v3" else [2, 3, 4])
+        ),
+        margin_grid=tuple(
+            int(item) for item in raw.get("margin_grid", [] if protocol_version == "catch_v3" else [1, 2])
+        ),
         max_network_attempts=int(raw.get("max_network_attempts", 62_000)),
         protocol_version=protocol_version,
         preflight_sample_count=int(raw.get("preflight_sample_count", 0)),
@@ -75,20 +85,21 @@ def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
             raw.get("preflight_coordinate_validity_threshold", 0.0)
         ),
         preflight_usable_pair_threshold=float(raw.get("preflight_usable_pair_threshold", 0.0)),
+        coordinates_per_pair=int(raw.get("coordinates_per_pair", 3)),
+        max_selected_contrasts=int(raw.get("max_selected_contrasts", 6)),
+        pair_judge_count=int(raw.get("pair_judge_count", 3)),
+        preflight_decisive_threshold=float(raw.get("preflight_decisive_threshold", 0.0)),
+        preflight_panel_agreement_threshold=float(raw.get("preflight_panel_agreement_threshold", 0.0)),
     )
     required = {
         "stage_candidates": (config.stage_candidates, 5),
         "resample_candidates": (config.resample_candidates, 3),
         "witness_count": (config.witness_count, 2),
         "direct_judge_count": (config.direct_judge_count, 3),
-        "max_proposed_tests": (config.max_proposed_tests, 6),
-        "max_selected_tests": (config.max_selected_tests, 4),
         "temperature": (config.temperature, 0.7),
         "top_p": (config.top_p, 1.0),
         "solver_max_tokens": (config.solver_max_tokens, 16_384),
         "role_max_tokens": (config.role_max_tokens, 4_096),
-        "d_min_grid": (config.d_min_grid, (2, 3, 4)),
-        "margin_grid": (config.margin_grid, (1, 2)),
         "max_network_attempts": (config.max_network_attempts, 62_000),
     }
     invalid = [name for name, (actual, expected) in required.items() if actual != expected]
@@ -96,6 +107,10 @@ def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
         raise ValueError(f"{protocol_version} protocol has invalid frozen fields: " + ", ".join(invalid))
     if protocol_version == "catch_v2":
         v2_required = {
+            "max_proposed_tests": (config.max_proposed_tests, 6),
+            "max_selected_tests": (config.max_selected_tests, 4),
+            "d_min_grid": (config.d_min_grid, (2, 3, 4)),
+            "margin_grid": (config.margin_grid, (1, 2)),
             "preflight_sample_count": (config.preflight_sample_count, 20),
             "preflight_quote_alignment_threshold": (
                 config.preflight_quote_alignment_threshold,
@@ -111,7 +126,42 @@ def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
         invalid_v2 = [name for name, (actual, expected) in v2_required.items() if actual != expected]
         if invalid_v2:
             raise ValueError("CATCH v2 preflight fields are frozen: " + ", ".join(invalid_v2))
-    elif protocol_version != "catch_v1":
+    elif protocol_version == "catch_v3":
+        v3_required = {
+            "retired_max_proposed_tests": (config.max_proposed_tests, 0),
+            "retired_max_selected_tests": (config.max_selected_tests, 0),
+            "retired_d_min_grid": (config.d_min_grid, ()),
+            "retired_margin_grid": (config.margin_grid, ()),
+            "preflight_sample_count": (config.preflight_sample_count, 20),
+            "coordinates_per_pair": (config.coordinates_per_pair, 3),
+            "max_selected_contrasts": (config.max_selected_contrasts, 6),
+            "pair_judge_count": (config.pair_judge_count, 3),
+            "preflight_code_coverage_threshold": (config.preflight_code_coverage_threshold, 0.60),
+            "preflight_coordinate_validity_threshold": (
+                config.preflight_coordinate_validity_threshold,
+                0.95,
+            ),
+            "preflight_usable_pair_threshold": (config.preflight_usable_pair_threshold, 0.90),
+            "preflight_decisive_threshold": (config.preflight_decisive_threshold, 0.80),
+            "preflight_panel_agreement_threshold": (
+                config.preflight_panel_agreement_threshold,
+                0.70,
+            ),
+        }
+        invalid_v3 = [name for name, (actual, expected) in v3_required.items() if actual != expected]
+        if invalid_v3:
+            raise ValueError("CATCH v3 indexed-contrast fields are frozen: " + ", ".join(invalid_v3))
+    elif protocol_version == "catch_v1":
+        legacy_required = {
+            "max_proposed_tests": (config.max_proposed_tests, 6),
+            "max_selected_tests": (config.max_selected_tests, 4),
+            "d_min_grid": (config.d_min_grid, (2, 3, 4)),
+            "margin_grid": (config.margin_grid, (1, 2)),
+        }
+        invalid_legacy = [name for name, (actual, expected) in legacy_required.items() if actual != expected]
+        if invalid_legacy:
+            raise ValueError("CATCH v1 grid fields are frozen: " + ", ".join(invalid_legacy))
+    else:
         raise ValueError(f"Unsupported CATCH protocol version {protocol_version!r}.")
     return config
 
@@ -129,15 +179,20 @@ def load_experiment_config(path: str | Path) -> CatchExperimentConfig:
         raise ValueError(f"CATCH cache_namespaces must exactly contain {sorted(required_namespaces)}.")
     protocol_path = Path(str(raw["protocol"]))
     protocol = load_protocol_config(protocol_path)
+    namespace_version = protocol.protocol_version.removeprefix("catch_")
     expected_namespaces = {
         "provider_audit": "catch-provider-audit-v1",
-        "development": "catch-dev-v2" if protocol.protocol_version == "catch_v2" else "catch-dev-v1",
-        "heldout": "catch-heldout-v2" if protocol.protocol_version == "catch_v2" else "catch-heldout-v1",
-        "confirmation": "catch-confirm-v2" if protocol.protocol_version == "catch_v2" else "catch-confirm-v1",
+        "development": f"catch-dev-{namespace_version}",
+        "heldout": f"catch-heldout-{namespace_version}",
+        "confirmation": f"catch-confirm-{namespace_version}",
     }
     if namespaces != expected_namespaces:
         raise ValueError(f"{protocol.protocol_version} cache namespaces are frozen and must remain isolated.")
-    expected_baseline = {"development": "catch-dev-v1"} if protocol.protocol_version == "catch_v2" else {}
+    expected_baseline = (
+        {"development": "catch-dev-v1"}
+        if protocol.protocol_version in {"catch_v2", "catch_v3"}
+        else {}
+    )
     if baseline_namespaces != expected_baseline:
         raise ValueError(
             f"{protocol.protocol_version} baseline cache namespaces must equal {expected_baseline}."
@@ -156,6 +211,9 @@ def load_experiment_config(path: str | Path) -> CatchExperimentConfig:
         provider_audit_path=Path(str(raw["provider_audit_path"])),
         frozen_decoding_path=Path(str(raw["frozen_decoding_path"])),
         human_audit_path=Path(str(raw["human_audit_path"])),
+        preflight_human_audit_path=Path(
+            str(raw.get("preflight_human_audit_path") or raw["human_audit_path"])
+        ),
         raw=raw,
     )
 

@@ -14,7 +14,13 @@ def test_provider_audit_requires_documented_fields() -> None:
     rows = [
         {
             "prompt_kind": "one" if index < 8 else "two",
-            "payload": {"thinking": {"type": "disabled"}, "max_completion_tokens": 2048},
+            "payload": {
+                "thinking": {"type": "disabled"},
+                "max_completion_tokens": 2048,
+                "temperature": 0.7,
+                "top_p": 1.0,
+                "seed": 42,
+            },
             "seed": 42,
             "cap": 2048,
             "thinking_disabled": True,
@@ -22,6 +28,15 @@ def test_provider_audit_requires_documented_fields() -> None:
             "finish_reason": "stop",
             "reasoning_tokens": 0,
             "network_attempt_count": 1,
+            "attempt_timeline": [
+                {
+                    "attempt_index": 1,
+                    "queued_at": "q",
+                    "rate_admitted_at": "a",
+                    "network_started_at": "s",
+                    "network_finished_at": "f",
+                }
+            ],
             "request_error": None,
             "assistant_text": "same",
             "usage_reported": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
@@ -44,7 +59,13 @@ def test_gate_rejects_missing_or_unsuccessful_provider_audit(tmp_path) -> None:
     rows = [
         {
             "prompt_kind": "one" if index < 8 else "two",
-            "payload": {"thinking": {"type": "disabled"}, "max_completion_tokens": 2048},
+            "payload": {
+                "thinking": {"type": "disabled"},
+                "max_completion_tokens": 2048,
+                "temperature": 0.7,
+                "top_p": 1.0,
+                "seed": 42,
+            },
             "seed": 42,
             "cap": 2048,
             "thinking_disabled": True,
@@ -52,6 +73,15 @@ def test_gate_rejects_missing_or_unsuccessful_provider_audit(tmp_path) -> None:
             "finish_reason": "stop",
             "reasoning_tokens": 0,
             "network_attempt_count": 1,
+            "attempt_timeline": [
+                {
+                    "attempt_index": 1,
+                    "queued_at": "q",
+                    "rate_admitted_at": "a",
+                    "network_started_at": "s",
+                    "network_finished_at": "f",
+                }
+            ],
             "request_error": None,
             "assistant_text": "same",
             "usage_reported": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
@@ -74,6 +104,15 @@ def test_live_audit_matrix_covers_catch_role_and_solver_caps_without_cache(monke
             "finish_reason": "stop",
             "network_attempt_count": 1,
             "request_started_at_events": ["now"],
+            "attempt_timeline": [
+                {
+                    "attempt_index": 1,
+                    "queued_at": "q",
+                    "rate_admitted_at": "a",
+                    "network_started_at": "s",
+                    "network_finished_at": "f",
+                }
+            ],
             "request_error": None,
             "usage_reported": {
                 "prompt_tokens": 1,
