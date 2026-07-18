@@ -1,4 +1,4 @@
-active_version = "catch_v1"
+active_version = "catch_v2"
 
 [versions.dgcr_v1]
 status = "retired_failed_predecessor"
@@ -9,7 +9,18 @@ replayable = false
 reason_not_replayable = "The candidate-panel route is a historical failed mechanism and receives no reruns or board reconstruction."
 
 [versions.catch_v1]
-status = "active_preregistered"
+status = "failed_futility"
 family = "contrastive_active_testing"
 paper_name = "CATCH"
 mechanism = "blinded finite diagnostic measurements plus error-correcting candidate decoding"
+failure = "On 87 completed dev100 samples CATCH made zero overrides; d_min=2 coverage was 16.0%, structured parsing was 83.3%, and the frozen gate was mathematically unreachable."
+historical_run = "local/runs/contrastive_active_testing/catch_gate/development/20260717T140404Z-xiaomimimo-mimo-v2.5"
+heldout_authorized = false
+
+[versions.catch_v2]
+status = "active_preflight"
+family = "contrastive_active_testing"
+paper_name = "CATCH"
+mechanism = "evidence-quote compiled contrast atoms, blinded finite measurements, and error-correcting candidate decoding"
+predecessor = "catch_v1"
+experiment_directory_policy = "reuse contrastive_active_testing/catch_gate; isolate by manifest hash and cache namespace"

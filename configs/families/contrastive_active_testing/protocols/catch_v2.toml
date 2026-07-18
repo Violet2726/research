@@ -1,0 +1,21 @@
+protocol_version = "catch_v2"
+stage_candidates = 5
+resample_candidates = 3
+witness_count = 2
+direct_judge_count = 3
+max_proposed_tests = 6
+max_selected_tests = 4
+temperature = 0.7
+top_p = 1.0
+solver_max_tokens = 16384
+role_max_tokens = 4096
+d_min_grid = [2, 3, 4]
+margin_grid = [1, 2]
+max_network_attempts = 62000
+
+# Structural feasibility preflight. These checks do not use gold labels.
+preflight_sample_count = 20
+preflight_quote_alignment_threshold = 0.95
+preflight_code_coverage_threshold = 0.60
+preflight_coordinate_validity_threshold = 0.95
+preflight_usable_pair_threshold = 0.90

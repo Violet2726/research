@@ -1,4 +1,4 @@
-"""CATCH v1 的冻结提示与盲化输入构造。"""
+"""CATCH-v2 证据编译器与盲化测量提示。"""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import json
 from research_experiments.core.data.datasets import DatasetSample, question_without_bbeh_options
 from research_experiments.families.contrastive_active_testing.algorithms import StageDecision, WitnessPacket
 
-CATCH_PROMPT_VERSION = "catch_v1"
-CATCH_SCHEMA_VERSION = "catch_test_bank_v1"
+CATCH_PROMPT_VERSION = "catch_v2_evidence_compiler"
+CATCH_SCHEMA_VERSION = "catch_contrast_atoms_v2"
 
 
 def build_designer_messages(
@@ -36,7 +36,10 @@ def build_designer_messages(
                     {"id": "O1", "text": "different finite outcome"},
                 ],
                 "commitments": {
-                    hypothesis: {"outcome_id": "O0", "trace_start": 0, "trace_end": 10}
+                    hypothesis: {
+                        "outcome_id": "O0",
+                        "evidence_quote": "an exact, uniquely occurring quote from this hypothesis reasoning",
+                    }
                     for hypothesis in hypothesis_to_key
                 },
             }
@@ -55,12 +58,15 @@ def build_designer_messages(
             "content": (
                 f"Original question:\n{sample.question}\n\n"
                 f"Anonymous hypotheses:\n{json.dumps(hypotheses, ensure_ascii=False)}\n\n"
-                "Produce at most six atomic tests. Each test must be answerable from the original stem/context, "
+                "Compile at most six pair-targeted contrast atoms. Each atom must be answerable from the original "
+                "stem/context, "
                 "must not ask the original final-answer question, and must have 2-4 finite outcomes. Do not mention "
                 "hypothesis IDs, candidate metadata, vote counts, or option labels inside question/outcome text. "
-                "For every non-null commitment, cite exact Python-style [trace_start, trace_end) character offsets "
-                "inside that hypothesis's reasoning string. Use null when a trace makes no commitment. A valid test "
-                "must contain at least two different non-null commitments. Do not quote or cite FINAL_ANSWER.\n\n"
+                "For every non-null commitment, copy one exact, uniquely occurring evidence_quote from that "
+                "hypothesis's reasoning. Never count or emit character offsets. Use null when a trace makes no "
+                "commitment. Every atom must assign different non-null outcomes to at least one pair of hypotheses; "
+                "when possible, provide two independent atoms per distinguishable pair using non-overlapping quotes. "
+                "Do not quote or cite FINAL_ANSWER.\n\n"
                 f"Schema example:\n{json.dumps(schema, ensure_ascii=False)}"
             ),
         },
@@ -81,10 +87,9 @@ def build_witness_messages(sample: DatasetSample, *, packet: WitnessPacket) -> l
             "content": (
                 f"Source material (final answer options removed):\n{question_without_bbeh_options(sample)}\n\n"
                 f"Diagnostic tests:\n{json.dumps(list(packet.tests), ensure_ascii=False)}\n\n"
-                "Return {\"answers\":[{\"test_id\":\"Q0\",\"outcome_id\":\"R0\","
-                "\"check\":\"a local derivation of at most 160 characters\"}]}. "
-                "Use only listed IDs. Include one row for every test you can determine. If there are no tests, "
-                "return {\"answers\":[]}. Do not infer or produce the original final answer."
+                "Return {\"answers\":[{\"test_id\":\"Q0\",\"outcome_id\":\"R0\"}]}. "
+                "An optional check string may explain a local derivation, but it is not scored. Use only listed IDs. "
+                "Include one row for every test you can determine. Do not infer or produce the original final answer."
             ),
         },
     ]

@@ -159,6 +159,25 @@ def test_execute_completion_request_does_not_retry_429() -> None:
     assert snapshot["cooldown_remaining_seconds"] == 0.0
     assert snapshot["last_retry_after_seconds"] is None
 
+
+def test_transport_error_is_not_allowed_to_reset_a_replacement_client_twice() -> None:
+    request = httpx.Request("POST", "https://provider.test/chat")
+
+    class FakeProvider:
+        def __init__(self) -> None:
+            self.reset_calls = 0
+
+        def chat_completion(self, payload: dict[str, object]) -> ProviderResponse:
+            raise httpx.ReadTimeout("timed out", request=request)
+
+        def _reset_shared_client(self, _client) -> None:
+            self.reset_calls += 1
+
+    provider = FakeProvider()
+    response = execute_completion_request(provider, {"messages": []})
+    assert response["request_error"].startswith("Provider connection error")
+    assert provider.reset_calls == 0
+
 def test_provider_reuses_shared_http_client(monkeypatch: pytest.MonkeyPatch) -> None:
     created_http2_flags: list[bool] = []
 

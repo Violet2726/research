@@ -1,20 +1,23 @@
 name = "catch_gate"
 description = "CATCH contrastive active testing BBEH 100-to-200 frozen gate."
 benchmark_configs = ["configs/core/shared/benchmarks/bbeh/bbeh-main.toml"]
-protocol = "configs/families/contrastive_active_testing/protocols/catch_v1.toml"
+protocol = "configs/families/contrastive_active_testing/protocols/catch_v2.toml"
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 global_seed = 42
 max_concurrent_requests = 15
 requests_per_minute_limit = 18
 provider_audit_path = "configs/families/contrastive_active_testing/provider_audits/catch_provider_audit_v1.json"
-frozen_decoding_path = "configs/families/contrastive_active_testing/frozen/catch_v1_decoding.json"
-human_audit_path = "configs/families/contrastive_active_testing/frozen/catch_v1_human_audit.json"
+frozen_decoding_path = "configs/families/contrastive_active_testing/frozen/catch_v2_decoding.json"
+human_audit_path = "configs/families/contrastive_active_testing/frozen/catch_v2_human_audit.json"
 
 [cache_namespaces]
 provider_audit = "catch-provider-audit-v1"
+development = "catch-dev-v2"
+heldout = "catch-heldout-v2"
+confirmation = "catch-confirm-v2"
+
+[baseline_cache_namespaces]
 development = "catch-dev-v1"
-heldout = "catch-heldout-v1"
-confirmation = "catch-confirm-v1"
 
 [phases.development]
 benchmark_slugs = ["bbeh"]

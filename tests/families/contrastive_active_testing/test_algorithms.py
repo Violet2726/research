@@ -10,6 +10,7 @@ from research_experiments.families.contrastive_active_testing.algorithms import 
     decode_witnesses,
     effective_pair_coordinates,
     parse_witness_answers,
+    parse_witness_answers_detailed,
     select_tests,
     shuffle_commitments,
     validate_test_bank,
@@ -56,8 +57,8 @@ def test_test_bank_requires_trace_backed_discriminating_commitments() -> None:
                 "question": "Is the decisive quantity even?",
                 "outcomes": [{"id": "O0", "text": "even"}, {"id": "O1", "text": "odd"}],
                 "commitments": {
-                    "H0": {"outcome_id": "O0", "trace_start": 0, "trace_end": 5},
-                    "H1": {"outcome_id": "O1", "trace_start": 0, "trace_end": 4},
+                    "H0": {"outcome_id": "O0", "evidence_quote": "alpha"},
+                    "H1": {"outcome_id": "O1", "evidence_quote": "beta"},
                 },
             },
             {
@@ -72,6 +73,9 @@ def test_test_bank_requires_trace_backed_discriminating_commitments() -> None:
 
     assert [test.test_id for test in result.tests] == ["T0"]
     assert result.tests[0].commitments["A"].evidence == "alpha"
+    assert result.tests[0].target_pairs == (("A", "B"),)
+    assert result.evidence_quote_count == 2
+    assert result.aligned_evidence_quote_count == 2
     assert result.dropped == ({"test_id": "T1", "reason": "answer_or_candidate_leakage"},)
 
 
@@ -131,7 +135,99 @@ def test_witness_permutations_map_ids_back_and_omissions_are_erasures() -> None:
     assert parse_witness_answers(
         {"answers": [{"test_id": "UNKNOWN", "outcome_id": public_outcome, "check": "x"}]},
         packet=packet,
-    ) is None
+    ) == {}
+
+    overlong = parse_witness_answers_detailed(
+        {
+            "answers": [
+                {
+                    "test_id": public_test,
+                    "outcome_id": public_outcome,
+                    "check": "x" * 500,
+                }
+            ]
+        },
+        packet=packet,
+    )
+    assert overlong.vector == vector
+    assert overlong.erased_rows == ()
+
+    duplicate = parse_witness_answers_detailed(
+        {
+            "answers": [
+                {"test_id": public_test, "outcome_id": public_outcome},
+                {"test_id": public_test, "outcome_id": public_outcome},
+            ]
+        },
+        packet=packet,
+    )
+    assert duplicate.vector == {}
+    assert duplicate.erased_rows[-1]["reason"] == "duplicate_test_id"
+
+    unknown_outcome = parse_witness_answers_detailed(
+        {"answers": [{"test_id": public_test, "outcome_id": "UNKNOWN"}]},
+        packet=packet,
+    )
+    assert unknown_outcome.vector == {}
+    assert unknown_outcome.erased_rows[0]["reason"] == "unknown_outcome_id"
+
+
+def test_evidence_quotes_must_align_uniquely_after_nfkc_and_newline_normalization() -> None:
+    stage = StageDecision(
+        anchor_key="A",
+        anchor_answer="A",
+        candidates=(
+            CandidateClass("A", "A", 3, "Ａlpha\r\nunique evidence", "a"),
+            CandidateClass("B", "B", 2, "beta repeated beta", "b"),
+        ),
+        vote_counts={"A": 3, "B": 2},
+        valid_count=5,
+    )
+    payload = {
+        "tests": [
+            {
+                "test_id": "T0",
+                "question": "Which local fact applies?",
+                "outcomes": [{"id": "O0", "text": "alpha"}, {"id": "O1", "text": "beta"}],
+                "commitments": {
+                    "H0": {"outcome_id": "O0", "evidence_quote": "Alpha\nunique"},
+                    "H1": {"outcome_id": "O1", "evidence_quote": "beta"},
+                },
+            }
+        ]
+    }
+    result = validate_test_bank(payload, stage=stage, hypothesis_to_key={"H0": "A", "H1": "B"})
+    assert not result.tests
+    assert result.dropped == ({"test_id": "T0", "reason": "evidence_quote_ambiguous"},)
+    assert result.aligned_evidence_quote_count == 1
+
+
+def test_final_answer_marker_cannot_be_used_as_commitment_evidence() -> None:
+    stage = StageDecision(
+        anchor_key="A",
+        anchor_answer="A",
+        candidates=(
+            CandidateClass("A", "A", 3, "FINAL_ANSWER marker alpha", "a"),
+            CandidateClass("B", "B", 2, "beta evidence", "b"),
+        ),
+        vote_counts={"A": 3, "B": 2},
+        valid_count=5,
+    )
+    payload = {
+        "tests": [
+            {
+                "test_id": "T0",
+                "question": "Which local fact applies?",
+                "outcomes": [{"id": "O0", "text": "alpha"}, {"id": "O1", "text": "beta"}],
+                "commitments": {
+                    "H0": {"outcome_id": "O0", "evidence_quote": "FINAL_ANSWER marker"},
+                    "H1": {"outcome_id": "O1", "evidence_quote": "beta evidence"},
+                },
+            }
+        ]
+    }
+    result = validate_test_bank(payload, stage=stage, hypothesis_to_key={"H0": "A", "H1": "B"})
+    assert result.dropped == ({"test_id": "T0", "reason": "final_answer_evidence_forbidden"},)
 
 
 def test_direct_judge_cannot_introduce_a_novel_answer() -> None:

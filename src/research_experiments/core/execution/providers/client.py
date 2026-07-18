@@ -202,7 +202,9 @@ def execute_completion_request(
             "retry_after_seconds": provider_cooldown_seconds(exc.response),
         }
     except httpx.TransportError as exc:
-        provider._reset_shared_client(provider._client_handle.client)
+        # chat_completion already retired the exact client that raised.  A
+        # second reset here can retire a fresh client installed by another
+        # concurrent request.
         return {
             "http_status": None,
             "raw_payload": {"error": f"Provider connection error: {exc}"},

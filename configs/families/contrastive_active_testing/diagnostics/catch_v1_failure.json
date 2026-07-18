@@ -1,0 +1,23 @@
+{
+  "method_version": "catch_v1",
+  "status": "failed_futility",
+  "source_run": "local/runs/contrastive_active_testing/catch_gate/development/20260717T140404Z-xiaomimimo-mimo-v2.5",
+  "completed_samples": 87,
+  "triggered_samples": 75,
+  "micro_accuracy": {
+    "sc_5": 0.4252873563,
+    "adaptive_sc_8": 0.4482758621,
+    "catch": 0.4252873563,
+    "direct_judge_3": 0.3793103448,
+    "candidate_oracle": 0.6091954023
+  },
+  "code_coverage": {"d2": 0.16, "d3": 0.0533333333, "d4": 0.0266666667},
+  "structured_parse_rate": 0.8333333333,
+  "terminal_request_failures": 10,
+  "override_count": 0,
+  "futility_bounds": {
+    "maximum_final_d2_coverage": 0.2840909091,
+    "maximum_final_structured_parse_rate": 0.8579545455
+  },
+  "heldout_authorized": false
+}

@@ -21,6 +21,7 @@ from research_experiments.families.contrastive_active_testing.config import (
 from research_experiments.families.contrastive_active_testing.run.execute import (
     _frozen_config_sha,
     _load_frozen_decoding,
+    finalize_partial_run_directory,
     run_experiment,
 )
 from research_experiments.families.contrastive_active_testing.run.report import render_report, summarize_run
@@ -39,6 +40,7 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "name": experiment.name,
         "description": experiment.description,
         "paper_method_name": "CATCH",
+        "method_version": load_protocol_config(experiment.protocol).protocol_version,
         "protocol": asdict(load_protocol_config(experiment.protocol)),
         "benchmarks": [benchmark.slug for benchmark in load_phase_benchmarks(experiment, "development")],
         "phases": {
@@ -46,6 +48,7 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
             for name in ("development", "heldout", "confirmation")
         },
         "cache_namespaces": experiment.cache_namespaces,
+        "baseline_cache_namespaces": experiment.baseline_cache_namespaces,
         "provider_audit_path": str(experiment.provider_audit_path),
         "frozen_decoding_path": str(experiment.frozen_decoding_path),
         "human_audit_path": str(experiment.human_audit_path),
@@ -71,6 +74,12 @@ def configure_parser(parser) -> None:
         freeze.add_argument("--experiment", required=True)
         freeze.add_argument("--run", required=True)
         freeze.add_argument("--output", default=None)
+        partial = action.add_parser(
+            "finalize-partial",
+            help="Finalize a hard-stopped CATCH run as a failed auditable artifact.",
+        )
+        partial.add_argument("--run", required=True)
+        partial.add_argument("--termination-reason", default="futility_gate_impossible")
         return
     raise RuntimeError("CATCH parser is missing subcommands.")
 
@@ -81,6 +90,18 @@ def dispatch_extra_command(args) -> bool:
         return True
     if args.command == "freeze-development":
         _freeze_development(args)
+        return True
+    if args.command == "finalize-partial":
+        print(
+            json.dumps(
+                finalize_partial_run_directory(
+                    args.run,
+                    termination_reason=args.termination_reason,
+                ),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         return True
     return False
 
@@ -150,11 +171,21 @@ REGISTRATION = make_family_registration(
     artifact_aliases={
         "agent_turns": "turns/agent_turns.jsonl",
         "router_decisions": "turns/router_decisions.jsonl",
+        "preflight_turns": "turns/preflight_turns.jsonl",
         "gate": "diagnostics/gate.json",
+        "preflight": "diagnostics/preflight.json",
         "frozen_decoding_candidate": "diagnostics/frozen_decoding_candidate.json",
     },
     metrics_view_path="views/metrics.json",
     prediction_records_path="views/predictions.jsonl",
-    turn_record_paths=("turns/agent_turns.jsonl", "turns/router_decisions.jsonl"),
-    diagnostic_paths=("diagnostics/gate.json", "diagnostics/frozen_decoding_candidate.json"),
+    turn_record_paths=(
+        "turns/agent_turns.jsonl",
+        "turns/router_decisions.jsonl",
+        "turns/preflight_turns.jsonl",
+    ),
+    diagnostic_paths=(
+        "diagnostics/gate.json",
+        "diagnostics/preflight.json",
+        "diagnostics/frozen_decoding_candidate.json",
+    ),
 )

@@ -21,6 +21,10 @@ def test_frozen_protocol_and_registration_are_discoverable() -> None:
     assert protocol.margin_grid == (1, 2)
     assert protocol.role_max_tokens == 4_096
     assert protocol.max_network_attempts == 62_000
+    assert protocol.protocol_version == "catch_v2"
+    assert protocol.preflight_sample_count == 20
+    assert experiment.cache_namespaces["development"] == "catch-dev-v2"
+    assert experiment.baseline_cache_namespaces == {"development": "catch-dev-v1"}
     assert registration.prototype == "shared_stage_policy"
     assert registration.artifact_schema.progress_path == "progress.json"
     assert registration.artifact_schema.validation_path == "run_validation.json"
@@ -48,4 +52,3 @@ def test_all_geometric_shapes_samples_have_structured_options_after_rounding_not
     samples = [sample for sample in load_samples(benchmark) if sample.metadata.get("task") == "geometric_shapes"]
     assert len(samples) == 200
     assert all(sample.metadata.get("options") for sample in samples)
-

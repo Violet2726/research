@@ -4,9 +4,23 @@ import json
 import re
 from types import SimpleNamespace
 
+import pytest
+
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.families.contrastive_active_testing.config import CatchProtocolConfig
 from research_experiments.families.contrastive_active_testing.run import sample as sample_runner
+
+
+def test_network_attempt_budget_reserves_exact_retry_bound() -> None:
+    budget = sample_runner.NetworkAttemptBudget(10)
+    first = budget.reserve()
+    second = budget.reserve()
+    assert (first, second) == (5, 5)
+    with pytest.raises(sample_runner.NetworkAttemptLimitExceeded):
+        budget.reserve()
+    budget.settle(first, 3)
+    budget.settle(second, 5)
+    assert budget.actual == 8
 
 
 def test_development_grid_keeps_each_catch_variant_at_five_plus_three_calls(monkeypatch) -> None:
@@ -42,18 +56,21 @@ def test_development_grid_keeps_each_catch_variant_at_five_plus_three_calls(monk
     def json_turn(_sample, *, role, messages, **_kwargs):
         calls.append(role)
         if role == "test_designer":
-            hypotheses = json.loads(re.search(r"Anonymous hypotheses:\n(.+?)\n\nProduce", messages[-1]["content"], re.S).group(1))
-            commitments = {}
-            for hypothesis in hypotheses:
-                outcome = "O0" if hypothesis["answer"] == "A" else "O1"
-                commitments[hypothesis["id"]] = {"outcome_id": outcome, "trace_start": 0, "trace_end": 9}
+            hypotheses = json.loads(
+                re.search(r"Anonymous hypotheses:\n(.+?)\n\nCompile", messages[-1]["content"], re.S).group(1)
+            )
             tests = []
-            for index, start in enumerate((0, 16, 37)):
+            quotes = (
+                {"A": "even fact", "B": "odd fact"},
+                {"A": "parity check", "B": "parity check"},
+                {"A": "second", "B": "second"},
+                {"A": "final relation", "B": "final relation"},
+            )
+            for index, per_answer_quote in enumerate(quotes):
                 per_test = {
                     hypothesis["id"]: {
                         "outcome_id": "O0" if hypothesis["answer"] == "A" else "O1",
-                        "trace_start": start,
-                        "trace_end": min(start + 9, len(hypothesis["reasoning"])),
+                        "evidence_quote": per_answer_quote[hypothesis["answer"]],
                     }
                     for hypothesis in hypotheses
                 }
@@ -99,3 +116,57 @@ def test_development_grid_keeps_each_catch_variant_at_five_plus_three_calls(monk
     assert router["candidate_oracle_correct"] is True
     assert any(row["override_accepted"] and row["prediction"] == "B" for row in variants)
 
+
+def test_empty_code_packet_abstains_without_witness_calls(monkeypatch) -> None:
+    sample = DatasetSample(
+        "bbeh",
+        "empty-packet",
+        "Question\nOptions:\n(A) yes\n(B) no",
+        "A",
+        "",
+        {"task": "unit", "options": [{"label": "A", "text": "yes"}, {"label": "B", "text": "no"}]},
+    )
+    protocol = CatchProtocolConfig(5, 3, 2, 3, 6, 4, 0.7, 1.0, 16_384, 4_096, (2, 3, 4), (1, 2), 62_000)
+    calls = []
+
+    def answer_turn(_sample, *, role, agent_id, **_kwargs):
+        answer = "A" if role != "stage_a_solver" or agent_id < 4 else "B"
+        return {
+            "answer_class_key": answer,
+            "normalized_answer": answer,
+            "prediction": answer,
+            "validated_output": {"reasoning": f"reason {answer}", "final_answer": answer},
+            "actual_total_tokens": 1,
+            "network_attempt_count": 1,
+        }
+
+    def json_turn(_sample, *, role, **_kwargs):
+        calls.append(role)
+        if role == "blinded_witness":
+            raise AssertionError("empty packets must never schedule a witness")
+        if role == "test_designer":
+            return {"actual_total_tokens": 1, "network_attempt_count": 1}, {"tests": []}
+        return {"actual_total_tokens": 1, "network_attempt_count": 1}, {"selected_id": "H0"}
+
+    monkeypatch.setattr(sample_runner, "_answer_turn", answer_turn)
+    monkeypatch.setattr(sample_runner, "_json_turn", json_turn)
+    _, router, predictions = sample_runner.run_catch_sample(
+        sample,
+        run_id="run",
+        split_name="dev",
+        experiment=SimpleNamespace(global_seed=42),
+        protocol=protocol,
+        endpoint=SimpleNamespace(cache_namespace="catch-dev-v2"),
+        network_budget=sample_runner.NetworkAttemptBudget(62_000),
+        phase_name="development",
+        frozen_decoding=None,
+        run_direct_judge=True,
+    )
+    assert "blinded_witness" not in calls
+    assert all(
+        row["resolver"] == "insufficient_code_distance"
+        and row["logical_calls_per_question"] == 6
+        for row in predictions
+        if row["method_name"].startswith("catch_d")
+    )
+    assert all(not variant["code_eligible"] for variant in router["catch_variants"])

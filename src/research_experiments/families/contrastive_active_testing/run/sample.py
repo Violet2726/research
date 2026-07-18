@@ -12,12 +12,13 @@ from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.data.evaluation import canonicalize_answer, score_prediction
 from research_experiments.core.execution.runner_common import execute_cached_request
 from research_experiments.families.contrastive_active_testing.algorithms import (
+    DecodeDecision,
     build_hypothesis_labels,
     build_stage_decision,
     build_witness_packet,
     decide_direct_judges,
     decode_witnesses,
-    parse_witness_answers,
+    parse_witness_answers_detailed,
     select_tests,
     test_to_dict,
     validate_test_bank,
@@ -35,6 +36,10 @@ class NetworkAttemptLimitExceeded(RuntimeError):
     pass
 
 
+class CatchRunCancelled(RuntimeError):
+    pass
+
+
 class NetworkAttemptBudget:
     """Thread-safe hard cap with retry reserve before each physical request."""
 
@@ -44,7 +49,7 @@ class NetworkAttemptBudget:
         self._reserved = 0
         self._lock = threading.Lock()
 
-    def reserve(self, maximum: int = 10) -> int:
+    def reserve(self, maximum: int = 5) -> int:
         with self._lock:
             if self.actual + self._reserved + maximum > self.limit:
                 raise NetworkAttemptLimitExceeded(
@@ -151,6 +156,9 @@ def run_catch_sample(
         designer_row["test_bank_protocol_error"] = bank_validation.protocol_error
         designer_row["dropped_tests"] = list(bank_validation.dropped)
         designer_row["validated_test_bank"] = [test_to_dict(test) for test in bank_validation.tests]
+        designer_row["evidence_quote_count"] = bank_validation.evidence_quote_count
+        designer_row["aligned_evidence_quote_count"] = bank_validation.aligned_evidence_quote_count
+        designer_row["leakage_count"] = bank_validation.leakage_count
         if bank_validation.protocol_error is not None:
             designer_row["protocol_parse_status"] = "failed"
             designer_row["protocol_parse_error"] = bank_validation.protocol_error
@@ -174,48 +182,68 @@ def run_catch_sample(
             )
             panel_vectors: list[dict[str, str] | None] = []
             current_witness_rows: list[dict[str, Any]] = []
-            for panel_index in range(1, protocol.witness_count + 1):
-                packet = build_witness_packet(
-                    selection.tests,
-                    seed=experiment.global_seed,
-                    sample_id=f"{sample.sample_id}:d{d_min}",
-                    panel_index=panel_index,
-                )
-                witness_row, witness_payload = _json_turn(
-                    sample,
-                    run_id=run_id,
-                    split_name=split_name,
-                    endpoint=endpoint,
-                    network_budget=network_budget,
-                    method_name=f"catch_witness_d{d_min}",
-                    role="blinded_witness",
-                    agent_id=panel_index,
-                    seed=44_000 + d_min * 10 + panel_index,
-                    max_tokens=protocol.role_max_tokens,
-                    messages=build_witness_messages(sample, packet=packet),
-                )
-                vector = parse_witness_answers(witness_payload, packet=packet)
-                if vector is None:
-                    witness_row["protocol_parse_status"] = "failed"
-                    witness_row["protocol_parse_error"] = "witness_schema_or_id_failure"
-                witness_row["selection_d_min"] = d_min
-                witness_row["witness_packet"] = {
-                    "panel_index": packet.panel_index,
-                    "tests": list(packet.tests),
-                    "public_test_to_internal": packet.public_test_to_internal,
-                    "public_outcome_to_internal": packet.public_outcome_to_internal,
-                }
-                witness_row["witness_vector"] = vector
-                current_witness_rows.append(witness_row)
-                witness_rows.append(witness_row)
-                panel_vectors.append(vector)
+            code_eligible = any(distance >= d_min for distance in selection.pair_distances.values())
+            if code_eligible:
+                for panel_index in range(1, protocol.witness_count + 1):
+                    packet = build_witness_packet(
+                        selection.tests,
+                        seed=experiment.global_seed,
+                        sample_id=f"{sample.sample_id}:d{d_min}",
+                        panel_index=panel_index,
+                    )
+                    witness_row, witness_payload = _json_turn(
+                        sample,
+                        run_id=run_id,
+                        split_name=split_name,
+                        endpoint=endpoint,
+                        network_budget=network_budget,
+                        method_name=f"catch_witness_d{d_min}",
+                        role="blinded_witness",
+                        agent_id=panel_index,
+                        seed=44_000 + d_min * 10 + panel_index,
+                        max_tokens=protocol.role_max_tokens,
+                        messages=build_witness_messages(sample, packet=packet),
+                    )
+                    parsed_witness = parse_witness_answers_detailed(witness_payload, packet=packet)
+                    vector = parsed_witness.vector
+                    if not parsed_witness.top_level_valid:
+                        witness_row["protocol_parse_status"] = "failed"
+                        witness_row["protocol_parse_error"] = "witness_top_level_schema_failure"
+                    witness_row["selection_d_min"] = d_min
+                    witness_row["witness_packet"] = {
+                        "panel_index": packet.panel_index,
+                        "tests": list(packet.tests),
+                        "public_test_to_internal": packet.public_test_to_internal,
+                        "public_outcome_to_internal": packet.public_outcome_to_internal,
+                    }
+                    witness_row["witness_parse_diagnostics"] = {
+                        "top_level_valid": parsed_witness.top_level_valid,
+                        "expected_coordinate_count": parsed_witness.expected_coordinate_count,
+                        "valid_coordinate_count": parsed_witness.valid_coordinate_count,
+                        "erased_rows": list(parsed_witness.erased_rows),
+                    }
+                    witness_row["witness_vector"] = vector
+                    current_witness_rows.append(witness_row)
+                    witness_rows.append(witness_row)
+                    panel_vectors.append(vector)
             for margin in margin_values:
-                decision = decode_witnesses(
-                    stage,
-                    selection.tests,
-                    panel_vectors,
-                    d_min=d_min,
-                    margin=margin,
+                decision = (
+                    decode_witnesses(
+                        stage,
+                        selection.tests,
+                        panel_vectors,
+                        d_min=d_min,
+                        margin=margin,
+                    )
+                    if code_eligible
+                    else DecodeDecision(
+                        stage.anchor_answer,
+                        stage.anchor_key,
+                        False,
+                        "insufficient_code_distance",
+                        (),
+                        (),
+                    )
                 )
                 diagnostic = {
                     "d_min": d_min,
@@ -224,6 +252,7 @@ def run_catch_sample(
                     "pair_distances": selection.pair_distances,
                     "selection_objective": list(selection.objective),
                     "selection_tie_break_sha256": selection.tie_break_sha256,
+                    "code_eligible": code_eligible,
                     "witness_vectors": panel_vectors,
                     "decision": {
                         "answer": decision.answer,
@@ -417,12 +446,14 @@ def _answer_turn(
     seed: int,
     max_tokens: int,
 ) -> dict[str, Any]:
+    _raise_if_cancelled(endpoint)
     reservation = network_budget.reserve()
+    cache = _cache_for_role(endpoint, role)
     try:
         result = execute_output_protocol_turn(
             backbone=endpoint.backbone,
             provider=endpoint.provider,
-            cache=endpoint.cache,
+            cache=cache,
             throttle=endpoint.throttle,
             sample=sample,
             messages=build_cot_messages(sample, agent_id, "single_agent_free_text_v1"),
@@ -463,7 +494,7 @@ def _answer_turn(
         cache_request_count=result.cache_request_count,
         network_request_count=result.network_request_count,
     )
-    row["cache_namespace"] = endpoint.cache_namespace
+    _annotate_cache_audit(row, endpoint=endpoint, cache=cache, cache_key=result.cache_key)
     return row
 
 
@@ -481,12 +512,14 @@ def _json_turn(
     max_tokens: int,
     messages: list[dict[str, str]],
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    _raise_if_cancelled(endpoint)
     reservation = network_budget.reserve()
+    cache = _cache_for_role(endpoint, role)
     try:
         request = execute_cached_request(
             backbone=endpoint.backbone,
             provider=endpoint.provider,
-            cache=endpoint.cache,
+            cache=cache,
             throttle=endpoint.throttle,
             messages=messages,
             temperature=0.7,
@@ -533,7 +566,7 @@ def _json_turn(
         cache_request_count=int(request.cache_hit),
         network_request_count=attempts,
     )
-    row["cache_namespace"] = endpoint.cache_namespace
+    _annotate_cache_audit(row, endpoint=endpoint, cache=cache, cache_key=request.cache_key)
     return row, parsed
 
 
@@ -576,7 +609,7 @@ def _turn_base(
         "payload": payload,
         "cache_key": cache_key,
         "cache_namespace": None,
-        "request_source": "catch_confirmation_cache",
+        "request_source": "catch_v2_role_cache",
         "prompt_hash": _sha256(json.dumps(payload.get("messages") or [], ensure_ascii=False, sort_keys=True)),
         "cache_hit": cache_hit,
         "request_error": request_error,
@@ -626,8 +659,9 @@ def _prediction(
 ):
     score = _score(sample, prediction)
     initial_score = _score(sample, initial)
-    planned_intervention_calls = 3 if stage.triggered and method_name != "sc_5" else 0
-    logical_calls = 5 + planned_intervention_calls
+    intervention_call_budget = 3 if stage.triggered and method_name != "sc_5" else 0
+    actual_intervention_calls = len(intervention_rows)
+    logical_calls = len(logical_rows)
     payload = {
         "run_id": run_id,
         "dataset": sample.dataset,
@@ -655,8 +689,9 @@ def _prediction(
         "total_tokens_per_question": sum(float(row.get("actual_total_tokens") or row.get("total_tokens") or 0) for row in logical_rows),
         "completion_tokens_per_question": sum(float(row.get("actual_completion_tokens") or row.get("completion_tokens") or 0) for row in logical_rows),
         "network_attempts_per_question": sum(int(row.get("network_attempt_count") or 0) for row in logical_rows),
-        "intervention_calls_per_question": planned_intervention_calls,
-        "actual_intervention_calls_per_question": len(intervention_rows),
+        "intervention_call_budget_per_question": intervention_call_budget,
+        "intervention_calls_per_question": actual_intervention_calls,
+        "actual_intervention_calls_per_question": actual_intervention_calls,
     }
     payload.update(extra or {})
     return payload
@@ -664,6 +699,32 @@ def _prediction(
 
 def _score(sample: DatasetSample, answer: str) -> float:
     return score_prediction(sample.dataset, answer, sample.reference_answer, sample=sample) if answer else 0.0
+
+
+def _cache_for_role(endpoint, role: str):
+    if hasattr(endpoint, "cache_for_role"):
+        return endpoint.cache_for_role(role)
+    return endpoint.cache
+
+
+def _raise_if_cancelled(endpoint) -> None:
+    event = getattr(endpoint, "stop_event", None)
+    if event is not None and event.is_set():
+        raise CatchRunCancelled("CATCH run cancelled after a sibling sample failed")
+
+
+def _annotate_cache_audit(row: dict[str, Any], *, endpoint, cache, cache_key: str) -> None:
+    source = cache.source_for(cache_key) if hasattr(cache, "source_for") else endpoint.cache_namespace
+    active_namespace = str(getattr(endpoint, "cache_namespace", source))
+    row["cache_namespace"] = active_namespace if source == "network" else source
+    row["cache_write_namespace"] = active_namespace
+    row["cache_lookup_namespaces"] = list(
+        getattr(endpoint, "cache_lookup_namespaces_for_role", lambda _role: (active_namespace,))(row["role"])
+    )
+    if row.get("cache_hit"):
+        row["request_source"] = "predecessor_cache" if source != active_namespace else "active_cache"
+    else:
+        row["request_source"] = "network"
 
 
 def _sha256(value: str) -> str:

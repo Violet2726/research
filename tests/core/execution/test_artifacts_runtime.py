@@ -160,3 +160,44 @@ def test_run_progress_tracker_separates_rolling_and_lifetime_network_rpm(tmp_pat
     finally:
         tracker.mark_completed()
 
+
+def test_progress_separates_logical_calls_from_physical_retries_and_samples(tmp_path: Path) -> None:
+    path = tmp_path / "progress.json"
+    tracker = RunProgressTracker(
+        path,
+        total_planned_calls=10,
+        total_planned_predictions=9,
+        total_planned_samples=1,
+        heartbeat_interval_seconds=10,
+    )
+    tracker.record_call(
+        {
+            "dataset": "bbeh",
+            "sample_id": "x",
+            "method_name": "stage",
+            "request_count": 3,
+            "network_request_count": 3,
+            "cache_request_count": 0,
+        }
+    )
+    tracker.record_call(
+        {
+            "dataset": "bbeh",
+            "sample_id": "x",
+            "method_name": "stage",
+            "request_count": 1,
+            "network_request_count": 0,
+            "cache_request_count": 1,
+        }
+    )
+    tracker.record_predictions(9, "bbeh", "catch_sample", sample_completed=True)
+    tracker.write(force=True, reason="test")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    tracker.mark_completed()
+
+    assert payload["completed_logical_calls"] == 2
+    assert payload["physical_network_attempts"] == 3
+    assert payload["cached_logical_calls"] == 1
+    assert payload["completed_samples"] == 1
+    assert payload["eta_seconds"] == 0
+

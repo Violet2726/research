@@ -24,6 +24,12 @@ class CatchProtocolConfig:
     d_min_grid: tuple[int, ...]
     margin_grid: tuple[int, ...]
     max_network_attempts: int
+    protocol_version: str = "catch_v1"
+    preflight_sample_count: int = 0
+    preflight_quote_alignment_threshold: float = 0.0
+    preflight_code_coverage_threshold: float = 0.0
+    preflight_coordinate_validity_threshold: float = 0.0
+    preflight_usable_pair_threshold: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -37,6 +43,7 @@ class CatchExperimentConfig:
     max_concurrent_requests: int
     requests_per_minute_limit: int
     cache_namespaces: dict[str, str]
+    baseline_cache_namespaces: dict[str, str]
     provider_audit_path: Path
     frozen_decoding_path: Path
     human_audit_path: Path
@@ -45,6 +52,7 @@ class CatchExperimentConfig:
 
 def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
     raw = load_toml(path)
+    protocol_version = str(raw.get("protocol_version") or "catch_v1")
     config = CatchProtocolConfig(
         stage_candidates=int(raw.get("stage_candidates", 5)),
         resample_candidates=int(raw.get("resample_candidates", 3)),
@@ -59,6 +67,14 @@ def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
         d_min_grid=tuple(int(item) for item in raw.get("d_min_grid", [2, 3, 4])),
         margin_grid=tuple(int(item) for item in raw.get("margin_grid", [1, 2])),
         max_network_attempts=int(raw.get("max_network_attempts", 62_000)),
+        protocol_version=protocol_version,
+        preflight_sample_count=int(raw.get("preflight_sample_count", 0)),
+        preflight_quote_alignment_threshold=float(raw.get("preflight_quote_alignment_threshold", 0.0)),
+        preflight_code_coverage_threshold=float(raw.get("preflight_code_coverage_threshold", 0.0)),
+        preflight_coordinate_validity_threshold=float(
+            raw.get("preflight_coordinate_validity_threshold", 0.0)
+        ),
+        preflight_usable_pair_threshold=float(raw.get("preflight_usable_pair_threshold", 0.0)),
     )
     required = {
         "stage_candidates": (config.stage_candidates, 5),
@@ -77,7 +93,26 @@ def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
     }
     invalid = [name for name, (actual, expected) in required.items() if actual != expected]
     if invalid:
-        raise ValueError("CATCH v1 protocol is frozen; invalid fields: " + ", ".join(invalid))
+        raise ValueError(f"{protocol_version} protocol has invalid frozen fields: " + ", ".join(invalid))
+    if protocol_version == "catch_v2":
+        v2_required = {
+            "preflight_sample_count": (config.preflight_sample_count, 20),
+            "preflight_quote_alignment_threshold": (
+                config.preflight_quote_alignment_threshold,
+                0.95,
+            ),
+            "preflight_code_coverage_threshold": (config.preflight_code_coverage_threshold, 0.60),
+            "preflight_coordinate_validity_threshold": (
+                config.preflight_coordinate_validity_threshold,
+                0.95,
+            ),
+            "preflight_usable_pair_threshold": (config.preflight_usable_pair_threshold, 0.90),
+        }
+        invalid_v2 = [name for name, (actual, expected) in v2_required.items() if actual != expected]
+        if invalid_v2:
+            raise ValueError("CATCH v2 preflight fields are frozen: " + ", ".join(invalid_v2))
+    elif protocol_version != "catch_v1":
+        raise ValueError(f"Unsupported CATCH protocol version {protocol_version!r}.")
     return config
 
 
@@ -85,27 +120,39 @@ def load_experiment_config(path: str | Path) -> CatchExperimentConfig:
     raw = load_toml(path)
     runtime = apply_runtime_defaults(raw)
     namespaces = {str(key): str(value) for key, value in dict(raw.get("cache_namespaces") or {}).items()}
+    baseline_namespaces = {
+        str(key): str(value)
+        for key, value in dict(raw.get("baseline_cache_namespaces") or {}).items()
+    }
     required_namespaces = {"provider_audit", "development", "heldout", "confirmation"}
     if set(namespaces) != required_namespaces:
         raise ValueError(f"CATCH cache_namespaces must exactly contain {sorted(required_namespaces)}.")
+    protocol_path = Path(str(raw["protocol"]))
+    protocol = load_protocol_config(protocol_path)
     expected_namespaces = {
         "provider_audit": "catch-provider-audit-v1",
-        "development": "catch-dev-v1",
-        "heldout": "catch-heldout-v1",
-        "confirmation": "catch-confirm-v1",
+        "development": "catch-dev-v2" if protocol.protocol_version == "catch_v2" else "catch-dev-v1",
+        "heldout": "catch-heldout-v2" if protocol.protocol_version == "catch_v2" else "catch-heldout-v1",
+        "confirmation": "catch-confirm-v2" if protocol.protocol_version == "catch_v2" else "catch-confirm-v1",
     }
     if namespaces != expected_namespaces:
-        raise ValueError("CATCH v1 cache namespaces are frozen and must remain isolated.")
+        raise ValueError(f"{protocol.protocol_version} cache namespaces are frozen and must remain isolated.")
+    expected_baseline = {"development": "catch-dev-v1"} if protocol.protocol_version == "catch_v2" else {}
+    if baseline_namespaces != expected_baseline:
+        raise ValueError(
+            f"{protocol.protocol_version} baseline cache namespaces must equal {expected_baseline}."
+        )
     return CatchExperimentConfig(
         name=str(raw["name"]),
         description=str(raw["description"]),
         benchmark_configs=[Path(item) for item in raw["benchmark_configs"]],
-        protocol=Path(raw["protocol"]),
+        protocol=protocol_path,
         primary_model_ref=str(raw["primary_model_ref"]),
         global_seed=int(raw.get("global_seed", 42)),
         max_concurrent_requests=runtime["max_concurrent_requests"],
         requests_per_minute_limit=runtime["requests_per_minute_limit"],
         cache_namespaces=namespaces,
+        baseline_cache_namespaces=baseline_namespaces,
         provider_audit_path=Path(str(raw["provider_audit_path"])),
         frozen_decoding_path=Path(str(raw["frozen_decoding_path"])),
         human_audit_path=Path(str(raw["human_audit_path"])),

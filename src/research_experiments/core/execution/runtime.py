@@ -24,6 +24,7 @@ class RunProgressTracker:
         total_planned_calls: int,
         total_planned_predictions: int,
         *,
+        total_planned_samples: int | None = None,
         initial_completed_calls: int = 0,
         initial_completed_predictions: int = 0,
         planned_calls_are_upper_bound: bool = False,
@@ -36,18 +37,26 @@ class RunProgressTracker:
         self.progress_path = progress_path
         self.total_planned_calls = total_planned_calls
         self.total_planned_predictions = total_planned_predictions
+        self.total_planned_samples = total_planned_samples
         self.target_network_rpm = target_network_rpm
         self.rate_limit_snapshot_provider = rate_limit_snapshot_provider
         self.network_rpm_window_seconds = max(0.01, float(network_rpm_window_seconds))
         self.started_at = datetime.now(UTC).isoformat()
         self.started_monotonic = time.monotonic()
         self.completed_calls = initial_completed_calls
+        self.completed_logical_calls = initial_completed_calls
         self.completed_predictions = initial_completed_predictions
+        self.completed_samples = 0
         self.planned_calls_are_upper_bound = planned_calls_are_upper_bound
         self.cache_hits = 0
+        self.cached_logical_calls = 0
         self.network_calls = 0
+        self.physical_network_attempts = 0
         self._network_call_events: deque[float] = deque()
         self._call_events: deque[float] = deque()
+        self._sample_events: deque[float] = deque()
+        self.in_flight_samples = 0
+        self.queued_samples = 0
         self.last_dataset: str | None = None
         self.last_method: str | None = None
         self.last_sample_id: str | None = None
@@ -83,11 +92,14 @@ class RunProgressTracker:
                 0,
                 int(row.get("network_request_count") or (request_count - cache_request_count)),
             )
-            self.completed_calls += request_count
-            for _ in range(request_count):
-                self._call_events.append(now)
-            self.cache_hits += cache_request_count
+            self.completed_calls += 1
+            self.completed_logical_calls += 1
+            self._call_events.append(now)
+            cached_logical = int(cache_request_count > 0)
+            self.cache_hits += cached_logical
+            self.cached_logical_calls += cached_logical
             self.network_calls += network_request_count
+            self.physical_network_attempts += network_request_count
             for _ in range(network_request_count):
                 self._network_call_events.append(now)
             self.last_dataset = str(row.get("dataset") or "")
@@ -97,16 +109,32 @@ class RunProgressTracker:
             force = self.completed_calls % 10 == 0
         self.write(force=force, reason="call")
 
-    def record_predictions(self, count: int, dataset: str, method_name: str) -> None:
+    def record_predictions(
+        self,
+        count: int,
+        dataset: str,
+        method_name: str,
+        *,
+        sample_completed: bool = False,
+    ) -> None:
         """记录题级预测已经落盘。"""
 
         with self._lock:
             now = time.monotonic()
             self.completed_predictions += count
+            if sample_completed:
+                self.completed_samples += 1
+                self._sample_events.append(now)
             self.last_dataset = dataset
             self.last_method = method_name
             self._note_progress_event_locked(now)
         self.write(force=True, reason="prediction")
+
+    def update_scheduler_state(self, *, in_flight_samples: int, queued_samples: int) -> None:
+        with self._lock:
+            self.in_flight_samples = max(0, int(in_flight_samples))
+            self.queued_samples = max(0, int(queued_samples))
+        self.write(reason="scheduler")
 
     def mark_completed(self) -> None:
         """标记 run 完成并停止后台心跳。"""
@@ -123,6 +151,7 @@ class RunProgressTracker:
         message: str,
         *,
         last_sample_id: str | None = None,
+        termination_reason: str | None = None,
     ) -> None:
         """Persist a terminal failure snapshot before stopping the heartbeat."""
 
@@ -134,6 +163,8 @@ class RunProgressTracker:
                 "error_type": str(error_type or "RuntimeError"),
                 "message": str(message or "run failed"),
             }
+            if termination_reason is not None:
+                self.failure["termination_reason"] = str(termination_reason)
             self._note_progress_event_locked(time.monotonic())
         self.write(force=True, reason="failed")
         self.close()
@@ -157,11 +188,17 @@ class RunProgressTracker:
             lifetime_network_rpm = (self.network_calls / elapsed * 60) if elapsed > 0 else 0.0
             observed_network_rpm = len(self._network_call_events) / self.network_rpm_window_seconds * 60
             observed_call_rpm = len(self._call_events) / self.network_rpm_window_seconds * 60
-            eta_rpm = observed_network_rpm or lifetime_network_rpm
+            observed_sample_rpm = len(self._sample_events) / self.network_rpm_window_seconds * 60
             eta_seconds = None
-            remaining_calls = max(0, self.total_planned_calls - self.completed_calls)
-            if eta_rpm > 0:
-                eta_seconds = remaining_calls / eta_rpm * 60
+            if self.total_planned_samples is not None and self.completed_samples > 0:
+                remaining_samples = max(0, self.total_planned_samples - self.completed_samples)
+                sample_seconds = elapsed / self.completed_samples
+                eta_seconds = remaining_samples * sample_seconds
+            else:
+                eta_rpm = observed_network_rpm or lifetime_network_rpm
+                remaining_calls = max(0, self.total_planned_calls - self.completed_calls)
+                if eta_rpm > 0:
+                    eta_seconds = remaining_calls / eta_rpm * 60
             effective_total_calls = (
                 max(self.completed_calls, 1)
                 if self.status == "completed" and self.planned_calls_are_upper_bound
@@ -178,6 +215,7 @@ class RunProgressTracker:
                 "elapsed_seconds": round(elapsed, 2),
                 "total_planned_calls": self.total_planned_calls,
                 "completed_calls": self.completed_calls,
+                "completed_logical_calls": self.completed_logical_calls,
                 "planned_calls_are_upper_bound": self.planned_calls_are_upper_bound,
                 "completed_call_ratio": round(self.completed_calls / effective_total_calls, 6) if effective_total_calls else 0.0,
                 "completed_call_ratio_upper_bound": round(self.completed_calls / self.total_planned_calls, 6) if self.total_planned_calls else 0.0,
@@ -185,12 +223,19 @@ class RunProgressTracker:
                 "completed_predictions": self.completed_predictions,
                 "completed_prediction_ratio": round(self.completed_predictions / self.total_planned_predictions, 6) if self.total_planned_predictions else 0.0,
                 "cache_hits": self.cache_hits,
+                "cached_logical_calls": self.cached_logical_calls,
                 "network_calls": self.network_calls,
+                "physical_network_attempts": self.physical_network_attempts,
                 "cache_hit_ratio": round(self.cache_hits / self.completed_calls, 6) if self.completed_calls else 0.0,
                 "network_rpm_window_seconds": self.network_rpm_window_seconds,
                 "observed_network_rpm": round(observed_network_rpm, 2),
                 "lifetime_network_rpm": round(lifetime_network_rpm, 2),
                 "observed_call_rpm": round(observed_call_rpm, 2),
+                "observed_sample_rpm": round(observed_sample_rpm, 2),
+                "total_planned_samples": self.total_planned_samples,
+                "completed_samples": self.completed_samples,
+                "in_flight_samples": self.in_flight_samples,
+                "queued_samples": self.queued_samples,
                 "target_network_rpm": self.target_network_rpm,
                 "eta_seconds": round(eta_seconds, 2) if eta_seconds is not None else None,
                 "last_dataset": self.last_dataset,
@@ -217,6 +262,8 @@ class RunProgressTracker:
             self._network_call_events.popleft()
         while self._call_events and self._call_events[0] < cutoff:
             self._call_events.popleft()
+        while self._sample_events and self._sample_events[0] < cutoff:
+            self._sample_events.popleft()
 
 
 def build_run_id(*parts: str) -> str:

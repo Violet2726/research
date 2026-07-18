@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 from research_experiments.core.execution.rate_limits import RequestThrottle, SlidingWindowRateLimiter
@@ -104,3 +105,24 @@ def test_request_throttle_snapshot_keeps_429_metrics_local_even_when_window_is_s
 
     assert first.snapshot()["rate_limit_429_count"] == 1
     assert second.snapshot()["rate_limit_429_count"] == 0
+
+
+def test_request_throttle_reports_real_peak_concurrency_and_admission_rpm() -> None:
+    throttle = RequestThrottle(
+        max_concurrent_requests=4,
+        requests_per_minute=None,
+        window_seconds=0.1,
+    )
+
+    def request() -> None:
+        with throttle.reserve():
+            time.sleep(0.02)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(lambda _index: request(), range(60)))
+
+    snapshot = throttle.snapshot()
+    assert snapshot["peak_active_requests"] == 4
+    assert snapshot["active_requests"] == 0
+    assert snapshot["queued_requests"] == 0
+    assert snapshot["admission_rpm"] > 0

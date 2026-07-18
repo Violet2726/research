@@ -34,6 +34,9 @@ class _ThrottleMetrics:
 
     rate_limit_429_count: int = 0
     total_wait_seconds: float = 0.0
+    queued_requests: int = 0
+    active_requests: int = 0
+    peak_active_requests: int = 0
 
 
 class SlidingWindowRateLimiter:
@@ -75,6 +78,7 @@ class SlidingWindowRateLimiter:
                 "effective_network_rpm_limit": self.requests_per_minute,
                 "last_retry_after_seconds": None,
                 "cooldown_remaining_seconds": 0.0,
+                "admission_rpm": round(len(self.request_events) / self.window_seconds * 60, 2),
             }
 
     def _evict_expired(self, now: float) -> None:
@@ -149,16 +153,31 @@ class RequestThrottle:
     def reserve(self) -> Iterator[None]:
         """Reserve both a concurrency slot and a rate-limit slot for one request."""
 
+        with self._metrics_lock:
+            self._metrics.queued_requests += 1
         self._semaphore.acquire()
         wait_started = time.monotonic()
-        self.limiter.acquire()
-        waited_seconds = max(0.0, time.monotonic() - wait_started)
-        if waited_seconds > 0:
+        try:
+            self.limiter.acquire()
+        except BaseException:
+            self._semaphore.release()
             with self._metrics_lock:
-                self._metrics.total_wait_seconds += waited_seconds
+                self._metrics.queued_requests -= 1
+            raise
+        waited_seconds = max(0.0, time.monotonic() - wait_started)
+        with self._metrics_lock:
+            self._metrics.queued_requests -= 1
+            self._metrics.total_wait_seconds += waited_seconds
+            self._metrics.active_requests += 1
+            self._metrics.peak_active_requests = max(
+                self._metrics.peak_active_requests,
+                self._metrics.active_requests,
+            )
         try:
             yield None
         finally:
+            with self._metrics_lock:
+                self._metrics.active_requests -= 1
             self._semaphore.release()
 
     def settle(
@@ -179,11 +198,17 @@ class RequestThrottle:
         with self._metrics_lock:
             rate_limit_429_count = self._metrics.rate_limit_429_count
             total_wait_seconds = round(self._metrics.total_wait_seconds, 2)
+            queued_requests = self._metrics.queued_requests
+            active_requests = self._metrics.active_requests
+            peak_active_requests = self._metrics.peak_active_requests
         return {
             "max_concurrent_requests": self.max_concurrent_requests,
             **limiter_snapshot,
             "rate_limit_429_count": rate_limit_429_count,
             "rate_limit_wait_seconds": total_wait_seconds,
+            "queued_requests": queued_requests,
+            "active_requests": active_requests,
+            "peak_active_requests": peak_active_requests,
         }
 
     @classmethod

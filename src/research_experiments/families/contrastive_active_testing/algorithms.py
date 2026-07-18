@@ -57,6 +57,7 @@ class DiagnosticTest:
     question: str
     outcomes: tuple[TestOutcome, ...]
     commitments: dict[str, Commitment | None]
+    target_pairs: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,9 @@ class TestBankValidation:
     tests: tuple[DiagnosticTest, ...]
     dropped: tuple[dict[str, str], ...]
     protocol_error: str | None
+    evidence_quote_count: int = 0
+    aligned_evidence_quote_count: int = 0
+    leakage_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -80,6 +84,17 @@ class WitnessPacket:
     tests: tuple[dict[str, Any], ...]
     public_test_to_internal: dict[str, str]
     public_outcome_to_internal: dict[str, dict[str, str]]
+
+
+@dataclass(frozen=True)
+class WitnessParseResult:
+    """A recoverable witness vector plus coordinate-level erasure diagnostics."""
+
+    vector: dict[str, str] | None
+    top_level_valid: bool
+    expected_coordinate_count: int
+    valid_coordinate_count: int
+    erased_rows: tuple[dict[str, str], ...]
 
 
 @dataclass(frozen=True)
@@ -159,8 +174,18 @@ def validate_test_bank(
     dropped: list[dict[str, str]] = []
     seen_ids: set[str] = set()
     seen_questions: set[str] = set()
+    evidence_quote_count = 0
+    aligned_evidence_quote_count = 0
+    leakage_count = 0
     for index, raw_test in enumerate(raw_tests):
         test_id = str(raw_test.get("test_id") or "") if isinstance(raw_test, dict) else f"index:{index}"
+        attempted, aligned = _evidence_quote_alignment_counts(
+            raw_test,
+            candidate_by_key=candidate_by_key,
+            hypothesis_to_key=hypothesis_to_key,
+        )
+        evidence_quote_count += attempted
+        aligned_evidence_quote_count += aligned
         try:
             test = _validate_one_test(
                 raw_test,
@@ -176,8 +201,22 @@ def validate_test_bank(
             seen_questions.add(normalized_question)
             accepted.append(test)
         except (TypeError, ValueError) as exc:
-            dropped.append({"test_id": test_id, "reason": str(exc)})
-    return TestBankValidation(tuple(accepted), tuple(dropped), None)
+            reason = str(exc)
+            dropped.append({"test_id": test_id, "reason": reason})
+            if reason in {
+                "answer_or_candidate_leakage",
+                "candidate_id_in_outcome",
+                "final_answer_evidence_forbidden",
+            }:
+                leakage_count += 1
+    return TestBankValidation(
+        tuple(accepted),
+        tuple(dropped),
+        None,
+        evidence_quote_count,
+        aligned_evidence_quote_count,
+        leakage_count,
+    )
 
 
 def _validate_one_test(
@@ -235,14 +274,18 @@ def _validate_one_test(
         outcome_id = str(raw_commitment.get("outcome_id") or "").strip()
         if outcome_id not in outcome_ids:
             raise ValueError("unknown_commitment_outcome")
-        try:
-            start = int(raw_commitment.get("trace_start"))
-            end = int(raw_commitment.get("trace_end"))
-        except (TypeError, ValueError):
-            raise ValueError("invalid_trace_offsets") from None
+        evidence_quote = str(raw_commitment.get("evidence_quote") or "")
+        if not evidence_quote.strip() or not any(character.isalnum() for character in evidence_quote):
+            raise ValueError("missing_evidence_quote")
+        if "final_answer" in _normalize_text(evidence_quote):
+            raise ValueError("final_answer_evidence_forbidden")
         reasoning = candidate_by_key[candidate_key].representative_reasoning
-        if not (0 <= start < end <= len(reasoning)):
-            raise ValueError("trace_offsets_out_of_range")
+        matches = _find_normalized_quote_spans(reasoning, evidence_quote)
+        if not matches:
+            raise ValueError("evidence_quote_not_found")
+        if len(matches) != 1:
+            raise ValueError("evidence_quote_ambiguous")
+        start, end = matches[0]
         evidence = reasoning[start:end]
         if not evidence.strip() or not any(character.isalnum() for character in evidence):
             raise ValueError("empty_trace_evidence")
@@ -256,7 +299,10 @@ def _validate_one_test(
     non_null = [item for item in commitments.values() if item is not None]
     if len(non_null) < 2 or len({item.outcome_id for item in non_null}) < 2:
         raise ValueError("test_does_not_discriminate")
-    return DiagnosticTest(test_id, question, tuple(outcomes), commitments)
+    target_pairs = _differing_candidate_pairs(commitments)
+    if not target_pairs:
+        raise ValueError("test_does_not_discriminate")
+    return DiagnosticTest(test_id, question, tuple(outcomes), commitments, target_pairs)
 
 
 def effective_pair_coordinates(
@@ -351,6 +397,9 @@ def shuffle_commitments(
             question=test.question,
             outcomes=test.outcomes,
             commitments={target: test.commitments.get(source) for target, source in source_for_target.items()},
+            target_pairs=_differing_candidate_pairs(
+                {target: test.commitments.get(source) for target, source in source_for_target.items()}
+            ),
         )
         for test in tests
     )
@@ -397,26 +446,52 @@ def parse_witness_answers(
     *,
     packet: WitnessPacket,
 ) -> dict[str, str] | None:
-    """Map a witness response back to internal outcomes; omissions are erasures."""
+    """Map a witness response back to internal outcomes; invalid rows are erasures."""
+
+    return parse_witness_answers_detailed(payload, packet=packet).vector
+
+
+def parse_witness_answers_detailed(
+    payload: dict[str, Any] | None,
+    *,
+    packet: WitnessPacket,
+) -> WitnessParseResult:
+    """Recover valid coordinates without promoting one bad row to a panel failure."""
 
     if not isinstance(payload, dict) or not isinstance(payload.get("answers"), list):
-        return None
+        return WitnessParseResult(None, False, len(packet.tests), 0, ())
     observed: dict[str, str] = {}
     seen: set[str] = set()
-    for row in payload["answers"]:
+    erased: list[dict[str, str]] = []
+    for index, row in enumerate(payload["answers"]):
         if not isinstance(row, dict):
-            return None
+            erased.append({"row": str(index), "reason": "answer_not_object"})
+            continue
         public_test_id = str(row.get("test_id") or "")
         public_outcome_id = str(row.get("outcome_id") or "")
-        check = str(row.get("check") or "")
-        if public_test_id in seen or public_test_id not in packet.public_test_to_internal:
-            return None
-        if public_outcome_id not in packet.public_outcome_to_internal[public_test_id] or len(check) > 160:
-            return None
+        if public_test_id in seen:
+            erased.append({"row": str(index), "reason": "duplicate_test_id"})
+            internal = packet.public_test_to_internal.get(public_test_id)
+            if internal is not None:
+                observed.pop(internal, None)
+            continue
+        if public_test_id not in packet.public_test_to_internal:
+            erased.append({"row": str(index), "reason": "unknown_test_id"})
+            continue
+        if public_outcome_id not in packet.public_outcome_to_internal[public_test_id]:
+            erased.append({"row": str(index), "reason": "unknown_outcome_id"})
+            seen.add(public_test_id)
+            continue
         seen.add(public_test_id)
         internal_test = packet.public_test_to_internal[public_test_id]
         observed[internal_test] = packet.public_outcome_to_internal[public_test_id][public_outcome_id]
-    return observed
+    return WitnessParseResult(
+        observed,
+        True,
+        len(packet.tests),
+        len(observed),
+        tuple(erased),
+    )
 
 
 def decode_witnesses(
@@ -524,6 +599,86 @@ def decide_direct_judges(
 
 def test_to_dict(test: DiagnosticTest) -> dict[str, Any]:
     return asdict(test)
+
+
+def _evidence_quote_alignment_counts(
+    raw_test: Any,
+    *,
+    candidate_by_key: dict[str, CandidateClass],
+    hypothesis_to_key: dict[str, str],
+) -> tuple[int, int]:
+    if not isinstance(raw_test, dict) or not isinstance(raw_test.get("commitments"), dict):
+        return 0, 0
+    attempted = 0
+    aligned = 0
+    for hypothesis, raw_commitment in raw_test["commitments"].items():
+        if raw_commitment is None or not isinstance(raw_commitment, dict):
+            continue
+        quote = str(raw_commitment.get("evidence_quote") or "")
+        if not quote.strip():
+            continue
+        attempted += 1
+        candidate_key = hypothesis_to_key.get(str(hypothesis))
+        candidate = candidate_by_key.get(str(candidate_key))
+        if candidate is not None and len(_find_normalized_quote_spans(candidate.representative_reasoning, quote)) == 1:
+            aligned += 1
+    return attempted, aligned
+
+
+def _find_normalized_quote_spans(text: str, quote: str) -> list[tuple[int, int]]:
+    normalized_text, starts, ends = _normalized_text_with_offsets(text)
+    normalized_quote = _normalize_match(quote)
+    if not normalized_quote:
+        return []
+    matches: list[tuple[int, int]] = []
+    offset = 0
+    while True:
+        index = normalized_text.find(normalized_quote, offset)
+        if index < 0:
+            break
+        final_index = index + len(normalized_quote) - 1
+        if index < len(starts) and final_index < len(ends):
+            raw_span = (starts[index], ends[final_index])
+            if _normalize_match(text[raw_span[0] : raw_span[1]]) == normalized_quote:
+                matches.append(raw_span)
+        offset = index + 1
+    return sorted(set(matches))
+
+
+def _normalized_text_with_offsets(value: str) -> tuple[str, list[int], list[int]]:
+    rendered: list[str] = []
+    starts: list[int] = []
+    ends: list[int] = []
+    index = 0
+    while index < len(value):
+        if value[index : index + 2] == "\r\n":
+            piece = "\n"
+            raw_end = index + 2
+        else:
+            piece = unicodedata.normalize("NFKC", value[index])
+            raw_end = index + 1
+        for character in piece:
+            rendered.append(character)
+            starts.append(index)
+            ends.append(raw_end)
+        index = raw_end
+    return "".join(rendered), starts, ends
+
+
+def _differing_candidate_pairs(
+    commitments: dict[str, Commitment | None],
+) -> tuple[tuple[str, str], ...]:
+    pairs = []
+    for left, right in itertools.combinations(sorted(commitments), 2):
+        left_commitment = commitments[left]
+        right_commitment = commitments[right]
+        if (
+            left_commitment is not None
+            and right_commitment is not None
+            and left_commitment.outcome_id != right_commitment.outcome_id
+        ):
+            pairs.append((left, right))
+    return tuple(pairs)
 
 
 def _coordinates_are_independent(tests: Iterable[DiagnosticTest], keys: tuple[str, ...]) -> bool:
