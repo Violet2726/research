@@ -1,0 +1,10 @@
+{
+  "dataset": "gpqa_diamond",
+  "split_name": "catch_cert_holdout0_seed42",
+  "source_split": "diamond",
+  "sample_count": 0,
+  "random_seed": 42,
+  "selection_rule": "no non-overlapping GPQA Diamond samples remain after boundary and development allocation",
+  "population_sha256": null,
+  "sample_ids": []
+}

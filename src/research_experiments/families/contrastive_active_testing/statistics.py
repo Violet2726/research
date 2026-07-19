@@ -11,7 +11,7 @@ from scipy.stats import beta
 
 from research_experiments.reporting.paired_inference import paired_statistics
 
-BASE_METHODS = ("sc_5", "adaptive_sc_8", "catch", "direct_judge_3", "pair_judge_3")
+BASE_METHODS = ("sc_5", "adaptive_sc_8", "catch", "catch_cert", "direct_judge_3", "pair_judge_3")
 
 
 def materialize_development_catch(
@@ -96,14 +96,24 @@ def build_metrics(predictions: list[dict[str, Any]]) -> dict[str, Any]:
     ordered = [method for method in BASE_METHODS if method in available]
     variants = sorted(method for method in available if method.startswith("catch_d"))
     summaries = [_summary(method, [row for row in predictions if row.get("method_name") == method]) for method in [*ordered, *variants]]
-    paired = paired_statistics(
-        predictions,
-        reference="catch",
-        competitors=[method for method in ("adaptive_sc_8", "pair_judge_3", "direct_judge_3", "sc_5") if method in available],
-        seed=42,
-        bootstrap_samples=10_000,
-        bbeh_harmonic=True,
-    ) if "catch" in available else {"tests": []}
+    reference = "catch_cert" if "catch_cert" in available else "catch"
+    paired_competitors = [
+        method
+        for method in ("adaptive_sc_8", "pair_judge_3", "direct_judge_3", "sc_5", "catch", "catch_cert")
+        if method in available and method != reference
+    ]
+    paired = (
+        paired_statistics(
+            predictions,
+            reference=reference,
+            competitors=paired_competitors,
+            seed=42,
+            bootstrap_samples=10_000,
+            bbeh_harmonic=True,
+        )
+        if reference in available and paired_competitors
+        else {"reference_method": reference, "tests": []}
+    )
     return {"summary": summaries, "paired_statistics": paired}
 
 
@@ -135,6 +145,7 @@ def build_best_effort_diagnostics(
             overrides = [row for row in evaluable if row.get("override_accepted")]
             correct_overrides = sum(float(row.get("score") or 0) == 1.0 for row in overrides)
             methods[method] = {
+                **_summary(method, evaluable),
                 "planned": planned,
                 "available_prediction_rows": len(rows),
                 "evaluable": len(evaluable),
@@ -153,10 +164,15 @@ def build_best_effort_diagnostics(
                     sum(bool(row.get("target_oracle_correct")) for row in evaluable),
                     len(evaluable),
                 ),
+                "certificate_coverage": _ratio(
+                    sum(float(row.get("certificate_coverage") or 0) for row in evaluable),
+                    len(evaluable),
+                ),
             }
+        primary_method = "catch_cert" if "catch_cert" in by_method else "catch"
         catch_by_id = {
             str(row.get("sample_id")): row
-            for row in by_method.get("catch", [])
+            for row in by_method.get(primary_method, [])
             if row.get("prediction") not in {None, ""}
         }
         paired: dict[str, Any] = {}
@@ -285,14 +301,15 @@ def evaluate_gate(
     summaries = {row["method_name"]: row for row in build_metrics(predictions)["summary"]}
     sc5 = summaries.get("sc_5", {})
     adaptive = summaries.get("adaptive_sc_8", {})
-    catch = summaries.get("catch", {})
+    primary_method = "catch_cert" if protocol_version == "catch_cert_v1" else "catch"
+    catch = summaries.get(primary_method, {})
     judge = summaries.get("direct_judge_3", {})
     pair_judge = summaries.get("pair_judge_3", {})
-    catch_rows = [row for row in predictions if row.get("method_name") == "catch"]
+    catch_rows = [row for row in predictions if row.get("method_name") == primary_method]
     triggered = [row for row in routers if row.get("triggered")]
     selected_d_min = int(catch_rows[0].get("d_min") or 0) if catch_rows else 0
     selected_margin = int(catch_rows[0].get("margin") or 0) if catch_rows else 0
-    if protocol_version == "catch_v3":
+    if protocol_version in {"catch_v3", "catch_cert_v1"}:
         eligible = sum(bool(router.get("eligible_challengers")) for router in triggered)
     else:
         eligible = 0
@@ -315,7 +332,16 @@ def evaluate_gate(
         row
         for row in turns
         if row.get("role")
-        in {"test_designer", "blinded_witness", "direct_judge", "icv_selector", "icv_witness", "pair_judge"}
+        in {
+            "test_designer",
+            "blinded_witness",
+            "direct_judge",
+            "icv_selector",
+            "icv_witness",
+            "certificate_designer",
+            "certificate_verifier",
+            "pair_judge",
+        }
     ]
     parse_rate = _ratio(
         sum(row.get("protocol_parse_status") == "ok" for row in structured_turns),
@@ -361,6 +387,18 @@ def evaluate_gate(
             "net_corrections_at_least_three": corrected - harmed >= 3,
             "override_precision_at_least_65_percent": precision >= 0.65,
             "fixed_decoder_no_dev_search": development_selection is None,
+        }
+    elif phase_name == "development" and protocol_version == "catch_cert_v1":
+        conditions = {
+            **common,
+            "certificate_packet_coverage_is_nonzero": code_coverage > 0.0,
+            "candidate_oracle_micro_at_least_5pp_over_sc5": float(
+                catch.get("candidate_oracle_micro") or 0
+            )
+            - float(sc5.get("micro_accuracy") or 0)
+            >= 0.05,
+            "fixed_certificate_decoder_no_dev_search": development_selection is None,
+            "corrected_not_below_harmed": corrected >= harmed,
         }
     elif phase_name == "development":
         conditions = {
@@ -430,6 +468,11 @@ def evaluate_gate(
                     "development_threshold_search": False,
                 }
                 if protocol_version == "catch_v3"
+                else {
+                    "decoder": "question_conditioned_certificate_dual_panel_refutation",
+                    "development_threshold_search": False,
+                }
+                if protocol_version == "catch_cert_v1"
                 else {"selected_d_min": selected_d_min, "selected_margin": selected_margin}
             ),
             "code_eligible_count": eligible,
@@ -473,10 +516,66 @@ def _summary(method: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     target_oracle_task_accuracies = {
         task: sum(values) / len(values) for task, values in target_oracle_per_task.items() if values
     }
+    token_values = [float(row.get("total_tokens_per_question") or 0) for row in rows]
+    total_tokens = sum(token_values)
+    scores_sum = sum(scores)
+    accuracy_wilson = _wilson_interval(int(scores_sum), len(scores))
+    transitions = {
+        "wrong_to_correct": sum(bool(row.get("corrected_by_debate")) for row in rows),
+        "correct_to_wrong": sum(bool(row.get("harmed_by_debate")) for row in rows),
+        "wrong_to_wrong": sum(
+            float(row.get("initial_vote_score") or 0) < 1.0
+            and float(row.get("score") or 0) < 1.0
+            for row in rows
+        ),
+        "correct_to_correct": sum(
+            float(row.get("initial_vote_score") or 0) == 1.0
+            and float(row.get("score") or 0) == 1.0
+            for row in rows
+        ),
+    }
+    certificate_rows = [row for row in rows if method == "catch_cert" or row.get("certificate_count") is not None]
+    verifier_false_pass = sum(
+        bool(row.get("override_accepted")) and float(row.get("score") or 0) < 1.0
+        for row in certificate_rows
+    )
+    verifier_false_reject = sum(
+        bool(row.get("target_oracle_correct"))
+        and float(row.get("initial_vote_score") or 0) < 1.0
+        and not bool(row.get("override_accepted"))
+        for row in certificate_rows
+    )
+    abstentions = sum(
+        bool(row.get("certificate_abstained"))
+        or str(row.get("resolver") or "") in {
+            "abstention",
+            "verifier_ambiguous",
+            "certificate_invalid",
+            "no_certificate",
+            "adapter_conflict",
+        }
+        for row in certificate_rows
+    )
+    sequence_metrics = {
+        key: _ratio(
+            sum(float(row.get(key) or 0) for row in rows if row.get(key) is not None),
+            sum(row.get(key) is not None for row in rows),
+        )
+        for key in (
+            "seqbench_exact_match",
+            "seqbench_progress_ratio",
+            "seqbench_precision",
+            "seqbench_recall",
+            "seqbench_valid_action_rate",
+            "seqbench_execution_prefix_ratio",
+        )
+        if any(row.get(key) is not None for row in rows)
+    }
     return {
         "method_name": method,
         "sample_count": len(rows),
         "micro_accuracy": _ratio(sum(scores), len(scores)),
+        "accuracy_wilson_95": [accuracy_wilson[0], accuracy_wilson[1]],
         "macro_task_accuracy": _ratio(sum(task_accuracies.values()), len(task_accuracies)),
         "task_harmonic_accuracy": _harmonic_mean(task_accuracies.values()),
         "candidate_oracle_micro": _ratio(
@@ -487,9 +586,32 @@ def _summary(method: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
             sum(bool(row.get("target_oracle_correct")) for row in rows), len(rows)
         ),
         "target_oracle_task_harmonic": _harmonic_mean(target_oracle_task_accuracies.values()),
-        "mean_total_tokens": _ratio(
-            sum(float(row.get("total_tokens_per_question") or 0) for row in rows), len(rows)
+        "mean_total_tokens": _ratio(total_tokens, len(rows)),
+        "median_total_tokens": _percentile(token_values, 0.5),
+        "p90_total_tokens": _percentile(token_values, 0.9),
+        "mean_calls_per_question": _ratio(
+            sum(float(row.get("logical_calls_per_question") or row.get("calls_per_question") or 0) for row in rows),
+            len(rows),
         ),
+        "correct_per_1000_tokens": _ratio(scores_sum * 1000.0, total_tokens),
+        "tokens_per_correct": _ratio(total_tokens, scores_sum),
+        "transitions": transitions,
+        "certificate_coverage": _ratio(
+            sum(float(row.get("certificate_coverage") or 0) for row in certificate_rows),
+            len(certificate_rows),
+        ),
+        "certificate_utilization": _ratio(
+            sum(bool(row.get("override_accepted")) for row in certificate_rows),
+            sum(float(row.get("certificate_coverage") or 0) > 0 for row in certificate_rows),
+        ),
+        "verifier_false_pass": verifier_false_pass,
+        "verifier_false_reject": verifier_false_reject,
+        "abstention_rate": _ratio(abstentions, len(certificate_rows)),
+        "headroom_utilization": _ratio(
+            transitions["wrong_to_correct"] - transitions["correct_to_wrong"],
+            sum(bool(row.get("target_oracle_correct")) and float(row.get("initial_vote_score") or 0) < 1.0 for row in rows),
+        ),
+        **sequence_metrics,
         "mean_network_attempts": _ratio(
             sum(float(row.get("network_attempts_per_question") or 0) for row in rows), len(rows)
         ),
@@ -607,6 +729,14 @@ def _harmonic_mean(values) -> float:
     if not materialized or any(value <= 0 for value in materialized):
         return 0.0
     return len(materialized) / sum(1 / value for value in materialized)
+
+
+def _percentile(values: list[float], quantile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = max(0, min(len(ordered) - 1, math.ceil(quantile * len(ordered)) - 1))
+    return ordered[index]
 
 
 def _ratio(numerator: float, denominator: int) -> float:

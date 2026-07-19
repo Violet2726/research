@@ -1,0 +1,14 @@
+protocol_version = "catch_cert_v1"
+budget_scope = "catch_cert_development"
+stage_candidates = 5
+resample_candidates = 3
+witness_count = 2
+direct_judge_count = 3
+pair_judge_count = 3
+max_proposed_tests = 6
+max_selected_tests = 6
+temperature = 0.7
+top_p = 1.0
+solver_max_tokens = 16384
+role_max_tokens = 4096
+max_network_attempts = 62000

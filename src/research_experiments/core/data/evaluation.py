@@ -35,6 +35,20 @@ class AnswerCanonicalization:
     invalid_reason: str | None = None
 
 
+@dataclass(frozen=True)
+class SequenceEvaluation:
+    exact_match: float
+    progress_ratio: float
+    precision: float
+    recall: float
+    valid_action_rate: float
+    execution_prefix_ratio: float
+    first_invalid_action_index: int | None
+    first_invalid_action_reason: str | None
+    predicted_action_count: int
+    gold_action_count: int
+
+
 def normalize_prediction(dataset: str, final_answer: str) -> str:
     """按数据集类型把模型答案归一化为可比较的形式。"""
     if dataset == "gsm8k":
@@ -304,6 +318,153 @@ def _canonical_sequence_key(raw_answer: str) -> AnswerCanonicalization:
         for item in parsed
     ]
     return AnswerCanonicalization(json.dumps(normalized, ensure_ascii=False, separators=(",", ":")), True)
+
+
+def evaluate_seqbench_prediction(
+    predicted: str,
+    gold: str,
+    *,
+    sample: DatasetSample | None = None,
+) -> SequenceEvaluation:
+    """Return exact and fine-grained seqBench metrics.
+
+    Progress is the exact prefix length divided by gold length.  Precision and
+    recall use multiset action overlap, preserving repeated backtracking moves.
+    When a sample is supplied, a gold-free maze executor additionally reports
+    the valid execution prefix and first violation.
+    """
+
+    predicted_actions = _sequence_actions(predicted)
+    gold_actions = _sequence_actions(gold)
+    if gold_actions is None:
+        raise ValueError("seqBench gold must be a valid non-empty action list.")
+    if predicted_actions is None:
+        return SequenceEvaluation(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, "invalid_sequence_syntax", 0, len(gold_actions))
+    exact_prefix = 0
+    for left, right in zip(predicted_actions, gold_actions, strict=False):
+        if left != right:
+            break
+        exact_prefix += 1
+    predicted_counts = Counter(predicted_actions)
+    gold_counts = Counter(gold_actions)
+    overlap = sum((predicted_counts & gold_counts).values())
+    valid_actions = sum(_parse_seqbench_action(action) is not None for action in predicted_actions)
+    execution_prefix = valid_actions
+    invalid_index: int | None = None
+    invalid_reason: str | None = None
+    if sample is not None:
+        execution_prefix, invalid_index, invalid_reason = _execute_seqbench_actions(sample, predicted_actions)
+    progress_prefix = execution_prefix if sample is not None else exact_prefix
+    return SequenceEvaluation(
+        exact_match=float(predicted_actions == gold_actions),
+        progress_ratio=progress_prefix / len(gold_actions),
+        precision=overlap / len(predicted_actions) if predicted_actions else 0.0,
+        recall=overlap / len(gold_actions),
+        valid_action_rate=valid_actions / len(predicted_actions) if predicted_actions else 0.0,
+        execution_prefix_ratio=execution_prefix / len(predicted_actions) if predicted_actions else 0.0,
+        first_invalid_action_index=invalid_index,
+        first_invalid_action_reason=invalid_reason,
+        predicted_action_count=len(predicted_actions),
+        gold_action_count=len(gold_actions),
+    )
+
+
+def _sequence_actions(raw_answer: str) -> list[str] | None:
+    canonical = _canonical_sequence_key(raw_answer)
+    if not canonical.valid:
+        return None
+    parsed = json.loads(canonical.key)
+    return [str(item) for item in parsed]
+
+
+def _parse_seqbench_action(action: str) -> tuple[str, str] | None:
+    match = re.fullmatch(
+        r"(start|move_to|pick_up_key|use_key|unlock_and_open_door_to|rescue):\s*(\S(?:.*\S)?)",
+        action.strip(),
+    )
+    if match is None:
+        return None
+    return match.group(1), match.group(2)
+
+
+def _execute_seqbench_actions(
+    sample: DatasetSample,
+    actions: list[str],
+) -> tuple[int, int | None, str | None]:
+    context = sample.question
+    open_doors: set[frozenset[str]] = set()
+    locked_doors: dict[frozenset[str], str] = {}
+    for left, right in re.findall(
+        r"Room\s+([A-Z][0-9]+)\s+and\s+([A-Z][0-9]+)\s+are connected by an open door",
+        context,
+        flags=re.IGNORECASE,
+    ):
+        open_doors.add(frozenset((left.upper(), right.upper())))
+    for left, right in re.findall(
+        r"Room\s+([A-Z][0-9]+)\s+and\s+([A-Z][0-9]+)\s+are connected by a closed and locked door",
+        context,
+        flags=re.IGNORECASE,
+    ):
+        locked_doors[frozenset((left.upper(), right.upper()))] = ""
+    for left, right, key in re.findall(
+        r"(?:The )?locked door between\s+([A-Z][0-9]+)\s+and\s+([A-Z][0-9]+)\s+requires key\s+([0-9]+)",
+        context,
+        flags=re.IGNORECASE,
+    ):
+        locked_doors[frozenset((left.upper(), right.upper()))] = key
+    key_locations = {
+        key: room.upper()
+        for key, room in re.findall(r"Key\s+([0-9]+)\s+is in room\s+([A-Z][0-9]+)", context, flags=re.IGNORECASE)
+    }
+    metadata = sample.metadata.get("seqbench_instance_metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    agent_name = str(metadata.get("agent_name") or "Bob")
+    target_name = str(metadata.get("target_name") or "Alice")
+    positions = {
+        name: room.upper()
+        for name, room in re.findall(r"([A-Za-z][A-Za-z0-9_-]*)\s+is in room\s+([A-Z][0-9]+)", context)
+    }
+    start_room = positions.get(agent_name)
+    target_room = positions.get(target_name)
+    current: str | None = None
+    held_keys: set[str] = set()
+    active_key: str | None = None
+    for index, raw_action in enumerate(actions):
+        parsed = _parse_seqbench_action(raw_action)
+        if parsed is None:
+            return index, index, "invalid_action_syntax"
+        action, value = parsed
+        room_or_value = value.upper() if action in {"start", "move_to", "unlock_and_open_door_to"} else value
+        if action == "start":
+            if index != 0 or start_room is None or room_or_value != start_room:
+                return index, index, "invalid_start"
+            current = room_or_value
+        elif current is None:
+            return index, index, "missing_start"
+        elif action == "move_to":
+            edge = frozenset((current, room_or_value))
+            if edge not in open_doors:
+                return index, index, "non_adjacent_or_locked_move"
+            current = room_or_value
+        elif action == "pick_up_key":
+            if key_locations.get(value) != current:
+                return index, index, "key_not_in_current_room"
+            held_keys.add(value)
+        elif action == "use_key":
+            if value not in held_keys:
+                return index, index, "key_not_held"
+            active_key = value
+        elif action == "unlock_and_open_door_to":
+            edge = frozenset((current, room_or_value))
+            required = locked_doors.get(edge)
+            if required is None or not required or active_key != required:
+                return index, index, "wrong_key_or_nonmatching_locked_door"
+            open_doors.add(edge)
+            active_key = None
+        elif action == "rescue":
+            if value != target_name or current != target_room or index != len(actions) - 1:
+                return index, index, "invalid_rescue"
+    return len(actions), None, None
 
 
 def canonical_reference_key(sample: DatasetSample) -> AnswerCanonicalization:

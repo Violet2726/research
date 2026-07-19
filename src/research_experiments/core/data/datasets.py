@@ -1197,6 +1197,8 @@ def _load_seqbench_jsonl_gz(config: BenchmarkConfig) -> list[DatasetSample]:
             backtracking = int(parameters.get("backtracking_count_B") or 0)
             noise = float(parameters.get("noise_ratio_N") or 0.0)
             logical_depth = int(parameters.get("logical_depth_L") or 0)
+            instance_metadata = dict(record.get("instance_metadata") or {})
+            structural_details = record.get("structural_details") or {}
             samples.append(
                 DatasetSample(
                     dataset=config.slug,
@@ -1210,6 +1212,15 @@ def _load_seqbench_jsonl_gz(config: BenchmarkConfig) -> list[DatasetSample]:
                         "backtracking_count_B": backtracking,
                         "noise_ratio_N": noise,
                         "logical_depth_L": logical_depth,
+                        "seqbench_instance_metadata": instance_metadata,
+                        "structural_details_sha256": hashlib.sha256(
+                            json.dumps(
+                                structural_details,
+                                ensure_ascii=False,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            ).encode("utf-8")
+                        ).hexdigest(),
                         "answer_contract": {
                             "kind": "ordered_sequence",
                             "options": [],

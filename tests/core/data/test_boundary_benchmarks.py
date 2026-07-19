@@ -6,6 +6,7 @@ from collections import Counter
 from research_experiments.core.config import load_benchmark_config
 from research_experiments.core.data.datasets import load_samples, question_without_answer_contract
 from research_experiments.core.data.evaluation import canonicalize_answer, score_prediction
+from research_experiments.core.prompts.dataset_contracts import dataset_instruction
 from research_experiments.families.contrastive_active_testing.boundary import (
     boundary_sample_view,
     boundary_stratum,
@@ -60,6 +61,22 @@ def test_seqbench_official_loader_counts_strata_and_strict_sequences() -> None:
     assert score_prediction("seqbench", python_literal, samples[0].reference_answer, sample=samples[0]) == 1.0
     assert not canonicalize_answer(samples[0], f"The sequence is {python_literal}").valid
     assert not canonicalize_answer(samples[0], '["ok", 3]').valid
+
+
+def test_seqbench_prompt_contains_official_action_schema_and_three_examples() -> None:
+    prompt = dataset_instruction("seqbench")
+    for action in (
+        "start:",
+        "move_to:",
+        "pick_up_key:",
+        "use_key:",
+        "unlock_and_open_door_to:",
+        "rescue:",
+    ):
+        assert action in prompt
+    assert "Official-format example 1" in prompt
+    assert "Official-format example 2" in prompt
+    assert "Official-format example 3" in prompt
 
 
 def test_gpqa_boundary_view_preserves_shuffle_and_stratifies_domains() -> None:

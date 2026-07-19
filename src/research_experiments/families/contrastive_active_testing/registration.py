@@ -36,7 +36,13 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
     return {
         "name": experiment.name,
         "description": experiment.description,
-        "paper_method_name": "CATCH-ICV" if protocol.protocol_version == "catch_v3" else "CATCH",
+        "paper_method_name": (
+            "CATCH-Cert"
+            if protocol.protocol_version == "catch_cert_v1"
+            else "CATCH-ICV"
+            if protocol.protocol_version == "catch_v3"
+            else "CATCH"
+        ),
         "method_version": protocol.protocol_version,
         "protocol": asdict(protocol),
         "benchmarks": [benchmark.slug for benchmark in load_phase_benchmarks(experiment, phase_names[0])],

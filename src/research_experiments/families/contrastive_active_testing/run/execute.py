@@ -19,17 +19,24 @@ from research_experiments.core.data.datasets import (
     resolve_split_manifest_path,
     select_samples,
 )
+from research_experiments.core.data.evaluation import score_prediction
 from research_experiments.core.execution.cache import RequestCacheRouter
 from research_experiments.core.execution.provider_audit import evaluate_mimo_provider_audit
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
 from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id
+from research_experiments.families.contrastive_active_testing.algorithms import build_stage_decision
 from research_experiments.families.contrastive_active_testing.cache_layers import ReadThroughRequestCache
+from research_experiments.families.contrastive_active_testing.cert_prompts import (
+    CERT_PROMPT_VERSION,
+    CERT_SCHEMA_VERSION,
+)
 from research_experiments.families.contrastive_active_testing.config import (
     load_phase_benchmarks,
     load_protocol_config,
     phase_metadata,
 )
+from research_experiments.families.contrastive_active_testing.icv import build_target_pairs
 from research_experiments.families.contrastive_active_testing.prompts import (
     CATCH_PROMPT_VERSION,
     CATCH_SCHEMA_VERSION,
@@ -48,6 +55,7 @@ from research_experiments.families.contrastive_active_testing.run.report import 
 from research_experiments.families.contrastive_active_testing.run.sample import (
     NetworkAttemptBudget,
     run_catch_sample,
+    run_stage_a_only_sample,
 )
 from research_experiments.families.contrastive_active_testing.statistics import (
     build_best_effort_diagnostics,
@@ -147,12 +155,17 @@ def run_experiment(
     preflight_dependency = None
     frozen_decoding = None
     if phase_name in {"heldout", "confirmation"}:
-        if protocol.protocol_version == "catch_v3":
+        if protocol.protocol_version in {"catch_v3", "catch_cert_v1"}:
             frozen_decoding = _build_frozen_protocol_candidate(
                 run_id="built_in_fixed_protocol",
                 config_sha=config_sha,
+                protocol_version=protocol.protocol_version,
             )
-            frozen_decoding["source"] = "built_in_fixed_v3_decoder"
+            frozen_decoding["source"] = (
+                "built_in_fixed_v3_decoder"
+                if protocol.protocol_version == "catch_v3"
+                else "built_in_fixed_cert_decoder"
+            )
         else:
             try:
                 frozen_decoding = _load_frozen_decoding(
@@ -265,13 +278,29 @@ def run_experiment(
         for sample in selected_by_benchmark[benchmark.slug]:
             jobs.append(CatchSampleJob(sequence_index, sample, split_name, endpoints[benchmark.slug]))
             sequence_index += 1
+    cert_screening_mode = bool(
+        protocol.protocol_version == "catch_cert_v1"
+        and phase_name == "development"
+        and int(phase.get("screening_sample_count") or 0) > 0
+        and int(phase.get("disagreement_sample_count") or 0) > 0
+    )
+    all_screening_jobs = list(jobs)
+    if cert_screening_mode:
+        jobs = []
     run_direct_judge = bool(phase.get("run_direct_judge", phase_name != "confirmation"))
-    if protocol.protocol_version == "catch_v3":
+    if protocol.protocol_version in {"catch_v3", "catch_cert_v1"}:
         calls_per_triggered = 17 if run_direct_judge else 11
         predictions_per_sample = 5 if run_direct_judge else 3
     else:
         calls_per_triggered = 18 if phase_name == "development" else 14 if run_direct_judge else 11
         predictions_per_sample = 9 if phase_name == "development" else 4 if run_direct_judge else 3
+    selected_disagreement_upper_bound = sum(
+        min(
+            int(phase.get("disagreement_sample_count") or 0),
+            len(selected_by_benchmark.get(benchmark.slug, [])),
+        )
+        for benchmark in benchmarks
+    ) if cert_screening_mode else sample_count
     preflight_call_upper_bound = (
         sample_count * protocol.stage_candidates
         + protocol.preflight_sample_count * (1 + protocol.witness_count)
@@ -285,11 +314,16 @@ def run_experiment(
         total_planned_predictions = 0
         total_planned_samples = protocol.preflight_sample_count
     else:
-        total_planned_calls = sample_count * calls_per_triggered + (
+        total_planned_calls = (
+            sample_count * protocol.stage_candidates
+            + selected_disagreement_upper_bound * calls_per_triggered
+            if cert_screening_mode
+            else sample_count * calls_per_triggered
+        ) + (
             preflight_call_upper_bound if protocol.protocol_version == "catch_v2" else 0
         )
-        total_planned_predictions = sample_count * predictions_per_sample
-        total_planned_samples = sample_count
+        total_planned_predictions = selected_disagreement_upper_bound * predictions_per_sample
+        total_planned_samples = sample_count + selected_disagreement_upper_bound if cert_screening_mode else sample_count
     progress = RunProgressTracker(
         layout.progress,
         total_planned_calls=total_planned_calls,
@@ -307,7 +341,13 @@ def run_experiment(
             "run_id": run_id,
             "created_at": datetime.now(UTC).isoformat(),
             "family_name": "contrastive_active_testing",
-            "paper_method_name": "CATCH-ICV" if protocol.protocol_version == "catch_v3" else "CATCH",
+            "paper_method_name": (
+                "CATCH-Cert"
+                if protocol.protocol_version == "catch_cert_v1"
+                else "CATCH-ICV"
+                if protocol.protocol_version == "catch_v3"
+                else "CATCH"
+            ),
             "method_version": protocol.protocol_version,
             "protocol_version": protocol.protocol_version,
             "experiment_name": experiment.name,
@@ -316,8 +356,12 @@ def run_experiment(
             "description": experiment.description,
             "resolved_model": asdict(backbone),
             "protocol": asdict(protocol),
-            "prompt_version": CATCH_PROMPT_VERSION,
-            "schema_version": CATCH_SCHEMA_VERSION,
+            "prompt_version": (
+                CERT_PROMPT_VERSION if protocol.protocol_version == "catch_cert_v1" else CATCH_PROMPT_VERSION
+            ),
+            "schema_version": (
+                CERT_SCHEMA_VERSION if protocol.protocol_version == "catch_cert_v1" else CATCH_SCHEMA_VERSION
+            ),
             "global_seed": experiment.global_seed,
             "cache_namespace": cache_namespace,
             "baseline_read_cache_namespace": baseline_namespace,
@@ -335,7 +379,22 @@ def run_experiment(
             "sample_count": sample_count,
             "source_split_sample_count": sample_count,
             "planned_sample_count": total_planned_samples,
-            "method_order": ["sc_5", "adaptive_sc_8", "catch", "direct_judge_3", "pair_judge_3"],
+            "screening_sample_count_per_dataset": int(phase.get("screening_sample_count") or 0)
+            if cert_screening_mode
+            else None,
+            "selected_disagreement_cap_per_dataset": int(phase.get("disagreement_sample_count") or 0)
+            if cert_screening_mode
+            else None,
+            "selection_rule": "gold_blind_stage_a_disagreement_sha256"
+            if cert_screening_mode
+            else None,
+            "method_order": [
+                "sc_5",
+                "adaptive_sc_8",
+                "catch_cert" if protocol.protocol_version == "catch_cert_v1" else "catch",
+                "direct_judge_3",
+                "pair_judge_3",
+            ],
             "max_network_attempts": protocol.max_network_attempts,
             "network_attempt_limit_mode": "soft_warning",
             "calls_per_triggered_question_upper_bound": calls_per_triggered,
@@ -350,6 +409,14 @@ def run_experiment(
     routers: list[dict[str, Any]] = []
     predictions: list[dict[str, Any]] = []
     sample_errors: list[dict[str, Any]] = []
+    screening_stage_rows_by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    screening_selection: dict[str, Any] = {
+        "enabled": cert_screening_mode,
+        "screening_sample_count": sample_count if cert_screening_mode else 0,
+        "selected_disagreement_count": 0,
+        "selected_sample_ids": {},
+        "selection_rule": "gold_blind_stage_a_disagreement_sha256",
+    }
     try:
         preflight = None
         if run_mode == "structural_preflight":
@@ -392,7 +459,75 @@ def run_experiment(
         with (
             layout.agent_turns.open("w", encoding="utf-8") as turns_handle,
             layout.router_decisions.open("w", encoding="utf-8") as routers_handle,
+            (layout.root / "diagnostics" / "certificate_screening.jsonl").open("w", encoding="utf-8")
+            as screening_handle,
         ):
+            if cert_screening_mode:
+                for job, stage_turns, stage_or_router in _execute_jobs_bounded(
+                    all_screening_jobs,
+                    max_workers=experiment.max_concurrent_requests,
+                    worker=lambda screening_job: run_stage_a_only_sample(
+                        screening_job.sample,
+                        run_id=run_id,
+                        split_name=screening_job.split_name,
+                        experiment=experiment,
+                        protocol=protocol,
+                        endpoint=screening_job.endpoint,
+                        network_budget=network_budget,
+                    ),
+                    progress=progress,
+                ):
+                    for raw in stage_turns:
+                        row = {**raw, "sample_sequence_index": job.sequence_index, "run_stage": "screening"}
+                        turns.append(row)
+                        turns_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+                        progress.record_call(row)
+                    if stage_turns and hasattr(stage_or_router, "triggered"):
+                        screening_stage_rows_by_key[(job.sample.dataset, job.sample.sample_id)] = list(stage_turns)
+                        stage = stage_or_router
+                        screening_handle.write(
+                            json.dumps(
+                                {
+                                    "dataset": job.sample.dataset,
+                                    "sample_id": job.sample.sample_id,
+                                    "sample_sequence_index": job.sequence_index,
+                                    "triggered": stage.triggered,
+                                    "anchor_key": stage.anchor_key,
+                                    "vote_counts": stage.vote_counts,
+                                    "valid_count": stage.valid_count,
+                                },
+                                ensure_ascii=False,
+                            )
+                            + "\n"
+                        )
+                        progress.record_phase_sample("stage_a_ready")
+                    if isinstance(stage_or_router, dict) and stage_or_router.get("sample_error"):
+                        sample_errors.append(dict(stage_or_router["sample_error"]))
+                    progress.record_completed_samples(1, method_name="certificate_screening")
+                    turns_handle.flush()
+                    screening_handle.flush()
+                selected_jobs = _select_cert_disagreement_jobs(
+                    all_screening_jobs,
+                    {
+                        key: (
+                            rows,
+                            build_stage_decision(rows, seed=experiment.global_seed, sample_id=key[1]),
+                        )
+                        for key, rows in screening_stage_rows_by_key.items()
+                    },
+                    cap_per_dataset=int(phase.get("disagreement_sample_count") or 0),
+                    seed=experiment.global_seed,
+                )
+                jobs = selected_jobs
+                screening_selection["selected_disagreement_count"] = len(selected_jobs)
+                screening_selection["selected_sample_ids"] = {
+                    dataset: [job.sample.sample_id for job in selected_jobs if job.sample.dataset == dataset]
+                    for dataset in sorted({job.sample.dataset for job in selected_jobs})
+                }
+                progress.reconcile_dynamic_plan(
+                    total_planned_samples=sample_count + len(selected_jobs),
+                    total_planned_predictions=len(selected_jobs) * predictions_per_sample,
+                )
             for job, sample_turns, router_row, sample_predictions in _execute_jobs_bounded(
                 jobs,
                 max_workers=experiment.max_concurrent_requests,
@@ -407,10 +542,23 @@ def run_experiment(
                     phase_name=phase_name,
                     frozen_decoding=frozen_decoding,
                     run_direct_judge=run_direct_judge,
+                    precomputed_stage_rows=(
+                        tuple(screening_stage_rows_by_key.get((job.sample.dataset, job.sample.sample_id), ()))
+                        if cert_screening_mode
+                        else None
+                    ),
                 ),
                 progress=progress,
             ):
-                for raw in sample_turns:
+                already_screened = cert_screening_mode and bool(
+                    screening_stage_rows_by_key.get((job.sample.dataset, job.sample.sample_id))
+                )
+                emitted_turns = (
+                    [row for row in sample_turns if row.get("role") != "stage_a_solver"]
+                    if already_screened
+                    else sample_turns
+                )
+                for raw in emitted_turns:
                     row = {**raw, "sample_sequence_index": job.sequence_index, "run_stage": "main"}
                     turns.append(row)
                     turns_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -437,7 +585,7 @@ def run_experiment(
         routers.sort(key=lambda row: int(row.get("sample_sequence_index") or 0))
         predictions.sort(key=_prediction_sort_key)
         development_selection = None
-        if phase_name == "development" and protocol.protocol_version != "catch_v3":
+        if phase_name == "development" and protocol.protocol_version not in {"catch_v3", "catch_cert_v1"}:
             try:
                 predictions, development_selection = materialize_development_catch(predictions, routers)
             except (KeyError, TypeError, ValueError) as exc:
@@ -461,25 +609,48 @@ def run_experiment(
             for row in predictions:
                 predictions_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
         metrics = build_metrics(predictions)
+        if cert_screening_mode:
+            metrics["screening"] = _build_cert_screening_metrics(
+                selected_by_benchmark,
+                screening_stage_rows_by_key,
+                seed=experiment.global_seed,
+            )
+            metrics["screening_selection"] = screening_selection
+        planned_for_diagnostics = (
+            {
+                dataset: len(
+                    [
+                        sample_id
+                        for sample_id in screening_selection.get("selected_sample_ids", {}).get(dataset, [])
+                    ]
+                )
+                for dataset in selected_by_benchmark
+            }
+            if cert_screening_mode
+            else {dataset: len(samples) for dataset, samples in selected_by_benchmark.items()}
+        )
         metrics.update(
             build_best_effort_diagnostics(
                 predictions=predictions,
                 turns=turns,
                 routers=routers,
-                planned_by_dataset={
-                    dataset: len(samples) for dataset, samples in selected_by_benchmark.items()
-                },
+                planned_by_dataset=planned_for_diagnostics,
             )
         )
         request_failure_count = sum(bool(row.get("request_error")) for row in turns)
         parse_failure_count = sum(row.get("protocol_parse_status") == "failed" for row in turns)
         execution = {
             "policy": "best_effort_non_blocking",
-            "planned_sample_count": sample_count,
-            "attempted_sample_count": len(routers),
+            "planned_sample_count": total_planned_samples,
+            "screening_sample_count": sample_count if cert_screening_mode else 0,
+            "selected_disagreement_count": screening_selection.get("selected_disagreement_count", 0),
+            "attempted_sample_count": len(routers) + (sample_count if cert_screening_mode else 0),
             "evaluable_sample_count": len({row.get("sample_id") for row in predictions}),
             "missing_sample_count": max(
-                0, sample_count - len({row.get("sample_id") for row in predictions})
+                0,
+                total_planned_samples
+                - len({row.get("sample_id") for row in predictions})
+                - (sample_count if cert_screening_mode else 0),
             ),
             "sample_error_count": len(sample_errors),
             "dataset_error_count": len(dataset_errors),
@@ -497,7 +668,8 @@ def run_experiment(
                     "execution": execution,
                     "development_selection": development_selection,
                     "preflight": preflight,
-                    "planned_sample_count": sample_count,
+                    "planned_sample_count": total_planned_samples,
+                    "screening_selection": screening_selection,
                     "sample_errors": sample_errors,
                     "dataset_errors": dataset_errors,
                 },
@@ -667,6 +839,7 @@ def _prediction_sort_key(row: dict[str, Any]) -> tuple[int, str]:
         "sc_5": "00",
         "adaptive_sc_8": "01",
         "catch": "02",
+        "catch_cert": "02",
         "direct_judge_3": "03",
         "pair_judge_3": "04",
     }
@@ -1100,13 +1273,98 @@ def _require_passing_preflight_human_audit(
 def _select_phase_samples(benchmark, phase: dict[str, Any], phase_name: str):
     split_name = str(phase["split_overrides"][benchmark.slug])
     samples = select_samples(benchmark, split_name)
-    if phase_name != "confirmation":
-        return samples
     excluded_names = dict(phase.get("exclude_splits") or {}).get(benchmark.slug, [])
     excluded: set[str] = set()
     for excluded_name in excluded_names:
         excluded.update(load_split_ids(benchmark.cache_namespace or benchmark.slug, str(excluded_name)))
-    return [sample for sample in samples if sample.sample_id not in excluded]
+    selected = [sample for sample in samples if sample.sample_id not in excluded]
+    limits = dict(phase.get("sample_limits") or {})
+    limit = limits.get(benchmark.slug)
+    if limit is not None:
+        selected = selected[: max(0, int(limit))]
+    return selected
+
+
+def _select_cert_disagreement_jobs(
+    jobs: list[CatchSampleJob],
+    stages: dict[tuple[str, str], tuple[list[dict[str, Any]], Any]],
+    *,
+    cap_per_dataset: int,
+    seed: int,
+) -> list[CatchSampleJob]:
+    """Select a deterministic, gold-blind disagreement subset after screening."""
+
+    selected: list[CatchSampleJob] = []
+    by_dataset: dict[str, list[CatchSampleJob]] = {}
+    for job in jobs:
+        state = stages.get((str(job.sample.dataset), str(job.sample.sample_id)))
+        if state is None or not bool(getattr(state[1], "triggered", False)):
+            continue
+        by_dataset.setdefault(str(job.sample.dataset), []).append(job)
+    for dataset, candidates in sorted(by_dataset.items()):
+        ordered = sorted(
+            candidates,
+            key=lambda job: hashlib.sha256(
+                f"{seed}\0{dataset}\0{job.sample.sample_id}\0catch-cert-disagreement".encode()
+            ).hexdigest(),
+        )
+        selected.extend(ordered[: max(0, int(cap_per_dataset))])
+    return selected
+
+
+def _build_cert_screening_metrics(
+    samples_by_dataset: dict[str, list[Any]],
+    stage_rows_by_key: dict[tuple[str, str], list[dict[str, Any]]],
+    *,
+    seed: int,
+) -> dict[str, dict[str, Any]]:
+    """Score the gold-free screening decisions only after collection."""
+
+    metrics: dict[str, dict[str, Any]] = {}
+    for dataset, samples in sorted(samples_by_dataset.items()):
+        rows: list[dict[str, Any]] = []
+        for sample in samples:
+            stage_rows = stage_rows_by_key.get((sample.dataset, sample.sample_id))
+            if not stage_rows:
+                continue
+            stage = build_stage_decision(stage_rows, seed=seed, sample_id=sample.sample_id)
+            target_keys = {stage.anchor_key}
+            target_keys.update(
+                pair.challenger_key
+                for pair in build_target_pairs(stage, seed=seed, sample_id=sample.sample_id)
+            )
+            rows.append(
+                {
+                    "sc5": score_prediction(
+                        sample.dataset,
+                        stage.anchor_answer,
+                        sample.reference_answer,
+                        sample=sample,
+                    ),
+                    "candidate_oracle": any(
+                        score_prediction(sample.dataset, candidate.answer, sample.reference_answer, sample=sample)
+                        == 1.0
+                        for candidate in stage.candidates
+                    ),
+                    "target_oracle": any(
+                        candidate.key in target_keys
+                        and score_prediction(sample.dataset, candidate.answer, sample.reference_answer, sample=sample)
+                        == 1.0
+                        for candidate in stage.candidates
+                    ),
+                    "triggered": stage.triggered,
+                    "valid": stage.valid_count > 0,
+                }
+            )
+        metrics[dataset] = {
+            "sample_count": len(rows),
+            "sc5_micro_accuracy": sum(row["sc5"] for row in rows) / len(rows) if rows else 0.0,
+            "candidate_oracle_micro": sum(row["candidate_oracle"] for row in rows) / len(rows) if rows else 0.0,
+            "target_oracle_micro": sum(row["target_oracle"] for row in rows) / len(rows) if rows else 0.0,
+            "disagreement_count": sum(bool(row["triggered"]) for row in rows),
+            "invalid_stage_answer_count": sum(not bool(row["valid"]) for row in rows),
+        }
+    return metrics
 
 
 def _frozen_config_sha(
@@ -1115,13 +1373,16 @@ def _frozen_config_sha(
     component_hashes: dict[str, str] | None = None,
 ) -> str:
     protocol_version = load_protocol_config(experiment.protocol).protocol_version
+    is_cert = protocol_version == "catch_cert_v1"
     payload = {
         "experiment": experiment.raw,
         "protocol": Path(experiment.protocol).read_text(encoding="utf-8"),
-        "prompt_version": CATCH_PROMPT_VERSION,
-        "schema_version": CATCH_SCHEMA_VERSION,
+        "prompt_version": CERT_PROMPT_VERSION if is_cert else CATCH_PROMPT_VERSION,
+        "schema_version": CERT_SCHEMA_VERSION if is_cert else CATCH_SCHEMA_VERSION,
         "decoder_version": (
-            "catch_icv_repetition_decoder_v3"
+            "catch_certificate_decoder_v1"
+            if is_cert
+            else "catch_icv_repetition_decoder_v3"
             if protocol_version == "catch_v3"
             else "catch_ecoc_decoder_v2"
         ),
@@ -1140,6 +1401,8 @@ def _frozen_component_hashes(experiment) -> dict[str, str]:
         *(Path(path).resolve() for path in experiment.benchmark_configs),
         family_root / "algorithms.py",
         family_root / "cache_layers.py",
+        family_root / "certificates.py",
+        family_root / "cert_prompts.py",
         family_root / "icv.py",
         family_root / "prompts.py",
         family_root / "replay.py",
@@ -1180,6 +1443,13 @@ def _frozen_component_hashes(experiment) -> dict[str, str]:
                     str(split_name),
                 ).resolve()
             )
+            for excluded_name in dict(phase.get("exclude_splits") or {}).get(str(slug), []):
+                paths.add(
+                    resolve_split_manifest_path(
+                        benchmark.cache_namespace or benchmark.slug,
+                        str(excluded_name),
+                    ).resolve()
+                )
     missing = sorted(path.as_posix() for path in paths if not path.exists())
     if missing:
         raise FileNotFoundError(f"CATCH frozen component files are missing: {missing}")
@@ -1208,20 +1478,35 @@ def _build_frozen_decoding_candidate(*, run_id: str, config_sha: str, selection:
     return payload
 
 
-def _build_frozen_protocol_candidate(*, run_id: str, config_sha: str) -> dict[str, Any]:
-    """Create the immutable v3 fixed-decoder candidate; no dev grid is selected."""
+def _build_frozen_protocol_candidate(
+    *,
+    run_id: str,
+    config_sha: str,
+    protocol_version: str = "catch_v3",
+) -> dict[str, Any]:
+    """Create an immutable fixed-protocol candidate; no dev grid is selected."""
+
+    is_cert = protocol_version == "catch_cert_v1"
 
     payload = {
-        "freeze_kind": "catch_icv_protocol_v3",
+        "freeze_kind": "catch_cert_protocol_v1" if is_cert else "catch_icv_protocol_v3",
         "source_development_run_id": run_id,
         "source_config_sha256": config_sha,
-        "coordinates_per_pair": 3,
-        "panel_rule": {"challenger_votes_at_least": 2, "strictly_more_than_anchor": True},
+        "coordinates_per_pair": None if is_cert else 3,
+        "panel_rule": (
+            {
+                "all_required_conditions": True,
+                "anchor_refutation_required": True,
+                "dual_panel_agreement_required": True,
+            }
+            if is_cert
+            else {"challenger_votes_at_least": 2, "strictly_more_than_anchor": True}
+        ),
         "dual_panel_unique_challenger_required": True,
         "selection_constraints_passed": True,
-        "prompt_version": CATCH_PROMPT_VERSION,
-        "schema_version": CATCH_SCHEMA_VERSION,
-        "decoder_version": "catch_icv_repetition_decoder_v3",
+        "prompt_version": CERT_PROMPT_VERSION if is_cert else CATCH_PROMPT_VERSION,
+        "schema_version": CERT_SCHEMA_VERSION if is_cert else CATCH_SCHEMA_VERSION,
+        "decoder_version": "catch_certificate_decoder_v1" if is_cert else "catch_icv_repetition_decoder_v3",
     }
     payload["sha256"] = hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")

@@ -96,8 +96,42 @@ def dataset_instruction(
         return "Solve the reasoning task carefully. The final_answer must contain only the exact answer requested by the task."
     if dataset == "seqbench":
         return (
-            "Return the complete ordered action sequence needed for the agent to reach and rescue the target. "
-            "The final_answer must be only a JSON or Python-style list of action strings, in execution order."
+            "Navigate the described maze from the agent's start room to the target and rescue the target. "
+            "Use only these exact action strings: 'start: ROOM' as the first action; 'move_to: ROOM' for an "
+            "adjacent room through an open door; 'pick_up_key: KEY' when standing in the key's room; "
+            "'use_key: KEY' before opening the door that key unlocks; 'unlock_and_open_door_to: ROOM' while "
+            "standing next to the matching locked door; and 'rescue: NAME' as the final action in the target's room. "
+            "Never omit start, key-use, door-unlock, movement, or rescue actions.\n\n"
+            "Official-format example 1 (simple navigation): Room C4 and C3 are connected by an open door. "
+            "Room C3 and D3 are connected by an open door. Room D5 and E5 are connected by an open door. "
+            "Room A2 and A1 are connected by an open door. Room A3 and B3 are connected by an open door. "
+            "Room A1 and B1 are connected by an open door. Room A4 and A3 are connected by an open door. "
+            "Room E5 and E4 are connected by an open door. Room D4 and D3 are connected by an open door. "
+            "Room A5 and B5 are connected by an open door. Room D4 and E4 are connected by an open door. "
+            "Bob is in room D5. Alice is in room C4. Output "
+            '["start: D5","move_to: E5","move_to: E4","move_to: D4","move_to: D3",'
+            '"move_to: C3","move_to: C4","rescue: Alice"].\n\n'
+            "Official-format example 2 (single key): Room A1 and A2 are connected by an open door. "
+            "Room A2 and B2 are connected by an open door. Room B1 and B2 are connected by an open door. "
+            "Room B1 and C1 are connected by an open door. Room C1 and C2 are connected by a closed and "
+            "locked door. Door between C1 and C2 requires key 1. Key 1 is in room A2. Bob is in room A1. "
+            "Alice is in room C2. Output "
+            '["start: A1","move_to: A2","pick_up_key: 1","move_to: B2","move_to: B1",'
+            '"move_to: C1","use_key: 1","unlock_and_open_door_to: C2","move_to: C2","rescue: Alice"].\n\n'
+            "Official-format example 3 (multiple keys): Room B5 and B4 are connected by a closed and locked door. "
+            "The locked door between B5 and B4 requires key 3. Key 3 is in room B5. Room B5 and C5 are "
+            "connected by a closed and locked door. The locked door between B5 and C5 requires key 16. "
+            "Key 16 is in room C5. Room B4 and C4 are connected by an open door. Room C4 and C3 are "
+            "connected by an open door. Room C3 and D3 are connected by a closed and locked door. The locked "
+            "door between C3 and D3 requires key 10. Key 10 is in room C4. Room D5 and D4 are connected by "
+            "an open door. Room D4 and D3 are connected by an open door. Room A5 and B5 are connected by an "
+            "open door. Bob is in room C5. Alice is in room D5. Output "
+            '["start: C5","pick_up_key: 16","use_key: 16","unlock_and_open_door_to: B5",'
+            '"move_to: B5","pick_up_key: 3","use_key: 3","unlock_and_open_door_to: B4",'
+            '"move_to: B4","move_to: C4","pick_up_key: 10","move_to: C3","use_key: 10",'
+            '"unlock_and_open_door_to: D3","move_to: D3","move_to: D4","move_to: D5","rescue: Alice"].\n\n'
+            "Return the complete ordered action sequence. The final_answer must be only a JSON or Python-style "
+            "list of exact action strings in execution order."
         )
     raise ValueError(f"Unsupported dataset: {dataset}")
 

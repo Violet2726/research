@@ -96,7 +96,7 @@ def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
         preflight_panel_agreement_threshold=float(raw.get("preflight_panel_agreement_threshold", 0.0)),
         budget_scope=str(raw.get("budget_scope") or "confirmatory_gate"),
     )
-    if protocol_version not in {"catch_v1", "catch_v2", "catch_v3"}:
+    if protocol_version not in {"catch_v1", "catch_v2", "catch_v3", "catch_cert_v1"}:
         raise ValueError(f"Unsupported CATCH protocol version {protocol_version!r}.")
     minimum_fields = {
         "stage_candidates": config.stage_candidates,
@@ -145,6 +145,12 @@ def load_experiment_config(path: str | Path) -> CatchExperimentConfig:
         }
         if is_boundary
         else {
+            "development": "catch-dev-cert-v3-baseline",
+            "heldout": "catch-heldout-cert-v3-baseline",
+            "confirmation": "catch-confirm-cert-v3-baseline",
+        }
+        if study_type == "catch_cert_cross_domain_baseline"
+        else {
             "development": f"catch-dev-{namespace_version}",
             "heldout": f"catch-heldout-{namespace_version}",
             "confirmation": f"catch-confirm-{namespace_version}",
@@ -157,6 +163,12 @@ def load_experiment_config(path: str | Path) -> CatchExperimentConfig:
     expected_baseline = (
         {"bbeh": "catch-dev-v3,catch-dev-v1"}
         if is_boundary
+        else {
+            "development": "catch-dev-cert_v1",
+            "heldout": "catch-heldout-cert_v1",
+            "confirmation": "catch-confirm-cert_v1",
+        }
+        if study_type == "catch_cert_cross_domain_baseline"
         else {"development": "catch-dev-v1"}
         if protocol.protocol_version in {"catch_v2", "catch_v3"}
         else {}
