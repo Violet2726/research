@@ -29,8 +29,9 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
     metrics = summary.get("metrics") or {}
     execution = summary.get("execution") or metrics.get("execution") or {}
-    is_cert = manifest.get("protocol_version") == "catch_cert_v1"
-    primary_method = "catch_cert" if is_cert else "catch"
+    protocol_version = manifest.get("protocol_version")
+    is_cert = protocol_version in {"catch_cert_v1", "catch_cert_v2"}
+    primary_method = "catch_cert_v2" if protocol_version == "catch_cert_v2" else "catch_cert" if is_cert else "catch"
     lines = [
         f"# {manifest.get('paper_method_name') or 'CATCH'} 实验结果",
         "",
@@ -43,6 +44,29 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
         "## 数据集结果覆盖",
         "",
     ]
+    readiness = manifest.get("readiness_assessment") or {}
+    if protocol_version == "catch_cert_v2" and manifest.get("phase_name") in {
+        "heldout",
+        "confirmation",
+    }:
+        unmet = list(readiness.get("unmet_conditions") or [])
+        lines.extend(
+            [
+                "## 科研证据状态（非阻断）",
+                "",
+                "readiness assessment 只用于解释结果，不会终止运行、删除失败样本或阻止后续阶段。",
+                "",
+                f"- 诊断状态：`{readiness.get('status', 'missing')}`",
+                f"- 证据解释：`{manifest.get('evidence_interpretation') or 'exploratory_diagnostic_evidence'}`",
+                f"- 是否阻止执行：`{bool(readiness.get('blocks_execution', False))}`",
+                f"- 推荐条件全部满足：`{bool(readiness.get('all_recommended_conditions_met', False))}`",
+                f"- 未满足项数量：`{len(unmet)}`",
+            ]
+        )
+        if unmet:
+            lines.extend(f"  - `{condition}`" for condition in unmet)
+        lines.append("")
+
     screening = metrics.get("screening") or {}
     if screening:
         lines.extend(
@@ -82,7 +106,7 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
             ]
         )
         for method, row in (payload.get("methods") or {}).items():
-            if method not in {"sc_5", "adaptive_sc_8", "catch", "catch_cert", "direct_judge_3", "pair_judge_3"}:
+            if method not in {"sc_5", "adaptive_sc_8", "catch", "catch_cert", "catch_cert_v2", "direct_judge_3", "pair_judge_3"}:
                 continue
             interval = row.get("accuracy_wilson_95") or [0, 0]
             lines.append(
@@ -108,6 +132,10 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
                     f"证书利用率 {float(cert.get('certificate_utilization') or 0):.2%}；弃权率 {float(cert.get('abstention_rate') or 0):.2%}；",
                     f"verifier false-pass={cert.get('verifier_false_pass', 0)}，false-reject={cert.get('verifier_false_reject', 0)}；",
                     f"headroom 利用率 {float(cert.get('headroom_utilization') or 0):.2%}；",
+                    f"答案连接覆盖率 {float(cert.get('answer_link_coverage') or 0):.2%}；"
+                    f"问题义务覆盖率 {float(cert.get('obligation_coverage') or 0):.2%}；"
+                    f"adapter 执行测试数 {int(cert.get('adapter_executed_test_count') or 0)}；"
+                    f"格式修复数 {int(cert.get('verifier_format_repair_count') or 0)}；",
                     f"wrong→correct={transitions.get('wrong_to_correct', 0)}，correct→wrong={transitions.get('correct_to_wrong', 0)}，"
                     f"wrong→wrong={transitions.get('wrong_to_wrong', 0)}，correct→correct={transitions.get('correct_to_correct', 0)}。",
                 ]
@@ -120,7 +148,8 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
                         f"precision={float(cert.get('seqbench_precision') or 0):.4f}，"
                         f"recall={float(cert.get('seqbench_recall') or 0):.4f}，"
                         f"合法动作率={float(cert.get('seqbench_valid_action_rate') or 0):.4f}，"
-                        f"执行前缀比例={float(cert.get('seqbench_execution_prefix_ratio') or 0):.4f}。",
+                        f"执行前缀比例={float(cert.get('seqbench_execution_prefix_ratio') or 0):.4f}，"
+                        f"完成有效率={float(cert.get('seqbench_completion_validity') or 0):.4f}。",
                     ]
                 )
         paired = payload.get("paired_complete_cases") or {}
@@ -183,6 +212,7 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
     mechanism = metrics.get("mechanism") or {}
     dependence = mechanism.get("panel_false_pass_dependence") or {}
     observations = mechanism.get("witness_position_and_agreement") or {}
+    cert_v2 = mechanism.get("certificate_v2") or {}
     lines.extend(
         [
             "",
@@ -200,8 +230,25 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
             f"`{float(observations.get('inverse_mapped_panel_agreement_rate') or 0):.4f}`",
             f"- LEFT_ONLY share among decisive raw verdicts: "
             f"`{float(observations.get('left_only_share_among_decisive') or 0):.4f}`",
+            f"- v2 answer-link coverage: `{float(cert_v2.get('mean_answer_link_coverage') or 0):.4f}`",
+            f"- v2 mandatory-obligation coverage: `{float(cert_v2.get('mean_obligation_coverage') or 0):.4f}`",
+            f"- v2 panel exact agreement: `{float(cert_v2.get('panel_exact_agreement_rate') or 0):.4f}`",
+            f"- v2 adapter executed tests / format repairs: `{int(cert_v2.get('adapter_executed_test_count') or 0)}` / "
+            f"`{int(cert_v2.get('format_repair_count') or 0)}`",
         ]
     )
+    if cert_v2.get("dropped_reason_counts"):
+        lines.extend(
+            [
+                "",
+                "v2 证书编译丢弃原因：",
+                "",
+                *[
+                    f"- `{reason}`: {count}"
+                    for reason, count in dict(cert_v2["dropped_reason_counts"]).items()
+                ],
+            ]
+        )
 
     costs = metrics.get("costs") or {}
     budget = execution.get("network_attempt_budget") or {}

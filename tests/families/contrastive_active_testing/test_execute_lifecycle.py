@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 import time
@@ -153,6 +154,34 @@ def test_execute_always_lands_progress_and_validation_without_live_network(tmp_p
     assert not (run_dir / "archive_manifest.json").exists()
     assert "Complete-case" in report
     assert "Wilson 95% CI" in report
+
+
+def test_cert_v2_readiness_assessment_never_blocks_missing_or_unmet_results(tmp_path) -> None:
+    path = tmp_path / "readiness.json"
+    missing = execute._load_cert_v2_readiness_assessment(path, config_sha="config")
+    assert missing["status"] == "missing"
+    assert missing["blocks_execution"] is False
+    assert missing["recommended_interpretation"] == "exploratory_diagnostic_evidence"
+
+    payload = {
+        "schema_version": "catch_cert_v2_readiness_assessment_v2",
+        "protocol_version": "catch_cert_v2",
+        "source_config_sha256": "config",
+        "enforcement": "advisory_only",
+        "blocks_execution": False,
+        "all_recommended_conditions_met": False,
+        "conditions": {"development_quality": True, "two_reviewer_audit": False},
+    }
+    payload["sha256"] = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    loaded = execute._load_cert_v2_readiness_assessment(path, config_sha="config")
+    assert loaded["status"] == "available"
+    assert loaded["blocks_execution"] is False
+    assert loaded["all_recommended_conditions_met"] is False
+    assert loaded["unmet_conditions"] == ["two_reviewer_audit"]
+    assert loaded["recommended_interpretation"] == "exploratory_diagnostic_evidence"
 
 
 def test_bounded_sample_executor_uses_parallel_workers_without_exceeding_cap() -> None:
@@ -374,6 +403,50 @@ def test_heldout_runs_without_frozen_file_or_prior_development(tmp_path, monkeyp
     assert progress["status"] == "completed"
     assert manifest["frozen_decoding"]["source"] == "built_in_fixed_v3_decoder"
     assert "confirmatory_evidence_missing_or_not_enforced" in manifest["execution_warnings"]
+
+
+def test_cert_v2_heldout_runs_with_missing_advisory_assessment(tmp_path, monkeypatch) -> None:
+    experiment = load_experiment_config(
+        "configs/families/contrastive_active_testing/experiments/catch_cert_v2_development.toml"
+    )
+    experiment = replace(
+        experiment,
+        readiness_assessment_path=tmp_path / "missing-readiness-assessment.json",
+    )
+    backbone = resolve_model(experiment.primary_model_ref)
+    sample = DatasetSample("bbeh", "unit", "Question", "A", "", {"task": "unit", "options": []})
+    benchmark = load_phase_benchmarks(experiment, "heldout")[0]
+    monkeypatch.setattr(execute, "OpenAICompatibleProvider", _DummyProvider)
+    monkeypatch.setattr(execute, "RequestCacheRouter", _DummyRouter)
+    monkeypatch.setattr(execute, "RequestThrottle", _DummyThrottle)
+    monkeypatch.setattr(execute, "load_phase_benchmarks", lambda *_args: [benchmark])
+    monkeypatch.setattr(execute, "_select_phase_samples", lambda *_args: [sample])
+    monkeypatch.setattr(
+        execute,
+        "run_catch_sample",
+        lambda *_args, **_kwargs: (
+            [],
+            {"dataset": "bbeh", "sample_id": "unit", "triggered": False},
+            [],
+        ),
+    )
+
+    run_dir = execute.run_experiment(
+        experiment,
+        "heldout",
+        backbone,
+        run_root=tmp_path / "runs",
+        cache_root=tmp_path / "cache",
+    )
+
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["readiness_assessment"]["status"] == "missing"
+    assert manifest["readiness_assessment"]["blocks_execution"] is False
+    assert manifest["evidence_interpretation"] == "exploratory_diagnostic_evidence"
+    assert any(
+        warning.startswith("cert_v2_readiness_assessment_missing")
+        for warning in manifest["execution_warnings"]
+    )
 
 
 def test_preflight_human_audit_requires_completed_adjudication(tmp_path) -> None:

@@ -15,6 +15,7 @@ from research_experiments.families.contrastive_active_testing.run.execute import
 from research_experiments.families.registry import get_family_registration
 
 EXPERIMENT = "configs/families/contrastive_active_testing/experiments/catch_gate.toml"
+CERT_V2_EXPERIMENT = "configs/families/contrastive_active_testing/experiments/catch_cert_v2_development.toml"
 
 
 def test_best_effort_protocol_and_registration_are_discoverable() -> None:
@@ -40,6 +41,22 @@ def test_best_effort_protocol_and_registration_are_discoverable() -> None:
     frozen_components = _frozen_component_hashes(experiment)
     assert "src/research_experiments/families/contrastive_active_testing/icv.py" in frozen_components
     assert "configs/core/shared/benchmarks/splits/dgcr_dev100/bbeh/bbeh-main-seed42.json" in frozen_components
+
+
+def test_cert_v2_protocol_namespaces_and_frozen_components_are_versioned() -> None:
+    experiment = load_experiment_config(CERT_V2_EXPERIMENT)
+    protocol = load_protocol_config(experiment.protocol)
+    assert protocol.protocol_version == "catch_cert_v2"
+    assert protocol.max_selected_tests == 6
+    assert experiment.cache_namespaces["development"] == "catch-dev-cert_v2"
+    assert experiment.baseline_cache_namespaces["development"] == "catch-dev-cert_v1"
+    assert experiment.readiness_assessment_path.as_posix().endswith(
+        "local/analysis/catch_cert_v2_readiness_assessment.json"
+    )
+    assert experiment.config_warnings == ()
+    frozen = _frozen_component_hashes(experiment)
+    assert "src/research_experiments/families/contrastive_active_testing/certificates_v2.py" in frozen
+    assert "src/research_experiments/families/contrastive_active_testing/cert_prompts_v2.py" in frozen
 
 
 def test_bbeh_100_200_and_confirmation_remainder_are_disjoint() -> None:

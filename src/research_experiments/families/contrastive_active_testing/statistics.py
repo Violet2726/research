@@ -11,7 +11,15 @@ from scipy.stats import beta
 
 from research_experiments.reporting.paired_inference import paired_statistics
 
-BASE_METHODS = ("sc_5", "adaptive_sc_8", "catch", "catch_cert", "direct_judge_3", "pair_judge_3")
+BASE_METHODS = (
+    "sc_5",
+    "adaptive_sc_8",
+    "catch",
+    "catch_cert",
+    "catch_cert_v2",
+    "direct_judge_3",
+    "pair_judge_3",
+)
 
 
 def materialize_development_catch(
@@ -96,10 +104,10 @@ def build_metrics(predictions: list[dict[str, Any]]) -> dict[str, Any]:
     ordered = [method for method in BASE_METHODS if method in available]
     variants = sorted(method for method in available if method.startswith("catch_d"))
     summaries = [_summary(method, [row for row in predictions if row.get("method_name") == method]) for method in [*ordered, *variants]]
-    reference = "catch_cert" if "catch_cert" in available else "catch"
+    reference = "catch_cert_v2" if "catch_cert_v2" in available else "catch_cert" if "catch_cert" in available else "catch"
     paired_competitors = [
         method
-        for method in ("adaptive_sc_8", "pair_judge_3", "direct_judge_3", "sc_5", "catch", "catch_cert")
+        for method in ("adaptive_sc_8", "pair_judge_3", "direct_judge_3", "sc_5", "catch", "catch_cert", "catch_cert_v2")
         if method in available and method != reference
     ]
     paired = (
@@ -109,7 +117,7 @@ def build_metrics(predictions: list[dict[str, Any]]) -> dict[str, Any]:
             competitors=paired_competitors,
             seed=42,
             bootstrap_samples=10_000,
-            bbeh_harmonic=True,
+            bbeh_harmonic=False,
         )
         if reference in available and paired_competitors
         else {"reference_method": reference, "tests": []}
@@ -169,7 +177,9 @@ def build_best_effort_diagnostics(
                     len(evaluable),
                 ),
             }
-        primary_method = "catch_cert" if "catch_cert" in by_method else "catch"
+        primary_method = (
+            "catch_cert_v2" if "catch_cert_v2" in by_method else "catch_cert" if "catch_cert" in by_method else "catch"
+        )
         catch_by_id = {
             str(row.get("sample_id")): row
             for row in by_method.get(primary_method, [])
@@ -250,6 +260,7 @@ def build_best_effort_diagnostics(
             "eligible_rate": _ratio(len(eligible), len(triggered)),
             "panel_false_pass_dependence": _v3_panel_dependence(routers),
             "witness_position_and_agreement": _v3_observation_diagnostics(routers, turns),
+            "certificate_v2": _certificate_v2_diagnostics(routers),
         },
         "costs": {
             "logical_calls": total_calls,
@@ -301,7 +312,13 @@ def evaluate_gate(
     summaries = {row["method_name"]: row for row in build_metrics(predictions)["summary"]}
     sc5 = summaries.get("sc_5", {})
     adaptive = summaries.get("adaptive_sc_8", {})
-    primary_method = "catch_cert" if protocol_version == "catch_cert_v1" else "catch"
+    primary_method = (
+        "catch_cert_v2"
+        if protocol_version == "catch_cert_v2"
+        else "catch_cert"
+        if protocol_version == "catch_cert_v1"
+        else "catch"
+    )
     catch = summaries.get(primary_method, {})
     judge = summaries.get("direct_judge_3", {})
     pair_judge = summaries.get("pair_judge_3", {})
@@ -309,7 +326,7 @@ def evaluate_gate(
     triggered = [row for row in routers if row.get("triggered")]
     selected_d_min = int(catch_rows[0].get("d_min") or 0) if catch_rows else 0
     selected_margin = int(catch_rows[0].get("margin") or 0) if catch_rows else 0
-    if protocol_version in {"catch_v3", "catch_cert_v1"}:
+    if protocol_version in {"catch_v3", "catch_cert_v1", "catch_cert_v2"}:
         eligible = sum(bool(router.get("eligible_challengers")) for router in triggered)
     else:
         eligible = 0
@@ -340,6 +357,8 @@ def evaluate_gate(
             "icv_witness",
             "certificate_designer",
             "certificate_verifier",
+            "certificate_designer_v2",
+            "certificate_verifier_v2",
             "pair_judge",
         }
     ]
@@ -387,6 +406,30 @@ def evaluate_gate(
             "net_corrections_at_least_three": corrected - harmed >= 3,
             "override_precision_at_least_65_percent": precision >= 0.65,
             "fixed_decoder_no_dev_search": development_selection is None,
+        }
+    elif phase_name == "development" and protocol_version == "catch_cert_v2":
+        answer_link_coverage = _ratio(
+            sum(float(row.get("answer_link_coverage") or 0) for row in catch_rows),
+            len(catch_rows),
+        )
+        obligation_coverage = _ratio(
+            sum(float(row.get("obligation_coverage") or 0) for row in catch_rows),
+            len(catch_rows),
+        )
+        correct_per_1000 = float(catch.get("correct_per_1000_tokens") or 0)
+        sc_correct_per_1000 = float(sc5.get("correct_per_1000_tokens") or 0)
+        headroom_utilization = float(catch.get("headroom_utilization") or 0)
+        conditions = {
+            **common,
+            "answer_link_coverage_is_100_percent": answer_link_coverage >= 1.0,
+            "certificate_packet_coverage_at_least_80_percent": code_coverage >= 0.80,
+            "mandatory_obligation_coverage_at_least_80_percent": obligation_coverage >= 0.80,
+            "headroom_utilization_at_least_15_percent": headroom_utilization >= 0.15,
+            "corrected_exceeds_harmed": corrected > harmed,
+            "correct_per_1000_tokens_at_least_80_percent_of_sc5": (
+                sc_correct_per_1000 == 0 or correct_per_1000 >= 0.80 * sc_correct_per_1000
+            ),
+            "fixed_certificate_decoder_no_dev_search": development_selection is None,
         }
     elif phase_name == "development" and protocol_version == "catch_cert_v1":
         conditions = {
@@ -454,9 +497,14 @@ def evaluate_gate(
         conditions = common
     else:
         raise ValueError(f"Unsupported CATCH gate phase {phase_name!r}.")
+    all_conditions_met = all(conditions.values())
     return {
         "gate_name": f"catch_{phase_name}_{protocol_version}",
-        "passed": all(conditions.values()),
+        "passed": all_conditions_met,
+        "enforcement": "advisory_only" if protocol_version == "catch_cert_v2" else "legacy_reporting_only",
+        "blocks_execution": False,
+        "all_recommended_conditions_met": all_conditions_met,
+        "unmet_conditions": [name for name, met in conditions.items() if not met],
         "conditions": conditions,
         "evidence": {
             "summary": summaries,
@@ -473,6 +521,12 @@ def evaluate_gate(
                     "development_threshold_search": False,
                 }
                 if protocol_version == "catch_cert_v1"
+                else {
+                    "decoder": "answer_linked_global_obligation_adapter_or_dual_panel",
+                    "all_stage_candidates_targeted": True,
+                    "development_threshold_search": False,
+                }
+                if protocol_version == "catch_cert_v2"
                 else {"selected_d_min": selected_d_min, "selected_margin": selected_margin}
             ),
             "code_eligible_count": eligible,
@@ -534,7 +588,11 @@ def _summary(method: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
             for row in rows
         ),
     }
-    certificate_rows = [row for row in rows if method == "catch_cert" or row.get("certificate_count") is not None]
+    certificate_rows = [
+        row
+        for row in rows
+        if method in {"catch_cert", "catch_cert_v2"} or row.get("certificate_count") is not None
+    ]
     verifier_false_pass = sum(
         bool(row.get("override_accepted")) and float(row.get("score") or 0) < 1.0
         for row in certificate_rows
@@ -568,6 +626,7 @@ def _summary(method: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
             "seqbench_recall",
             "seqbench_valid_action_rate",
             "seqbench_execution_prefix_ratio",
+            "seqbench_completion_validity",
         )
         if any(row.get(key) is not None for row in rows)
     }
@@ -610,6 +669,20 @@ def _summary(method: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
         "headroom_utilization": _ratio(
             transitions["wrong_to_correct"] - transitions["correct_to_wrong"],
             sum(bool(row.get("target_oracle_correct")) and float(row.get("initial_vote_score") or 0) < 1.0 for row in rows),
+        ),
+        "answer_link_coverage": _ratio(
+            sum(float(row.get("answer_link_coverage") or 0) for row in certificate_rows),
+            len(certificate_rows),
+        ),
+        "obligation_coverage": _ratio(
+            sum(float(row.get("obligation_coverage") or 0) for row in certificate_rows),
+            len(certificate_rows),
+        ),
+        "adapter_executed_test_count": sum(
+            int(row.get("adapter_executed_test_count") or 0) for row in certificate_rows
+        ),
+        "verifier_format_repair_count": sum(
+            int(row.get("verifier_format_repair_count") or 0) for row in certificate_rows
         ),
         **sequence_metrics,
         "mean_network_attempts": _ratio(
@@ -709,6 +782,48 @@ def _v3_observation_diagnostics(
         "inverse_mapped_panel_agreement_rate": _ratio(agreements, comparable),
         "raw_verdict_counts": verdict_counts,
         "left_only_share_among_decisive": _ratio(verdict_counts["LEFT_ONLY"], decisive),
+    }
+
+
+def _certificate_v2_diagnostics(routers: list[dict[str, Any]]) -> dict[str, Any]:
+    rows = [row for row in routers if row.get("protocol_version") == "catch_cert_v2" and row.get("triggered")]
+    comparable = 0
+    agreements = 0
+    format_repairs = 0
+    dropped_reasons: dict[str, int] = defaultdict(int)
+    for row in rows:
+        panels = row.get("verifier_panels") or []
+        format_repairs += sum(int(panel.get("format_repair_count") or 0) for panel in panels)
+        if len(panels) == 2:
+            first = dict(panels[0].get("results") or {})
+            second = dict(panels[1].get("results") or {})
+            for test_id in set(first) & set(second):
+                comparable += 1
+                agreements += int(
+                    first[test_id].get("observed_outcome") == second[test_id].get("observed_outcome")
+                    and first[test_id].get("support_status") == second[test_id].get("support_status")
+                )
+        for item in row.get("dropped_certificate_items") or []:
+            dropped_reasons[str(item.get("reason") or "unknown")] += 1
+    return {
+        "sample_count": len(rows),
+        "mean_answer_link_coverage": _ratio(
+            sum(float(row.get("answer_link_coverage") or 0) for row in rows), len(rows)
+        ),
+        "mean_obligation_coverage": _ratio(
+            sum(float(row.get("obligation_coverage") or 0) for row in rows), len(rows)
+        ),
+        "certificate_test_count": sum(len(row.get("certificate_tests") or []) for row in rows),
+        "certificate_count": sum(len(row.get("certificates") or []) for row in rows),
+        "override_count": sum(bool((row.get("decision") or {}).get("override_accepted")) for row in rows),
+        "adapter_executed_test_count": sum(
+            sum(item.get("execution_status") == "EXECUTED" for item in dict(row.get("adapter_results") or {}).values())
+            for row in rows
+        ),
+        "panel_comparable_test_count": comparable,
+        "panel_exact_agreement_rate": _ratio(agreements, comparable),
+        "format_repair_count": format_repairs,
+        "dropped_reason_counts": dict(sorted(dropped_reasons.items())),
     }
 
 

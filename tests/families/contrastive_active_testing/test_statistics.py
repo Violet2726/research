@@ -3,7 +3,9 @@ from __future__ import annotations
 import pytest
 
 from research_experiments.families.contrastive_active_testing.statistics import (
+    _certificate_v2_diagnostics,
     _clopper_pearson_lower,
+    _summary,
     _v3_observation_diagnostics,
     _v3_panel_dependence,
     materialize_development_catch,
@@ -90,3 +92,50 @@ def test_v3_reports_correlated_false_passes_and_position_diagnostics() -> None:
     observations = _v3_observation_diagnostics(routers, turns)
     assert observations["inverse_mapped_panel_agreement_rate"] == 0.5
     assert observations["left_only_share_among_decisive"] == 0.5
+
+
+def test_cert_v2_summary_and_mechanism_include_answer_link_obligation_and_adapter_metrics() -> None:
+    rows = [
+        {
+            "method_name": "catch_cert_v2",
+            "score": 1,
+            "initial_vote_score": 0,
+            "corrected_by_debate": True,
+            "harmed_by_debate": False,
+            "candidate_oracle_correct": True,
+            "target_oracle_correct": True,
+            "total_tokens_per_question": 1_000,
+            "calls_per_question": 6,
+            "certificate_coverage": 1,
+            "override_accepted": True,
+            "certificate_abstained": False,
+            "answer_link_coverage": 1,
+            "obligation_coverage": 1,
+            "adapter_executed_test_count": 2,
+            "verifier_format_repair_count": 1,
+        }
+    ]
+    summary = _summary("catch_cert_v2", rows)
+    assert summary["correct_per_1000_tokens"] == 1
+    assert summary["answer_link_coverage"] == 1
+    assert summary["obligation_coverage"] == 1
+    assert summary["adapter_executed_test_count"] == 2
+    assert summary["verifier_format_repair_count"] == 1
+
+    diagnostics = _certificate_v2_diagnostics(
+        [
+            {
+                "protocol_version": "catch_cert_v2",
+                "triggered": True,
+                "answer_link_coverage": 1,
+                "obligation_coverage": 1,
+                "certificate_tests": [{"test_id": "T0"}],
+                "certificates": [{"candidate_key_anon": "H1"}],
+                "adapter_results": {"T0": {"execution_status": "EXECUTED"}},
+                "verifier_panels": [],
+                "decision": {"override_accepted": True},
+            }
+        ]
+    )
+    assert diagnostics["adapter_executed_test_count"] == 1
+    assert diagnostics["override_count"] == 1

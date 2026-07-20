@@ -348,3 +348,122 @@ def test_v3_icv_runs_fixed_five_plus_three_and_pair_judge(monkeypatch) -> None:
         routers=[router],
         predictions=tampered,
     )["passed"]
+
+
+def test_cert_v2_uses_answer_nodes_all_candidates_and_gold_free_seq_adapter(monkeypatch) -> None:
+    complete = '["start: A1","move_to: A2","rescue: Alice"]'
+    incomplete = '["start: A1","move_to: A2"]'
+    sample = DatasetSample(
+        "seqbench",
+        "cert-v2-integration",
+        "Room A1 and A2 are connected by an open door. Bob is in room A1. Alice is in room A2.",
+        complete,
+        "",
+        {"seqbench_instance_metadata": {"agent_name": "Bob", "target_name": "Alice"}},
+    )
+    protocol = CatchProtocolConfig(
+        5,
+        3,
+        2,
+        3,
+        6,
+        6,
+        0.7,
+        1.0,
+        16_384,
+        4_096,
+        (2, 3, 4),
+        (1, 2),
+        62_000,
+        protocol_version="catch_cert_v2",
+        pair_judge_count=3,
+    )
+    stage_answers = {1: incomplete, 2: incomplete, 3: incomplete, 4: complete, 5: complete}
+    calls: list[str] = []
+
+    def answer_turn(_sample, *, role, agent_id, **_kwargs):
+        answer = stage_answers[agent_id] if role == "stage_a_solver" else complete
+        calls.append(role)
+        return {
+            "sample_id": sample.sample_id,
+            "role": role,
+            "answer_class_key": answer,
+            "normalized_answer": answer,
+            "prediction": answer,
+            "validated_output": {"reasoning": f"Plan is {answer}", "final_answer": answer},
+            "actual_total_tokens": 1,
+            "network_attempt_count": 1,
+        }
+
+    def json_turn(_sample, *, role, messages, **_kwargs):
+        calls.append(role)
+        if role == "certificate_verifier_v2":
+            raise AssertionError("a fully executable seq certificate must not call a model verifier")
+        assert role == "certificate_designer_v2"
+        content = messages[-1]["content"]
+        nodes = json.loads(
+            re.search(r"Anonymous answer nodes \(these are candidate meanings, not correctness labels\):\n(.+?)\n\nShort", content, re.S).group(1)
+        )
+        pairs = json.loads(re.search(r"Anonymous pairs:\n(.+?)\n\nExact", content, re.S).group(1))
+        contract = json.loads(
+            re.search(r"Question contract and mandatory obligations:\n(.+?)\n\nAnonymous answer", content, re.S).group(1)
+        )
+        source = json.loads(re.search(r"Indexed source spans:\n(.+?)\n\nQuestion contract", content, re.S).group(1))
+        complete_public = next(key for key, node in nodes.items() if "rescue" in node["rendered_content"])
+        pair = next(item for item in pairs if complete_public in {item["left_candidate"], item["right_candidate"]})
+        other = pair["right_candidate"] if pair["left_candidate"] == complete_public else pair["left_candidate"]
+        payload = {
+            "tests": [
+                {
+                    "test_id": "T0",
+                    "pair_id": pair["pair_id"],
+                    "obligation_ids": [item["obligation_id"] for item in contract["mandatory_obligations"]],
+                    "operation_kind": "seq_plan",
+                    "question_or_operation": "Which candidate is a complete executable rescue plan?",
+                    "finite_outcomes": [
+                        {"outcome_id": "O0", "text": "incomplete"},
+                        {"outcome_id": "O1", "text": "complete"},
+                    ],
+                    "expected_outcome_by_candidate": {other: "O0", complete_public: "O1"},
+                    "source_span_ids": [source["spans"][0]["span_id"]],
+                    "deterministic_payload": {},
+                }
+            ],
+            "certificates": [
+                {
+                    "candidate_key_anon": complete_public,
+                    "answer_hash": nodes[complete_public]["answer_hash"],
+                    "required_test_ids": ["T0"],
+                }
+            ],
+        }
+        return {
+            "sample_id": sample.sample_id,
+            "role": role,
+            "actual_total_tokens": 1,
+            "network_attempt_count": 1,
+        }, payload
+
+    monkeypatch.setattr(sample_runner, "_answer_turn", answer_turn)
+    monkeypatch.setattr(sample_runner, "_json_turn", json_turn)
+    turns, router, predictions = sample_runner.run_catch_sample(
+        sample,
+        run_id="run",
+        split_name="dev",
+        experiment=SimpleNamespace(global_seed=42),
+        protocol=protocol,
+        endpoint=SimpleNamespace(cache_namespace="catch-dev-cert_v2"),
+        network_budget=sample_runner.NetworkAttemptBudget(62_000),
+        phase_name="development",
+        run_direct_judge=False,
+    )
+
+    by_method = {row["method_name"]: row for row in predictions}
+    assert set(by_method) == {"sc_5", "adaptive_sc_8", "catch_cert_v2"}
+    assert by_method["catch_cert_v2"]["prediction"] == complete
+    assert by_method["catch_cert_v2"]["logical_calls_per_question"] == 6
+    assert by_method["catch_cert_v2"]["adapter_executed_test_count"] == 1
+    assert router["target_oracle_correct"] is True
+    assert len(router["public_pairs"]) == len(router["candidate_answer_nodes"]) - 1
+    assert "certificate_verifier_v2" not in calls
+    assert len(turns) == 9

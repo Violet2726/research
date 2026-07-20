@@ -31,6 +31,10 @@ from research_experiments.families.contrastive_active_testing.cert_prompts impor
     CERT_PROMPT_VERSION,
     CERT_SCHEMA_VERSION,
 )
+from research_experiments.families.contrastive_active_testing.cert_prompts_v2 import (
+    CERT_V2_PROMPT_VERSION,
+    CERT_V2_SCHEMA_VERSION,
+)
 from research_experiments.families.contrastive_active_testing.config import (
     load_phase_benchmarks,
     load_protocol_config,
@@ -154,8 +158,24 @@ def run_experiment(
     cache_root = Path(cache_root or default_cache_root())
     preflight_dependency = None
     frozen_decoding = None
+    readiness_assessment = None
+    if phase_name in {"heldout", "confirmation"} and protocol.protocol_version == "catch_cert_v2":
+        readiness_assessment = _load_cert_v2_readiness_assessment(
+            experiment.readiness_assessment_path,
+            config_sha=config_sha,
+        )
+        if readiness_assessment["status"] != "available":
+            execution_warnings.append(
+                "cert_v2_readiness_assessment_"
+                f"{readiness_assessment['status']}:results_are_exploratory"
+            )
+        elif readiness_assessment["unmet_conditions"]:
+            execution_warnings.append(
+                "cert_v2_readiness_recommendations_unmet:"
+                f"{len(readiness_assessment['unmet_conditions'])}:results_are_exploratory"
+            )
     if phase_name in {"heldout", "confirmation"}:
-        if protocol.protocol_version in {"catch_v3", "catch_cert_v1"}:
+        if protocol.protocol_version in {"catch_v3", "catch_cert_v1", "catch_cert_v2"}:
             frozen_decoding = _build_frozen_protocol_candidate(
                 run_id="built_in_fixed_protocol",
                 config_sha=config_sha,
@@ -164,6 +184,8 @@ def run_experiment(
             frozen_decoding["source"] = (
                 "built_in_fixed_v3_decoder"
                 if protocol.protocol_version == "catch_v3"
+                else "built_in_fixed_cert_v2_decoder"
+                if protocol.protocol_version == "catch_cert_v2"
                 else "built_in_fixed_cert_decoder"
             )
         else:
@@ -279,7 +301,7 @@ def run_experiment(
             jobs.append(CatchSampleJob(sequence_index, sample, split_name, endpoints[benchmark.slug]))
             sequence_index += 1
     cert_screening_mode = bool(
-        protocol.protocol_version == "catch_cert_v1"
+        protocol.protocol_version in {"catch_cert_v1", "catch_cert_v2"}
         and phase_name == "development"
         and int(phase.get("screening_sample_count") or 0) > 0
         and int(phase.get("disagreement_sample_count") or 0) > 0
@@ -288,7 +310,7 @@ def run_experiment(
     if cert_screening_mode:
         jobs = []
     run_direct_judge = bool(phase.get("run_direct_judge", phase_name != "confirmation"))
-    if protocol.protocol_version in {"catch_v3", "catch_cert_v1"}:
+    if protocol.protocol_version in {"catch_v3", "catch_cert_v1", "catch_cert_v2"}:
         calls_per_triggered = 17 if run_direct_judge else 11
         predictions_per_sample = 5 if run_direct_judge else 3
     else:
@@ -342,7 +364,9 @@ def run_experiment(
             "created_at": datetime.now(UTC).isoformat(),
             "family_name": "contrastive_active_testing",
             "paper_method_name": (
-                "CATCH-Cert"
+                "CATCH-Cert v2"
+                if protocol.protocol_version == "catch_cert_v2"
+                else "CATCH-Cert"
                 if protocol.protocol_version == "catch_cert_v1"
                 else "CATCH-ICV"
                 if protocol.protocol_version == "catch_v3"
@@ -357,10 +381,18 @@ def run_experiment(
             "resolved_model": asdict(backbone),
             "protocol": asdict(protocol),
             "prompt_version": (
-                CERT_PROMPT_VERSION if protocol.protocol_version == "catch_cert_v1" else CATCH_PROMPT_VERSION
+                CERT_V2_PROMPT_VERSION
+                if protocol.protocol_version == "catch_cert_v2"
+                else CERT_PROMPT_VERSION
+                if protocol.protocol_version == "catch_cert_v1"
+                else CATCH_PROMPT_VERSION
             ),
             "schema_version": (
-                CERT_SCHEMA_VERSION if protocol.protocol_version == "catch_cert_v1" else CATCH_SCHEMA_VERSION
+                CERT_V2_SCHEMA_VERSION
+                if protocol.protocol_version == "catch_cert_v2"
+                else CERT_SCHEMA_VERSION
+                if protocol.protocol_version == "catch_cert_v1"
+                else CATCH_SCHEMA_VERSION
             ),
             "global_seed": experiment.global_seed,
             "cache_namespace": cache_namespace,
@@ -368,6 +400,12 @@ def run_experiment(
             "request_source": "role_aware_versioned_catch_cache",
             "provider_audit": provider_audit,
             "preflight_dependency": preflight_dependency,
+            "readiness_assessment": readiness_assessment,
+            "evidence_interpretation": (
+                readiness_assessment.get("recommended_interpretation")
+                if readiness_assessment
+                else "not_applicable"
+            ),
             "execution_policy": "best_effort_non_blocking",
             "execution_warnings": execution_warnings,
             "frozen_config_sha256": config_sha,
@@ -391,7 +429,11 @@ def run_experiment(
             "method_order": [
                 "sc_5",
                 "adaptive_sc_8",
-                "catch_cert" if protocol.protocol_version == "catch_cert_v1" else "catch",
+                "catch_cert_v2"
+                if protocol.protocol_version == "catch_cert_v2"
+                else "catch_cert"
+                if protocol.protocol_version == "catch_cert_v1"
+                else "catch",
                 "direct_judge_3",
                 "pair_judge_3",
             ],
@@ -585,7 +627,7 @@ def run_experiment(
         routers.sort(key=lambda row: int(row.get("sample_sequence_index") or 0))
         predictions.sort(key=_prediction_sort_key)
         development_selection = None
-        if phase_name == "development" and protocol.protocol_version not in {"catch_v3", "catch_cert_v1"}:
+        if phase_name == "development" and protocol.protocol_version not in {"catch_v3", "catch_cert_v1", "catch_cert_v2"}:
             try:
                 predictions, development_selection = materialize_development_catch(predictions, routers)
             except (KeyError, TypeError, ValueError) as exc:
@@ -840,6 +882,7 @@ def _prediction_sort_key(row: dict[str, Any]) -> tuple[int, str]:
         "adaptive_sc_8": "01",
         "catch": "02",
         "catch_cert": "02",
+        "catch_cert_v2": "02",
         "direct_judge_3": "03",
         "pair_judge_3": "04",
     }
@@ -1373,15 +1416,23 @@ def _frozen_config_sha(
     component_hashes: dict[str, str] | None = None,
 ) -> str:
     protocol_version = load_protocol_config(experiment.protocol).protocol_version
-    is_cert = protocol_version == "catch_cert_v1"
+    is_cert_v1 = protocol_version == "catch_cert_v1"
+    is_cert_v2 = protocol_version == "catch_cert_v2"
     payload = {
         "experiment": experiment.raw,
         "protocol": Path(experiment.protocol).read_text(encoding="utf-8"),
-        "prompt_version": CERT_PROMPT_VERSION if is_cert else CATCH_PROMPT_VERSION,
-        "schema_version": CERT_SCHEMA_VERSION if is_cert else CATCH_SCHEMA_VERSION,
+        "prompt_version": (
+            CERT_V2_PROMPT_VERSION if is_cert_v2 else CERT_PROMPT_VERSION if is_cert_v1 else CATCH_PROMPT_VERSION
+        ),
+        "schema_version": (
+            CERT_V2_SCHEMA_VERSION if is_cert_v2 else CERT_SCHEMA_VERSION if is_cert_v1 else CATCH_SCHEMA_VERSION
+        ),
         "decoder_version": (
+            "catch_answer_linked_obligation_decoder_v2"
+            if is_cert_v2
+            else
             "catch_certificate_decoder_v1"
-            if is_cert
+            if is_cert_v1
             else "catch_icv_repetition_decoder_v3"
             if protocol_version == "catch_v3"
             else "catch_ecoc_decoder_v2"
@@ -1402,7 +1453,9 @@ def _frozen_component_hashes(experiment) -> dict[str, str]:
         family_root / "algorithms.py",
         family_root / "cache_layers.py",
         family_root / "certificates.py",
+        family_root / "certificates_v2.py",
         family_root / "cert_prompts.py",
+        family_root / "cert_prompts_v2.py",
         family_root / "icv.py",
         family_root / "prompts.py",
         family_root / "replay.py",
@@ -1486,27 +1539,43 @@ def _build_frozen_protocol_candidate(
 ) -> dict[str, Any]:
     """Create an immutable fixed-protocol candidate; no dev grid is selected."""
 
-    is_cert = protocol_version == "catch_cert_v1"
+    is_cert_v1 = protocol_version == "catch_cert_v1"
+    is_cert_v2 = protocol_version == "catch_cert_v2"
+    is_cert = is_cert_v1 or is_cert_v2
 
     payload = {
-        "freeze_kind": "catch_cert_protocol_v1" if is_cert else "catch_icv_protocol_v3",
+        "freeze_kind": (
+            "catch_cert_protocol_v2" if is_cert_v2 else "catch_cert_protocol_v1" if is_cert_v1 else "catch_icv_protocol_v3"
+        ),
         "source_development_run_id": run_id,
         "source_config_sha256": config_sha,
         "coordinates_per_pair": None if is_cert else 3,
         "panel_rule": (
             {
                 "all_required_conditions": True,
-                "anchor_refutation_required": True,
+                "derived_anchor_refutation_required": True,
                 "dual_panel_agreement_required": True,
+                "mandatory_obligation_coverage_required": is_cert_v2,
+                "answer_hash_link_required": is_cert_v2,
             }
             if is_cert
             else {"challenger_votes_at_least": 2, "strictly_more_than_anchor": True}
         ),
         "dual_panel_unique_challenger_required": True,
         "selection_constraints_passed": True,
-        "prompt_version": CERT_PROMPT_VERSION if is_cert else CATCH_PROMPT_VERSION,
-        "schema_version": CERT_SCHEMA_VERSION if is_cert else CATCH_SCHEMA_VERSION,
-        "decoder_version": "catch_certificate_decoder_v1" if is_cert else "catch_icv_repetition_decoder_v3",
+        "prompt_version": (
+            CERT_V2_PROMPT_VERSION if is_cert_v2 else CERT_PROMPT_VERSION if is_cert_v1 else CATCH_PROMPT_VERSION
+        ),
+        "schema_version": (
+            CERT_V2_SCHEMA_VERSION if is_cert_v2 else CERT_SCHEMA_VERSION if is_cert_v1 else CATCH_SCHEMA_VERSION
+        ),
+        "decoder_version": (
+            "catch_answer_linked_obligation_decoder_v2"
+            if is_cert_v2
+            else "catch_certificate_decoder_v1"
+            if is_cert_v1
+            else "catch_icv_repetition_decoder_v3"
+        ),
     }
     payload["sha256"] = hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
@@ -1542,6 +1611,73 @@ def _load_frozen_decoding(path: Path, *, config_sha: str) -> dict[str, Any]:
     ):
         raise RuntimeError("CATCH-v3 frozen decoder does not match the preregistered repetition code.")
     return payload
+
+
+def _load_cert_v2_readiness_assessment(path: Path, *, config_sha: str) -> dict[str, Any]:
+    """读取非阻断式就绪度诊断；缺失或失败只改变证据解释。"""
+
+    base = {
+        "path": path.as_posix(),
+        "enforcement": "advisory_only",
+        "blocks_execution": False,
+        "status": "missing",
+        "all_recommended_conditions_met": False,
+        "conditions": {},
+        "unmet_conditions": [],
+        "recommended_interpretation": "exploratory_diagnostic_evidence",
+    }
+    if not path.exists():
+        return base
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {**base, "status": "invalid", "error": f"{type(exc).__name__}:{exc}"}
+    expected_sha = str(payload.get("sha256") or "")
+    unsigned = dict(payload)
+    unsigned.pop("sha256", None)
+    actual_sha = hashlib.sha256(
+        json.dumps(unsigned, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    conditions = payload.get("conditions")
+    schema_version = payload.get("schema_version")
+    if (
+        expected_sha != actual_sha
+        or schema_version
+        not in {"catch_cert_v2_readiness_v1", "catch_cert_v2_readiness_assessment_v2"}
+        or payload.get("protocol_version") != "catch_cert_v2"
+        or not isinstance(conditions, dict)
+        or not conditions
+    ):
+        return {**base, "status": "invalid"}
+    if payload.get("source_config_sha256") != config_sha:
+        return {
+            **base,
+            "status": "config_mismatch",
+            "source_config_sha256": payload.get("source_config_sha256"),
+        }
+    unmet = [name for name, met in conditions.items() if met is not True]
+    all_met = not unmet
+    return {
+        **base,
+        "status": "available",
+        "schema_version": schema_version,
+        "source_run_id": payload.get("source_run_id"),
+        "source_config_sha256": payload.get("source_config_sha256"),
+        "sha256": expected_sha,
+        "conditions": conditions,
+        "unmet_conditions": unmet,
+        "all_recommended_conditions_met": all_met,
+        "recommended_interpretation": (
+            "confirmation_candidate" if all_met else "exploratory_diagnostic_evidence"
+        ),
+        "evidence": payload.get("evidence") or {},
+    }
+
+
+def _load_cert_v2_readiness_gate(path: Path, *, config_sha: str) -> dict[str, Any]:
+    """兼容旧调用名称；该函数已不再形成强制门槛。"""
+
+    return _load_cert_v2_readiness_assessment(path, config_sha=config_sha)
 
 
 def _require_passing_provider_audit(

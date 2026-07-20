@@ -9,6 +9,7 @@
 - `huggingface_archive_workflow.md`：`runs/cache` 的 Hugging Face 归档工作流
 - `huggingface_operations.md`：Hugging Face 支持的单个、多个与整批同步操作总览
 - `code_annotation_guidelines.md`：中文注解、docstring 与仓库文档写作规范
+- `catch_cert_v2.md`：CATCH-Cert v2 的方法不变量、机制审计、readiness gate 与运行流程
 
 ## 使用约定
 

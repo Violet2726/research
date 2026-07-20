@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import threading
 from typing import Any
 
@@ -13,10 +14,12 @@ from research_experiments.core.data.evaluation import (
     canonicalize_answer,
     evaluate_seqbench_prediction,
     score_prediction,
+    validate_seqbench_plan,
 )
 from research_experiments.core.execution.runner_common import execute_cached_request
 from research_experiments.families.contrastive_active_testing.algorithms import (
     DecodeDecision,
+    StageDecision,
     build_hypothesis_labels,
     build_stage_decision,
     build_witness_packet,
@@ -30,6 +33,10 @@ from research_experiments.families.contrastive_active_testing.algorithms import 
 from research_experiments.families.contrastive_active_testing.cert_prompts import (
     build_certificate_designer_messages,
     build_certificate_verifier_messages,
+)
+from research_experiments.families.contrastive_active_testing.cert_prompts_v2 import (
+    build_certificate_designer_messages_v2,
+    build_certificate_verifier_messages_v2,
 )
 from research_experiments.families.contrastive_active_testing.certificates import (
     CertificateBankValidation,
@@ -45,6 +52,27 @@ from research_experiments.families.contrastive_active_testing.certificates impor
     task_contract_to_dict,
     validate_certificate_bank,
     verifier_result_to_dict,
+)
+from research_experiments.families.contrastive_active_testing.certificates_v2 import (
+    CertificateBankValidationV2,
+    CertificateVerifierParseResultV2,
+    adapter_result_to_dict,
+    build_all_candidate_pairs_v2,
+    build_candidate_answer_nodes,
+    build_certificate_verifier_packet_v2,
+    build_source_span_graph,
+    build_task_contract_v2,
+    candidate_answer_node_to_dict,
+    certificate_test_v2_to_dict,
+    certificate_v2_to_dict,
+    decode_certificates_v2,
+    pair_v2_to_dict,
+    parse_certificate_verifier_v2,
+    run_deterministic_adapters_v2,
+    source_span_graph_to_dict,
+    task_contract_v2_to_dict,
+    validate_certificate_bank_v2,
+    verifier_result_v2_to_dict,
 )
 from research_experiments.families.contrastive_active_testing.icv import (
     ContrastValidation,
@@ -170,6 +198,19 @@ def run_catch_sample(
     run_direct_judge: bool = True,
     precomputed_stage_rows: tuple[dict[str, Any], ...] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    if protocol.protocol_version == "catch_cert_v2":
+        return run_catch_cert_v2_sample(
+            sample,
+            run_id=run_id,
+            split_name=split_name,
+            experiment=experiment,
+            protocol=protocol,
+            endpoint=endpoint,
+            network_budget=network_budget,
+            phase_name=phase_name,
+            run_direct_judge=run_direct_judge,
+            precomputed_stage_rows=precomputed_stage_rows,
+        )
     if protocol.protocol_version == "catch_cert_v1":
         return run_catch_cert_sample(
             sample,
@@ -1437,6 +1478,510 @@ def run_catch_cert_sample(
     return physical_rows, router, predictions
 
 
+def run_catch_cert_v2_sample(
+    sample: DatasetSample,
+    *,
+    run_id: str,
+    split_name: str,
+    experiment,
+    protocol,
+    endpoint,
+    network_budget: NetworkAttemptBudget,
+    phase_name: str,
+    run_direct_judge: bool = True,
+    precomputed_stage_rows: tuple[dict[str, Any], ...] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    """Execute the answer-linked, obligation-complete CATCH-Cert v2 protocol."""
+
+    if precomputed_stage_rows is None:
+        stage_rows = [
+            _answer_turn(
+                sample,
+                run_id=run_id,
+                split_name=split_name,
+                endpoint=endpoint,
+                network_budget=network_budget,
+                method_name="catch_stage_a_shared",
+                role="stage_a_solver",
+                agent_id=index,
+                seed=42_000 + index,
+                max_tokens=protocol.solver_max_tokens,
+            )
+            for index in range(1, protocol.stage_candidates + 1)
+        ]
+    else:
+        stage_rows = list(precomputed_stage_rows)
+        if (
+            len(stage_rows) != protocol.stage_candidates
+            or any(row.get("role") != "stage_a_solver" for row in stage_rows)
+            or any(str(row.get("sample_id") or "") != sample.sample_id for row in stage_rows)
+        ):
+            raise ValueError("Precomputed Stage-A rows do not match the CATCH-Cert v2 sample contract.")
+
+    stage = build_stage_decision(stage_rows, seed=experiment.global_seed, sample_id=sample.sample_id)
+    physical_rows: list[dict[str, Any]] = list(stage_rows)
+    resample_rows: list[dict[str, Any]] = []
+    designer_row: dict[str, Any] | None = None
+    verifier_rows: list[dict[str, Any]] = []
+    direct_rows: list[dict[str, Any]] = []
+    pair_judge_rows: list[dict[str, Any]] = []
+    direct_selections: list[str | None] = []
+    pair_selections: list[str | None] = []
+    panels: list[CertificateVerifierParseResultV2] = []
+    source_graph = build_source_span_graph(sample)
+    contract = build_task_contract_v2(sample, source_graph)
+    public_to_key = build_hypothesis_labels(stage, seed=experiment.global_seed, sample_id=sample.sample_id)
+    key_to_public = {key: public for public, key in public_to_key.items()}
+    answer_nodes = build_candidate_answer_nodes(sample, stage, public_to_key=public_to_key)
+    pairs = build_all_candidate_pairs_v2(
+        stage,
+        public_to_key=public_to_key,
+        seed=experiment.global_seed,
+        sample_id=sample.sample_id,
+    )
+    reasoning_claims = _answer_connected_reasoning_claims(stage, public_to_key=public_to_key)
+    validation = CertificateBankValidationV2((), (), (), None, (), (), 0.0, 0.0)
+    adapter_results = {}
+    decision = DecodeDecision(
+        stage.anchor_answer,
+        stage.anchor_key,
+        False,
+        "no_answer_class_disagreement",
+        (),
+        (),
+    )
+
+    if stage.triggered:
+        resample_rows = [
+            _answer_turn(
+                sample,
+                run_id=run_id,
+                split_name=split_name,
+                endpoint=endpoint,
+                network_budget=network_budget,
+                method_name="catch_adaptive_resample_shared",
+                role="independent_resample",
+                agent_id=index,
+                seed=45_000 + index,
+                max_tokens=protocol.solver_max_tokens,
+            )
+            for index in range(1, protocol.resample_candidates + 1)
+        ]
+        designer_row, designer_payload = _json_turn(
+            sample,
+            run_id=run_id,
+            split_name=split_name,
+            endpoint=endpoint,
+            network_budget=network_budget,
+            method_name="catch_cert_v2",
+            role="certificate_designer_v2",
+            agent_id=1,
+            seed=48_000,
+            max_tokens=protocol.role_max_tokens,
+            messages=build_certificate_designer_messages_v2(
+                sample,
+                contract=contract,
+                answer_nodes=answer_nodes,
+                source_graph=source_graph,
+                pairs=pairs,
+                reasoning_claims=reasoning_claims,
+            ),
+        )
+        validation = validate_certificate_bank_v2(
+            designer_payload,
+            contract=contract,
+            stage=stage,
+            public_to_key=public_to_key,
+            answer_nodes=answer_nodes,
+            source_graph=source_graph,
+            pairs=pairs,
+            max_tests=max(1, int(protocol.max_selected_tests or 6)),
+        )
+        adapter_results = run_deterministic_adapters_v2(
+            sample,
+            contract=contract,
+            tests=validation.tests,
+            answer_nodes=answer_nodes,
+            pairs=pairs,
+        )
+        designer_row.update(
+            {
+                "task_contract_v2": task_contract_v2_to_dict(contract),
+                "source_span_graph": source_span_graph_to_dict(source_graph),
+                "candidate_answer_nodes": {
+                    key: candidate_answer_node_to_dict(node) for key, node in answer_nodes.items()
+                },
+                "candidate_public_to_answer_class_key": public_to_key,
+                "public_pairs": [pair_v2_to_dict(pair) for pair in pairs],
+                "validated_certificates_v2": [certificate_v2_to_dict(item) for item in validation.certificates],
+                "validated_certificate_tests_v2": [certificate_test_v2_to_dict(item) for item in validation.tests],
+                "dropped_certificate_items": list(validation.dropped),
+                "certificate_protocol_error": validation.protocol_error,
+                "adapter_results": {
+                    key: adapter_result_to_dict(value) for key, value in adapter_results.items()
+                },
+                "eligible_challengers": list(validation.eligible_challengers),
+                "obligation_coverage": validation.obligation_coverage,
+                "answer_link_coverage": validation.answer_link_coverage,
+            }
+        )
+        if validation.protocol_error is not None:
+            designer_row["protocol_parse_status"] = "failed"
+            designer_row["protocol_parse_error"] = validation.protocol_error
+
+        if validation.eligible_challengers:
+            cert_by_public = {item.candidate_key_anon: item for item in validation.certificates}
+            required_ids = {
+                test_id
+                for challenger in validation.eligible_challengers
+                for test_id in cert_by_public[key_to_public[challenger]].required_test_ids
+            }
+            eligible_tests = tuple(test for test in validation.tests if test.test_id in required_ids)
+            all_executable = bool(eligible_tests) and all(
+                adapter_results[test.test_id].execution_status == "EXECUTED"
+                for test in eligible_tests
+            )
+            if not all_executable:
+                for panel_index in range(1, protocol.witness_count + 1):
+                    packet = build_certificate_verifier_packet_v2(
+                        eligible_tests,
+                        source_graph=source_graph,
+                        seed=experiment.global_seed,
+                        sample_id=sample.sample_id,
+                        panel_index=panel_index,
+                    )
+                    row, payload = _json_turn(
+                        sample,
+                        run_id=run_id,
+                        split_name=split_name,
+                        endpoint=endpoint,
+                        network_budget=network_budget,
+                        method_name="catch_cert_v2",
+                        role="certificate_verifier_v2",
+                        agent_id=panel_index,
+                        seed=49_000 + panel_index,
+                        max_tokens=protocol.role_max_tokens,
+                        messages=build_certificate_verifier_messages_v2(sample, contract=contract, packet=packet),
+                    )
+                    parsed = parse_certificate_verifier_v2(payload, packet=packet)
+                    if not parsed.top_level_valid:
+                        row["protocol_parse_status"] = "failed"
+                        row["protocol_parse_error"] = "certificate_verifier_v2_top_level_schema_failure"
+                    row.update(
+                        {
+                            "certificate_verifier_packet_v2": {
+                                "panel_index": packet.panel_index,
+                                "role": packet.role,
+                                "tests": list(packet.tests),
+                                "source_spans": list(packet.source_spans),
+                                "public_test_to_internal": packet.public_test_to_internal,
+                                "public_outcome_to_internal": packet.public_outcome_to_internal,
+                            },
+                            "certificate_verifier_results_v2": {
+                                key: verifier_result_v2_to_dict(value) for key, value in parsed.results.items()
+                            },
+                            "certificate_verifier_parse_diagnostics": {
+                                "top_level_valid": parsed.top_level_valid,
+                                "expected_test_count": parsed.expected_test_count,
+                                "valid_test_count": parsed.valid_test_count,
+                                "erased_rows": list(parsed.erased_rows),
+                                "format_repair_count": parsed.format_repair_count,
+                            },
+                        }
+                    )
+                    verifier_rows.append(row)
+                    panels.append(parsed)
+            decision = decode_certificates_v2(
+                stage,
+                validation=validation,
+                public_to_key=public_to_key,
+                panels=tuple(panels),
+                adapter_results=adapter_results,
+            )
+        else:
+            resolver = "no_certificate" if not validation.tests else "certificate_invalid"
+            decision = DecodeDecision(stage.anchor_answer, stage.anchor_key, False, resolver, (), ())
+
+        if run_direct_judge:
+            for judge_index in range(1, protocol.direct_judge_count + 1):
+                labels = build_hypothesis_labels(
+                    stage,
+                    seed=experiment.global_seed,
+                    sample_id=f"{sample.sample_id}:direct:{judge_index}",
+                )
+                row, payload = _json_turn(
+                    sample,
+                    run_id=run_id,
+                    split_name=split_name,
+                    endpoint=endpoint,
+                    network_budget=network_budget,
+                    method_name="direct_judge_3",
+                    role="direct_judge",
+                    agent_id=judge_index,
+                    seed=46_000 + judge_index,
+                    max_tokens=protocol.role_max_tokens,
+                    messages=build_direct_judge_messages(sample, stage=stage, hypothesis_to_key=labels),
+                )
+                selected_id = str(payload.get("selected_id") or "") if isinstance(payload, dict) else ""
+                selected_key = labels.get(selected_id)
+                if selected_key is None:
+                    row["protocol_parse_status"] = "failed"
+                    row["protocol_parse_error"] = "unknown_or_missing_candidate_id"
+                row["hypothesis_to_answer_class_key"] = labels
+                row["selected_answer_class_key"] = selected_key
+                direct_rows.append(row)
+                direct_selections.append(selected_key)
+
+            target_keys = [stage.anchor_key, *(pair.challenger_key for pair in pairs)]
+            for judge_index in range(1, protocol.pair_judge_count + 1):
+                labels = _target_judge_labels(
+                    target_keys,
+                    seed=experiment.global_seed,
+                    sample_id=f"{sample.sample_id}:pair-judge:{judge_index}",
+                )
+                row, payload = _json_turn(
+                    sample,
+                    run_id=run_id,
+                    split_name=split_name,
+                    endpoint=endpoint,
+                    network_budget=network_budget,
+                    method_name="pair_judge_3",
+                    role="pair_judge",
+                    agent_id=judge_index,
+                    seed=47_000 + judge_index,
+                    max_tokens=protocol.role_max_tokens,
+                    messages=build_pair_judge_messages(sample, stage=stage, public_to_key=labels),
+                )
+                selected_id = str(payload.get("selected_id") or "") if isinstance(payload, dict) else ""
+                selected_key = labels.get(selected_id)
+                if selected_key is None:
+                    row["protocol_parse_status"] = "failed"
+                    row["protocol_parse_error"] = "unknown_or_missing_target_candidate_id"
+                row["hypothesis_to_answer_class_key"] = labels
+                row["selected_answer_class_key"] = selected_key
+                pair_judge_rows.append(row)
+                pair_selections.append(selected_key)
+
+        physical_rows.extend(
+            [
+                *resample_rows,
+                *([designer_row] if designer_row is not None else []),
+                *verifier_rows,
+                *direct_rows,
+                *pair_judge_rows,
+            ]
+        )
+
+    adaptive = build_stage_decision(
+        [*stage_rows, *resample_rows],
+        seed=experiment.global_seed,
+        sample_id=sample.sample_id,
+    )
+    adaptive_answer = adaptive.anchor_answer or stage.anchor_answer
+    candidate_oracle = any(_score(sample, candidate.answer) == 1.0 for candidate in stage.candidates)
+    target_keys = {stage.anchor_key, *(pair.challenger_key for pair in pairs)}
+    target_oracle = any(
+        candidate.key in target_keys and _score(sample, candidate.answer) == 1.0
+        for candidate in stage.candidates
+    )
+    gold_candidate_key = next(
+        (candidate.key for candidate in stage.candidates if _score(sample, candidate.answer) == 1.0),
+        None,
+    )
+    common_extra = {
+        "target_oracle_correct": target_oracle,
+        "gold_candidate_key": gold_candidate_key,
+        "target_candidate_count": len(target_keys),
+        "protocol_version": "catch_cert_v2",
+        "task_family": contract.family,
+        "query_operator": contract.query_operator,
+        "adapter_kind": contract.adapter_kind,
+    }
+    predictions = [
+        _prediction(
+            sample,
+            run_id,
+            split_name,
+            "sc_5",
+            stage.anchor_answer,
+            stage.anchor_answer,
+            stage,
+            stage_rows,
+            [],
+            False,
+            "stage_a_plurality",
+            candidate_oracle,
+            extra=common_extra,
+        ),
+        _prediction(
+            sample,
+            run_id,
+            split_name,
+            "adaptive_sc_8",
+            adaptive_answer,
+            stage.anchor_answer,
+            stage,
+            [*stage_rows, *resample_rows],
+            resample_rows,
+            adaptive_answer != stage.anchor_answer,
+            "adaptive_answer_class_plurality" if stage.triggered else "no_answer_class_disagreement",
+            candidate_oracle,
+            extra=common_extra,
+        ),
+        _prediction(
+            sample,
+            run_id,
+            split_name,
+            "catch_cert_v2",
+            decision.answer,
+            stage.anchor_answer,
+            stage,
+            [*stage_rows, *([designer_row] if designer_row is not None else []), *verifier_rows],
+            [*([designer_row] if designer_row is not None else []), *verifier_rows],
+            decision.override_accepted,
+            decision.resolver,
+            candidate_oracle,
+            extra={
+                **common_extra,
+                "certificate_count": len(validation.certificates),
+                "certificate_test_count": len(validation.tests),
+                "eligible_challenger_count": len(validation.eligible_challengers),
+                "certificate_coverage": float(bool(validation.eligible_challengers)),
+                "certificate_abstained": not decision.override_accepted,
+                "adapter_conflict_count": int(decision.resolver == "adapter_conflict"),
+                "answer_link_coverage": validation.answer_link_coverage,
+                "obligation_coverage": validation.obligation_coverage,
+                "adapter_executed_test_count": sum(
+                    item.execution_status == "EXECUTED" for item in adapter_results.values()
+                ),
+                "verifier_format_repair_count": sum(panel.format_repair_count for panel in panels),
+            },
+        ),
+    ]
+    if run_direct_judge:
+        direct_answer, direct_override, direct_resolver = (
+            decide_direct_judges(stage, direct_selections)
+            if stage.triggered
+            else (stage.anchor_answer, False, "no_answer_class_disagreement")
+        )
+        pair_answer, pair_override, pair_resolver = (
+            decide_direct_judges(stage, pair_selections)
+            if stage.triggered
+            else (stage.anchor_answer, False, "no_answer_class_disagreement")
+        )
+        predictions.extend(
+            [
+                _prediction(
+                    sample,
+                    run_id,
+                    split_name,
+                    "direct_judge_3",
+                    direct_answer,
+                    stage.anchor_answer,
+                    stage,
+                    [*stage_rows, *direct_rows],
+                    direct_rows,
+                    direct_override,
+                    direct_resolver,
+                    candidate_oracle,
+                    extra=common_extra,
+                ),
+                _prediction(
+                    sample,
+                    run_id,
+                    split_name,
+                    "pair_judge_3",
+                    pair_answer,
+                    stage.anchor_answer,
+                    stage,
+                    [*stage_rows, *pair_judge_rows],
+                    pair_judge_rows,
+                    pair_override,
+                    pair_resolver,
+                    candidate_oracle,
+                    extra=common_extra,
+                ),
+            ]
+        )
+
+    router = {
+        "run_id": run_id,
+        "dataset": sample.dataset,
+        "split": split_name,
+        "sample_id": sample.sample_id,
+        "task": sample.metadata.get("task"),
+        "audit_source_question": question_without_answer_contract(sample),
+        "phase_name": phase_name,
+        "protocol_version": "catch_cert_v2",
+        "triggered": stage.triggered,
+        "valid_stage_answers": stage.valid_count,
+        "anchor_answer": stage.anchor_answer,
+        "anchor_key": stage.anchor_key,
+        "answer_class_vote_counts": stage.vote_counts,
+        "candidate_count": len(stage.candidates),
+        "candidate_oracle_correct": candidate_oracle,
+        "target_oracle_correct": target_oracle,
+        "gold_candidate_key": gold_candidate_key,
+        "task_contract_v2": task_contract_v2_to_dict(contract),
+        "source_span_graph": source_span_graph_to_dict(source_graph),
+        "candidate_answer_nodes": {
+            key: candidate_answer_node_to_dict(node) for key, node in answer_nodes.items()
+        },
+        "candidate_public_to_answer_class_key": public_to_key,
+        "public_pairs": [pair_v2_to_dict(pair) for pair in pairs],
+        "certificate_protocol_error": validation.protocol_error,
+        "dropped_certificate_items": list(validation.dropped),
+        "certificates": [certificate_v2_to_dict(item) for item in validation.certificates],
+        "certificate_tests": [certificate_test_v2_to_dict(item) for item in validation.tests],
+        "adapter_results": {key: adapter_result_to_dict(value) for key, value in adapter_results.items()},
+        "eligible_challengers": list(validation.eligible_challengers),
+        "answer_link_coverage": validation.answer_link_coverage,
+        "obligation_coverage": validation.obligation_coverage,
+        "verifier_panels": [
+            {
+                "top_level_valid": panel.top_level_valid,
+                "results": {key: verifier_result_v2_to_dict(value) for key, value in panel.results.items()},
+                "valid_test_count": panel.valid_test_count,
+                "expected_test_count": panel.expected_test_count,
+                "format_repair_count": panel.format_repair_count,
+            }
+            for panel in panels
+        ],
+        "decision": {
+            "answer_key": decision.answer_key,
+            "override_accepted": decision.override_accepted,
+            "resolver": decision.resolver,
+            "passing_challengers": list(decision.passing_challengers),
+            "panel_diagnostics": list(decision.panel_diagnostics),
+        },
+        "direct_judge_selections": direct_selections,
+        "pair_judge_selections": pair_selections,
+    }
+    return physical_rows, router, predictions
+
+
+def _answer_connected_reasoning_claims(
+    stage: StageDecision,
+    *,
+    public_to_key: dict[str, str],
+    max_claims: int = 12,
+    max_characters: int = 4_096,
+) -> dict[str, tuple[str, ...]]:
+    """Keep a bounded suffix of reasoning while the answer node carries semantics."""
+
+    candidate_by_key = {candidate.key: candidate for candidate in stage.candidates}
+    claims: dict[str, tuple[str, ...]] = {}
+    for public, key in public_to_key.items():
+        reasoning = str(candidate_by_key[key].representative_reasoning or "")[-max_characters:]
+        sentences = [
+            item.strip()
+            for item in re.split(r"(?<=[.!?])\s+|\r?\n+", reasoning)
+            if item.strip()
+        ]
+        claims[public] = tuple(sentences[-max_claims:])
+    return claims
+
+
 def _target_judge_labels(keys: list[str], *, seed: int, sample_id: str) -> dict[str, str]:
     unique = list(dict.fromkeys(key for key in keys if key))
     random_seed = int(_sha256(f"{seed}\0{sample_id}\0pair-judge")[:16], 16)
@@ -1728,6 +2273,7 @@ def _prediction(
     }
     if sample.dataset == "seqbench":
         sequence_metrics = evaluate_seqbench_prediction(prediction, sample.reference_answer, sample=sample)
+        plan_validation = validate_seqbench_plan(prediction, sample=sample)
         payload.update(
             {
                 "seqbench_exact_match": sequence_metrics.exact_match,
@@ -1740,6 +2286,8 @@ def _prediction(
                 "seqbench_first_invalid_action_reason": sequence_metrics.first_invalid_action_reason,
                 "seqbench_predicted_action_count": sequence_metrics.predicted_action_count,
                 "seqbench_gold_action_count": sequence_metrics.gold_action_count,
+                "seqbench_completion_validity": float(plan_validation.complete),
+                "seqbench_completion_failure": plan_validation.first_failure,
             }
         )
     payload.update(extra or {})

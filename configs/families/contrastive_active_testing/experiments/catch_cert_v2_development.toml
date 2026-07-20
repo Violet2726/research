@@ -1,0 +1,44 @@
+name = "catch_cert_v2_development"
+description = "CATCH-Cert v2 answer-linked global-obligation certificates across BBEH, MuSR, seqBench, and GPQA Diamond."
+study_type = "catch_cert_cross_domain"
+confirmatory = false
+benchmark_configs = [
+  "configs/core/shared/benchmarks/bbeh/bbeh-main.toml",
+  "configs/core/shared/benchmarks/musr/all.toml",
+  "configs/core/shared/benchmarks/seqbench/seqBench_compact.jsonl.toml",
+  "configs/core/shared/benchmarks/gpqa/dataset.toml",
+]
+protocol = "configs/families/contrastive_active_testing/protocols/catch_cert_v2.toml"
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+global_seed = 42
+max_concurrent_requests = 15
+requests_per_minute_limit = 18
+readiness_assessment_path = "local/analysis/catch_cert_v2_readiness_assessment.json"
+
+[cache_namespaces]
+development = "catch-dev-cert_v2"
+heldout = "catch-heldout-cert_v2"
+confirmation = "catch-confirm-cert_v2"
+
+[baseline_cache_namespaces]
+development = "catch-dev-cert_v1"
+heldout = "catch-heldout-cert_v1"
+confirmation = "catch-confirm-cert_v1"
+
+[phases.development]
+benchmark_slugs = ["bbeh", "musr", "seqbench", "gpqa_diamond"]
+split_overrides = { bbeh = "catch_cert_dev200_seed42", musr = "catch_cert_dev200_seed42", seqbench = "catch_cert_dev200_seed42", gpqa_diamond = "catch_cert_dev98_seed42" }
+screening_sample_count = 200
+disagreement_sample_count = 60
+run_direct_judge = true
+
+[phases.heldout]
+benchmark_slugs = ["bbeh", "musr", "seqbench"]
+split_overrides = { bbeh = "catch_cert_holdout200_seed42", musr = "catch_cert_holdout200_seed42", seqbench = "catch_cert_holdout200_seed42" }
+run_direct_judge = true
+
+[phases.confirmation]
+benchmark_slugs = ["bbeh", "musr", "seqbench"]
+split_overrides = { bbeh = "full4520_seed42", musr = "full756_seed42", seqbench = "full7079_seed42" }
+exclude_splits = { bbeh = ["count100_seed42", "catch_cert_dev200_seed42", "catch_cert_holdout200_seed42"], musr = ["count100_seed42", "catch_cert_dev200_seed42", "catch_cert_holdout200_seed42"], seqbench = ["count100_seed42", "catch_cert_dev200_seed42", "catch_cert_holdout200_seed42"] }
+run_direct_judge = false

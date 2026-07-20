@@ -54,6 +54,7 @@ class CatchExperimentConfig:
     frozen_decoding_path: Path
     human_audit_path: Path
     preflight_human_audit_path: Path
+    readiness_assessment_path: Path
     study_type: str
     confirmatory: bool
     config_warnings: tuple[str, ...]
@@ -69,7 +70,9 @@ def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
         witness_count=int(raw.get("witness_count", 2)),
         direct_judge_count=int(raw.get("direct_judge_count", 3)),
         max_proposed_tests=int(raw.get("max_proposed_tests", 0 if protocol_version == "catch_v3" else 6)),
-        max_selected_tests=int(raw.get("max_selected_tests", 0 if protocol_version == "catch_v3" else 4)),
+        max_selected_tests=int(
+            raw.get("max_selected_tests", 0 if protocol_version == "catch_v3" else 6 if protocol_version == "catch_cert_v2" else 4)
+        ),
         temperature=float(raw.get("temperature", 0.7)),
         top_p=float(raw.get("top_p", 1.0)),
         solver_max_tokens=int(raw.get("solver_max_tokens", 16_384)),
@@ -96,7 +99,7 @@ def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
         preflight_panel_agreement_threshold=float(raw.get("preflight_panel_agreement_threshold", 0.0)),
         budget_scope=str(raw.get("budget_scope") or "confirmatory_gate"),
     )
-    if protocol_version not in {"catch_v1", "catch_v2", "catch_v3", "catch_cert_v1"}:
+    if protocol_version not in {"catch_v1", "catch_v2", "catch_v3", "catch_cert_v1", "catch_cert_v2"}:
         raise ValueError(f"Unsupported CATCH protocol version {protocol_version!r}.")
     minimum_fields = {
         "stage_candidates": config.stage_candidates,
@@ -168,6 +171,12 @@ def load_experiment_config(path: str | Path) -> CatchExperimentConfig:
             "heldout": "catch-heldout-cert_v1",
             "confirmation": "catch-confirm-cert_v1",
         }
+        if protocol.protocol_version == "catch_cert_v2"
+        else {
+            "development": "catch-dev-cert_v1",
+            "heldout": "catch-heldout-cert_v1",
+            "confirmation": "catch-confirm-cert_v1",
+        }
         if study_type == "catch_cert_cross_domain_baseline"
         else {"development": "catch-dev-v1"}
         if protocol.protocol_version in {"catch_v2", "catch_v3"}
@@ -194,6 +203,13 @@ def load_experiment_config(path: str | Path) -> CatchExperimentConfig:
                 raw.get("preflight_human_audit_path")
                 or raw.get("human_audit_path")
                 or "unused/preflight_human_audit.json"
+            )
+        ),
+        readiness_assessment_path=Path(
+            str(
+                raw.get("readiness_assessment_path")
+                or raw.get("readiness_gate_path")
+                or "unused/catch_cert_v2_readiness_assessment.json"
             )
         ),
         study_type=study_type,

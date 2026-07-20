@@ -49,6 +49,17 @@ class SequenceEvaluation:
     gold_action_count: int
 
 
+@dataclass(frozen=True)
+class SequencePlanValidation:
+    """Gold-free seqBench plan execution result used by certificate adapters."""
+
+    complete: bool
+    valid_action_count: int
+    action_count: int
+    first_failure_index: int | None
+    first_failure: str | None
+
+
 def normalize_prediction(dataset: str, final_answer: str) -> str:
     """按数据集类型把模型答案归一化为可比较的形式。"""
     if dataset == "gsm8k":
@@ -367,6 +378,29 @@ def evaluate_seqbench_prediction(
         predicted_action_count=len(predicted_actions),
         gold_action_count=len(gold_actions),
     )
+
+
+def validate_seqbench_plan(predicted: str, *, sample: DatasetSample) -> SequencePlanValidation:
+    """Execute a seqBench plan without consulting the reference action list.
+
+    A syntactically valid prefix is not a complete plan: success additionally
+    requires a final, valid ``rescue`` action.  This closes the gap between the
+    diagnostic execution-prefix metric and an answer-correctness certificate.
+    """
+
+    actions = _sequence_actions(predicted)
+    if actions is None:
+        return SequencePlanValidation(False, 0, 0, 0, "invalid_sequence_syntax")
+    valid_count, invalid_index, invalid_reason = _execute_seqbench_actions(sample, actions)
+    if invalid_reason is not None:
+        return SequencePlanValidation(False, valid_count, len(actions), invalid_index, invalid_reason)
+    metadata = sample.metadata.get("seqbench_instance_metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    target_name = str(metadata.get("target_name") or "Alice")
+    final_action = _parse_seqbench_action(actions[-1]) if actions else None
+    if final_action != ("rescue", target_name):
+        return SequencePlanValidation(False, valid_count, len(actions), len(actions), "missing_final_rescue")
+    return SequencePlanValidation(True, valid_count, len(actions), None, None)
 
 
 def _sequence_actions(raw_answer: str) -> list[str] | None:
