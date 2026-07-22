@@ -84,6 +84,67 @@ def test_all_failed_stage_requests_produce_unavailable_predictions_without_raisi
     assert all(not row["prediction"] for row in predictions)
 
 
+def test_kernel_reports_vacuous_semantic_and_proof_validity_without_disagreement() -> None:
+    sample = DatasetSample(
+        dataset="bbeh",
+        sample_id="kernel-no-disagreement",
+        question="Is the proposition true?\nOptions:\n(A) yes\n(B) no",
+        reference_answer="A",
+        prompt_context="",
+        metadata={"task": "boolean_expressions", "answer_contract": {"kind": "multiple_choice"}},
+    )
+    stage_rows = tuple(
+        {
+            "dataset": "bbeh",
+            "sample_id": sample.sample_id,
+            "role": "stage_a_solver",
+            "agent_id": index,
+            "answer_class_key": "A",
+            "prediction": "A",
+            "normalized_answer": "A",
+            "validated_output": {"reasoning": "true", "final_answer": "A"},
+            "network_attempt_count": 1,
+        }
+        for index in range(1, 6)
+    )
+    protocol = CatchProtocolConfig(
+        5,
+        3,
+        2,
+        3,
+        6,
+        6,
+        0.7,
+        1.0,
+        16_384,
+        2_048,
+        (2, 3, 4),
+        (1, 2),
+        62_000,
+        protocol_version="catch_kernel_v1",
+        pair_judge_count=3,
+    )
+    _, router, predictions = sample_runner.run_catch_sample(
+        sample,
+        run_id="run",
+        split_name="dev",
+        experiment=SimpleNamespace(global_seed=42),
+        protocol=protocol,
+        endpoint=None,
+        network_budget=sample_runner.NetworkAttemptBudget(62_000),
+        phase_name="development",
+        run_direct_judge=False,
+        precomputed_stage_rows=stage_rows,
+    )
+
+    kernel = next(row for row in predictions if row["method_name"] == "catch_kernel")
+    assert router["triggered"] is False
+    assert kernel["typed_compilation_validity"] == 1.0
+    assert kernel["semantic_validity"] is None
+    assert kernel["verifier_jurisdiction_coverage"] == 1.0
+    assert kernel["proof_completeness"] == 1.0
+
+
 def test_development_grid_keeps_each_catch_variant_at_five_plus_three_calls(monkeypatch) -> None:
     sample = DatasetSample(
         dataset="bbeh",
@@ -103,7 +164,11 @@ def test_development_grid_keeps_each_catch_variant_at_five_plus_three_calls(monk
     def answer_turn(_sample, *, role, agent_id, **_kwargs):
         answer = stage_answers[agent_id] if role == "stage_a_solver" else "B"
         calls.append(role)
-        reasoning = "even fact first; parity check second; final relation third" if answer == "A" else "odd fact first; parity check second; final relation third"
+        reasoning = (
+            "even fact first; parity check second; final relation third"
+            if answer == "A"
+            else "odd fact first; parity check second; final relation third"
+        )
         return {
             "sample_id": sample.sample_id,
             "role": role,
@@ -147,14 +212,19 @@ def test_development_grid_keeps_each_catch_variant_at_five_plus_three_calls(monk
                 )
             return {"total_tokens": 1, "actual_total_tokens": 1, "network_attempt_count": 1}, {"tests": tests}
         if role == "blinded_witness":
-            rendered = json.loads(re.search(r"Diagnostic tests:\n(.+?)\n\nReturn", messages[-1]["content"], re.S).group(1))
+            rendered = json.loads(
+                re.search(r"Diagnostic tests:\n(.+?)\n\nReturn", messages[-1]["content"], re.S).group(1)
+            )
             answers = []
             for test in rendered:
                 odd = next(outcome for outcome in test["outcomes"] if outcome["text"] == "odd")
                 answers.append({"test_id": test["test_id"], "outcome_id": odd["id"], "check": "odd"})
             return {"total_tokens": 1, "actual_total_tokens": 1, "network_attempt_count": 1}, {"answers": answers}
         hypothesis_id = re.search(r'"id": "(H\d+)"', messages[-1]["content"]).group(1)
-        return {"total_tokens": 1, "actual_total_tokens": 1, "network_attempt_count": 1}, {"selected_id": hypothesis_id, "check": "ok"}
+        return {"total_tokens": 1, "actual_total_tokens": 1, "network_attempt_count": 1}, {
+            "selected_id": hypothesis_id,
+            "check": "ok",
+        }
 
     monkeypatch.setattr(sample_runner, "_answer_turn", answer_turn)
     monkeypatch.setattr(sample_runner, "_json_turn", json_turn)
@@ -227,8 +297,7 @@ def test_empty_code_packet_abstains_without_witness_calls(monkeypatch) -> None:
     )
     assert "blinded_witness" not in calls
     assert all(
-        row["resolver"] == "insufficient_code_distance"
-        and row["logical_calls_per_question"] == 6
+        row["resolver"] == "insufficient_code_distance" and row["logical_calls_per_question"] == 6
         for row in predictions
         if row["method_name"].startswith("catch_d")
     )
@@ -245,7 +314,19 @@ def test_v3_icv_runs_fixed_five_plus_three_and_pair_judge(monkeypatch) -> None:
         {"task": "unit", "options": [{"label": "A", "text": "alpha"}, {"label": "B", "text": "beta"}]},
     )
     protocol = CatchProtocolConfig(
-        5, 3, 2, 3, 6, 4, 0.7, 1.0, 16_384, 4_096, (2, 3, 4), (1, 2), 62_000,
+        5,
+        3,
+        2,
+        3,
+        6,
+        4,
+        0.7,
+        1.0,
+        16_384,
+        4_096,
+        (2, 3, 4),
+        (1, 2),
+        62_000,
         protocol_version="catch_v3",
         preflight_sample_count=20,
         preflight_code_coverage_threshold=0.60,
@@ -402,11 +483,17 @@ def test_cert_v2_uses_answer_nodes_all_candidates_and_gold_free_seq_adapter(monk
         assert role == "certificate_designer_v2"
         content = messages[-1]["content"]
         nodes = json.loads(
-            re.search(r"Anonymous answer nodes \(these are candidate meanings, not correctness labels\):\n(.+?)\n\nShort", content, re.S).group(1)
+            re.search(
+                r"Anonymous answer nodes \(these are candidate meanings, not correctness labels\):\n(.+?)\n\nShort",
+                content,
+                re.S,
+            ).group(1)
         )
         pairs = json.loads(re.search(r"Anonymous pairs:\n(.+?)\n\nExact", content, re.S).group(1))
         contract = json.loads(
-            re.search(r"Question contract and mandatory obligations:\n(.+?)\n\nAnonymous answer", content, re.S).group(1)
+            re.search(r"Question contract and mandatory obligations:\n(.+?)\n\nAnonymous answer", content, re.S).group(
+                1
+            )
         )
         source = json.loads(re.search(r"Indexed source spans:\n(.+?)\n\nQuestion contract", content, re.S).group(1))
         complete_public = next(key for key, node in nodes.items() if "rescue" in node["rendered_content"])
@@ -467,3 +554,78 @@ def test_cert_v2_uses_answer_nodes_all_candidates_and_gold_free_seq_adapter(monk
     assert len(router["public_pairs"]) == len(router["candidate_answer_nodes"]) - 1
     assert "certificate_verifier_v2" not in calls
     assert len(turns) == 9
+
+
+def test_kernel_compiles_executable_seq_obligations_locally_and_uses_no_fallback(monkeypatch) -> None:
+    complete = '["start: A1","move_to: A2","rescue: Alice"]'
+    incomplete = '["start: A1","move_to: A2"]'
+    sample = DatasetSample(
+        "seqbench",
+        "kernel-integration",
+        "Room A1 and A2 are connected by an open door. Bob is in room A1. Alice is in room A2.",
+        complete,
+        "",
+        {"seqbench_instance_metadata": {"agent_name": "Bob", "target_name": "Alice"}},
+    )
+    protocol = CatchProtocolConfig(
+        5,
+        3,
+        2,
+        3,
+        6,
+        6,
+        0.7,
+        1.0,
+        16_384,
+        2_048,
+        (2, 3, 4),
+        (1, 2),
+        62_000,
+        protocol_version="catch_kernel_v1",
+        pair_judge_count=3,
+    )
+    stage_answers = {1: incomplete, 2: incomplete, 3: incomplete, 4: complete, 5: complete}
+    calls: list[str] = []
+
+    def answer_turn(_sample, *, role, agent_id, **_kwargs):
+        answer = stage_answers[agent_id] if role == "stage_a_solver" else complete
+        calls.append(role)
+        return {
+            "sample_id": sample.sample_id,
+            "role": role,
+            "answer_class_key": answer,
+            "normalized_answer": answer,
+            "prediction": answer,
+            "validated_output": {"reasoning": f"Plan is {answer}", "final_answer": answer},
+            "actual_total_tokens": 1,
+            "network_attempt_count": 1,
+        }
+
+    def json_turn(*_args, **_kwargs):
+        raise AssertionError("locally executable kernel obligations must not call designer or verifier")
+
+    monkeypatch.setattr(sample_runner, "_answer_turn", answer_turn)
+    monkeypatch.setattr(sample_runner, "_json_turn", json_turn)
+    turns, router, predictions = sample_runner.run_catch_sample(
+        sample,
+        run_id="run",
+        split_name="dev",
+        experiment=SimpleNamespace(global_seed=42),
+        protocol=protocol,
+        endpoint=SimpleNamespace(cache_namespace="catch-dev-kernel_v1"),
+        network_budget=sample_runner.NetworkAttemptBudget(62_000),
+        phase_name="development",
+        run_direct_judge=False,
+    )
+
+    by_method = {row["method_name"]: row for row in predictions}
+    assert set(by_method) == {"sc_5", "adaptive_sc_8", "catch_kernel"}
+    assert by_method["catch_kernel"]["prediction"] == complete
+    assert by_method["catch_kernel"]["logical_calls_per_question"] == 5
+    assert by_method["catch_kernel"]["verifier_jurisdiction_coverage"] == 1.0
+    assert by_method["catch_kernel"]["proof_completeness"] == 1.0
+    assert router["kernel_decision"]["reason_code"] == "unique_complete_proof"
+    assert router["task_semantics"]["state_model"] == "ordered_navigation_with_keys_doors_and_rescue"
+    assert len(turns) == 8
+    assert calls.count("stage_a_solver") == 5
+    assert calls.count("independent_resample") == 3

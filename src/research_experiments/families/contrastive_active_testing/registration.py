@@ -7,18 +7,34 @@ import json
 from dataclasses import asdict
 
 from research_experiments.core.contracts import FamilyCliHelp, FamilyRunRequest
+from research_experiments.families.contrastive_active_testing.causal_ledger import (
+    build_causal_ledger,
+    summarize_counterfactual_ledger,
+)
+from research_experiments.families.contrastive_active_testing.comparison_replay import (
+    merge_comparison_predictions,
+)
 from research_experiments.families.contrastive_active_testing.config import (
     load_experiment_config,
     load_phase_benchmarks,
     load_protocol_config,
     phase_metadata,
 )
+from research_experiments.families.contrastive_active_testing.kernel_mechanism import (
+    ingest_kernel_mechanism_results,
+    summarize_kernel_mechanism,
+    write_kernel_mechanism_template,
+    write_kernel_run_mechanism_results,
+)
 from research_experiments.families.contrastive_active_testing.mechanism_factorial import (
     summarize_factorial_results,
     write_factorial_template,
 )
 from research_experiments.families.contrastive_active_testing.replay import replay_from_experiment
-from research_experiments.families.contrastive_active_testing.run.execute import run_experiment
+from research_experiments.families.contrastive_active_testing.run.execute import (
+    run_experiment,
+    write_kernel_d2_freeze,
+)
 from research_experiments.families.contrastive_active_testing.run.report import render_report, summarize_run
 from research_experiments.families.contrastive_active_testing.run.validate import validate_run
 from research_experiments.families.contrastive_active_testing.v1_failure_audit import write_v1_mechanism_audit
@@ -45,7 +61,9 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "name": experiment.name,
         "description": experiment.description,
         "paper_method_name": (
-            "CATCH-Cert v2"
+            "CATCH-Kernel"
+            if protocol.protocol_version == "catch_kernel_v1"
+            else "CATCH-Cert v2"
             if protocol.protocol_version == "catch_cert_v2"
             else "CATCH-Cert"
             if protocol.protocol_version == "catch_cert_v1"
@@ -117,6 +135,58 @@ def configure_parser(parser) -> None:
         )
         factorial_summary.add_argument("--results", required=True)
         factorial_summary.add_argument("--output", required=True)
+        ledger = action.add_parser(
+            "kernel-causal-ledger",
+            help="Build the non-blocking multi-run CATCH causal ledger without API calls.",
+        )
+        ledger.add_argument("--run", required=True, action="append")
+        ledger.add_argument("--output-dir", required=True)
+        ledger.add_argument("--matched-safe-count", type=int, default=64)
+        counterfactual_summary = action.add_parser(
+            "summarize-kernel-counterfactuals",
+            help="Validate completed counterfactual annotations and compute additive first-causal-layer counts.",
+        )
+        counterfactual_summary.add_argument("--ledger", required=True)
+        counterfactual_summary.add_argument("--output", required=True)
+        kernel_matrix = action.add_parser(
+            "kernel-mechanism-template",
+            help="Create the predeclared representation, 2x2, jurisdiction, and proof-completeness matrix.",
+        )
+        kernel_matrix.add_argument("--audit", required=True)
+        kernel_matrix.add_argument("--output", required=True)
+        kernel_summary = action.add_parser(
+            "summarize-kernel-mechanism",
+            help="Summarize completed and incomplete CATCH-Kernel mechanism cells without gates.",
+        )
+        kernel_summary.add_argument("--results", required=True)
+        kernel_summary.add_argument("--output", required=True)
+        kernel_ingest = action.add_parser(
+            "ingest-kernel-mechanism-results",
+            help="Merge validated arm-runner results into the frozen CATCH-Kernel mechanism matrix.",
+        )
+        kernel_ingest.add_argument("--matrix", required=True)
+        kernel_ingest.add_argument("--result", required=True, action="append")
+        kernel_ingest.add_argument("--output", required=True)
+        kernel_run_results = action.add_parser(
+            "kernel-run-mechanism-results",
+            help="Materialize capability-routed and proof-completeness arms from completed Kernel-D1 runs.",
+        )
+        kernel_run_results.add_argument("--matrix", required=True)
+        kernel_run_results.add_argument("--run", required=True, action="append")
+        kernel_run_results.add_argument("--output", required=True)
+        comparison_merge = action.add_parser(
+            "merge-kernel-comparators",
+            help="Merge CATCH-v3 and CATCH-Cert v2 predictions after exact Stage-A signature checks.",
+        )
+        comparison_merge.add_argument("--primary-run", required=True)
+        comparison_merge.add_argument("--comparator-run", required=True, action="append")
+        comparison_merge.add_argument("--output", required=True)
+        kernel_freeze = action.add_parser(
+            "freeze-kernel-d2",
+            help="Freeze Kernel-D2 components and exact stratified confirmation sample IDs.",
+        )
+        kernel_freeze.add_argument("--experiment", required=True)
+        kernel_freeze.add_argument("--output", required=True)
         return
     raise RuntimeError("CATCH parser is missing subcommands.")
 
@@ -163,9 +233,7 @@ def dispatch_extra_command(args) -> bool:
                     "output": str(args.output),
                     "enforcement": payload["enforcement"],
                     "blocks_execution": payload["blocks_execution"],
-                    "all_recommended_conditions_met": payload[
-                        "all_recommended_conditions_met"
-                    ],
+                    "all_recommended_conditions_met": payload["all_recommended_conditions_met"],
                     "unmet_conditions": payload["unmet_conditions"],
                     "conditions": payload["conditions"],
                 },
@@ -183,6 +251,77 @@ def dispatch_extra_command(args) -> bool:
         print(
             json.dumps(
                 {"output": args.output, "paper_branch": payload["paper_branch"], "attribution": payload["attribution"]},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return True
+    if args.command == "kernel-causal-ledger":
+        payload = build_causal_ledger(
+            args.run,
+            args.output_dir,
+            matched_safe_count=max(0, int(args.matched_safe_count)),
+        )
+        print(json.dumps({"output_dir": args.output_dir, **payload}, ensure_ascii=False, indent=2))
+        return True
+    if args.command == "kernel-mechanism-template":
+        payload = write_kernel_mechanism_template(args.audit, args.output)
+        print(
+            json.dumps(
+                {"output": args.output, "cases": payload["case_count"], "rows": payload["row_count"]},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return True
+    if args.command == "summarize-kernel-counterfactuals":
+        payload = summarize_counterfactual_ledger(args.ledger, args.output)
+        print(json.dumps({"output": args.output, **payload}, ensure_ascii=False, indent=2))
+        return True
+    if args.command == "summarize-kernel-mechanism":
+        payload = summarize_kernel_mechanism(args.results, args.output)
+        print(
+            json.dumps(
+                {
+                    "output": args.output,
+                    "completed_rows": payload["completed_rows"],
+                    "interpretation": payload["interpretation"],
+                    "attribution": payload["attribution"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return True
+    if args.command == "ingest-kernel-mechanism-results":
+        payload = ingest_kernel_mechanism_results(args.matrix, args.result, args.output)
+        print(
+            json.dumps(
+                {"output": args.output, "imported_result_count": payload["imported_result_count"]},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return True
+    if args.command == "kernel-run-mechanism-results":
+        payload = write_kernel_run_mechanism_results(args.matrix, args.run, args.output)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return True
+    if args.command == "merge-kernel-comparators":
+        payload = merge_comparison_predictions(args.primary_run, args.comparator_run, args.output)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return True
+    if args.command == "freeze-kernel-d2":
+        payload = write_kernel_d2_freeze(args.experiment, args.output)
+        print(
+            json.dumps(
+                {
+                    "output": args.output,
+                    "sha256": payload["sha256"],
+                    "selection_hashes": {
+                        key: value["sha256"] for key, value in payload["selected_sample_manifest"].items()
+                    },
+                },
                 ensure_ascii=False,
                 indent=2,
             )

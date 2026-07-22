@@ -1,0 +1,18 @@
+protocol_version = "catch_kernel_v1"
+budget_scope = "catch_kernel_d1_v3"
+stage_candidates = 5
+resample_candidates = 3
+witness_count = 2
+direct_judge_count = 3
+pair_judge_count = 3
+max_proposed_tests = 24
+max_selected_tests = 24
+temperature = 0.7
+top_p = 1.0
+solver_max_tokens = 16384
+# Kernel calls are new and cannot reuse a predecessor response, so keep a
+# generous ceiling to avoid truncation.  Judge calls retain the historical
+# 4096 cap because their exact CATCH-Cert-v2 requests are cache-reusable.
+role_max_tokens = 16384
+judge_max_tokens = 4096
+max_network_attempts = 62000

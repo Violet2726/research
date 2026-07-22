@@ -1,4 +1,16 @@
-active_version = "catch_v3_boundary_audit"
+active_version = "catch_kernel_d1"
+
+[versions.catch_kernel_d1]
+status = "registered_development"
+family = "contrastive_active_testing"
+paper_name = "CATCH-Kernel"
+mechanism = "typed answer obligations, verifier jurisdictions, and deterministic proof-carrying overrides"
+predecessor = "catch_cert_v2"
+study_type = "catch_kernel_cross_domain"
+confirmatory = false
+global_execution_gates = false
+per_case_unsupported_behavior = "abstain_without_cross_jurisdiction_fallback"
+development_cycles = 2
 
 [versions.dgcr_v1]
 status = "retired_failed_predecessor"

@@ -1,0 +1,50 @@
+name = "catch_kernel_d1"
+description = "CATCH-Kernel D1 with typed obligations, verifier jurisdictions, and proof-carrying overrides."
+study_type = "catch_kernel_cross_domain"
+confirmatory = false
+benchmark_configs = [
+  "configs/core/shared/benchmarks/bbeh/bbeh-main.toml",
+  "configs/core/shared/benchmarks/musr/all.toml",
+  "configs/core/shared/benchmarks/seqbench/seqBench_compact.jsonl.toml",
+  "configs/core/shared/benchmarks/gpqa/dataset.toml",
+]
+protocol = "configs/families/contrastive_active_testing/protocols/catch_kernel_v1.toml"
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+global_seed = 42
+max_concurrent_requests = 15
+requests_per_minute_limit = 18
+
+[cache_namespaces]
+development = "catch-dev-kernel_d1_v3"
+heldout = "catch-heldout-kernel_d1_v3"
+confirmation = "catch-confirm-kernel_d1_v3"
+
+[baseline_cache_namespaces]
+development = "catch-dev-cert_v2,catch-dev-cert_v1"
+heldout = "catch-heldout-cert_v2,catch-heldout-cert_v1"
+confirmation = "catch-confirm-cert_v2,catch-confirm-cert_v1"
+
+[phases.development]
+benchmark_slugs = ["bbeh", "musr", "seqbench", "gpqa_diamond"]
+split_overrides = { bbeh = "catch_cert_dev200_seed42", musr = "catch_cert_dev200_seed42", seqbench = "catch_cert_dev200_seed42", gpqa_diamond = "catch_cert_dev98_seed42" }
+screening_sample_count = 200
+disagreement_sample_count = 60
+run_direct_judge = true
+
+# This phase is development evidence because the split has already been inspected.
+[phases.heldout]
+benchmark_slugs = ["bbeh", "musr", "seqbench"]
+split_overrides = { bbeh = "catch_cert_holdout200_seed42", musr = "catch_cert_holdout200_seed42", seqbench = "catch_cert_holdout200_seed42" }
+run_direct_judge = true
+
+# D1 records the selected-ID hashes; D2 must copy them into expected_selection_sha256 before confirmation.
+[phases.confirmation]
+benchmark_slugs = ["bbeh", "musr", "seqbench"]
+split_overrides = { bbeh = "full4520_seed42", musr = "full756_seed42", seqbench = "full7079_seed42" }
+exclude_splits = { bbeh = ["catch_cert_dev200_seed42", "catch_cert_holdout200_seed42"], musr = ["catch_cert_dev200_seed42", "catch_cert_holdout200_seed42"], seqbench = ["catch_cert_dev200_seed42", "catch_cert_holdout200_seed42"] }
+sample_limits = { bbeh = 200, musr = 200, seqbench = 200 }
+hash_sample_selection = true
+selection_strategy = "kernel_confirmation_stratified_sha256"
+selection_seed = 42
+run_direct_judge = true
+required_comparison_methods = ["sc_5", "adaptive_sc_8", "catch", "catch_cert_v2", "catch_kernel", "direct_judge_3", "pair_judge_3"]

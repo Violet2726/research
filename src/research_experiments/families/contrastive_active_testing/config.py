@@ -24,6 +24,7 @@ class CatchProtocolConfig:
     d_min_grid: tuple[int, ...]
     margin_grid: tuple[int, ...]
     max_network_attempts: int
+    judge_max_tokens: int = 4_096
     protocol_version: str = "catch_v1"
     preflight_sample_count: int = 0
     preflight_quote_alignment_threshold: float = 0.0
@@ -71,12 +72,20 @@ def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
         direct_judge_count=int(raw.get("direct_judge_count", 3)),
         max_proposed_tests=int(raw.get("max_proposed_tests", 0 if protocol_version == "catch_v3" else 6)),
         max_selected_tests=int(
-            raw.get("max_selected_tests", 0 if protocol_version == "catch_v3" else 6 if protocol_version == "catch_cert_v2" else 4)
+            raw.get(
+                "max_selected_tests",
+                0
+                if protocol_version == "catch_v3"
+                else 6
+                if protocol_version in {"catch_cert_v2", "catch_kernel_v1"}
+                else 4,
+            )
         ),
         temperature=float(raw.get("temperature", 0.7)),
         top_p=float(raw.get("top_p", 1.0)),
         solver_max_tokens=int(raw.get("solver_max_tokens", 16_384)),
         role_max_tokens=int(raw.get("role_max_tokens", 4_096)),
+        judge_max_tokens=int(raw.get("judge_max_tokens", raw.get("role_max_tokens", 4_096))),
         d_min_grid=tuple(
             int(item) for item in raw.get("d_min_grid", [] if protocol_version == "catch_v3" else [2, 3, 4])
         ),
@@ -88,9 +97,7 @@ def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
         preflight_sample_count=int(raw.get("preflight_sample_count", 0)),
         preflight_quote_alignment_threshold=float(raw.get("preflight_quote_alignment_threshold", 0.0)),
         preflight_code_coverage_threshold=float(raw.get("preflight_code_coverage_threshold", 0.0)),
-        preflight_coordinate_validity_threshold=float(
-            raw.get("preflight_coordinate_validity_threshold", 0.0)
-        ),
+        preflight_coordinate_validity_threshold=float(raw.get("preflight_coordinate_validity_threshold", 0.0)),
         preflight_usable_pair_threshold=float(raw.get("preflight_usable_pair_threshold", 0.0)),
         coordinates_per_pair=int(raw.get("coordinates_per_pair", 3)),
         max_selected_contrasts=int(raw.get("max_selected_contrasts", 6)),
@@ -99,7 +106,14 @@ def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
         preflight_panel_agreement_threshold=float(raw.get("preflight_panel_agreement_threshold", 0.0)),
         budget_scope=str(raw.get("budget_scope") or "confirmatory_gate"),
     )
-    if protocol_version not in {"catch_v1", "catch_v2", "catch_v3", "catch_cert_v1", "catch_cert_v2"}:
+    if protocol_version not in {
+        "catch_v1",
+        "catch_v2",
+        "catch_v3",
+        "catch_cert_v1",
+        "catch_cert_v2",
+        "catch_kernel_v1",
+    }:
         raise ValueError(f"Unsupported CATCH protocol version {protocol_version!r}.")
     minimum_fields = {
         "stage_candidates": config.stage_candidates,
@@ -107,6 +121,7 @@ def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
         "witness_count": config.witness_count,
         "solver_max_tokens": config.solver_max_tokens,
         "role_max_tokens": config.role_max_tokens,
+        "judge_max_tokens": config.judge_max_tokens,
         "max_network_attempts": config.max_network_attempts,
     }
     invalid = [name for name, value in minimum_fields.items() if int(value) <= 0]
@@ -122,16 +137,13 @@ def load_experiment_config(path: str | Path) -> CatchExperimentConfig:
     runtime = apply_runtime_defaults(raw)
     namespaces = {str(key): str(value) for key, value in dict(raw.get("cache_namespaces") or {}).items()}
     baseline_namespaces = {
-        str(key): str(value)
-        for key, value in dict(raw.get("baseline_cache_namespaces") or {}).items()
+        str(key): str(value) for key, value in dict(raw.get("baseline_cache_namespaces") or {}).items()
     }
     study_type = str(raw.get("study_type") or "confirmatory_gate")
     is_boundary = study_type == "post_failure_cross_domain_boundary_audit"
     config_warnings: list[str] = []
     required_namespaces = (
-        {"bbeh", "musr", "seqbench", "gpqa_diamond"}
-        if is_boundary
-        else {"development", "heldout", "confirmation"}
+        {"bbeh", "musr", "seqbench", "gpqa_diamond"} if is_boundary else {"development", "heldout", "confirmation"}
     )
     missing_namespaces = required_namespaces - set(namespaces)
     if missing_namespaces:
@@ -154,6 +166,12 @@ def load_experiment_config(path: str | Path) -> CatchExperimentConfig:
         }
         if study_type == "catch_cert_cross_domain_baseline"
         else {
+            "development": "catch-dev-kernel_d1_v3",
+            "heldout": "catch-heldout-kernel_d1_v3",
+            "confirmation": "catch-confirm-kernel_d1_v3",
+        }
+        if protocol.protocol_version == "catch_kernel_v1"
+        else {
             "development": f"catch-dev-{namespace_version}",
             "heldout": f"catch-heldout-{namespace_version}",
             "confirmation": f"catch-confirm-{namespace_version}",
@@ -166,6 +184,12 @@ def load_experiment_config(path: str | Path) -> CatchExperimentConfig:
     expected_baseline = (
         {"bbeh": "catch-dev-v3,catch-dev-v1"}
         if is_boundary
+        else {
+            "development": "catch-dev-cert_v2,catch-dev-cert_v1",
+            "heldout": "catch-heldout-cert_v2,catch-heldout-cert_v1",
+            "confirmation": "catch-confirm-cert_v2,catch-confirm-cert_v1",
+        }
+        if protocol.protocol_version == "catch_kernel_v1"
         else {
             "development": "catch-dev-cert_v1",
             "heldout": "catch-heldout-cert_v1",
@@ -220,7 +244,11 @@ def load_experiment_config(path: str | Path) -> CatchExperimentConfig:
 
 
 def phase_metadata(experiment: CatchExperimentConfig, phase_name: str) -> dict[str, Any]:
-    allowed = {"boundary_audit"} if experiment.study_type == "post_failure_cross_domain_boundary_audit" else {"development", "heldout", "confirmation"}
+    allowed = (
+        {"boundary_audit"}
+        if experiment.study_type == "post_failure_cross_domain_boundary_audit"
+        else {"development", "heldout", "confirmation"}
+    )
     if phase_name not in allowed:
         raise ValueError(f"Unsupported CATCH phase {phase_name!r}.")
     phase = dict(experiment.raw.get("phases", {}).get(phase_name, {}))

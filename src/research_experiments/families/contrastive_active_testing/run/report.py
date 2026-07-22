@@ -14,9 +14,7 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
         return json.loads(summary_path.read_text(encoding="utf-8"))
     metrics_path = root / "views" / "metrics.json"
     return {
-        "metrics": json.loads(metrics_path.read_text(encoding="utf-8"))
-        if metrics_path.exists()
-        else {},
+        "metrics": json.loads(metrics_path.read_text(encoding="utf-8")) if metrics_path.exists() else {},
         "execution": {},
     }
 
@@ -30,8 +28,16 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
     metrics = summary.get("metrics") or {}
     execution = summary.get("execution") or metrics.get("execution") or {}
     protocol_version = manifest.get("protocol_version")
-    is_cert = protocol_version in {"catch_cert_v1", "catch_cert_v2"}
-    primary_method = "catch_cert_v2" if protocol_version == "catch_cert_v2" else "catch_cert" if is_cert else "catch"
+    is_cert = protocol_version in {"catch_cert_v1", "catch_cert_v2", "catch_kernel_v1"}
+    primary_method = (
+        "catch_kernel"
+        if protocol_version == "catch_kernel_v1"
+        else "catch_cert_v2"
+        if protocol_version == "catch_cert_v2"
+        else "catch_cert"
+        if is_cert
+        else "catch"
+    )
     lines = [
         f"# {manifest.get('paper_method_name') or 'CATCH'} 实验结果",
         "",
@@ -106,7 +112,16 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
             ]
         )
         for method, row in (payload.get("methods") or {}).items():
-            if method not in {"sc_5", "adaptive_sc_8", "catch", "catch_cert", "catch_cert_v2", "direct_judge_3", "pair_judge_3"}:
+            if method not in {
+                "sc_5",
+                "adaptive_sc_8",
+                "catch",
+                "catch_cert",
+                "catch_cert_v2",
+                "catch_kernel",
+                "direct_judge_3",
+                "pair_judge_3",
+            }:
                 continue
             interval = row.get("accuracy_wilson_95") or [0, 0]
             lines.append(
@@ -136,6 +151,28 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
                     f"问题义务覆盖率 {float(cert.get('obligation_coverage') or 0):.2%}；"
                     f"adapter 执行测试数 {int(cert.get('adapter_executed_test_count') or 0)}；"
                     f"格式修复数 {int(cert.get('verifier_format_repair_count') or 0)}；",
+                    f"语法/schema/类型编译有效率="
+                    f"{float(cert.get('syntax_validity') or 0):.2%}/"
+                    f"{float(cert.get('schema_validity') or 0):.2%}/"
+                    f"{float(cert.get('typed_compilation_validity') or 0):.2%}；"
+                    f"人工语义有效率={_optional_percent(cert.get('semantic_validity'))}；"
+                    f"契约正确率={_optional_percent(cert.get('contract_accuracy'))}；"
+                    f"验证辖域覆盖率={float(cert.get('verifier_jurisdiction_coverage') or 0):.2%}；"
+                    f"证明完整率={float(cert.get('proof_completeness') or 0):.2%}；",
+                    f"结构义务完整率={_optional_percent(cert.get('structural_obligation_completeness'))}；"
+                    f"provenance 有效率={_optional_percent(cert.get('provenance_validity'))}；"
+                    f"entailment 有效率={_optional_percent(cert.get('entailment_validity'))}；"
+                    f"adapter EXECUTED/CONFLICT/UNSUPPORTED/INVALID="
+                    f"{int(cert.get('adapter_executed_test_count') or 0)}/"
+                    f"{int(cert.get('adapter_conflict_test_count') or 0)}/"
+                    f"{int(cert.get('adapter_unsupported_test_count') or 0)}/"
+                    f"{int(cert.get('adapter_invalid_test_count') or 0)}；"
+                    f"panel 分歧={int(cert.get('panel_disagreement_count') or 0)}；",
+                    f"证明 PASS/CONFLICT/UNSUPPORTED/UNKNOWN="
+                    f"{int(cert.get('proof_pass_count') or 0)}/"
+                    f"{int(cert.get('proof_conflict_count') or 0)}/"
+                    f"{int(cert.get('proof_unsupported_count') or 0)}/"
+                    f"{int(cert.get('proof_unknown_count') or 0)}；",
                     f"wrong→correct={transitions.get('wrong_to_correct', 0)}，correct→wrong={transitions.get('correct_to_wrong', 0)}，"
                     f"wrong→wrong={transitions.get('wrong_to_wrong', 0)}，correct→correct={transitions.get('correct_to_correct', 0)}。",
                 ]
@@ -185,6 +222,17 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
                 f"{holm_text} |"
             )
 
+    comparison_audit = metrics.get("comparison_method_audit") or {}
+    if comparison_audit:
+        lines.extend(["", "## 预注册对照完整性", ""])
+        for dataset, row in sorted(comparison_audit.items()):
+            missing = list(row.get("missing") or [])
+            lines.append(
+                f"- {dataset}：完整={bool(row.get('complete'))}；"
+                f"已有={','.join(row.get('available') or []) or '无'}；"
+                f"缺失={','.join(missing) or '无'}。"
+            )
+
     failures = metrics.get("failures") or {}
     interval = failures.get("request_failure_rate_wilson_95") or [0, 0]
     lines.extend(
@@ -213,6 +261,7 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
     dependence = mechanism.get("panel_false_pass_dependence") or {}
     observations = mechanism.get("witness_position_and_agreement") or {}
     cert_v2 = mechanism.get("certificate_v2") or {}
+    kernel = mechanism.get("kernel") or {}
     lines.extend(
         [
             "",
@@ -235,6 +284,16 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
             f"- v2 panel exact agreement: `{float(cert_v2.get('panel_exact_agreement_rate') or 0):.4f}`",
             f"- v2 adapter executed tests / format repairs: `{int(cert_v2.get('adapter_executed_test_count') or 0)}` / "
             f"`{int(cert_v2.get('format_repair_count') or 0)}`",
+            f"- Kernel 验证辖域覆盖率：`{float(kernel.get('jurisdiction_coverage') or 0):.4f}`",
+            f"- Kernel 证明完整率：`{float(kernel.get('proof_completeness') or 0):.4f}`",
+            f"- Kernel 跨辖域回退次数：`{int(kernel.get('cross_jurisdiction_fallback_count') or 0)}`",
+            f"- Kernel verifier 路由：`{json.dumps(kernel.get('verifier_route_counts') or {}, ensure_ascii=False)}`",
+            f"- Kernel 各路由修正精度与 harm："
+            f"`{json.dumps(kernel.get('verifier_route_quality') or {}, ensure_ascii=False)}`",
+            f"- Kernel adapter 状态：`{json.dumps(kernel.get('adapter_status_counts') or {}, ensure_ascii=False)}`",
+            f"- Kernel 证明状态：`{json.dumps(kernel.get('proof_status_counts') or {}, ensure_ascii=False)}`",
+            f"- Kernel 首个失败层：`{json.dumps(kernel.get('failure_layer_counts') or {}, ensure_ascii=False)}`",
+            f"- Kernel panel 分歧次数：`{int(kernel.get('panel_disagreement_count') or 0)}`",
         ]
     )
     if cert_v2.get("dropped_reason_counts"):
@@ -243,10 +302,7 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
                 "",
                 "v2 证书编译丢弃原因：",
                 "",
-                *[
-                    f"- `{reason}`: {count}"
-                    for reason, count in dict(cert_v2["dropped_reason_counts"]).items()
-                ],
+                *[f"- `{reason}`: {count}" for reason, count in dict(cert_v2["dropped_reason_counts"]).items()],
             ]
         )
 
@@ -272,3 +328,7 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
         lines.append("- 未记录配置或执行警告。")
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return {"report_path": target.as_posix(), "run_status": manifest.get("run_status")}
+
+
+def _optional_percent(value: Any) -> str:
+    return "待人工审计" if value is None else f"{float(value):.2%}"

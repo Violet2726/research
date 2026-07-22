@@ -86,6 +86,31 @@ from research_experiments.families.contrastive_active_testing.icv import (
     segment_stage_evidence,
     validate_contrast_selector,
 )
+from research_experiments.families.contrastive_active_testing.kernel import (
+    KernelDecision,
+    answer_obligation_graph_to_dict,
+    bind_verifier_capabilities,
+    build_proof_results,
+    build_task_semantics,
+    compile_answer_obligation_graph,
+    compile_local_certificate_bank,
+    compile_typed_obligations,
+    decide_with_proof_kernel,
+    kernel_decision_to_decode,
+    kernel_decision_to_dict,
+    proof_result_to_dict,
+    semantics_requires_designer,
+    task_contract_from_semantics,
+    task_semantics_to_dict,
+    typed_obligation_to_dict,
+    validate_kernel_certificate_bank,
+    verifier_binding_to_dict,
+)
+from research_experiments.families.contrastive_active_testing.kernel_adapters import run_kernel_adapters
+from research_experiments.families.contrastive_active_testing.kernel_prompts import (
+    build_kernel_designer_messages,
+    build_kernel_verifier_messages,
+)
 from research_experiments.families.contrastive_active_testing.prompts import (
     build_designer_messages,
     build_direct_judge_messages,
@@ -198,7 +223,7 @@ def run_catch_sample(
     run_direct_judge: bool = True,
     precomputed_stage_rows: tuple[dict[str, Any], ...] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
-    if protocol.protocol_version == "catch_cert_v2":
+    if protocol.protocol_version in {"catch_cert_v2", "catch_kernel_v1"}:
         return run_catch_cert_v2_sample(
             sample,
             run_id=run_id,
@@ -320,16 +345,8 @@ def run_catch_sample(
             designer_row["protocol_parse_status"] = "failed"
             designer_row["protocol_parse_error"] = bank_validation.protocol_error
 
-        d_values = (
-            [int(frozen_decoding["d_min"])]
-            if frozen_decoding is not None
-            else list(protocol.d_min_grid)
-        )
-        margin_values = (
-            [int(frozen_decoding["margin"])]
-            if frozen_decoding is not None
-            else list(protocol.margin_grid)
-        )
+        d_values = [int(frozen_decoding["d_min"])] if frozen_decoding is not None else list(protocol.d_min_grid)
+        margin_values = [int(frozen_decoding["margin"])] if frozen_decoding is not None else list(protocol.margin_grid)
         for d_min in d_values:
             selection = select_tests(
                 bank_validation.tests,
@@ -439,7 +456,7 @@ def run_catch_sample(
                     role="direct_judge",
                     agent_id=judge_index,
                     seed=46_000 + judge_index,
-                    max_tokens=protocol.role_max_tokens,
+                    max_tokens=protocol.judge_max_tokens,
                     messages=build_direct_judge_messages(
                         sample,
                         stage=stage,
@@ -704,8 +721,7 @@ def run_catch_icv_sample(
                     for pair in pairs
                 ],
                 "evidence_units": {
-                    key: [evidence_unit_to_dict(unit) for unit in units]
-                    for key, units in evidence.items()
+                    key: [evidence_unit_to_dict(unit) for unit in units] for key, units in evidence.items()
                 },
                 "validated_contrasts": [coordinate_to_dict(item) for item in validation.coordinates],
                 "dropped_contrasts": list(validation.dropped),
@@ -720,9 +736,7 @@ def run_catch_icv_sample(
 
         if validation.eligible_challengers:
             eligible_coordinates = tuple(
-                item
-                for item in validation.coordinates
-                if item.challenger_key in validation.eligible_challengers
+                item for item in validation.coordinates if item.challenger_key in validation.eligible_challengers
             )
             for panel_index in range(1, protocol.witness_count + 1):
                 packet = build_icv_witness_packet(
@@ -797,7 +811,7 @@ def run_catch_icv_sample(
                     role="direct_judge",
                     agent_id=judge_index,
                     seed=46_000 + judge_index,
-                    max_tokens=protocol.role_max_tokens,
+                    max_tokens=protocol.judge_max_tokens,
                     messages=build_direct_judge_messages(sample, stage=stage, hypothesis_to_key=labels),
                 )
                 selected_id = str(payload.get("selected_id") or "") if isinstance(payload, dict) else ""
@@ -827,7 +841,7 @@ def run_catch_icv_sample(
                     role="pair_judge",
                     agent_id=judge_index,
                     seed=47_000 + judge_index,
-                    max_tokens=protocol.role_max_tokens,
+                    max_tokens=protocol.judge_max_tokens,
                     messages=build_pair_judge_messages(sample, stage=stage, public_to_key=labels),
                 )
                 selected_id = str(payload.get("selected_id") or "") if isinstance(payload, dict) else ""
@@ -859,16 +873,16 @@ def run_catch_icv_sample(
     candidate_oracle = any(_score(sample, candidate.answer) == 1.0 for candidate in stage.candidates)
     target_keys = {stage.anchor_key, *(pair.challenger_key for pair in pairs)}
     target_oracle = any(
-        candidate.key in target_keys and _score(sample, candidate.answer) == 1.0
-        for candidate in stage.candidates
+        candidate.key in target_keys and _score(sample, candidate.answer) == 1.0 for candidate in stage.candidates
     )
-    gold_candidate_key = next(
-        (candidate.key for candidate in stage.candidates if _score(sample, candidate.answer) == 1.0),
-        None,
+    gold_candidate_keys = tuple(
+        candidate.key for candidate in stage.candidates if _score(sample, candidate.answer) == 1.0
     )
+    gold_candidate_key = gold_candidate_keys[0] if gold_candidate_keys else None
     common_extra = {
         "target_oracle_correct": target_oracle,
         "gold_candidate_key": gold_candidate_key,
+        "gold_candidate_keys": list(gold_candidate_keys),
         "target_candidate_count": len(target_keys),
         "protocol_version": "catch_v3",
     }
@@ -991,6 +1005,7 @@ def run_catch_icv_sample(
         "candidate_oracle_correct": candidate_oracle,
         "target_oracle_correct": target_oracle,
         "gold_candidate_key": gold_candidate_key,
+        "gold_candidate_keys": list(gold_candidate_keys),
         "target_pairs": [
             {
                 "pair_id": pair.pair_id,
@@ -1090,10 +1105,7 @@ def run_catch_cert_sample(
         }
         for pair in target_pairs
     )
-    pair_candidates = {
-        pair["pair_id"]: (pair["left_candidate"], pair["right_candidate"])
-        for pair in public_pairs
-    }
+    pair_candidates = {pair["pair_id"]: (pair["left_candidate"], pair["right_candidate"]) for pair in public_pairs}
     validation = CertificateBankValidation((), (), (), None, 0, (), ())
     decision = DecodeDecision(
         stage.anchor_answer,
@@ -1250,7 +1262,7 @@ def run_catch_cert_sample(
                     role="direct_judge",
                     agent_id=judge_index,
                     seed=46_000 + judge_index,
-                    max_tokens=protocol.role_max_tokens,
+                    max_tokens=protocol.judge_max_tokens,
                     messages=build_direct_judge_messages(sample, stage=stage, hypothesis_to_key=labels),
                 )
                 selected_id = str(payload.get("selected_id") or "") if isinstance(payload, dict) else ""
@@ -1280,7 +1292,7 @@ def run_catch_cert_sample(
                     role="pair_judge",
                     agent_id=judge_index,
                     seed=47_000 + judge_index,
-                    max_tokens=protocol.role_max_tokens,
+                    max_tokens=protocol.judge_max_tokens,
                     messages=build_pair_judge_messages(sample, stage=stage, public_to_key=labels),
                 )
                 selected_id = str(payload.get("selected_id") or "") if isinstance(payload, dict) else ""
@@ -1312,16 +1324,16 @@ def run_catch_cert_sample(
     candidate_oracle = any(_score(sample, candidate.answer) == 1.0 for candidate in stage.candidates)
     target_keys = {stage.anchor_key, *(pair.challenger_key for pair in target_pairs)}
     target_oracle = any(
-        candidate.key in target_keys and _score(sample, candidate.answer) == 1.0
-        for candidate in stage.candidates
+        candidate.key in target_keys and _score(sample, candidate.answer) == 1.0 for candidate in stage.candidates
     )
-    gold_candidate_key = next(
-        (candidate.key for candidate in stage.candidates if _score(sample, candidate.answer) == 1.0),
-        None,
+    gold_candidate_keys = tuple(
+        candidate.key for candidate in stage.candidates if _score(sample, candidate.answer) == 1.0
     )
+    gold_candidate_key = gold_candidate_keys[0] if gold_candidate_keys else None
     common_extra = {
         "target_oracle_correct": target_oracle,
         "gold_candidate_key": gold_candidate_key,
+        "gold_candidate_keys": list(gold_candidate_keys),
         "target_candidate_count": len(target_keys),
         "protocol_version": "catch_cert_v1",
         "task_family": contract.family,
@@ -1491,7 +1503,12 @@ def run_catch_cert_v2_sample(
     run_direct_judge: bool = True,
     precomputed_stage_rows: tuple[dict[str, Any], ...] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
-    """Execute the answer-linked, obligation-complete CATCH-Cert v2 protocol."""
+    """Execute frozen Cert-v2 or jurisdiction-aware CATCH-Kernel."""
+
+    kernel_mode = protocol.protocol_version == "catch_kernel_v1"
+    primary_method = "catch_kernel" if kernel_mode else "catch_cert_v2"
+    designer_role = "kernel_obligation_filler" if kernel_mode else "certificate_designer_v2"
+    verifier_role = "kernel_atomic_verifier" if kernel_mode else "certificate_verifier_v2"
 
     if precomputed_stage_rows is None:
         stage_rows = [
@@ -1529,7 +1546,12 @@ def run_catch_cert_v2_sample(
     pair_selections: list[str | None] = []
     panels: list[CertificateVerifierParseResultV2] = []
     source_graph = build_source_span_graph(sample)
-    contract = build_task_contract_v2(sample, source_graph)
+    semantics = build_task_semantics(sample, source_graph) if kernel_mode else None
+    contract = (
+        task_contract_from_semantics(semantics, source_graph)
+        if semantics is not None
+        else build_task_contract_v2(sample, source_graph)
+    )
     public_to_key = build_hypothesis_labels(stage, seed=experiment.global_seed, sample_id=sample.sample_id)
     key_to_public = {key: public for public, key in public_to_key.items()}
     answer_nodes = build_candidate_answer_nodes(sample, stage, public_to_key=public_to_key)
@@ -1542,6 +1564,11 @@ def run_catch_cert_v2_sample(
     reasoning_claims = _answer_connected_reasoning_claims(stage, public_to_key=public_to_key)
     validation = CertificateBankValidationV2((), (), (), None, (), (), 0.0, 0.0)
     adapter_results = {}
+    typed_obligations = ()
+    obligation_graph = None
+    verifier_bindings = {}
+    proof_results = ()
+    kernel_decision: KernelDecision | None = None
     decision = DecodeDecision(
         stage.anchor_answer,
         stage.anchor_key,
@@ -1567,65 +1594,130 @@ def run_catch_cert_v2_sample(
             )
             for index in range(1, protocol.resample_candidates + 1)
         ]
-        designer_row, designer_payload = _json_turn(
-            sample,
-            run_id=run_id,
-            split_name=split_name,
-            endpoint=endpoint,
-            network_budget=network_budget,
-            method_name="catch_cert_v2",
-            role="certificate_designer_v2",
-            agent_id=1,
-            seed=48_000,
-            max_tokens=protocol.role_max_tokens,
-            messages=build_certificate_designer_messages_v2(
-                sample,
-                contract=contract,
+        skeleton = None
+        if kernel_mode and semantics is not None:
+            skeleton = compile_local_certificate_bank(
+                sample=sample,
+                semantics=semantics,
+                stage=stage,
+                public_to_key=public_to_key,
                 answer_nodes=answer_nodes,
                 source_graph=source_graph,
                 pairs=pairs,
-                reasoning_claims=reasoning_claims,
-            ),
-        )
-        validation = validate_certificate_bank_v2(
-            designer_payload,
-            contract=contract,
-            stage=stage,
-            public_to_key=public_to_key,
-            answer_nodes=answer_nodes,
-            source_graph=source_graph,
-            pairs=pairs,
-            max_tests=max(1, int(protocol.max_selected_tests or 6)),
-        )
-        adapter_results = run_deterministic_adapters_v2(
-            sample,
-            contract=contract,
-            tests=validation.tests,
-            answer_nodes=answer_nodes,
-            pairs=pairs,
-        )
-        designer_row.update(
-            {
-                "task_contract_v2": task_contract_v2_to_dict(contract),
-                "source_span_graph": source_span_graph_to_dict(source_graph),
-                "candidate_answer_nodes": {
-                    key: candidate_answer_node_to_dict(node) for key, node in answer_nodes.items()
-                },
-                "candidate_public_to_answer_class_key": public_to_key,
-                "public_pairs": [pair_v2_to_dict(pair) for pair in pairs],
-                "validated_certificates_v2": [certificate_v2_to_dict(item) for item in validation.certificates],
-                "validated_certificate_tests_v2": [certificate_test_v2_to_dict(item) for item in validation.tests],
-                "dropped_certificate_items": list(validation.dropped),
-                "certificate_protocol_error": validation.protocol_error,
-                "adapter_results": {
-                    key: adapter_result_to_dict(value) for key, value in adapter_results.items()
-                },
-                "eligible_challengers": list(validation.eligible_challengers),
-                "obligation_coverage": validation.obligation_coverage,
-                "answer_link_coverage": validation.answer_link_coverage,
-            }
-        )
-        if validation.protocol_error is not None:
+            )
+            if not semantics_requires_designer(semantics) or skeleton.protocol_error is not None:
+                validation = skeleton
+        if not kernel_mode or (
+            semantics is not None
+            and semantics_requires_designer(semantics)
+            and skeleton is not None
+            and skeleton.protocol_error is None
+        ):
+            designer_messages = (
+                build_kernel_designer_messages(
+                    sample,
+                    semantics=semantics,
+                    answer_nodes=answer_nodes,
+                    source_graph=source_graph,
+                    skeleton=skeleton,
+                    reasoning_claims=reasoning_claims,
+                )
+                if kernel_mode and semantics is not None and skeleton is not None
+                else build_certificate_designer_messages_v2(
+                    sample,
+                    contract=contract,
+                    answer_nodes=answer_nodes,
+                    source_graph=source_graph,
+                    pairs=pairs,
+                    reasoning_claims=reasoning_claims,
+                )
+            )
+            designer_row, designer_payload = _json_turn(
+                sample,
+                run_id=run_id,
+                split_name=split_name,
+                endpoint=endpoint,
+                network_budget=network_budget,
+                method_name=primary_method,
+                role=designer_role,
+                agent_id=1,
+                seed=48_000,
+                max_tokens=protocol.role_max_tokens,
+                messages=designer_messages,
+            )
+            validation = (
+                validate_kernel_certificate_bank(
+                    designer_payload,
+                    semantics=semantics,
+                    skeleton=skeleton,
+                    max_tests=max(1, int(protocol.max_selected_tests or 6)),
+                )
+                if kernel_mode and semantics is not None and skeleton is not None
+                else validate_certificate_bank_v2(
+                    designer_payload,
+                    contract=contract,
+                    stage=stage,
+                    public_to_key=public_to_key,
+                    answer_nodes=answer_nodes,
+                    source_graph=source_graph,
+                    pairs=pairs,
+                    max_tests=max(1, int(protocol.max_selected_tests or 6)),
+                )
+            )
+        if kernel_mode and semantics is not None:
+            typed_obligations = compile_typed_obligations(semantics, validation)
+            obligation_graph = compile_answer_obligation_graph(semantics, typed_obligations)
+            verifier_bindings = bind_verifier_capabilities(semantics, validation)
+            executable_tests = tuple(
+                test
+                for test in validation.tests
+                if verifier_bindings.get(test.test_id) is not None
+                and verifier_bindings[test.test_id].guarantee_level == "executable"
+            )
+            adapter_results = run_kernel_adapters(
+                sample,
+                contract=contract,
+                tests=executable_tests,
+                answer_nodes=answer_nodes,
+                pairs=pairs,
+            )
+        else:
+            adapter_results = run_deterministic_adapters_v2(
+                sample,
+                contract=contract,
+                tests=validation.tests,
+                answer_nodes=answer_nodes,
+                pairs=pairs,
+            )
+        if designer_row is not None:
+            designer_row.update(
+                {
+                    "task_contract_v2": task_contract_v2_to_dict(contract),
+                    "task_semantics": task_semantics_to_dict(semantics) if semantics is not None else None,
+                    "source_span_graph": source_span_graph_to_dict(source_graph),
+                    "candidate_answer_nodes": {
+                        key: candidate_answer_node_to_dict(node) for key, node in answer_nodes.items()
+                    },
+                    "candidate_public_to_answer_class_key": public_to_key,
+                    "public_pairs": [pair_v2_to_dict(pair) for pair in pairs],
+                    "validated_certificates_v2": [certificate_v2_to_dict(item) for item in validation.certificates],
+                    "validated_certificate_tests_v2": [certificate_test_v2_to_dict(item) for item in validation.tests],
+                    "dropped_certificate_items": list(validation.dropped),
+                    "certificate_protocol_error": validation.protocol_error,
+                    "adapter_results": {key: adapter_result_to_dict(value) for key, value in adapter_results.items()},
+                    "eligible_challengers": list(validation.eligible_challengers),
+                    "obligation_coverage": validation.obligation_coverage,
+                    "answer_link_coverage": validation.answer_link_coverage,
+                    "typed_obligations": [typed_obligation_to_dict(item) for item in typed_obligations],
+                    "answer_obligation_graph": (
+                        answer_obligation_graph_to_dict(obligation_graph) if obligation_graph is not None else None
+                    ),
+                    "verifier_bindings": {
+                        key: verifier_binding_to_dict(value) for key, value in verifier_bindings.items()
+                    },
+                }
+            )
+        if designer_row is not None and validation.protocol_error is not None:
             designer_row["protocol_parse_status"] = "failed"
             designer_row["protocol_parse_error"] = validation.protocol_error
 
@@ -1638,10 +1730,24 @@ def run_catch_cert_v2_sample(
             }
             eligible_tests = tuple(test for test in validation.tests if test.test_id in required_ids)
             all_executable = bool(eligible_tests) and all(
-                adapter_results[test.test_id].execution_status == "EXECUTED"
+                verifier_bindings.get(test.test_id) is not None
+                and verifier_bindings[test.test_id].guarantee_level == "executable"
+                and adapter_results.get(test.test_id) is not None
+                and adapter_results[test.test_id].execution_status == "EXECUTED"
                 for test in eligible_tests
+            ) if kernel_mode else bool(eligible_tests) and all(
+                adapter_results[test.test_id].execution_status == "EXECUTED" for test in eligible_tests
             )
-            if not all_executable:
+            needs_model_panels = (
+                any(
+                    verifier_bindings.get(test.test_id) is not None
+                    and verifier_bindings[test.test_id].guarantee_level == "bounded_semantic"
+                    for test in eligible_tests
+                )
+                if kernel_mode
+                else not all_executable
+            )
+            if needs_model_panels:
                 for panel_index in range(1, protocol.witness_count + 1):
                     packet = build_certificate_verifier_packet_v2(
                         eligible_tests,
@@ -1656,17 +1762,29 @@ def run_catch_cert_v2_sample(
                         split_name=split_name,
                         endpoint=endpoint,
                         network_budget=network_budget,
-                        method_name="catch_cert_v2",
-                        role="certificate_verifier_v2",
+                        method_name=primary_method,
+                        role=verifier_role,
                         agent_id=panel_index,
                         seed=49_000 + panel_index,
                         max_tokens=protocol.role_max_tokens,
-                        messages=build_certificate_verifier_messages_v2(sample, contract=contract, packet=packet),
+                        messages=(
+                            build_kernel_verifier_messages(
+                                sample,
+                                semantics=semantics,
+                                packet=packet,
+                            )
+                            if kernel_mode and semantics is not None
+                            else build_certificate_verifier_messages_v2(sample, contract=contract, packet=packet)
+                        ),
                     )
                     parsed = parse_certificate_verifier_v2(payload, packet=packet)
                     if not parsed.top_level_valid:
                         row["protocol_parse_status"] = "failed"
-                        row["protocol_parse_error"] = "certificate_verifier_v2_top_level_schema_failure"
+                        row["protocol_parse_error"] = (
+                            "kernel_atomic_verifier_top_level_schema_failure"
+                            if kernel_mode
+                            else "certificate_verifier_v2_top_level_schema_failure"
+                        )
                     row.update(
                         {
                             "certificate_verifier_packet_v2": {
@@ -1691,13 +1809,33 @@ def run_catch_cert_v2_sample(
                     )
                     verifier_rows.append(row)
                     panels.append(parsed)
-            decision = decode_certificates_v2(
-                stage,
-                validation=validation,
-                public_to_key=public_to_key,
-                panels=tuple(panels),
-                adapter_results=adapter_results,
-            )
+            if kernel_mode and semantics is not None:
+                proof_results = build_proof_results(
+                    stage=stage,
+                    semantics=semantics,
+                    validation=validation,
+                    public_to_key=public_to_key,
+                    bindings=verifier_bindings,
+                    adapter_results=adapter_results,
+                    panels=tuple(panels),
+                )
+                kernel_decision = decide_with_proof_kernel(
+                    stage,
+                    semantics=semantics,
+                    validation=validation,
+                    public_to_key=public_to_key,
+                    obligations=typed_obligations,
+                    proofs=proof_results,
+                )
+                decision = kernel_decision_to_decode(stage, kernel_decision, public_to_key=public_to_key)
+            else:
+                decision = decode_certificates_v2(
+                    stage,
+                    validation=validation,
+                    public_to_key=public_to_key,
+                    panels=tuple(panels),
+                    adapter_results=adapter_results,
+                )
         else:
             resolver = "no_certificate" if not validation.tests else "certificate_invalid"
             decision = DecodeDecision(stage.anchor_answer, stage.anchor_key, False, resolver, (), ())
@@ -1719,7 +1857,7 @@ def run_catch_cert_v2_sample(
                     role="direct_judge",
                     agent_id=judge_index,
                     seed=46_000 + judge_index,
-                    max_tokens=protocol.role_max_tokens,
+                    max_tokens=protocol.judge_max_tokens,
                     messages=build_direct_judge_messages(sample, stage=stage, hypothesis_to_key=labels),
                 )
                 selected_id = str(payload.get("selected_id") or "") if isinstance(payload, dict) else ""
@@ -1749,7 +1887,7 @@ def run_catch_cert_v2_sample(
                     role="pair_judge",
                     agent_id=judge_index,
                     seed=47_000 + judge_index,
-                    max_tokens=protocol.role_max_tokens,
+                    max_tokens=protocol.judge_max_tokens,
                     messages=build_pair_judge_messages(sample, stage=stage, public_to_key=labels),
                 )
                 selected_id = str(payload.get("selected_id") or "") if isinstance(payload, dict) else ""
@@ -1781,18 +1919,18 @@ def run_catch_cert_v2_sample(
     candidate_oracle = any(_score(sample, candidate.answer) == 1.0 for candidate in stage.candidates)
     target_keys = {stage.anchor_key, *(pair.challenger_key for pair in pairs)}
     target_oracle = any(
-        candidate.key in target_keys and _score(sample, candidate.answer) == 1.0
-        for candidate in stage.candidates
+        candidate.key in target_keys and _score(sample, candidate.answer) == 1.0 for candidate in stage.candidates
     )
-    gold_candidate_key = next(
-        (candidate.key for candidate in stage.candidates if _score(sample, candidate.answer) == 1.0),
-        None,
+    gold_candidate_keys = tuple(
+        candidate.key for candidate in stage.candidates if _score(sample, candidate.answer) == 1.0
     )
+    gold_candidate_key = gold_candidate_keys[0] if gold_candidate_keys else None
     common_extra = {
         "target_oracle_correct": target_oracle,
         "gold_candidate_key": gold_candidate_key,
+        "gold_candidate_keys": list(gold_candidate_keys),
         "target_candidate_count": len(target_keys),
-        "protocol_version": "catch_cert_v2",
+        "protocol_version": protocol.protocol_version,
         "task_family": contract.family,
         "query_operator": contract.query_operator,
         "adapter_kind": contract.adapter_kind,
@@ -1832,7 +1970,7 @@ def run_catch_cert_v2_sample(
             sample,
             run_id,
             split_name,
-            "catch_cert_v2",
+            primary_method,
             decision.answer,
             stage.anchor_answer,
             stage,
@@ -1855,6 +1993,68 @@ def run_catch_cert_v2_sample(
                     item.execution_status == "EXECUTED" for item in adapter_results.values()
                 ),
                 "verifier_format_repair_count": sum(panel.format_repair_count for panel in panels),
+                "syntax_validity": float(
+                    (designer_row is None or designer_row.get("protocol_parse_status") == "ok")
+                    and all(panel.top_level_valid for panel in panels)
+                ),
+                "schema_validity": float(
+                    validation.protocol_error is None and all(panel.top_level_valid for panel in panels)
+                ),
+                "typed_compilation_validity": float(
+                    (bool(typed_obligations) or not stage.triggered)
+                    if kernel_mode
+                    else validation.protocol_error is None
+                ),
+                "semantic_validity": None if kernel_mode else float(validation.protocol_error is None),
+                "contract_accuracy": None if kernel_mode else float(validation.protocol_error is None),
+                "verifier_jurisdiction_coverage": (
+                    sum(item.binding_status == "BOUND" for item in verifier_bindings.values()) / len(verifier_bindings)
+                    if verifier_bindings
+                    else float(not stage.triggered)
+                ),
+                "proof_completeness": (
+                    sum(
+                        item.status == "PASS"
+                        and item.provenance_valid
+                        and item.entailment_valid
+                        and item.obligation_valid
+                        and item.sufficiency_valid
+                        for item in proof_results
+                    )
+                    / len(proof_results)
+                    if proof_results
+                    else float(not stage.triggered)
+                ),
+                "structural_obligation_completeness": (
+                    sum(item.obligation_valid and item.sufficiency_valid for item in proof_results) / len(proof_results)
+                    if proof_results
+                    else float(not stage.triggered)
+                ),
+                "provenance_validity": (
+                    sum(item.provenance_valid for item in proof_results) / len(proof_results)
+                    if proof_results
+                    else float(not stage.triggered)
+                ),
+                "entailment_validity": (
+                    sum(item.entailment_valid for item in proof_results) / len(proof_results)
+                    if proof_results
+                    else float(not stage.triggered)
+                ),
+                "proof_pass_count": sum(item.status == "PASS" for item in proof_results),
+                "proof_conflict_count": sum(item.status == "CONFLICT" for item in proof_results),
+                "proof_unsupported_count": sum(item.status == "UNSUPPORTED" for item in proof_results),
+                "proof_unknown_count": sum(item.status == "UNKNOWN" for item in proof_results),
+                "panel_disagreement_count": sum(item.detail == "panel_disagreement" for item in proof_results),
+                "adapter_conflict_test_count": sum(
+                    item.execution_status == "CONFLICT" for item in adapter_results.values()
+                ),
+                "adapter_unsupported_test_count": sum(
+                    item.execution_status == "UNSUPPORTED" for item in adapter_results.values()
+                ),
+                "adapter_invalid_test_count": sum(
+                    item.execution_status == "INVALID" for item in adapter_results.values()
+                ),
+                "kernel_failure_layer": kernel_decision.failure_layer if kernel_decision else None,
             },
         ),
     ]
@@ -1912,7 +2112,7 @@ def run_catch_cert_v2_sample(
         "task": sample.metadata.get("task"),
         "audit_source_question": question_without_answer_contract(sample),
         "phase_name": phase_name,
-        "protocol_version": "catch_cert_v2",
+        "protocol_version": protocol.protocol_version,
         "triggered": stage.triggered,
         "valid_stage_answers": stage.valid_count,
         "anchor_answer": stage.anchor_answer,
@@ -1922,11 +2122,11 @@ def run_catch_cert_v2_sample(
         "candidate_oracle_correct": candidate_oracle,
         "target_oracle_correct": target_oracle,
         "gold_candidate_key": gold_candidate_key,
+        "gold_candidate_keys": list(gold_candidate_keys),
         "task_contract_v2": task_contract_v2_to_dict(contract),
+        "task_semantics": task_semantics_to_dict(semantics) if semantics is not None else None,
         "source_span_graph": source_span_graph_to_dict(source_graph),
-        "candidate_answer_nodes": {
-            key: candidate_answer_node_to_dict(node) for key, node in answer_nodes.items()
-        },
+        "candidate_answer_nodes": {key: candidate_answer_node_to_dict(node) for key, node in answer_nodes.items()},
         "candidate_public_to_answer_class_key": public_to_key,
         "public_pairs": [pair_v2_to_dict(pair) for pair in pairs],
         "certificate_protocol_error": validation.protocol_error,
@@ -1937,6 +2137,13 @@ def run_catch_cert_v2_sample(
         "eligible_challengers": list(validation.eligible_challengers),
         "answer_link_coverage": validation.answer_link_coverage,
         "obligation_coverage": validation.obligation_coverage,
+        "typed_obligations": [typed_obligation_to_dict(item) for item in typed_obligations],
+        "answer_obligation_graph": (
+            answer_obligation_graph_to_dict(obligation_graph) if obligation_graph is not None else None
+        ),
+        "verifier_bindings": {key: verifier_binding_to_dict(value) for key, value in verifier_bindings.items()},
+        "proof_results": [proof_result_to_dict(item) for item in proof_results],
+        "kernel_decision": kernel_decision_to_dict(kernel_decision) if kernel_decision else None,
         "verifier_panels": [
             {
                 "top_level_valid": panel.top_level_valid,
@@ -1973,11 +2180,7 @@ def _answer_connected_reasoning_claims(
     claims: dict[str, tuple[str, ...]] = {}
     for public, key in public_to_key.items():
         reasoning = str(candidate_by_key[key].representative_reasoning or "")[-max_characters:]
-        sentences = [
-            item.strip()
-            for item in re.split(r"(?<=[.!?])\s+|\r?\n+", reasoning)
-            if item.strip()
-        ]
+        sentences = [item.strip() for item in re.split(r"(?<=[.!?])\s+|\r?\n+", reasoning) if item.strip()]
         claims[public] = tuple(sentences[-max_claims:])
     return claims
 
@@ -2035,12 +2238,16 @@ def _answer_turn(
     canonical_key = (
         str(result.validated_output.get("canonical_key") or "")
         if parsed_valid is True
-        else canonical.key if canonical is not None and canonical.valid else ""
+        else canonical.key
+        if canonical is not None and canonical.valid
+        else ""
     )
     invalid_reason = (
         str(result.validated_output.get("canonical_invalid_reason") or "invalid_sample_answer_output")
         if parsed_valid is False
-        else canonical.invalid_reason if canonical is not None else "request_or_protocol_failure"
+        else canonical.invalid_reason
+        if canonical is not None
+        else "request_or_protocol_failure"
     )
     row = _turn_base(
         run_id,
@@ -2189,9 +2396,7 @@ def _turn_base(
         "provider_request_id": response.get("provider_request_id"),
         "response_id": response.get("response_id"),
         "attempt_timeline": [] if cache_hit else list(response.get("attempt_timeline") or []),
-        "cached_response_origin_attempt_timeline": (
-            list(response.get("attempt_timeline") or []) if cache_hit else []
-        ),
+        "cached_response_origin_attempt_timeline": (list(response.get("attempt_timeline") or []) if cache_hit else []),
         "cache_lookup_timeline": dict(response.get("cache_lookup_timeline") or {}),
         "network_attempt_count": network_request_count,
         "network_request_count": network_request_count,
@@ -2264,8 +2469,12 @@ def _prediction(
         "calls_per_question": logical_calls,
         "logical_calls_per_question": logical_calls,
         "actual_executed_calls_per_question": len(logical_rows),
-        "total_tokens_per_question": sum(float(row.get("actual_total_tokens") or row.get("total_tokens") or 0) for row in logical_rows),
-        "completion_tokens_per_question": sum(float(row.get("actual_completion_tokens") or row.get("completion_tokens") or 0) for row in logical_rows),
+        "total_tokens_per_question": sum(
+            float(row.get("actual_total_tokens") or row.get("total_tokens") or 0) for row in logical_rows
+        ),
+        "completion_tokens_per_question": sum(
+            float(row.get("actual_completion_tokens") or row.get("completion_tokens") or 0) for row in logical_rows
+        ),
         "network_attempts_per_question": sum(int(row.get("network_attempt_count") or 0) for row in logical_rows),
         "intervention_call_budget_per_question": intervention_call_budget,
         "intervention_calls_per_question": actual_intervention_calls,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import defaultdict
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import suppress
 from dataclasses import asdict, dataclass
@@ -36,11 +37,19 @@ from research_experiments.families.contrastive_active_testing.cert_prompts_v2 im
     CERT_V2_SCHEMA_VERSION,
 )
 from research_experiments.families.contrastive_active_testing.config import (
+    load_experiment_config,
     load_phase_benchmarks,
     load_protocol_config,
     phase_metadata,
 )
 from research_experiments.families.contrastive_active_testing.icv import build_target_pairs
+from research_experiments.families.contrastive_active_testing.kernel import (
+    KERNEL_CAPABILITY_VERSION,
+    KERNEL_DECODER_VERSION,
+    KERNEL_SCHEMA_VERSION,
+    KERNEL_SEMANTICS_VERSION,
+)
+from research_experiments.families.contrastive_active_testing.kernel_prompts import KERNEL_PROMPT_VERSION
 from research_experiments.families.contrastive_active_testing.prompts import (
     CATCH_PROMPT_VERSION,
     CATCH_SCHEMA_VERSION,
@@ -84,12 +93,12 @@ class CatchEndpoint:
     stop_event: Event | None = None
 
     def cache_for_role(self, role: str):
-        if role in {"stage_a_solver", "independent_resample", "direct_judge"}:
+        if role in {"stage_a_solver", "independent_resample", "direct_judge", "pair_judge"}:
             return self.baseline_cache
         return self.intervention_cache
 
     def cache_lookup_namespaces_for_role(self, role: str) -> tuple[str, ...]:
-        if role in {"stage_a_solver", "independent_resample", "direct_judge"} and self.baseline_cache_namespace:
+        if role in {"stage_a_solver", "independent_resample", "direct_judge", "pair_judge"} and self.baseline_cache_namespace:
             predecessors = (
                 self.baseline_cache_namespace
                 if isinstance(self.baseline_cache_namespace, tuple)
@@ -127,16 +136,12 @@ def run_experiment(
     load_dotenv(".env.local", override=False)
     execution_warnings: list[str] = list(getattr(experiment, "config_warnings", ()))
     if backbone.provider != "xiaomimimo":
-        execution_warnings.append(
-            f"provider_differs_from_original_study:{backbone.provider}"
-        )
+        execution_warnings.append(f"provider_differs_from_original_study:{backbone.provider}")
     phase = phase_metadata(experiment, phase_name)
     protocol = load_protocol_config(experiment.protocol)
     if run_mode not in {"full", "structural_preflight"}:
         raise ValueError(f"Unsupported CATCH run mode {run_mode!r}.")
-    if run_mode == "structural_preflight" and (
-        phase_name != "development" or protocol.protocol_version != "catch_v3"
-    ):
+    if run_mode == "structural_preflight" and (phase_name != "development" or protocol.protocol_version != "catch_v3"):
         raise ValueError("The one-shot structural preflight is defined only for CATCH-v3 development.")
     if run_mode == "structural_preflight":
         execution_warnings.append("legacy_structural_preflight_request_ignored_running_full_phase")
@@ -145,9 +150,7 @@ def run_experiment(
         frozen_components = _frozen_component_hashes(experiment)
     except (OSError, KeyError, ValueError) as exc:
         execution_warnings.append(f"component_hash_unavailable:{type(exc).__name__}:{exc}")
-        frozen_components = {
-            "best_effort_hash_status": hashlib.sha256(str(exc).encode("utf-8")).hexdigest()
-        }
+        frozen_components = {"best_effort_hash_status": hashlib.sha256(str(exc).encode("utf-8")).hexdigest()}
     config_sha = _frozen_config_sha(experiment, component_hashes=frozen_components)
     provider_audit = {
         "required": False,
@@ -166,8 +169,7 @@ def run_experiment(
         )
         if readiness_assessment["status"] != "available":
             execution_warnings.append(
-                "cert_v2_readiness_assessment_"
-                f"{readiness_assessment['status']}:results_are_exploratory"
+                f"cert_v2_readiness_assessment_{readiness_assessment['status']}:results_are_exploratory"
             )
         elif readiness_assessment["unmet_conditions"]:
             execution_warnings.append(
@@ -175,7 +177,7 @@ def run_experiment(
                 f"{len(readiness_assessment['unmet_conditions'])}:results_are_exploratory"
             )
     if phase_name in {"heldout", "confirmation"}:
-        if protocol.protocol_version in {"catch_v3", "catch_cert_v1", "catch_cert_v2"}:
+        if protocol.protocol_version in {"catch_v3", "catch_cert_v1", "catch_cert_v2", "catch_kernel_v1"}:
             frozen_decoding = _build_frozen_protocol_candidate(
                 run_id="built_in_fixed_protocol",
                 config_sha=config_sha,
@@ -184,6 +186,8 @@ def run_experiment(
             frozen_decoding["source"] = (
                 "built_in_fixed_v3_decoder"
                 if protocol.protocol_version == "catch_v3"
+                else "built_in_fixed_kernel_decoder"
+                if protocol.protocol_version == "catch_kernel_v1"
                 else "built_in_fixed_cert_v2_decoder"
                 if protocol.protocol_version == "catch_cert_v2"
                 else "built_in_fixed_cert_decoder"
@@ -196,9 +200,7 @@ def run_experiment(
                 )
                 frozen_decoding["source"] = "optional_frozen_file"
             except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as exc:
-                execution_warnings.append(
-                    f"frozen_decoding_unavailable_using_default_d2_m1:{type(exc).__name__}:{exc}"
-                )
+                execution_warnings.append(f"frozen_decoding_unavailable_using_default_d2_m1:{type(exc).__name__}:{exc}")
                 frozen_decoding = {
                     "freeze_kind": "catch_decoding_best_effort_default",
                     "d_min": 2,
@@ -213,11 +215,8 @@ def run_experiment(
     provider = OpenAICompatibleProvider(backbone)
     active_router = RequestCacheRouter(cache_root, namespace=cache_namespace)
     baseline_namespace = experiment.baseline_cache_namespaces.get(phase_name)
-    baseline_router = (
-        RequestCacheRouter(cache_root, namespace=baseline_namespace)
-        if baseline_namespace is not None
-        else None
-    )
+    baseline_namespaces = tuple(item for item in str(baseline_namespace or "").split(",") if item)
+    baseline_routers = [RequestCacheRouter(cache_root, namespace=item) for item in baseline_namespaces]
     throttle = RequestThrottle.for_model(
         backbone,
         max_concurrent_requests=experiment.max_concurrent_requests,
@@ -244,9 +243,7 @@ def run_experiment(
     dataset_errors: list[dict[str, Any]] = []
     for benchmark in benchmarks:
         try:
-            selected_by_benchmark[benchmark.slug] = _select_phase_samples(
-                benchmark, phase, phase_name
-            )
+            selected_by_benchmark[benchmark.slug] = _select_phase_samples(benchmark, phase, phase_name)
         except Exception as exc:
             selected_by_benchmark[benchmark.slug] = []
             dataset_errors.append(
@@ -256,10 +253,30 @@ def run_experiment(
                     "message": str(exc),
                 }
             )
-            execution_warnings.append(
-                f"{benchmark.slug}:dataset_skipped:{type(exc).__name__}:{exc}"
-            )
+            execution_warnings.append(f"{benchmark.slug}:dataset_skipped:{type(exc).__name__}:{exc}")
     sample_count = sum(len(samples) for samples in selected_by_benchmark.values())
+    selected_sample_manifest = _selected_sample_manifest(selected_by_benchmark, phase_name=phase_name)
+    expected_selection_hashes = dict(phase.get("expected_selection_sha256") or {})
+    for dataset, expected_hash in expected_selection_hashes.items():
+        actual_hash = (selected_sample_manifest.get(str(dataset)) or {}).get("sha256")
+        if actual_hash != str(expected_hash):
+            execution_warnings.append(f"{dataset}:frozen_selection_hash_mismatch")
+    if phase_name == "confirmation" and not expected_selection_hashes:
+        execution_warnings.append("confirmation_selection_hash_not_preregistered_d1_evidence_only")
+    kernel_freeze = None
+    if phase_name == "confirmation" and protocol.protocol_version == "catch_kernel_v1":
+        freeze_path = experiment.raw.get("kernel_freeze_path")
+        if freeze_path:
+            kernel_freeze = _validate_kernel_freeze(
+                Path(str(freeze_path)),
+                component_hashes=frozen_components,
+                selection_manifest=selected_sample_manifest,
+                expected_metadata=_kernel_freeze_metadata(experiment, protocol=protocol, phase=phase),
+            )
+            if not kernel_freeze["valid"]:
+                execution_warnings.append(f"kernel_d2_freeze_invalid:{kernel_freeze['reason']}")
+        else:
+            execution_warnings.append("kernel_d2_freeze_missing_d1_evidence_only")
     endpoints: dict[str, CatchEndpoint] = {}
     stop_event = Event()
     for benchmark in benchmarks:
@@ -268,20 +285,21 @@ def run_experiment(
             request_model=backbone.model_id,
             dataset=benchmark.slug,
         )
-        fallback_cache = (
-            baseline_router.for_request_target(
-                provider=backbone.provider,
-                request_model=backbone.model_id,
-                dataset=benchmark.slug,
+        fallback_caches = [
+            (
+                router.for_request_target(
+                    provider=backbone.provider,
+                    request_model=backbone.model_id,
+                    dataset=benchmark.slug,
+                ),
+                namespace,
             )
-            if baseline_router is not None
-            else None
-        )
+            for router, namespace in zip(baseline_routers, baseline_namespaces, strict=True)
+        ]
         baseline_cache = ReadThroughRequestCache(
             active_cache,
             primary_namespace=cache_namespace,
-            fallback=fallback_cache,
-            fallback_namespace=baseline_namespace,
+            fallbacks=fallback_caches,
         )
         endpoints[benchmark.slug] = CatchEndpoint(
             backbone=backbone,
@@ -290,7 +308,7 @@ def run_experiment(
             intervention_cache=active_cache,
             throttle=throttle,
             cache_namespace=cache_namespace,
-            baseline_cache_namespace=baseline_namespace,
+            baseline_cache_namespace=baseline_namespaces or None,
             stop_event=stop_event,
         )
     jobs: list[CatchSampleJob] = []
@@ -301,7 +319,7 @@ def run_experiment(
             jobs.append(CatchSampleJob(sequence_index, sample, split_name, endpoints[benchmark.slug]))
             sequence_index += 1
     cert_screening_mode = bool(
-        protocol.protocol_version in {"catch_cert_v1", "catch_cert_v2"}
+        protocol.protocol_version in {"catch_cert_v1", "catch_cert_v2", "catch_kernel_v1"}
         and phase_name == "development"
         and int(phase.get("screening_sample_count") or 0) > 0
         and int(phase.get("disagreement_sample_count") or 0) > 0
@@ -310,22 +328,25 @@ def run_experiment(
     if cert_screening_mode:
         jobs = []
     run_direct_judge = bool(phase.get("run_direct_judge", phase_name != "confirmation"))
-    if protocol.protocol_version in {"catch_v3", "catch_cert_v1", "catch_cert_v2"}:
+    if protocol.protocol_version in {"catch_v3", "catch_cert_v1", "catch_cert_v2", "catch_kernel_v1"}:
         calls_per_triggered = 17 if run_direct_judge else 11
         predictions_per_sample = 5 if run_direct_judge else 3
     else:
         calls_per_triggered = 18 if phase_name == "development" else 14 if run_direct_judge else 11
         predictions_per_sample = 9 if phase_name == "development" else 4 if run_direct_judge else 3
-    selected_disagreement_upper_bound = sum(
-        min(
-            int(phase.get("disagreement_sample_count") or 0),
-            len(selected_by_benchmark.get(benchmark.slug, [])),
+    selected_disagreement_upper_bound = (
+        sum(
+            min(
+                int(phase.get("disagreement_sample_count") or 0),
+                len(selected_by_benchmark.get(benchmark.slug, [])),
+            )
+            for benchmark in benchmarks
         )
-        for benchmark in benchmarks
-    ) if cert_screening_mode else sample_count
+        if cert_screening_mode
+        else sample_count
+    )
     preflight_call_upper_bound = (
-        sample_count * protocol.stage_candidates
-        + protocol.preflight_sample_count * (1 + protocol.witness_count)
+        sample_count * protocol.stage_candidates + protocol.preflight_sample_count * (1 + protocol.witness_count)
         if phase_name == "development" and protocol.protocol_version in {"catch_v2", "catch_v3"}
         else 0
     )
@@ -337,15 +358,14 @@ def run_experiment(
         total_planned_samples = protocol.preflight_sample_count
     else:
         total_planned_calls = (
-            sample_count * protocol.stage_candidates
-            + selected_disagreement_upper_bound * calls_per_triggered
+            sample_count * protocol.stage_candidates + selected_disagreement_upper_bound * calls_per_triggered
             if cert_screening_mode
             else sample_count * calls_per_triggered
-        ) + (
-            preflight_call_upper_bound if protocol.protocol_version == "catch_v2" else 0
-        )
+        ) + (preflight_call_upper_bound if protocol.protocol_version == "catch_v2" else 0)
         total_planned_predictions = selected_disagreement_upper_bound * predictions_per_sample
-        total_planned_samples = sample_count + selected_disagreement_upper_bound if cert_screening_mode else sample_count
+        total_planned_samples = (
+            sample_count + selected_disagreement_upper_bound if cert_screening_mode else sample_count
+        )
     progress = RunProgressTracker(
         layout.progress,
         total_planned_calls=total_planned_calls,
@@ -364,7 +384,9 @@ def run_experiment(
             "created_at": datetime.now(UTC).isoformat(),
             "family_name": "contrastive_active_testing",
             "paper_method_name": (
-                "CATCH-Cert v2"
+                "CATCH-Kernel"
+                if protocol.protocol_version == "catch_kernel_v1"
+                else "CATCH-Cert v2"
                 if protocol.protocol_version == "catch_cert_v2"
                 else "CATCH-Cert"
                 if protocol.protocol_version == "catch_cert_v1"
@@ -381,14 +403,18 @@ def run_experiment(
             "resolved_model": asdict(backbone),
             "protocol": asdict(protocol),
             "prompt_version": (
-                CERT_V2_PROMPT_VERSION
+                KERNEL_PROMPT_VERSION
+                if protocol.protocol_version == "catch_kernel_v1"
+                else CERT_V2_PROMPT_VERSION
                 if protocol.protocol_version == "catch_cert_v2"
                 else CERT_PROMPT_VERSION
                 if protocol.protocol_version == "catch_cert_v1"
                 else CATCH_PROMPT_VERSION
             ),
             "schema_version": (
-                CERT_V2_SCHEMA_VERSION
+                KERNEL_SCHEMA_VERSION
+                if protocol.protocol_version == "catch_kernel_v1"
+                else CERT_V2_SCHEMA_VERSION
                 if protocol.protocol_version == "catch_cert_v2"
                 else CERT_SCHEMA_VERSION
                 if protocol.protocol_version == "catch_cert_v1"
@@ -402,20 +428,20 @@ def run_experiment(
             "preflight_dependency": preflight_dependency,
             "readiness_assessment": readiness_assessment,
             "evidence_interpretation": (
-                readiness_assessment.get("recommended_interpretation")
-                if readiness_assessment
-                else "not_applicable"
+                readiness_assessment.get("recommended_interpretation") if readiness_assessment else "not_applicable"
             ),
             "execution_policy": "best_effort_non_blocking",
             "execution_warnings": execution_warnings,
             "frozen_config_sha256": config_sha,
             "frozen_component_sha256": frozen_components,
             "frozen_decoding": frozen_decoding,
+            "kernel_d2_freeze": kernel_freeze,
             "phase_metadata": phase,
             "benchmarks": [asdict(item) for item in benchmarks],
             "dataset_errors": dataset_errors,
             "sample_count": sample_count,
             "source_split_sample_count": sample_count,
+            "selected_sample_manifest": selected_sample_manifest,
             "planned_sample_count": total_planned_samples,
             "screening_sample_count_per_dataset": int(phase.get("screening_sample_count") or 0)
             if cert_screening_mode
@@ -423,13 +449,13 @@ def run_experiment(
             "selected_disagreement_cap_per_dataset": int(phase.get("disagreement_sample_count") or 0)
             if cert_screening_mode
             else None,
-            "selection_rule": "gold_blind_stage_a_disagreement_sha256"
-            if cert_screening_mode
-            else None,
+            "selection_rule": "gold_blind_stage_a_disagreement_sha256" if cert_screening_mode else None,
             "method_order": [
                 "sc_5",
                 "adaptive_sc_8",
-                "catch_cert_v2"
+                "catch_kernel"
+                if protocol.protocol_version == "catch_kernel_v1"
+                else "catch_cert_v2"
                 if protocol.protocol_version == "catch_cert_v2"
                 else "catch_cert"
                 if protocol.protocol_version == "catch_cert_v1"
@@ -501,8 +527,9 @@ def run_experiment(
         with (
             layout.agent_turns.open("w", encoding="utf-8") as turns_handle,
             layout.router_decisions.open("w", encoding="utf-8") as routers_handle,
-            (layout.root / "diagnostics" / "certificate_screening.jsonl").open("w", encoding="utf-8")
-            as screening_handle,
+            (layout.root / "diagnostics" / "certificate_screening.jsonl").open(
+                "w", encoding="utf-8"
+            ) as screening_handle,
         ):
             if cert_screening_mode:
                 for job, stage_turns, stage_or_router in _execute_jobs_bounded(
@@ -627,13 +654,16 @@ def run_experiment(
         routers.sort(key=lambda row: int(row.get("sample_sequence_index") or 0))
         predictions.sort(key=_prediction_sort_key)
         development_selection = None
-        if phase_name == "development" and protocol.protocol_version not in {"catch_v3", "catch_cert_v1", "catch_cert_v2"}:
+        if phase_name == "development" and protocol.protocol_version not in {
+            "catch_v3",
+            "catch_cert_v1",
+            "catch_cert_v2",
+            "catch_kernel_v1",
+        }:
             try:
                 predictions, development_selection = materialize_development_catch(predictions, routers)
             except (KeyError, TypeError, ValueError) as exc:
-                execution_warnings.append(
-                    f"development_selection_unavailable:{type(exc).__name__}:{exc}"
-                )
+                execution_warnings.append(f"development_selection_unavailable:{type(exc).__name__}:{exc}")
                 default_method = "catch_d2_m1"
                 predictions = [
                     {**row, "method_name": "catch", "selected_grid_method_name": default_method}
@@ -661,10 +691,7 @@ def run_experiment(
         planned_for_diagnostics = (
             {
                 dataset: len(
-                    [
-                        sample_id
-                        for sample_id in screening_selection.get("selected_sample_ids", {}).get(dataset, [])
-                    ]
+                    [sample_id for sample_id in screening_selection.get("selected_sample_ids", {}).get(dataset, [])]
                 )
                 for dataset in selected_by_benchmark
             }
@@ -679,6 +706,14 @@ def run_experiment(
                 planned_by_dataset=planned_for_diagnostics,
             )
         )
+        required_methods = [str(item) for item in phase.get("required_comparison_methods") or []]
+        comparison_method_audit = _build_comparison_method_audit(metrics, required_methods)
+        for dataset, audit in comparison_method_audit.items():
+            if audit["missing"]:
+                execution_warnings.append(
+                    f"{dataset}:required_comparison_methods_missing:{','.join(audit['missing'])}"
+                )
+        metrics["comparison_method_audit"] = comparison_method_audit
         request_failure_count = sum(bool(row.get("request_error")) for row in turns)
         parse_failure_count = sum(row.get("protocol_parse_status") == "failed" for row in turns)
         execution = {
@@ -720,9 +755,7 @@ def run_experiment(
             ),
             encoding="utf-8",
         )
-        has_errors = bool(
-            request_failure_count or parse_failure_count or sample_errors or dataset_errors
-        )
+        has_errors = bool(request_failure_count or parse_failure_count or sample_errors or dataset_errors)
         terminal_status = "completed_with_errors" if has_errors else "completed"
         termination_reason = f"{phase_name}_{terminal_status}"
         _update_manifest_status(layout.manifest, terminal_status, termination_reason=termination_reason)
@@ -743,10 +776,7 @@ def run_experiment(
         else:
             progress.mark_completed_with_errors(
                 termination_reason,
-                error_count=request_failure_count
-                + len(sample_errors)
-                + len(dataset_errors)
-                + int(report_failed),
+                error_count=request_failure_count + len(sample_errors) + len(dataset_errors) + int(report_failed),
                 warning_count=len(execution_warnings) + int(parse_failure_count),
             )
         return layout.root
@@ -777,7 +807,7 @@ def run_experiment(
         progress.close()
         provider.close()
         active_router.close()
-        if baseline_router is not None:
+        for baseline_router in baseline_routers:
             baseline_router.close()
 
 
@@ -883,6 +913,7 @@ def _prediction_sort_key(row: dict[str, Any]) -> tuple[int, str]:
         "catch": "02",
         "catch_cert": "02",
         "catch_cert_v2": "02",
+        "catch_kernel": "02",
         "direct_judge_3": "03",
         "pair_judge_3": "04",
     }
@@ -920,11 +951,7 @@ def _write_partial_outputs(
         encoding="utf-8",
     )
     manifest_payload = json.loads(layout.manifest.read_text(encoding="utf-8"))
-    planned = int(
-        manifest_payload.get("planned_sample_count")
-        or manifest_payload.get("sample_count")
-        or 0
-    )
+    planned = int(manifest_payload.get("planned_sample_count") or manifest_payload.get("sample_count") or 0)
     completed = len({str(row.get("sample_id")) for row in routers if row.get("sample_id")})
     with suppress(BaseException):
         metrics = build_metrics(predictions)
@@ -932,9 +959,7 @@ def _write_partial_outputs(
             "policy": "best_effort_non_blocking",
             "planned_sample_count": planned,
             "attempted_sample_count": completed,
-            "evaluable_sample_count": len(
-                {str(row.get("sample_id")) for row in predictions if row.get("sample_id")}
-            ),
+            "evaluable_sample_count": len({str(row.get("sample_id")) for row in predictions if row.get("sample_id")}),
             "missing_sample_count": max(0, planned - completed),
             "termination_reason": termination_reason,
         }
@@ -952,9 +977,7 @@ def _write_partial_outputs(
             "error": {"error_type": type(error).__name__, "message": str(error)},
         },
         "planned_sample_count": planned,
-        "sample_errors": [
-            row["sample_error"] for row in routers if isinstance(row.get("sample_error"), dict)
-        ],
+        "sample_errors": [row["sample_error"] for row in routers if isinstance(row.get("sample_error"), dict)],
         "dataset_errors": [],
     }
     layout.run_summary.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -986,11 +1009,15 @@ def _run_required_canonicalization_replay(
     """Find the immutable v1 dev trace and prove v3 target headroom offline."""
 
     phase_root = run_root / experiment_name / "development"
-    manifests = sorted(
-        phase_root.glob("*/manifest.json"),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    ) if phase_root.exists() else []
+    manifests = (
+        sorted(
+            phase_root.glob("*/manifest.json"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        if phase_root.exists()
+        else []
+    )
     sources: dict[str, Path] = {}
     for path in manifests:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -1090,9 +1117,7 @@ def finalize_partial_run_directory(
     if not metrics_path.exists():
         metrics_path.write_text(json.dumps({"summary": []}, indent=2), encoding="utf-8")
     failure_gate = {
-        "gate_name": (
-            "catch_v3_structural_preflight" if is_structural_preflight else "catch_failed_partial"
-        ),
+        "gate_name": ("catch_v3_structural_preflight" if is_structural_preflight else "catch_failed_partial"),
         "passed": False,
         "run_mode": manifest_payload.get("run_mode"),
         "termination_reason": termination_reason,
@@ -1202,9 +1227,7 @@ def _require_passing_icv_preflight(
         )
     sample_path = found_run_dir / "diagnostics" / "preflight_human_audit_sample.json"
     if not sample_path.exists():
-        raise RuntimeError(
-            "CATCH-v3 development is blocked: the preflight coordinate audit sample is missing."
-        )
+        raise RuntimeError("CATCH-v3 development is blocked: the preflight coordinate audit sample is missing.")
     sample_payload = json.loads(sample_path.read_text(encoding="utf-8"))
     expected_hashes = {
         str(item.get("coordinate_sha256") or "")
@@ -1245,9 +1268,7 @@ def _require_unused_v3_preflight_attempt(run_root: Path, *, experiment_name: str
                 prior.append((manifest_path.parent, str(manifest.get("run_status") or "unknown")))
     if prior:
         rendered = ", ".join(f"{path.name}:{status}" for path, status in sorted(prior))
-        raise RuntimeError(
-            "CATCH-v3 structural preflight is one shot and a prior attempt already exists: " + rendered
-        )
+        raise RuntimeError("CATCH-v3 structural preflight is one shot and a prior attempt already exists: " + rendered)
 
 
 def _require_unused_v3_full_phase_attempt(
@@ -1267,16 +1288,11 @@ def _require_unused_v3_full_phase_attempt(
     for manifest_path in phase_root.glob("*/manifest.json"):
         with suppress(OSError, json.JSONDecodeError):
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            if (
-                manifest.get("method_version") == "catch_v3"
-                and manifest.get("run_mode") == "full"
-            ):
+            if manifest.get("method_version") == "catch_v3" and manifest.get("run_mode") == "full":
                 prior.append((manifest_path.parent, str(manifest.get("run_status") or "unknown")))
     if prior:
         rendered = ", ".join(f"{path.name}:{status}" for path, status in sorted(prior))
-        raise RuntimeError(
-            f"CATCH-v3 {phase_name} is one shot and a prior full attempt already exists: {rendered}"
-        )
+        raise RuntimeError(f"CATCH-v3 {phase_name} is one shot and a prior full attempt already exists: {rendered}")
 
 
 def _require_passing_preflight_human_audit(
@@ -1301,9 +1317,7 @@ def _require_passing_preflight_human_audit(
         "seed_42": int(payload.get("seed") or 0) == 42,
     }
     if not all(conditions.values()):
-        raise RuntimeError(
-            f"CATCH-v3 preflight human validity audit failed {conditions}; recomputed={evaluation}."
-        )
+        raise RuntimeError(f"CATCH-v3 preflight human validity audit failed {conditions}; recomputed={evaluation}.")
     return {
         "path": path.as_posix(),
         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
@@ -1321,11 +1335,207 @@ def _select_phase_samples(benchmark, phase: dict[str, Any], phase_name: str):
     for excluded_name in excluded_names:
         excluded.update(load_split_ids(benchmark.cache_namespace or benchmark.slug, str(excluded_name)))
     selected = [sample for sample in samples if sample.sample_id not in excluded]
-    limits = dict(phase.get("sample_limits") or {})
-    limit = limits.get(benchmark.slug)
+    limit = dict(phase.get("sample_limits") or {}).get(benchmark.slug)
+    if str(phase.get("selection_strategy") or "") == "kernel_confirmation_stratified_sha256":
+        return _select_kernel_confirmation_strata(
+            selected,
+            benchmark_slug=benchmark.slug,
+            phase_name=phase_name,
+            seed=int(phase.get("selection_seed", 42)),
+            limit=max(0, int(limit)) if limit is not None else len(selected),
+        )
+    if bool(phase.get("hash_sample_selection", False)):
+        selection_seed = int(phase.get("selection_seed", 42))
+        selected = sorted(
+            selected,
+            key=lambda sample: hashlib.sha256(
+                f"{selection_seed}\0{phase_name}\0{benchmark.slug}\0{sample.sample_id}\0catch-kernel-confirmation".encode()
+            ).hexdigest(),
+        )
     if limit is not None:
         selected = selected[: max(0, int(limit))]
     return selected
+
+
+def _select_kernel_confirmation_strata(
+    samples: list[Any],
+    *,
+    benchmark_slug: str,
+    phase_name: str,
+    seed: int,
+    limit: int,
+) -> list[Any]:
+    """Frozen gold-blind task/native-structure stratification for confirmation."""
+
+    if benchmark_slug == "bbeh":
+        return sorted(samples, key=lambda item: _selection_hash(seed, phase_name, benchmark_slug, item.sample_id))[
+            :limit
+        ]
+    if benchmark_slug == "seqbench" and samples:
+        ordered_depth = sorted(
+            samples,
+            key=lambda item: (int(item.metadata.get("logical_depth_L") or 0), str(item.sample_id)),
+        )
+        denominator = max(1, len(ordered_depth))
+        depth_deciles = {item.sample_id: min(9, index * 10 // denominator) for index, item in enumerate(ordered_depth)}
+        primary: dict[tuple[int, float], list[Any]] = {}
+        for sample in samples:
+            key = (
+                int(sample.metadata.get("backtracking_count_B") or 0),
+                float(sample.metadata.get("noise_ratio_N") or 0),
+            )
+            primary.setdefault(key, []).append(sample)
+        primary_orders: dict[tuple[int, float], list[Any]] = {}
+        for key, items in primary.items():
+            deciles: dict[int, list[Any]] = {}
+            for item in items:
+                deciles.setdefault(depth_deciles[item.sample_id], []).append(item)
+            for values in deciles.values():
+                values.sort(key=lambda item: _selection_hash(seed, phase_name, benchmark_slug, item.sample_id))
+            primary_orders[key] = _round_robin_groups(deciles, limit=len(items))
+        return _round_robin_groups(primary_orders, limit=limit)
+    strata: dict[tuple[Any, ...], list[Any]] = {}
+    for sample in samples:
+        stratum = (str(sample.metadata.get("task") or "unknown"),) if benchmark_slug == "musr" else ("all",)
+        strata.setdefault(stratum, []).append(sample)
+    for items in strata.values():
+        items.sort(key=lambda item: _selection_hash(seed, phase_name, benchmark_slug, item.sample_id))
+    return _round_robin_groups(strata, limit=limit)
+
+
+def _round_robin_groups(groups: dict[Any, list[Any]], *, limit: int) -> list[Any]:
+    selected: list[Any] = []
+    positions = {key: 0 for key in groups}
+    ordered_strata = sorted(groups, key=str)
+    while len(selected) < limit:
+        added = False
+        for stratum in ordered_strata:
+            position = positions[stratum]
+            if position >= len(groups[stratum]):
+                continue
+            selected.append(groups[stratum][position])
+            positions[stratum] += 1
+            added = True
+            if len(selected) >= limit:
+                break
+        if not added:
+            break
+    return selected
+
+
+def _selection_hash(seed: int, phase_name: str, dataset: str, sample_id: str) -> str:
+    return hashlib.sha256(
+        f"{seed}\0{phase_name}\0{dataset}\0{sample_id}\0catch-kernel-confirmation".encode()
+    ).hexdigest()
+
+
+def _selected_sample_manifest(samples_by_dataset: dict[str, list[Any]], *, phase_name: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for dataset, samples in sorted(samples_by_dataset.items()):
+        ids = [str(sample.sample_id) for sample in samples]
+        raw = json.dumps(ids, ensure_ascii=False, separators=(",", ":"))
+        strata: dict[str, int] = defaultdict(int)
+        for sample in samples:
+            if dataset == "musr":
+                key = str(sample.metadata.get("task") or "unknown")
+            elif dataset == "seqbench":
+                key = (
+                    f"B{int(sample.metadata.get('backtracking_count_B') or 0)}_"
+                    f"N{float(sample.metadata.get('noise_ratio_N') or 0):g}"
+                )
+            else:
+                key = str(sample.metadata.get("task") or "all")
+            strata[key] += 1
+        payload[dataset] = {
+            "phase_name": phase_name,
+            "count": len(ids),
+            "sample_ids": ids,
+            "sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+            "stratum_counts": dict(sorted(strata.items())),
+        }
+    return payload
+
+
+def write_kernel_d2_freeze(experiment_path: str | Path, output_path: str | Path) -> dict[str, Any]:
+    """Materialize the exact D2 components and confirmation IDs before confirmation."""
+
+    experiment = load_experiment_config(experiment_path)
+    protocol = load_protocol_config(experiment.protocol)
+    if protocol.protocol_version != "catch_kernel_v1":
+        raise ValueError("Kernel D2 freeze requires a catch_kernel_v1 experiment.")
+    phase = phase_metadata(experiment, "confirmation")
+    selected: dict[str, list[Any]] = {}
+    for benchmark in load_phase_benchmarks(experiment, "confirmation"):
+        selected[benchmark.slug] = _select_phase_samples(benchmark, phase, "confirmation")
+    components = _frozen_component_hashes(experiment)
+    unsigned = {
+        "schema_version": "catch_kernel_d2_freeze_v1",
+        "component_sha256": components,
+        "selected_sample_manifest": _selected_sample_manifest(selected, phase_name="confirmation"),
+        **_kernel_freeze_metadata(experiment, protocol=protocol, phase=phase),
+    }
+    payload = {
+        **unsigned,
+        "sha256": hashlib.sha256(
+            json.dumps(unsigned, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+    }
+    target = Path(output_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
+def _validate_kernel_freeze(
+    path: Path,
+    *,
+    component_hashes: dict[str, str],
+    selection_manifest: dict[str, Any],
+    expected_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not path.exists():
+        return {"valid": False, "reason": "freeze_file_missing", "path": path.as_posix()}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"valid": False, "reason": f"freeze_parse_failed:{type(exc).__name__}", "path": path.as_posix()}
+    unsigned = {key: value for key, value in payload.items() if key != "sha256"}
+    actual_sha = hashlib.sha256(
+        json.dumps(unsigned, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    if payload.get("sha256") != actual_sha:
+        return {"valid": False, "reason": "freeze_hash_invalid", "path": path.as_posix()}
+    if payload.get("component_sha256") != component_hashes:
+        return {"valid": False, "reason": "component_hash_mismatch", "path": path.as_posix()}
+    for key, expected in dict(expected_metadata or {}).items():
+        if payload.get(key) != expected:
+            return {"valid": False, "reason": f"freeze_metadata_mismatch:{key}", "path": path.as_posix()}
+    expected_selection = payload.get("selected_sample_manifest") or {}
+    expected_hashes = {key: value.get("sha256") for key, value in expected_selection.items()}
+    actual_hashes = {key: value.get("sha256") for key, value in selection_manifest.items()}
+    if expected_hashes != actual_hashes:
+        return {"valid": False, "reason": "selection_hash_mismatch", "path": path.as_posix()}
+    return {
+        "valid": True,
+        "reason": "frozen_components_and_selection_match",
+        "path": path.resolve().as_posix(),
+        "sha256": actual_sha,
+    }
+
+
+def _kernel_freeze_metadata(experiment, *, protocol, phase: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "protocol_version": protocol.protocol_version,
+        "prompt_version": KERNEL_PROMPT_VERSION,
+        "schema_version_runtime": KERNEL_SCHEMA_VERSION,
+        "semantics_version": KERNEL_SEMANTICS_VERSION,
+        "capability_version": KERNEL_CAPABILITY_VERSION,
+        "decoder_version": KERNEL_DECODER_VERSION,
+        "primary_model_ref": experiment.primary_model_ref,
+        "global_seed": experiment.global_seed,
+        "cache_namespaces": dict(experiment.cache_namespaces),
+        "required_comparison_methods": list(phase.get("required_comparison_methods") or []),
+    }
 
 
 def _select_cert_disagreement_jobs(
@@ -1373,8 +1583,7 @@ def _build_cert_screening_metrics(
             stage = build_stage_decision(stage_rows, seed=seed, sample_id=sample.sample_id)
             target_keys = {stage.anchor_key}
             target_keys.update(
-                pair.challenger_key
-                for pair in build_target_pairs(stage, seed=seed, sample_id=sample.sample_id)
+                pair.challenger_key for pair in build_target_pairs(stage, seed=seed, sample_id=sample.sample_id)
             )
             rows.append(
                 {
@@ -1410,6 +1619,25 @@ def _build_cert_screening_metrics(
     return metrics
 
 
+def _build_comparison_method_audit(
+    metrics: dict[str, Any],
+    required_methods: list[str],
+) -> dict[str, dict[str, Any]]:
+    audit: dict[str, dict[str, Any]] = {}
+    if not required_methods:
+        return audit
+    for dataset, payload in dict(metrics.get("datasets") or {}).items():
+        available = set(dict(payload.get("methods") or {}))
+        missing = [method for method in required_methods if method not in available]
+        audit[str(dataset)] = {
+            "required": list(required_methods),
+            "available": sorted(available),
+            "missing": missing,
+            "complete": not missing,
+        }
+    return audit
+
+
 def _frozen_config_sha(
     experiment,
     *,
@@ -1418,20 +1646,34 @@ def _frozen_config_sha(
     protocol_version = load_protocol_config(experiment.protocol).protocol_version
     is_cert_v1 = protocol_version == "catch_cert_v1"
     is_cert_v2 = protocol_version == "catch_cert_v2"
+    is_kernel = protocol_version == "catch_kernel_v1"
     payload = {
         "experiment": experiment.raw,
         "protocol": Path(experiment.protocol).read_text(encoding="utf-8"),
         "prompt_version": (
-            CERT_V2_PROMPT_VERSION if is_cert_v2 else CERT_PROMPT_VERSION if is_cert_v1 else CATCH_PROMPT_VERSION
+            KERNEL_PROMPT_VERSION
+            if is_kernel
+            else CERT_V2_PROMPT_VERSION
+            if is_cert_v2
+            else CERT_PROMPT_VERSION
+            if is_cert_v1
+            else CATCH_PROMPT_VERSION
         ),
         "schema_version": (
-            CERT_V2_SCHEMA_VERSION if is_cert_v2 else CERT_SCHEMA_VERSION if is_cert_v1 else CATCH_SCHEMA_VERSION
+            KERNEL_SCHEMA_VERSION
+            if is_kernel
+            else CERT_V2_SCHEMA_VERSION
+            if is_cert_v2
+            else CERT_SCHEMA_VERSION
+            if is_cert_v1
+            else CATCH_SCHEMA_VERSION
         ),
         "decoder_version": (
-            "catch_answer_linked_obligation_decoder_v2"
+            KERNEL_DECODER_VERSION
+            if is_kernel
+            else "catch_answer_linked_obligation_decoder_v2"
             if is_cert_v2
-            else
-            "catch_certificate_decoder_v1"
+            else "catch_certificate_decoder_v1"
             if is_cert_v1
             else "catch_icv_repetition_decoder_v3"
             if protocol_version == "catch_v3"
@@ -1454,6 +1696,12 @@ def _frozen_component_hashes(experiment) -> dict[str, str]:
         family_root / "cache_layers.py",
         family_root / "certificates.py",
         family_root / "certificates_v2.py",
+        family_root / "kernel.py",
+        family_root / "kernel_adapters.py",
+        family_root / "kernel_mechanism.py",
+        family_root / "kernel_prompts.py",
+        family_root / "comparison_replay.py",
+        family_root / "causal_ledger.py",
         family_root / "cert_prompts.py",
         family_root / "cert_prompts_v2.py",
         family_root / "icv.py",
@@ -1464,6 +1712,7 @@ def _frozen_component_hashes(experiment) -> dict[str, str]:
         family_root / "config.py",
         Path(__file__).resolve(),
         Path(__file__).with_name("sample.py").resolve(),
+        Path(__file__).with_name("report.py").resolve(),
         Path(__file__).with_name("preflight.py").resolve(),
         Path(__file__).with_name("validate.py").resolve(),
         repo_root / "src" / "research_experiments" / "core" / "data" / "datasets.py",
@@ -1541,11 +1790,18 @@ def _build_frozen_protocol_candidate(
 
     is_cert_v1 = protocol_version == "catch_cert_v1"
     is_cert_v2 = protocol_version == "catch_cert_v2"
-    is_cert = is_cert_v1 or is_cert_v2
+    is_kernel = protocol_version == "catch_kernel_v1"
+    is_cert = is_cert_v1 or is_cert_v2 or is_kernel
 
     payload = {
         "freeze_kind": (
-            "catch_cert_protocol_v2" if is_cert_v2 else "catch_cert_protocol_v1" if is_cert_v1 else "catch_icv_protocol_v3"
+            "catch_kernel_protocol_v1"
+            if is_kernel
+            else "catch_cert_protocol_v2"
+            if is_cert_v2
+            else "catch_cert_protocol_v1"
+            if is_cert_v1
+            else "catch_icv_protocol_v3"
         ),
         "source_development_run_id": run_id,
         "source_config_sha256": config_sha,
@@ -1555,8 +1811,10 @@ def _build_frozen_protocol_candidate(
                 "all_required_conditions": True,
                 "derived_anchor_refutation_required": True,
                 "dual_panel_agreement_required": True,
-                "mandatory_obligation_coverage_required": is_cert_v2,
-                "answer_hash_link_required": is_cert_v2,
+                "mandatory_obligation_coverage_required": is_cert_v2 or is_kernel,
+                "answer_hash_link_required": is_cert_v2 or is_kernel,
+                "verifier_jurisdiction_required": is_kernel,
+                "cross_jurisdiction_fallback_allowed": False if is_kernel else None,
             }
             if is_cert
             else {"challenger_votes_at_least": 2, "strictly_more_than_anchor": True}
@@ -1564,13 +1822,27 @@ def _build_frozen_protocol_candidate(
         "dual_panel_unique_challenger_required": True,
         "selection_constraints_passed": True,
         "prompt_version": (
-            CERT_V2_PROMPT_VERSION if is_cert_v2 else CERT_PROMPT_VERSION if is_cert_v1 else CATCH_PROMPT_VERSION
+            KERNEL_PROMPT_VERSION
+            if is_kernel
+            else CERT_V2_PROMPT_VERSION
+            if is_cert_v2
+            else CERT_PROMPT_VERSION
+            if is_cert_v1
+            else CATCH_PROMPT_VERSION
         ),
         "schema_version": (
-            CERT_V2_SCHEMA_VERSION if is_cert_v2 else CERT_SCHEMA_VERSION if is_cert_v1 else CATCH_SCHEMA_VERSION
+            KERNEL_SCHEMA_VERSION
+            if is_kernel
+            else CERT_V2_SCHEMA_VERSION
+            if is_cert_v2
+            else CERT_SCHEMA_VERSION
+            if is_cert_v1
+            else CATCH_SCHEMA_VERSION
         ),
         "decoder_version": (
-            "catch_answer_linked_obligation_decoder_v2"
+            KERNEL_DECODER_VERSION
+            if is_kernel
+            else "catch_answer_linked_obligation_decoder_v2"
             if is_cert_v2
             else "catch_certificate_decoder_v1"
             if is_cert_v1
@@ -1594,7 +1866,10 @@ def _load_frozen_decoding(path: Path, *, config_sha: str) -> dict[str, Any]:
     if expected_sha != actual_sha:
         raise RuntimeError("CATCH frozen decoding hash is invalid.")
     v2 = payload.get("freeze_kind") == "catch_decoding_v2" and payload.get("decoder_version") == "catch_ecoc_decoder_v2"
-    v3 = payload.get("freeze_kind") == "catch_icv_protocol_v3" and payload.get("decoder_version") == "catch_icv_repetition_decoder_v3"
+    v3 = (
+        payload.get("freeze_kind") == "catch_icv_protocol_v3"
+        and payload.get("decoder_version") == "catch_icv_repetition_decoder_v3"
+    )
     if not (v2 or v3):
         raise RuntimeError("CATCH frozen decoding uses an unknown or retired protocol version.")
     if payload.get("source_config_sha256") != config_sha or not payload.get("selection_constraints_passed"):
@@ -1603,7 +1878,8 @@ def _load_frozen_decoding(path: Path, *, config_sha: str) -> dict[str, Any]:
         raise RuntimeError("CATCH frozen decoding contains an out-of-grid threshold.")
     if v3 and (
         int(payload.get("coordinates_per_pair") or 0) != 3
-        or payload.get("panel_rule") != {
+        or payload.get("panel_rule")
+        != {
             "challenger_votes_at_least": 2,
             "strictly_more_than_anchor": True,
         }
@@ -1635,15 +1911,12 @@ def _load_cert_v2_readiness_assessment(path: Path, *, config_sha: str) -> dict[s
     expected_sha = str(payload.get("sha256") or "")
     unsigned = dict(payload)
     unsigned.pop("sha256", None)
-    actual_sha = hashlib.sha256(
-        json.dumps(unsigned, ensure_ascii=False, sort_keys=True).encode("utf-8")
-    ).hexdigest()
+    actual_sha = hashlib.sha256(json.dumps(unsigned, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
     conditions = payload.get("conditions")
     schema_version = payload.get("schema_version")
     if (
         expected_sha != actual_sha
-        or schema_version
-        not in {"catch_cert_v2_readiness_v1", "catch_cert_v2_readiness_assessment_v2"}
+        or schema_version not in {"catch_cert_v2_readiness_v1", "catch_cert_v2_readiness_assessment_v2"}
         or payload.get("protocol_version") != "catch_cert_v2"
         or not isinstance(conditions, dict)
         or not conditions
@@ -1667,9 +1940,7 @@ def _load_cert_v2_readiness_assessment(path: Path, *, config_sha: str) -> dict[s
         "conditions": conditions,
         "unmet_conditions": unmet,
         "all_recommended_conditions_met": all_met,
-        "recommended_interpretation": (
-            "confirmation_candidate" if all_met else "exploratory_diagnostic_evidence"
-        ),
+        "recommended_interpretation": ("confirmation_candidate" if all_met else "exploratory_diagnostic_evidence"),
         "evidence": payload.get("evidence") or {},
     }
 
@@ -1745,9 +2016,7 @@ def _require_passing_gate(
             and (candidate_sha == frozen_sha if phase_name == "development" else manifest_frozen_sha == frozen_sha)
         ):
             return
-    raise RuntimeError(
-        f"CATCH {phase_name} gate is required for this exact model, config, and frozen decoder."
-    )
+    raise RuntimeError(f"CATCH {phase_name} gate is required for this exact model, config, and frozen decoder.")
 
 
 def _require_passing_human_audit(path: Path) -> None:

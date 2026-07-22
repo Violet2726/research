@@ -74,3 +74,72 @@ artifact, or archive-integrity package is required for a new run.
 Historical CATCH-v1/v2/v3 runs and their old audit artifacts remain read-only.
 The optional `canonicalization-replay` command is retained only for reproducing
 those archived results.
+
+## CATCH-Kernel
+
+`catch_kernel_v1` treats the language model as an untrusted proof producer.
+The local task-semantics registry owns query semantics and typed obligation
+meanings; verifier capability manifests determine which verifier may decide
+each operation. Executable `CONFLICT` and `UNSUPPORTED` results are terminal
+per-case abstentions and can never fall back to a model verifier. This is a
+per-case proof rule, not a global experiment gate.
+
+Kernel v3 components compile every pair, finite outcome, answer hash,
+candidate commitment, and refutation locally. Bounded-semantic obligations
+use independent TRUE/FALSE/UNKNOWN proposition tests rather than pairwise
+candidate outcomes. Operations whose source semantics cannot yet be compiled
+locally are not granted executable jurisdiction. Reports call structural
+success `typed_compilation_validity`; semantic and contract accuracy remain
+pending until human or deterministic adjudication instead of being inferred
+from a successful parse.
+
+New Kernel verifier calls use a 16384-token completion ceiling. Historical
+DirectJudge and PairJudge calls retain their exact 4096-token request identity
+and read through the frozen CATCH-Cert-v2 cache.
+
+The confirmation phase excludes both inspected splits. MuSR is balanced by
+subtask, seqBench is interleaved by backtracking count, noise ratio, and
+logical-depth decile, and BBEH uses a frozen seed-42 hash. D1 records selected
+ID hashes; after D2, materialize the exact components and IDs before any
+confirmation call:
+
+`research_cli experiment --family contrastive_active_testing freeze-kernel-d2 --experiment configs/families/contrastive_active_testing/experiments/catch_kernel_d1.toml --output local/analysis/catch_kernel_d2_freeze.json`
+
+Inspect D1 without network access:
+
+`research_cli experiment --family contrastive_active_testing inspect-experiment --experiment configs/families/contrastive_active_testing/experiments/catch_kernel_d1.toml`
+
+Build the 832-case offline causal ledger and the frozen 232-case intensive
+audit set:
+
+`research_cli experiment --family contrastive_active_testing kernel-causal-ledger --run <development-run> --run <heldout-run> --output-dir local/analysis/catch_kernel_causal_ledger`
+
+Create the predeclared representation, contract/verifier 2x2, jurisdiction,
+and proof-completeness matrix:
+
+`research_cli experiment --family contrastive_active_testing kernel-mechanism-template --audit local/analysis/catch_kernel_causal_ledger/intensive_audit.json --output local/analysis/catch_kernel_causal_ledger/kernel_mechanism_matrix.json`
+
+Arm runners write JSON/JSONL results that are merged only when the frozen
+case, arm, and candidate-set hash match:
+
+`research_cli experiment --family contrastive_active_testing ingest-kernel-mechanism-results --matrix <matrix.json> --result <arm-results.jsonl> --output <merged.json>`
+
+After D1, materialize the capability-routed arm and all three proof-decoder
+ablations from the same proof objects without API calls:
+
+`research_cli experiment --family contrastive_active_testing kernel-run-mechanism-results --matrix <matrix.json> --run <development-kernel-run> --run <heldout-kernel-run> --output <kernel-arm-results.jsonl>`
+
+After separate frozen v3 and Cert-v2 runs reuse the same Stage-A candidates,
+merge their predictions with an exact five-candidate signature check:
+
+`research_cli experiment --family contrastive_active_testing merge-kernel-comparators --primary-run <kernel-run> --comparator-run <v3-run> --comparator-run <cert-v2-run> --output <comparison.jsonl>`
+
+Completed counterfactual annotations are summarized separately; pending
+annotations never appear as a causal decomposition:
+
+`research_cli experiment --family contrastive_active_testing summarize-kernel-counterfactuals --ledger <causal_ledger.jsonl> --output <counterfactual_summary.json>`
+
+Kernel reports keep accuracy and cost metrics while adding syntax, schema,
+semantic validity, verifier-jurisdiction coverage, proof completeness, proof
+status counts, and first-failure layers. Existing CATCH-Cert v2 artifacts and
+decoder behavior are unchanged and remain replayable.

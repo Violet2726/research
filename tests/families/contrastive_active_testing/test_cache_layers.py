@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from research_experiments.core.execution.cache import CachedResponse
 from research_experiments.families.contrastive_active_testing.cache_layers import ReadThroughRequestCache
+from research_experiments.families.contrastive_active_testing.run.execute import CatchEndpoint
 
 
 class Cache:
@@ -39,3 +40,25 @@ def test_read_through_cache_reads_v1_but_writes_only_v2() -> None:
     assert "new" in primary.records
     assert "new" not in fallback.records
     assert cache.source_for("new") == "catch-dev-v2"
+
+
+def test_pair_and_direct_judges_use_predecessor_cache() -> None:
+    baseline = object()
+    intervention = object()
+    endpoint = CatchEndpoint(
+        backbone=object(),
+        provider=object(),  # type: ignore[arg-type]
+        baseline_cache=baseline,
+        intervention_cache=intervention,
+        throttle=object(),  # type: ignore[arg-type]
+        cache_namespace="catch-dev-kernel_d1_v3",
+        baseline_cache_namespace=("catch-dev-cert_v2", "catch-dev-cert_v1"),
+    )
+    assert endpoint.cache_for_role("direct_judge") is baseline
+    assert endpoint.cache_for_role("pair_judge") is baseline
+    assert endpoint.cache_lookup_namespaces_for_role("pair_judge") == (
+        "catch-dev-kernel_d1_v3",
+        "catch-dev-cert_v2",
+        "catch-dev-cert_v1",
+    )
+    assert endpoint.cache_for_role("kernel_atomic_verifier") is intervention

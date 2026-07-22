@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from collections import Counter
+from types import SimpleNamespace
 
 from research_experiments.core.data.datasets import load_samples
 from research_experiments.families.contrastive_active_testing.config import (
@@ -9,13 +12,18 @@ from research_experiments.families.contrastive_active_testing.config import (
     load_protocol_config,
 )
 from research_experiments.families.contrastive_active_testing.run.execute import (
+    _build_comparison_method_audit,
     _frozen_component_hashes,
+    _select_kernel_confirmation_strata,
     _select_phase_samples,
+    _selected_sample_manifest,
+    _validate_kernel_freeze,
 )
 from research_experiments.families.registry import get_family_registration
 
 EXPERIMENT = "configs/families/contrastive_active_testing/experiments/catch_gate.toml"
 CERT_V2_EXPERIMENT = "configs/families/contrastive_active_testing/experiments/catch_cert_v2_development.toml"
+KERNEL_EXPERIMENT = "configs/families/contrastive_active_testing/experiments/catch_kernel_d1.toml"
 
 
 def test_best_effort_protocol_and_registration_are_discoverable() -> None:
@@ -73,6 +81,126 @@ def test_bbeh_100_200_and_confirmation_remainder_are_disjoint() -> None:
     assert not dev_ids & heldout_ids
     assert not dev_ids & confirmation_ids
     assert not heldout_ids & confirmation_ids
+
+
+def test_kernel_confirmation_uses_frozen_hash_selection_and_all_comparators() -> None:
+    experiment = load_experiment_config(KERNEL_EXPERIMENT)
+    protocol = load_protocol_config(experiment.protocol)
+    phase = experiment.raw["phases"]["confirmation"]
+    benchmark = load_phase_benchmarks(experiment, "confirmation")[0]
+    first = _select_phase_samples(benchmark, phase, "confirmation")
+    second = _select_phase_samples(benchmark, phase, "confirmation")
+
+    assert phase["hash_sample_selection"] is True
+    assert phase["selection_strategy"] == "kernel_confirmation_stratified_sha256"
+    assert phase["selection_seed"] == 42
+    assert phase["run_direct_judge"] is True
+    assert protocol.role_max_tokens == 16_384
+    assert protocol.judge_max_tokens == 4_096
+    assert protocol.max_selected_tests == 24
+    assert experiment.config_warnings == ()
+    assert experiment.baseline_cache_namespaces["development"] == "catch-dev-cert_v2,catch-dev-cert_v1"
+    assert len(first) == 200
+    assert [sample.sample_id for sample in first] == [sample.sample_id for sample in second]
+
+
+def test_kernel_confirmation_stratifies_musr_and_seqbench_without_gold() -> None:
+    musr = [
+        SimpleNamespace(sample_id=f"{task}-{index}", metadata={"task": task})
+        for task in ("object_placements", "team_allocation", "murder_mysteries")
+        for index in range(10)
+    ]
+    musr_selected = _select_kernel_confirmation_strata(
+        musr,
+        benchmark_slug="musr",
+        phase_name="confirmation",
+        seed=42,
+        limit=9,
+    )
+    assert Counter(item.metadata["task"] for item in musr_selected) == {
+        "object_placements": 3,
+        "team_allocation": 3,
+        "murder_mysteries": 3,
+    }
+
+    seq = [
+        SimpleNamespace(
+            sample_id=f"b{backtrack}-n{noise}-{index}",
+            metadata={
+                "backtracking_count_B": backtrack,
+                "noise_ratio_N": noise,
+                "logical_depth_L": index + backtrack * 100,
+                "task": f"B{backtrack}_N{noise}",
+            },
+        )
+        for backtrack in range(3)
+        for noise in (0.0, 1.0)
+        for index in range(10)
+    ]
+    seq_selected = _select_kernel_confirmation_strata(
+        seq,
+        benchmark_slug="seqbench",
+        phase_name="confirmation",
+        seed=42,
+        limit=18,
+    )
+    assert {(item.metadata["backtracking_count_B"], item.metadata["noise_ratio_N"]) for item in seq_selected} == {
+        (backtrack, noise) for backtrack in range(3) for noise in (0.0, 1.0)
+    }
+    manifest = _selected_sample_manifest({"seqbench": seq_selected}, phase_name="confirmation")
+    assert manifest["seqbench"]["count"] == 18
+    assert len(manifest["seqbench"]["sha256"]) == 64
+
+
+def test_kernel_freeze_validates_components_and_exact_selection_hashes(tmp_path) -> None:
+    unsigned = {
+        "schema_version": "catch_kernel_d2_freeze_v1",
+        "component_sha256": {"kernel.py": "abc"},
+        "selected_sample_manifest": {"bbeh": {"sha256": "selection"}},
+        "global_seed": 42,
+    }
+    payload = {
+        **unsigned,
+        "sha256": hashlib.sha256(
+            json.dumps(unsigned, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+    }
+    path = tmp_path / "freeze.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    valid = _validate_kernel_freeze(
+        path,
+        component_hashes={"kernel.py": "abc"},
+        selection_manifest={"bbeh": {"sha256": "selection"}},
+        expected_metadata={"global_seed": 42},
+    )
+    invalid = _validate_kernel_freeze(
+        path,
+        component_hashes={"kernel.py": "changed"},
+        selection_manifest={"bbeh": {"sha256": "selection"}},
+    )
+    invalid_seed = _validate_kernel_freeze(
+        path,
+        component_hashes={"kernel.py": "abc"},
+        selection_manifest={"bbeh": {"sha256": "selection"}},
+        expected_metadata={"global_seed": 7},
+    )
+    assert valid["valid"] is True
+    assert invalid == {"valid": False, "reason": "component_hash_mismatch", "path": path.as_posix()}
+    assert invalid_seed == {
+        "valid": False,
+        "reason": "freeze_metadata_mismatch:global_seed",
+        "path": path.as_posix(),
+    }
+
+
+def test_comparison_audit_detects_missing_methods_after_dataset_metrics_exist() -> None:
+    audit = _build_comparison_method_audit(
+        {"datasets": {"bbeh": {"methods": {"sc_5": {}, "catch_kernel": {}}}}},
+        ["sc_5", "catch_kernel", "catch_cert_v2"],
+    )
+    assert audit["bbeh"]["available"] == ["catch_kernel", "sc_5"]
+    assert audit["bbeh"]["missing"] == ["catch_cert_v2"]
+    assert audit["bbeh"]["complete"] is False
 
 
 def test_all_geometric_shapes_samples_have_structured_options_after_rounding_note_fix() -> None:

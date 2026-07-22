@@ -5,6 +5,7 @@ import pytest
 from research_experiments.families.contrastive_active_testing.statistics import (
     _certificate_v2_diagnostics,
     _clopper_pearson_lower,
+    _kernel_diagnostics,
     _summary,
     _v3_observation_diagnostics,
     _v3_panel_dependence,
@@ -26,8 +27,22 @@ def test_development_grid_selection_is_global_and_materializes_one_primary_metho
         }
         predictions.extend(
             [
-                {**base, "method_name": "catch_d2_m1", "score": 1, "override_accepted": True, "corrected_by_debate": index < 5, "harmed_by_debate": False},
-                {**base, "method_name": "catch_d3_m2", "score": int(index < 7), "override_accepted": index < 7, "corrected_by_debate": index < 4, "harmed_by_debate": False},
+                {
+                    **base,
+                    "method_name": "catch_d2_m1",
+                    "score": 1,
+                    "override_accepted": True,
+                    "corrected_by_debate": index < 5,
+                    "harmed_by_debate": False,
+                },
+                {
+                    **base,
+                    "method_name": "catch_d3_m2",
+                    "score": int(index < 7),
+                    "override_accepted": index < 7,
+                    "corrected_by_debate": index < 4,
+                    "harmed_by_debate": False,
+                },
             ]
         )
         routers.append(
@@ -139,3 +154,105 @@ def test_cert_v2_summary_and_mechanism_include_answer_link_obligation_and_adapte
     )
     assert diagnostics["adapter_executed_test_count"] == 1
     assert diagnostics["override_count"] == 1
+
+
+def test_kernel_summary_separates_protocol_semantics_jurisdiction_and_proofs() -> None:
+    row = {
+        "method_name": "catch_kernel",
+        "score": 1,
+        "initial_vote_score": 0,
+        "corrected_by_debate": True,
+        "harmed_by_debate": False,
+        "candidate_oracle_correct": True,
+        "target_oracle_correct": True,
+        "total_tokens_per_question": 1_000,
+        "calls_per_question": 5,
+        "certificate_coverage": 1,
+        "override_accepted": True,
+        "certificate_abstained": False,
+        "answer_link_coverage": 1,
+        "obligation_coverage": 1,
+        "syntax_validity": 1,
+        "schema_validity": 1,
+        "typed_compilation_validity": 1,
+        "semantic_validity": None,
+        "contract_accuracy": None,
+        "verifier_jurisdiction_coverage": 1,
+        "proof_completeness": 1,
+        "proof_pass_count": 1,
+        "proof_conflict_count": 0,
+        "proof_unsupported_count": 0,
+        "proof_unknown_count": 0,
+    }
+    summary = _summary("catch_kernel", [row])
+    assert summary["syntax_validity"] == 1
+    assert summary["typed_compilation_validity"] == 1
+    assert summary["semantic_validity"] is None
+    assert summary["contract_accuracy"] is None
+    assert summary["verifier_jurisdiction_coverage"] == 1
+    assert summary["proof_completeness"] == 1
+    diagnostics = _kernel_diagnostics(
+        [
+            {
+                "protocol_version": "catch_kernel_v1",
+                "triggered": True,
+                "verifier_bindings": {
+                    "T0": {
+                        "binding_status": "BOUND",
+                        "verifier_kind": "deterministic.seq_plan",
+                    }
+                },
+                "proof_results": [
+                    {
+                            "status": "PASS",
+                            "provenance_valid": True,
+                            "entailment_valid": True,
+                            "obligation_valid": True,
+                        "sufficiency_valid": True,
+                    }
+                ],
+                "kernel_decision": {"failure_layer": "none"},
+            }
+        ]
+    )
+    assert diagnostics["jurisdiction_coverage"] == 1
+    assert diagnostics["proof_completeness"] == 1
+
+
+def test_kernel_route_quality_accepts_multiple_scorer_valid_answer_classes() -> None:
+    diagnostics = _kernel_diagnostics(
+        [
+            {
+                "protocol_version": "catch_kernel_v1",
+                "triggered": True,
+                "anchor_key": "A",
+                "gold_candidate_key": "A",
+                "gold_candidate_keys": ["A", "B"],
+                "candidate_public_to_answer_class_key": {"H1": "B"},
+                "verifier_bindings": {
+                    "T0": {"binding_status": "BOUND", "verifier_kind": "model.bounded_semantic_panel"}
+                },
+                "proof_results": [
+                    {
+                        "test_id": "T0",
+                        "verifier_kind": "model.bounded_semantic_panel",
+                        "status": "PASS",
+                        "provenance_valid": True,
+                        "entailment_valid": True,
+                        "obligation_valid": True,
+                        "sufficiency_valid": True,
+                    }
+                ],
+                "kernel_decision": {
+                    "decision": "OVERRIDE",
+                    "challenger_id": "H1",
+                    "accepted_proofs": ["T0"],
+                    "failure_layer": "none",
+                },
+            }
+        ]
+    )
+    quality = diagnostics["verifier_route_quality"]["model.bounded_semantic_panel"]
+    assert quality["correct_to_correct"] == 1
+    assert quality["harm_rate"] == 0
+    assert diagnostics["cross_jurisdiction_fallback_count"] == 0
