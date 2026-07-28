@@ -901,6 +901,7 @@ def _kernel_diagnostics(routers: list[dict[str, Any]]) -> dict[str, Any]:
     route_outcomes: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     status_counts: dict[str, int] = defaultdict(int)
     adapter_status_counts: dict[str, int] = defaultdict(int)
+    unary_status_counts: dict[str, int] = defaultdict(int)
     failure_layers: dict[str, int] = defaultdict(int)
     for item in bindings:
         route_counts[str(item.get("verifier_kind") or "unknown")] += 1
@@ -912,6 +913,9 @@ def _kernel_diagnostics(routers: list[dict[str, Any]]) -> dict[str, Any]:
         for item in dict(row.get("adapter_results") or {}).values():
             if isinstance(item, dict):
                 adapter_status_counts[str(item.get("execution_status") or "unknown")] += 1
+        for item in dict(row.get("unary_adapter_results") or {}).values():
+            if isinstance(item, dict):
+                unary_status_counts[str(item.get("status") or "unknown")] += 1
         if decision.get("decision") != "OVERRIDE":
             continue
         accepted = set(decision.get("accepted_proofs") or [])
@@ -920,6 +924,8 @@ def _kernel_diagnostics(routers: list[dict[str, Any]]) -> dict[str, Any]:
             for item in row.get("proof_results") or []
             if isinstance(item, dict) and item.get("test_id") in accepted
         }
+        if any(str(item).startswith("unary:") for item in accepted):
+            routes.add("deterministic.unary_exact")
         public_to_key = dict(row.get("candidate_public_to_answer_class_key") or {})
         challenger_key = public_to_key.get(decision.get("challenger_id"))
         anchor_key = row.get("anchor_key")
@@ -968,6 +974,7 @@ def _kernel_diagnostics(routers: list[dict[str, Any]]) -> dict[str, Any]:
         "verifier_route_quality": route_quality,
         "proof_status_counts": dict(sorted(status_counts.items())),
         "adapter_status_counts": dict(sorted(adapter_status_counts.items())),
+        "unary_candidate_status_counts": dict(sorted(unary_status_counts.items())),
         "panel_disagreement_count": sum(item.get("detail") == "panel_disagreement" for item in proofs),
         "failure_layer_counts": dict(sorted(failure_layers.items())),
         "cross_jurisdiction_fallback_count": 0,

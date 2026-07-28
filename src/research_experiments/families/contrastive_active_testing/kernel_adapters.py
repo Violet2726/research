@@ -9,7 +9,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Any
+from dataclasses import asdict, dataclass
+from heapq import heappop, heappush
+from typing import Any, Literal
 
 from research_experiments.core.data.datasets import DatasetSample, question_without_answer_contract
 from research_experiments.families.contrastive_active_testing.certificates_v2 import (
@@ -20,6 +22,23 @@ from research_experiments.families.contrastive_active_testing.certificates_v2 im
     TaskContractV2,
     run_deterministic_adapters_v2,
 )
+
+CandidateAdapterStatus = Literal["VALID", "INVALID", "UNSUPPORTED"]
+
+
+@dataclass(frozen=True)
+class CandidateAdapterResult:
+    """A candidate-local verdict; unlike pair tests it has no global conflict state."""
+
+    candidate_key_anon: str
+    operation_kind: str
+    status: CandidateAdapterStatus
+    detail: str
+    execution_trace_hash: str
+
+
+def candidate_adapter_result_to_dict(result: CandidateAdapterResult) -> dict[str, Any]:
+    return asdict(result)
 
 
 def compile_local_typed_payload(sample: DatasetSample, operation_kind: str) -> tuple[dict[str, Any] | None, str | None]:
@@ -36,7 +55,8 @@ def compile_local_typed_payload(sample: DatasetSample, operation_kind: str) -> t
             return circular, None
         if "circular path" in source.casefold():
             return None, error
-        return {"executor": "ordered_grid_path_v1"}, None
+        ordered, ordered_error = _compile_ordered_grid_path(source)
+        return (ordered if ordered is not None else {"executor": "ordered_grid_path_v1"}), None
     if operation_kind == "custom_sort_order":
         return _compile_custom_sort(source)
     if operation_kind == "sort_trace_earliest":
@@ -66,6 +86,9 @@ def validate_typed_payload(
     if operation_kind == "grid_path":
         if payload == {"executor": "ordered_grid_path_v1"}:
             return True, "ok"
+        if set(payload) == {"path_kind", "expected_entity"}:
+            valid = payload.get("path_kind") == "ordered" and isinstance(payload.get("expected_entity"), str)
+            return valid, "ok" if valid else "grid_path_payload_invalid"
         fields = {"path_kind", "entities_clockwise", "start_entity", "signed_moves"}
         valid = (
             set(payload) == fields
@@ -181,7 +204,12 @@ def run_kernel_adapters(
     for test in tests:
         if test.operation_kind not in {"custom_sort_order", "grid_path"}:
             continue
-        if test.operation_kind == "grid_path" and test.deterministic_payload.get("path_kind") != "circular":
+        if test.operation_kind == "grid_path" and test.deterministic_payload == {
+            "executor": "ordered_grid_path_v1"
+        }:
+            # Historical D1 payload: it declared jurisdiction without compiling
+            # the route.  Preserve the frozen adapter result and let D2's unary
+            # compiler return UNSUPPORTED; never reinterpret it as circular.
             continue
         pair = pair_by_id[test.pair_id]
         checks: dict[str, tuple[bool | None, str]] = {}
@@ -190,7 +218,7 @@ def run_kernel_adapters(
             if test.operation_kind == "custom_sort_order":
                 checks[candidate] = _check_custom_sort(node, test.deterministic_payload)
             else:
-                checks[candidate] = _check_circular_path(node, test.deterministic_payload)
+                checks[candidate] = _check_grid_path(node, test.deterministic_payload)
         valid_candidates = [candidate for candidate, (valid, _) in checks.items() if valid is True]
         status = "EXECUTED"
         observed = None
@@ -219,7 +247,96 @@ def run_kernel_adapters(
     return results
 
 
-def _compile_custom_sort(source: str) -> tuple[dict[str, Any] | None, str | None]:
+def run_kernel_unary_adapters(
+    sample: DatasetSample,
+    *,
+    tests: tuple[CertificateTestV2, ...],
+    answer_nodes: dict[str, CandidateAnswerNode],
+) -> dict[str, CandidateAdapterResult]:
+    """Verify every answer class independently under the local D2 compiler.
+
+    A result is shared across duplicate obligation tests.  This avoids the D1
+    failure mode in which an invalid-vs-invalid pair became a global veto even
+    when one different candidate had an exact, deterministic certificate.
+    """
+
+    if not tests:
+        return {}
+    kinds = {test.operation_kind for test in tests}
+    payloads = {_sha256(test.deterministic_payload): test.deterministic_payload for test in tests}
+    if len(kinds) != 1 or len(payloads) != 1:
+        detail = "inconsistent_unary_test_contract"
+        return {
+            key: _candidate_result(key, "mixed", "UNSUPPORTED", detail, {}) for key in answer_nodes
+        }
+    operation_kind = next(iter(kinds))
+    payload = next(iter(payloads.values()))
+    results: dict[str, CandidateAdapterResult] = {}
+    for candidate, node in answer_nodes.items():
+        valid, detail = _check_candidate(sample, node, operation_kind, payload)
+        status: CandidateAdapterStatus = "UNSUPPORTED" if valid is None else "VALID" if valid else "INVALID"
+        results[candidate] = _candidate_result(candidate, operation_kind, status, detail, payload)
+    return results
+
+
+def _candidate_result(
+    candidate: str,
+    operation_kind: str,
+    status: CandidateAdapterStatus,
+    detail: str,
+    payload: dict[str, Any],
+) -> CandidateAdapterResult:
+    trace = {
+        "kernel_adapter_version": "catch_kernel_unary_exact_v1",
+        "candidate": candidate,
+        "operation_kind": operation_kind,
+        "payload": payload,
+        "status": status,
+        "detail": detail,
+    }
+    return CandidateAdapterResult(candidate, operation_kind, status, detail, _sha256(trace))
+
+
+def _check_candidate(
+    sample: DatasetSample,
+    node: CandidateAnswerNode,
+    operation_kind: str,
+    payload: dict[str, Any],
+) -> tuple[bool | None, str]:
+    if operation_kind == "seq_plan":
+        expected, error = _canonical_seqbench_plan(sample)
+        if expected is None:
+            return None, error or "seqbench_compile_failed"
+        try:
+            actual = tuple(str(item) for item in json.loads(node.canonical_value))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return False, "invalid_sequence_syntax"
+        return actual == expected, "canonical_plan_match" if actual == expected else "canonical_plan_mismatch"
+    if operation_kind == "stack_trace":
+        expected, reason = _strict_dyck_earliest_error(question_without_answer_contract(sample))
+        if expected is None:
+            return None, reason
+        actual = _normalize(node.rendered_content)
+        return actual == expected, f"expected_earliest={expected};reason={reason}"
+    if operation_kind == "custom_sort_order":
+        compiled, error = _compile_custom_sort(question_without_answer_contract(sample), strict=True)
+        if compiled is None:
+            return None, error or "custom_alphabet_rule_unrecognized"
+        return _check_custom_sort(node, compiled)
+    if operation_kind == "grid_path":
+        compiled, error = compile_local_typed_payload(sample, "grid_path")
+        if compiled is None or compiled.get("executor") == "ordered_grid_path_v1":
+            compiled, error = _compile_ordered_grid_path(question_without_answer_contract(sample))
+        if compiled is None:
+            circular, circular_error = _compile_circular_path(question_without_answer_contract(sample))
+            compiled, error = circular, circular_error
+        if compiled is None:
+            return None, error or "grid_path_compile_failed"
+        return _check_grid_path(node, compiled)
+    return None, f"unary_adapter_unregistered:{operation_kind}"
+
+
+def _compile_custom_sort(source: str, *, strict: bool = False) -> tuple[dict[str, Any] | None, str | None]:
     match = re.search(r"Sort the following words.*?:\s*([^\r\n?]+)", source, re.IGNORECASE)
     if match is None:
         return None, "source_word_list_missing"
@@ -227,17 +344,84 @@ def _compile_custom_sort(source: str) -> tuple[dict[str, Any] | None, str | None
     if not words:
         return None, "source_word_list_empty"
     alphabet = list("abcdefghijklmnopqrstuvwxyz")
-    exception = re.search(
-        r"except that\s+(.+?)\s+are the last(?:\s+\w+)?\s+letters",
+    explicit = re.search(r"new alphabet order\s*\[([^\]]+)\]", source, re.IGNORECASE)
+    first = re.search(r"except that\s+(.+?)\s+(?:is the first letter|are the first two letters)", source, re.IGNORECASE)
+    last = re.search(r"except that\s+(.+?)\s+(?:is the last letter|are the last two letters)", source, re.IGNORECASE)
+    swapped = re.search(r"except that\s+([a-z])\s+and\s+([a-z])\s+are swapped", source, re.IGNORECASE)
+    if explicit is not None:
+        alphabet = [item.casefold() for item in re.findall(r"\b([a-z])\b", explicit.group(1), re.IGNORECASE)]
+    elif first is not None:
+        head = re.findall(r"\b([a-z])\b", first.group(1).casefold())
+        alphabet = head + [item for item in alphabet if item not in head]
+    elif last is not None:
+        tail = re.findall(r"\b([a-z])\b", last.group(1).casefold())
+        alphabet = [item for item in alphabet if item not in tail] + tail
+    elif swapped is not None:
+        left, right = (item.casefold() for item in swapped.groups())
+        left_index, right_index = alphabet.index(left), alphabet.index(right)
+        alphabet[left_index], alphabet[right_index] = alphabet[right_index], alphabet[left_index]
+    else:
+        if strict:
+            return None, "custom_alphabet_rule_unrecognized"
+    if len(alphabet) != 26 or set(alphabet) != set("abcdefghijklmnopqrstuvwxyz"):
+        return None, "custom_alphabet_not_a_permutation"
+    return {"words": words, "alphabet": alphabet}, None
+
+
+def _compile_ordered_grid_path(source: str) -> tuple[dict[str, Any] | None, str | None]:
+    folded = source.casefold()
+    if "jump to a random vertex" in folded or "jump back to" in folded:
+        return None, "grid_random_jump_unsupported"
+    if "hexagonal tile map" in folded:
+        vectors = {
+            "up": (0, 2), "down": (0, -2), "up-left": (-1, 1),
+            "up-right": (1, 1), "down-left": (-1, -1), "down-right": (1, -1),
+        }
+    elif "triangular tile map" in folded:
+        vectors = {
+            "left": (-2, 0), "right": (2, 0), "up-left": (-1, 1),
+            "up-right": (1, 1), "down-left": (-1, -1), "down-right": (1, -1),
+        }
+    else:
+        return None, "ordered_grid_family_unsupported"
+    initial = re.search(
+        r"(?:Initially, you are positioned|You are initially).*?where you (?:find|see)\s+(?:an?\s+|the\s+)?([^.,]+)",
         source,
         re.IGNORECASE,
     )
-    if exception is not None:
-        tail = re.findall(r"\b([a-z])\b", exception.group(1).casefold())
-        if not tail:
-            return None, "custom_alphabet_tail_invalid"
-        alphabet = [item for item in alphabet if item not in tail] + tail
-    return {"words": words, "alphabet": alphabet}, None
+    if initial is None:
+        return None, "ordered_grid_initial_observation_missing"
+    position = (0, 0)
+    observations: dict[tuple[int, int], str] = {position: _clean_entity(initial.group(1))}
+    moves = re.finditer(
+        r"(?:Then\s+)?you move\s+(up-left|up-right|down-left|down-right|up|down|left|right)\s+"
+        r"(?:by|for)\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+steps?"
+        r"(?:,?\s+where you (?:find|see)|\s+and see)?\s*(?:an?\s+|the\s+)?([^.]*)\.",
+        source,
+        re.IGNORECASE,
+    )
+    move_count = 0
+    number_words = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+                    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+    for move in moves:
+        direction = move.group(1).casefold()
+        if direction not in vectors:
+            return None, f"ordered_grid_direction_unsupported:{direction}"
+        raw_count = move.group(2).casefold()
+        count = number_words.get(raw_count, int(raw_count) if raw_count.isdigit() else 0)
+        dx, dy = vectors[direction]
+        position = (position[0] + dx * count, position[1] + dy * count)
+        observation = move.group(3).strip(" ,")
+        if observation:
+            entity = _clean_entity(observation)
+            previous = observations.get(position)
+            if previous is not None and _normalize(previous) != _normalize(entity):
+                return None, "ordered_grid_inconsistent_observation"
+            observations[position] = entity
+        move_count += 1
+    if move_count == 0:
+        return None, "ordered_grid_moves_missing"
+    return {"path_kind": "ordered", "expected_entity": observations.get(position, "unknown")}, None
 
 
 def _compile_circular_path(source: str) -> tuple[dict[str, Any] | None, str | None]:
@@ -293,7 +477,7 @@ def _check_custom_sort(node: CandidateAnswerNode, payload: dict[str, Any]) -> tu
     return actual == expected, f"expected_order={','.join(expected)}"
 
 
-def _check_circular_path(node: CandidateAnswerNode, payload: dict[str, Any]) -> tuple[bool | None, str]:
+def _check_grid_path(node: CandidateAnswerNode, payload: dict[str, Any]) -> tuple[bool | None, str]:
     valid, reason = validate_typed_payload(
         "grid_path",
         payload,
@@ -302,6 +486,9 @@ def _check_circular_path(node: CandidateAnswerNode, payload: dict[str, Any]) -> 
     )
     if not valid:
         return None, reason
+    if payload.get("path_kind") == "ordered":
+        expected = payload["expected_entity"]
+        return _normalize(node.rendered_content) == _normalize(expected), f"final_entity={expected}"
     entities = payload["entities_clockwise"]
     normalized = [_normalize(item) for item in entities]
     position = normalized.index(_normalize(payload["start_entity"]))
@@ -309,6 +496,154 @@ def _check_circular_path(node: CandidateAnswerNode, payload: dict[str, Any]) -> 
         position = (position + move) % len(entities)
     expected = entities[position]
     return _normalize(node.rendered_content) == _normalize(expected), f"final_entity={expected}"
+
+
+def _canonical_seqbench_plan(sample: DatasetSample) -> tuple[tuple[str, ...] | None, str | None]:
+    """Compile the exact deterministic shortest plan used by seqBench Pass@1."""
+
+    context = sample.question
+    room = r"([A-Z]+[0-9]+)"
+    open_edges: set[frozenset[str]] = {
+        frozenset((left.upper(), right.upper()))
+        for left, right in re.findall(
+            rf"Room\s+{room}\s+and\s+{room}\s+are connected by an open door",
+            context,
+            flags=re.IGNORECASE,
+        )
+    }
+    locked: dict[frozenset[str], str] = {}
+    for left, right in re.findall(
+        rf"Room\s+{room}\s+and\s+{room}\s+are connected by a closed and locked door",
+        context,
+        flags=re.IGNORECASE,
+    ):
+        locked[frozenset((left.upper(), right.upper()))] = ""
+    for left, right, key in re.findall(
+        rf"(?:The )?locked door between\s+{room}\s+and\s+{room}\s+requires key\s+([0-9]+)",
+        context,
+        flags=re.IGNORECASE,
+    ):
+        locked[frozenset((left.upper(), right.upper()))] = key
+    key_locations = {
+        key: location.upper()
+        for key, location in re.findall(rf"Key\s+([0-9]+)\s+is in room\s+{room}", context, flags=re.IGNORECASE)
+    }
+    metadata = sample.metadata.get("seqbench_instance_metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    agent = str(metadata.get("agent_name") or "Bob")
+    target = str(metadata.get("target_name") or "Alice")
+    positions = {
+        name: location.upper()
+        for name, location in re.findall(
+            rf"([A-Za-z][A-Za-z0-9_-]*)\s+is in room\s+{room}", context
+        )
+    }
+    start, goal = positions.get(agent), positions.get(target)
+    if start is None or goal is None:
+        return None, "seqbench_agent_or_target_room_missing"
+    if any(not key for key in locked.values()):
+        return None, "seqbench_locked_door_key_missing"
+    keys = sorted(key_locations, key=lambda value: (int(value), value))
+    key_bit = {key: 1 << index for index, key in enumerate(keys)}
+    locked_edges = sorted(locked, key=lambda edge: tuple(sorted(edge)))
+    edge_bit = {edge: 1 << index for index, edge in enumerate(locked_edges)}
+    adjacency: dict[str, list[tuple[str, frozenset[str]]]] = {}
+    for edge in open_edges | set(locked):
+        if len(edge) != 2:
+            continue
+        left, right = sorted(edge)
+        adjacency.setdefault(left, []).append((right, edge))
+        adjacency.setdefault(right, []).append((left, edge))
+    for neighbors in adjacency.values():
+        neighbors.sort(key=lambda item: item[0])
+
+    # Heap ordering by the complete action tuple makes shortest-path ties
+    # deterministic and reproduces the benchmark's canonical reference path.
+    initial_state = (start, 0, 0)
+    initial_actions = (f"start: {start}",)
+    heap: list[tuple[int, tuple[str, ...], tuple[str, int, int]]] = [(1, initial_actions, initial_state)]
+    best: dict[tuple[str, int, int], tuple[int, tuple[str, ...]]] = {initial_state: (1, initial_actions)}
+    while heap:
+        cost, actions, state = heappop(heap)
+        if best.get(state) != (cost, actions):
+            continue
+        current, held_mask, unlocked_mask = state
+        if current == goal:
+            return (*actions, f"rescue: {target}"), None
+        for key in keys:
+            bit = key_bit[key]
+            if key_locations[key] == current and not held_mask & bit:
+                next_state = (current, held_mask | bit, unlocked_mask)
+                next_actions = (*actions, f"pick_up_key: {key}")
+                _push_seq_state(heap, best, cost + 1, next_actions, next_state)
+        for neighbor, edge in adjacency.get(current, []):
+            if edge in open_edges or unlocked_mask & edge_bit.get(edge, 0):
+                next_state = (neighbor, held_mask, unlocked_mask)
+                next_actions = (*actions, f"move_to: {neighbor}")
+                _push_seq_state(heap, best, cost + 1, next_actions, next_state)
+                continue
+            key = locked.get(edge)
+            if key is None or not held_mask & key_bit.get(key, 0):
+                continue
+            next_state = (neighbor, held_mask, unlocked_mask | edge_bit[edge])
+            next_actions = (
+                *actions,
+                f"use_key: {key}",
+                f"unlock_and_open_door_to: {neighbor}",
+                f"move_to: {neighbor}",
+            )
+            _push_seq_state(heap, best, cost + 3, next_actions, next_state)
+    return None, "seqbench_goal_unreachable"
+
+
+def _push_seq_state(
+    heap: list[tuple[int, tuple[str, ...], tuple[str, int, int]]],
+    best: dict[tuple[str, int, int], tuple[int, tuple[str, ...]]],
+    cost: int,
+    actions: tuple[str, ...],
+    state: tuple[str, int, int],
+) -> None:
+    score = (cost, actions)
+    if state not in best or score < best[state]:
+        best[state] = score
+        heappush(heap, (cost, actions, state))
+
+
+def _strict_dyck_earliest_error(source: str) -> tuple[str | None, str]:
+    input_match = re.search(r"\bInput:\s*(.*?)\s*Thought\s+1:", source, re.IGNORECASE | re.DOTALL)
+    if input_match is None:
+        return None, "dyck_input_missing"
+    tokens = re.findall(r"[\[\](){}<>]", input_match.group(1))
+    if not tokens:
+        return None, "dyck_input_empty"
+    thoughts = {
+        int(number): body.strip()
+        for number, body in re.findall(r"^Thought\s+(\d+):\s*(.*)$", source, re.IGNORECASE | re.MULTILINE)
+    }
+    if _normalize(thoughts.get(2, "")) != "stack: empty":
+        return "2", "initial_stack_mismatch"
+    stack: list[str] = []
+    closing = {")": "(", "]": "[", "}": "{", ">": "<"}
+    for index, token in enumerate(tokens):
+        thought_number = index + 3
+        body = thoughts.get(thought_number)
+        if body is None:
+            return str(thought_number), "missing_token_thought"
+        parsed = re.fullmatch(r"\s*([\[\](){}<>])\s*;\s*stack:\s*(.*?)\s*", body)
+        if parsed is None:
+            return str(thought_number), "token_thought_schema_mismatch"
+        if parsed.group(1) != token:
+            return str(thought_number), "input_token_mismatch"
+        if token in "([{<":
+            stack.append(token)
+        elif not stack or stack[-1] != closing[token]:
+            return str(thought_number), "invalid_bracket_transition"
+        else:
+            stack.pop()
+        expected_stack = " ".join(stack) if stack else "empty"
+        if parsed.group(2).strip() != expected_stack:
+            return str(thought_number), "reported_stack_lexical_mismatch"
+    return "no", "no_error"
 
 
 def _exact(payload: dict[str, Any], expected: dict[str, Any], reason: str) -> tuple[bool, str]:

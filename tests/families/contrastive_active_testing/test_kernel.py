@@ -26,7 +26,10 @@ from research_experiments.families.contrastive_active_testing.kernel import (
     task_contract_from_semantics,
     validate_kernel_certificate_bank,
 )
-from research_experiments.families.contrastive_active_testing.kernel_adapters import run_kernel_adapters
+from research_experiments.families.contrastive_active_testing.kernel_adapters import (
+    run_kernel_adapters,
+    run_kernel_unary_adapters,
+)
 
 
 def _stage(*answers: str) -> StageDecision:
@@ -264,6 +267,41 @@ def test_circular_spatial_path_is_executed_without_gold_or_model_fallback() -> N
     assert {item.execution_status for item in adapters.values()} == {"EXECUTED"}
     assert decision.decision == "OVERRIDE"
     assert kernel_decision_to_decode(stage, decision, public_to_key=mapping).answer_key == "plate"
+
+
+def test_legacy_ordered_grid_payload_is_unary_unsupported_without_crashing_pair_audit() -> None:
+    source = (
+        "You have been given a diamond tile map. You are initially at the top corner where you see a basket. "
+        "Then you move down-right for one step and see a bike. What will you find?"
+    )
+    sample = DatasetSample("bbeh", "diamond", source, "bike", "", {"task": "spatial_reasoning"})
+    stage = _stage("basket", "bike")
+    mapping = {"H0": "basket", "H1": "bike"}
+    graph = build_source_span_graph(sample)
+    semantics = build_task_semantics(sample, graph)
+    nodes = build_candidate_answer_nodes(sample, stage, public_to_key=mapping)
+    pairs = build_all_candidate_pairs_v2(stage, public_to_key=mapping, seed=42, sample_id="diamond")
+    validation = compile_local_certificate_bank(
+        sample=sample,
+        semantics=semantics,
+        stage=stage,
+        public_to_key=mapping,
+        answer_nodes=nodes,
+        source_graph=graph,
+        pairs=pairs,
+    )
+    executable = validation.tests
+    pair_results = run_kernel_adapters(
+        sample,
+        contract=task_contract_from_semantics(semantics, graph),
+        tests=executable,
+        answer_nodes=nodes,
+        pairs=pairs,
+    )
+    unary_results = run_kernel_unary_adapters(sample, tests=executable, answer_nodes=nodes)
+
+    assert pair_results
+    assert {item.status for item in unary_results.values()} == {"UNSUPPORTED"}
 
 
 def test_dyck_adapter_checks_candidate_error_and_complete_prefix() -> None:

@@ -29,6 +29,7 @@ from research_experiments.families.contrastive_active_testing.certificates_v2 im
     TaskContractV2,
 )
 from research_experiments.families.contrastive_active_testing.kernel_adapters import (
+    CandidateAdapterResult,
     compile_local_typed_payload,
     validate_typed_payload,
 )
@@ -42,6 +43,7 @@ KERNEL_SCHEMA_VERSION = "catch_kernel_typed_obligations_v3"
 KERNEL_SEMANTICS_VERSION = "catch_kernel_task_semantics_v3"
 KERNEL_CAPABILITY_VERSION = "catch_kernel_verifier_capabilities_v3"
 KERNEL_DECODER_VERSION = "catch_kernel_proof_decoder_v3"
+KERNEL_D2_DECODER_VERSION = "catch_kernel_unary_exact_decoder_v1"
 
 
 @dataclass(frozen=True)
@@ -1332,6 +1334,111 @@ def decide_with_proof_kernel(
         reason, layer = "proof_incomplete", "proof_kernel"
     covered = tuple(dict.fromkeys(item.obligation_id for item in obligations))
     return KernelDecision(anchor_public, None, required, covered, (), "ABSTAIN", layer, reason, tuple(diagnostics))
+
+
+def decide_with_unary_proof_kernel(
+    stage: StageDecision,
+    *,
+    semantics: TaskSemantics,
+    validation: CertificateBankValidationV2,
+    public_to_key: dict[str, str],
+    candidate_results: dict[str, CandidateAdapterResult],
+) -> KernelDecision:
+    """D2 decision rule: override only from a unique exact candidate verdict.
+
+    Model panels remain logged as diagnostics, but bounded-semantic evidence is
+    deliberately incapable of changing the answer in this revision.
+    """
+
+    required = tuple(item.obligation_id for item in semantics.mandatory_obligation_templates if item.required)
+    anchor_public = next(public for public, key in public_to_key.items() if key == stage.anchor_key)
+    if validation.protocol_error is not None:
+        return KernelDecision(
+            anchor_public, None, required, (), (), "ABSTAIN", "compiler", validation.protocol_error, ()
+        )
+    if any(
+        item.required and item.guarantee_level != "executable"
+        for item in semantics.mandatory_obligation_templates
+    ):
+        return KernelDecision(
+            anchor_public,
+            None,
+            required,
+            (),
+            (),
+            "ABSTAIN",
+            "jurisdiction",
+            "bounded_semantic_diagnostic_only",
+            (),
+        )
+    expected_challengers = {candidate.key for candidate in stage.candidates if candidate.key != stage.anchor_key}
+    if set(validation.eligible_challengers) != expected_challengers:
+        return KernelDecision(
+            anchor_public,
+            None,
+            required,
+            (),
+            (),
+            "ABSTAIN",
+            "answer_link",
+            "all_challenger_certificates_required",
+            (),
+        )
+    expected_public = set(public_to_key)
+    if set(candidate_results) != expected_public:
+        return KernelDecision(
+            anchor_public, None, required, (), (), "ABSTAIN", "adapter", "candidate_verdicts_incomplete", ()
+        )
+    diagnostics = tuple(
+        {
+            "candidate_id": public,
+            "candidate_key": public_to_key[public],
+            "is_anchor": public == anchor_public,
+            "status": result.status,
+            "detail": result.detail,
+            "execution_trace_hash": result.execution_trace_hash,
+        }
+        for public, result in sorted(candidate_results.items())
+    )
+    if any(item.status == "UNSUPPORTED" for item in candidate_results.values()):
+        return KernelDecision(
+            anchor_public, None, required, (), (), "ABSTAIN", "jurisdiction", "jurisdiction_unsupported", diagnostics
+        )
+    anchor_result = candidate_results[anchor_public]
+    valid_challengers = [
+        public
+        for public, result in candidate_results.items()
+        if public != anchor_public and result.status == "VALID"
+    ]
+    if anchor_result.status == "VALID":
+        reason, layer = "anchor_verified_valid", "proof_kernel"
+    elif anchor_result.status != "INVALID":
+        reason, layer = "anchor_not_refuted", "proof_kernel"
+    elif len(valid_challengers) > 1:
+        reason, layer = "multiple_valid_candidates", "proof_kernel"
+    elif not valid_challengers:
+        reason, layer = "no_valid_challenger", "proof_kernel"
+    else:
+        winner = valid_challengers[0]
+        other_challengers = [
+            result
+            for public, result in candidate_results.items()
+            if public not in {anchor_public, winner}
+        ]
+        if all(result.status == "INVALID" for result in other_challengers):
+            return KernelDecision(
+                anchor_public,
+                winner,
+                required,
+                required,
+                (f"unary:{winner}",),
+                "OVERRIDE",
+                "none",
+                "unique_exact_candidate",
+                diagnostics,
+            )
+        reason, layer = "challenger_verdicts_incomplete", "adapter"
+    return KernelDecision(anchor_public, None, required, required, (), "ABSTAIN", layer, reason, diagnostics)
 
 
 def kernel_decision_to_decode(

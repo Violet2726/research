@@ -1,7 +1,8 @@
-name = "catch_kernel_d1"
-description = "CATCH-Kernel D1 with typed obligations, verifier jurisdictions, and proof-carrying overrides."
+name = "catch_kernel_d2"
+description = "CATCH-Kernel D2: unary exact candidate verification with conservative compiler jurisdiction."
 study_type = "catch_kernel_cross_domain"
 confirmatory = false
+kernel_revision = "d2_unary_exact_v1"
 benchmark_configs = [
   "configs/core/shared/benchmarks/bbeh/bbeh-main.toml",
   "configs/core/shared/benchmarks/musr/all.toml",
@@ -15,14 +16,14 @@ max_concurrent_requests = 75
 requests_per_minute_limit = 95
 
 [cache_namespaces]
-development = "catch-dev-kernel_d1_v3"
-heldout = "catch-heldout-kernel_d1_v3"
-confirmation = "catch-confirm-kernel_d1_v3"
+development = "catch-dev-kernel_d2_v1"
+heldout = "catch-heldout-kernel_d2_v1"
+confirmation = "catch-confirm-kernel_d2_v1"
 
 [baseline_cache_namespaces]
-development = "catch-dev-cert_v2,catch-dev-cert_v1"
-heldout = "catch-heldout-cert_v2,catch-heldout-cert_v1"
-confirmation = "catch-confirm-cert_v2,catch-confirm-cert_v1"
+development = "catch-dev-kernel_d1_v3,catch-dev-cert_v2,catch-dev-cert_v1"
+heldout = "catch-heldout-kernel_d1_v3,catch-heldout-cert_v2,catch-heldout-cert_v1"
+confirmation = "catch-confirm-kernel_d1_v3,catch-confirm-cert_v2,catch-confirm-cert_v1"
 
 [phases.development]
 benchmark_slugs = ["bbeh", "musr", "seqbench", "gpqa_diamond"]
@@ -31,13 +32,11 @@ screening_sample_count = 200
 disagreement_sample_count = 60
 run_direct_judge = true
 
-# This phase is development evidence because the split has already been inspected.
 [phases.heldout]
 benchmark_slugs = ["bbeh", "musr", "seqbench"]
 split_overrides = { bbeh = "catch_cert_holdout200_seed42", musr = "catch_cert_holdout200_seed42", seqbench = "catch_cert_holdout200_seed42" }
 run_direct_judge = true
 
-# D1 records the selected-ID hashes; D2 must copy them into expected_selection_sha256 before confirmation.
 [phases.confirmation]
 benchmark_slugs = ["bbeh", "musr", "seqbench"]
 split_overrides = { bbeh = "full4520_seed42", musr = "full756_seed42", seqbench = "full7079_seed42" }

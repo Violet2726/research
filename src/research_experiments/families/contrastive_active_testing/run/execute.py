@@ -45,6 +45,7 @@ from research_experiments.families.contrastive_active_testing.config import (
 from research_experiments.families.contrastive_active_testing.icv import build_target_pairs
 from research_experiments.families.contrastive_active_testing.kernel import (
     KERNEL_CAPABILITY_VERSION,
+    KERNEL_D2_DECODER_VERSION,
     KERNEL_DECODER_VERSION,
     KERNEL_SCHEMA_VERSION,
     KERNEL_SEMANTICS_VERSION,
@@ -182,6 +183,7 @@ def run_experiment(
                 run_id="built_in_fixed_protocol",
                 config_sha=config_sha,
                 protocol_version=protocol.protocol_version,
+                kernel_revision=str(experiment.raw.get("kernel_revision") or "d1_pairwise_v1"),
             )
             frozen_decoding["source"] = (
                 "built_in_fixed_v3_decoder"
@@ -396,6 +398,11 @@ def run_experiment(
             ),
             "method_version": protocol.protocol_version,
             "protocol_version": protocol.protocol_version,
+            "kernel_revision": (
+                str(experiment.raw.get("kernel_revision") or "d1_pairwise_v1")
+                if protocol.protocol_version == "catch_kernel_v1"
+                else None
+            ),
             "experiment_name": experiment.name,
             "phase_name": phase_name,
             "run_mode": run_mode,
@@ -1524,13 +1531,17 @@ def _validate_kernel_freeze(
 
 
 def _kernel_freeze_metadata(experiment, *, protocol, phase: dict[str, Any]) -> dict[str, Any]:
+    kernel_revision = str(experiment.raw.get("kernel_revision") or "d1_pairwise_v1")
     return {
         "protocol_version": protocol.protocol_version,
         "prompt_version": KERNEL_PROMPT_VERSION,
         "schema_version_runtime": KERNEL_SCHEMA_VERSION,
         "semantics_version": KERNEL_SEMANTICS_VERSION,
         "capability_version": KERNEL_CAPABILITY_VERSION,
-        "decoder_version": KERNEL_DECODER_VERSION,
+        "decoder_version": (
+            KERNEL_D2_DECODER_VERSION if kernel_revision == "d2_unary_exact_v1" else KERNEL_DECODER_VERSION
+        ),
+        "kernel_revision": kernel_revision,
         "primary_model_ref": experiment.primary_model_ref,
         "global_seed": experiment.global_seed,
         "cache_namespaces": dict(experiment.cache_namespaces),
@@ -1647,6 +1658,7 @@ def _frozen_config_sha(
     is_cert_v1 = protocol_version == "catch_cert_v1"
     is_cert_v2 = protocol_version == "catch_cert_v2"
     is_kernel = protocol_version == "catch_kernel_v1"
+    kernel_revision = str(experiment.raw.get("kernel_revision") or "d1_pairwise_v1")
     payload = {
         "experiment": experiment.raw,
         "protocol": Path(experiment.protocol).read_text(encoding="utf-8"),
@@ -1669,7 +1681,9 @@ def _frozen_config_sha(
             else CATCH_SCHEMA_VERSION
         ),
         "decoder_version": (
-            KERNEL_DECODER_VERSION
+            KERNEL_D2_DECODER_VERSION
+            if is_kernel and kernel_revision == "d2_unary_exact_v1"
+            else KERNEL_DECODER_VERSION
             if is_kernel
             else "catch_answer_linked_obligation_decoder_v2"
             if is_cert_v2
@@ -1785,6 +1799,7 @@ def _build_frozen_protocol_candidate(
     run_id: str,
     config_sha: str,
     protocol_version: str = "catch_v3",
+    kernel_revision: str = "d1_pairwise_v1",
 ) -> dict[str, Any]:
     """Create an immutable fixed-protocol candidate; no dev grid is selected."""
 
@@ -1840,7 +1855,9 @@ def _build_frozen_protocol_candidate(
             else CATCH_SCHEMA_VERSION
         ),
         "decoder_version": (
-            KERNEL_DECODER_VERSION
+            KERNEL_D2_DECODER_VERSION
+            if is_kernel and kernel_revision == "d2_unary_exact_v1"
+            else KERNEL_DECODER_VERSION
             if is_kernel
             else "catch_answer_linked_obligation_decoder_v2"
             if is_cert_v2

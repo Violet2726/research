@@ -95,6 +95,7 @@ from research_experiments.families.contrastive_active_testing.kernel import (
     compile_answer_obligation_graph,
     compile_local_certificate_bank,
     compile_typed_obligations,
+    decide_with_unary_proof_kernel,
     decide_with_proof_kernel,
     kernel_decision_to_decode,
     kernel_decision_to_dict,
@@ -106,7 +107,11 @@ from research_experiments.families.contrastive_active_testing.kernel import (
     validate_kernel_certificate_bank,
     verifier_binding_to_dict,
 )
-from research_experiments.families.contrastive_active_testing.kernel_adapters import run_kernel_adapters
+from research_experiments.families.contrastive_active_testing.kernel_adapters import (
+    candidate_adapter_result_to_dict,
+    run_kernel_adapters,
+    run_kernel_unary_adapters,
+)
 from research_experiments.families.contrastive_active_testing.kernel_prompts import (
     build_kernel_designer_messages,
     build_kernel_verifier_messages,
@@ -1506,6 +1511,7 @@ def run_catch_cert_v2_sample(
     """Execute frozen Cert-v2 or jurisdiction-aware CATCH-Kernel."""
 
     kernel_mode = protocol.protocol_version == "catch_kernel_v1"
+    kernel_d2_mode = kernel_mode and str(getattr(experiment, "raw", {}).get("kernel_revision") or "") == "d2_unary_exact_v1"
     primary_method = "catch_kernel" if kernel_mode else "catch_cert_v2"
     designer_role = "kernel_obligation_filler" if kernel_mode else "certificate_designer_v2"
     verifier_role = "kernel_atomic_verifier" if kernel_mode else "certificate_verifier_v2"
@@ -1568,6 +1574,7 @@ def run_catch_cert_v2_sample(
     obligation_graph = None
     verifier_bindings = {}
     proof_results = ()
+    unary_results = {}
     kernel_decision: KernelDecision | None = None
     decision = DecodeDecision(
         stage.anchor_answer,
@@ -1681,6 +1688,12 @@ def run_catch_cert_v2_sample(
                 answer_nodes=answer_nodes,
                 pairs=pairs,
             )
+            if kernel_d2_mode:
+                unary_results = run_kernel_unary_adapters(
+                    sample,
+                    tests=executable_tests,
+                    answer_nodes=answer_nodes,
+                )
         else:
             adapter_results = run_deterministic_adapters_v2(
                 sample,
@@ -1826,6 +1839,12 @@ def run_catch_cert_v2_sample(
                     public_to_key=public_to_key,
                     obligations=typed_obligations,
                     proofs=proof_results,
+                ) if not kernel_d2_mode else decide_with_unary_proof_kernel(
+                    stage,
+                    semantics=semantics,
+                    validation=validation,
+                    public_to_key=public_to_key,
+                    candidate_results=unary_results,
                 )
                 decision = kernel_decision_to_decode(stage, kernel_decision, public_to_key=public_to_key)
             else:
@@ -1931,6 +1950,9 @@ def run_catch_cert_v2_sample(
         "gold_candidate_keys": list(gold_candidate_keys),
         "target_candidate_count": len(target_keys),
         "protocol_version": protocol.protocol_version,
+        "kernel_revision": str(getattr(experiment, "raw", {}).get("kernel_revision") or "d1_pairwise_v1")
+        if kernel_mode
+        else None,
         "task_family": contract.family,
         "query_operator": contract.query_operator,
         "adapter_kind": contract.adapter_kind,
@@ -2055,6 +2077,9 @@ def run_catch_cert_v2_sample(
                     item.execution_status == "INVALID" for item in adapter_results.values()
                 ),
                 "kernel_failure_layer": kernel_decision.failure_layer if kernel_decision else None,
+                "unary_valid_candidate_count": sum(item.status == "VALID" for item in unary_results.values()),
+                "unary_invalid_candidate_count": sum(item.status == "INVALID" for item in unary_results.values()),
+                "unary_unsupported_candidate_count": sum(item.status == "UNSUPPORTED" for item in unary_results.values()),
             },
         ),
     ]
@@ -2113,6 +2138,9 @@ def run_catch_cert_v2_sample(
         "audit_source_question": question_without_answer_contract(sample),
         "phase_name": phase_name,
         "protocol_version": protocol.protocol_version,
+        "kernel_revision": str(getattr(experiment, "raw", {}).get("kernel_revision") or "d1_pairwise_v1")
+        if kernel_mode
+        else None,
         "triggered": stage.triggered,
         "valid_stage_answers": stage.valid_count,
         "anchor_answer": stage.anchor_answer,
@@ -2134,6 +2162,7 @@ def run_catch_cert_v2_sample(
         "certificates": [certificate_v2_to_dict(item) for item in validation.certificates],
         "certificate_tests": [certificate_test_v2_to_dict(item) for item in validation.tests],
         "adapter_results": {key: adapter_result_to_dict(value) for key, value in adapter_results.items()},
+        "unary_adapter_results": {key: candidate_adapter_result_to_dict(value) for key, value in unary_results.items()},
         "eligible_challengers": list(validation.eligible_challengers),
         "answer_link_coverage": validation.answer_link_coverage,
         "obligation_coverage": validation.obligation_coverage,

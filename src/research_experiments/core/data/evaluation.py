@@ -429,26 +429,26 @@ def _execute_seqbench_actions(
     open_doors: set[frozenset[str]] = set()
     locked_doors: dict[frozenset[str], str] = {}
     for left, right in re.findall(
-        r"Room\s+([A-Z][0-9]+)\s+and\s+([A-Z][0-9]+)\s+are connected by an open door",
+        r"Room\s+([A-Z]+[0-9]+)\s+and\s+([A-Z]+[0-9]+)\s+are connected by an open door",
         context,
         flags=re.IGNORECASE,
     ):
         open_doors.add(frozenset((left.upper(), right.upper())))
     for left, right in re.findall(
-        r"Room\s+([A-Z][0-9]+)\s+and\s+([A-Z][0-9]+)\s+are connected by a closed and locked door",
+        r"Room\s+([A-Z]+[0-9]+)\s+and\s+([A-Z]+[0-9]+)\s+are connected by a closed and locked door",
         context,
         flags=re.IGNORECASE,
     ):
         locked_doors[frozenset((left.upper(), right.upper()))] = ""
     for left, right, key in re.findall(
-        r"(?:The )?locked door between\s+([A-Z][0-9]+)\s+and\s+([A-Z][0-9]+)\s+requires key\s+([0-9]+)",
+        r"(?:The )?locked door between\s+([A-Z]+[0-9]+)\s+and\s+([A-Z]+[0-9]+)\s+requires key\s+([0-9]+)",
         context,
         flags=re.IGNORECASE,
     ):
         locked_doors[frozenset((left.upper(), right.upper()))] = key
     key_locations = {
         key: room.upper()
-        for key, room in re.findall(r"Key\s+([0-9]+)\s+is in room\s+([A-Z][0-9]+)", context, flags=re.IGNORECASE)
+        for key, room in re.findall(r"Key\s+([0-9]+)\s+is in room\s+([A-Z]+[0-9]+)", context, flags=re.IGNORECASE)
     }
     metadata = sample.metadata.get("seqbench_instance_metadata")
     metadata = metadata if isinstance(metadata, dict) else {}
@@ -456,7 +456,7 @@ def _execute_seqbench_actions(
     target_name = str(metadata.get("target_name") or "Alice")
     positions = {
         name: room.upper()
-        for name, room in re.findall(r"([A-Za-z][A-Za-z0-9_-]*)\s+is in room\s+([A-Z][0-9]+)", context)
+        for name, room in re.findall(r"([A-Za-z][A-Za-z0-9_-]*)\s+is in room\s+([A-Z]+[0-9]+)", context)
     }
     start_room = positions.get(agent_name)
     target_room = positions.get(target_name)
