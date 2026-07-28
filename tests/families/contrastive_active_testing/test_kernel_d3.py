@@ -15,6 +15,7 @@ from research_experiments.families.contrastive_active_testing.kernel_d3 import (
     D3_IR_SCHEMA,
     D3_IR_VERSION,
     _safe_numeric_value,
+    canonical_numeric_expression,
     capability_registry,
     evaluate_candidate,
     parse_source_ir,
@@ -302,9 +303,10 @@ def test_d3_route_variants_keep_abstentions_in_denominator(monkeypatch) -> None:
         global_seed=42,
         raw={
             "kernel_revision": "d3_source_blind_v1",
-            "d3_risk": {
-                "semantic_override_enabled": False,
-                "semantic_precision_gate_passed": False,
+                "d3_risk": {
+                    "semantic_override_enabled": False,
+                    "semantic_shadow_enabled": True,
+                    "semantic_precision_gate_passed": False,
                 "semantic_metamorphic_suite_passed": False,
                 "semantic_human_audit_passed": False,
             },
@@ -391,6 +393,19 @@ def test_d3_soft_route_is_explicit_for_unsupported_task() -> None:
     sample = DatasetSample("musr", "d3-soft", "Narrative", "A|||x", "(A) x\n(B) y", {"task": "murder_mysteries"})
     route = route_for_sample(sample)
     assert route.route == "SOFT_UNSUPPORTED"
+
+
+def test_d3_multistep_arithmetic_remains_soft_until_typed_ast_adapter_exists() -> None:
+    sample = DatasetSample("bbeh", "d3-multistep", "custom operators", "4", "", {"task": "multistep_arithmetic"})
+    route = route_for_sample(sample)
+    assert route.route == "SOFT_UNSUPPORTED"
+    assert route.reason == "semantic_ast_adapter_unregistered"
+
+
+def test_d3_numeric_expression_canonicalization_preserves_provenance_boundary() -> None:
+    assert canonical_numeric_expression("(1 + n*v) / (n+v)") == canonical_numeric_expression("(1+n*v)/(n+v)")
+    assert canonical_numeric_expression("2^3") == canonical_numeric_expression("2 ** 3")
+    assert _safe_numeric_value("A + B - C") == (None, "numeric_expression_symbol_unsupported")
 
 
 def test_d3_capability_registry_is_frozen_and_candidate_independent() -> None:

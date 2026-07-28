@@ -38,17 +38,17 @@
     "src/research_experiments/families/contrastive_active_testing/icv.py": "d36b2a9f4e435e952f65ebc7b4daedd197005e303f1c6d05822a2c68ee11c73d",
     "src/research_experiments/families/contrastive_active_testing/kernel.py": "ac231c9e810b0a0be3d44b8bc717f320a9f558ebe0a262c9963310f0965c37d2",
     "src/research_experiments/families/contrastive_active_testing/kernel_adapters.py": "f598db3786284d93f4ba21acc7508d590435566a0d13efdc86bd4b17e7528737",
-    "src/research_experiments/families/contrastive_active_testing/kernel_d3.py": "54e72f1caf610427329743c4bfabe3d60ad3dd7d8d9f70e0e3a673fbdcc83a6e",
+    "src/research_experiments/families/contrastive_active_testing/kernel_d3.py": "d756f8c5ce39817fdedabe4c3bc1e92f6c47b796c4b2db2c80b4b8a7080f302c",
     "src/research_experiments/families/contrastive_active_testing/kernel_mechanism.py": "5da685a0da57193325912445ab1e9ece5733d38525e783a857a85ebf9382f89e",
     "src/research_experiments/families/contrastive_active_testing/kernel_prompts.py": "493a71a0a6f4969f318b00aaf7cb5c04ead1b2c96954ac1c098796e210ad809b",
     "src/research_experiments/families/contrastive_active_testing/prompts.py": "10adbfc68c74f0a377aca15724fed41693d8f5d5411861b098e696ca1058442d",
     "src/research_experiments/families/contrastive_active_testing/replay.py": "5cba3f9f376569d1dd505296395231eae7d0a3101b453442b6e85e592a94dc1b",
-    "src/research_experiments/families/contrastive_active_testing/run/execute.py": "ff7a0b9f26d1fcfae782e96a69e1138497fa0d1e1e700b089efe205eded4655c",
+    "src/research_experiments/families/contrastive_active_testing/run/execute.py": "2ba58f7b90f29267c9baeb8777d5944ed71cd2a90a36bc520c560446d91adf9c",
     "src/research_experiments/families/contrastive_active_testing/run/preflight.py": "0aa454de0b0e132262976128d2b45d7a6963830ba7338825e90645e5bae54bf6",
-    "src/research_experiments/families/contrastive_active_testing/run/report.py": "ce12dd682646f0e4e7be6a3176b7d9005f6766843a10209cd4d295029f5865b4",
-    "src/research_experiments/families/contrastive_active_testing/run/sample.py": "e112dfd4903fce8f122708526fb8637f5e496f3df1683cf1c7cc6414945412d6",
+    "src/research_experiments/families/contrastive_active_testing/run/report.py": "0b4b085ded572b007a081f4b67188f91a18db7c251f1c86e7245297e5f666860",
+    "src/research_experiments/families/contrastive_active_testing/run/sample.py": "9cfc6d6bdeac39785a596b885543cc0c5c06c32c61b61d565e6319f9c7d83a5b",
     "src/research_experiments/families/contrastive_active_testing/run/validate.py": "4ae3c94c989e37131de608499ec2c29c14d2c7587ed34ca90936e20dcc016a44",
-    "src/research_experiments/families/contrastive_active_testing/statistics.py": "2a8ddaae440ef6df0e287f6da1f268c64b6ab0c23fee43d9e514088cb956b3b6",
+    "src/research_experiments/families/contrastive_active_testing/statistics.py": "e70fc25b435e64c7007c03d9a289d42fc4f384717f3e9e7e337263610b51debf",
     "src/research_experiments/family_runtime/free_text_protocol.py": "16a245e7c1e28a28db0a142ee77a1baf352903813d3e417469248d76062fc166",
     "src/research_experiments/family_runtime/output_protocols.py": "4b7a86694ba48e4e587c6870327ac47c3726e062c4caf54da62622ceb8a77203",
     "src/research_experiments/reporting/paired_inference.py": "6a2aeeb52d2855c45bbb347d86a50c06b1575e65a6f4e652ac583ebbdebfe3bc"
@@ -653,7 +653,9 @@
       ],
       "sha256": "5f507a66e4ca6405bbef7beb84c98d8f2f51f26bdcd8ff6216541e10ac9203e2",
       "stratum_counts": {
-        "all": 100
+        "Biology": 8,
+        "Chemistry": 52,
+        "Physics": 40
       }
     },
     "musr": {
@@ -1043,19 +1045,19 @@
     "sc_5",
     "adaptive_sc_8",
     "fixed_sc_8",
-    "direct_judge_3",
-    "pair_judge_3",
     "catch_kernel"
   ],
-  "d3_capability_registry_version": "catch_d3_capability_registry_v1",
+  "d3_capability_registry_version": "catch_d3_capability_registry_v2",
   "d3_risk": {
     "semantic_override_enabled": false,
+    "semantic_shadow_enabled": false,
     "soft_auditor_enabled": false,
+    "soft_fallback": "stage_a_anchor",
     "required_one_sided_precision_lower_bound": 0.5,
     "semantic_precision_gate_passed": false,
     "semantic_metamorphic_suite_passed": false,
     "semantic_human_audit_passed": false
   },
   "evaluation_role": "independent_unseen_mechanism_confirmation",
-  "sha256": "810f909a63baf34e7ed8275b4fffa2b4adf8536565dddd3f760067d2c264aaa6"
+  "sha256": "244f0f24cd800f1830d0c9e033d6fb7d91ef5b1a350e071f4cca8b1fd9adc354"
 }

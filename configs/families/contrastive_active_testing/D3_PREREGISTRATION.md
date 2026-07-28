@@ -9,9 +9,11 @@ D3 检验的是：在同一 MiMo-v2.5 backbone、共享 Stage-A cache、每个�
 1. 每题先运行 5 次 Stage-A；确定性 capability registry 选择 `EXACT_EXECUTABLE`、`SEMANTIC_COMPILABLE` 或 `SOFT_UNSUPPORTED`，不跨 jurisdiction fallback。
 2. Exact route 只使用 source-only parser 和本地 solver；候选验证在 solver 之后，`solver_direct` 与 `candidate_completion` 分开记录。
 3. Semantic route 最多 3 次 candidate-blind compiler 调用；IR 必须闭合、span 完整、canonical IR 一致、reference checker 通过，否则保留 anchor。默认 semantic override 关闭。
-4. Soft route 不做 generic self-judge；使用固定 SC8 与 adaptive-SC8 作为基线，保留多数答案。
+4. Soft route 不做 generic self-judge，也不把额外 resample 当作 D3 干预；冻结默认 `soft_fallback = "stage_a_anchor"`，直接保留 Stage-A anchor。fixed-SC8 与 adaptive-SC8 只作为独立 comparator，不进入 D3 主方法。
 
 DirectJudge-3、PairJudge-3、fixed-SC8 和 adaptive-SC8 与 D3 共用 Stage-A 结果，但各自的实际方法成本均不得超过 8 次调用。运行器可以在同一批次中物理收集 comparator rows；统计时按方法分别计费。
+
+独立 confirmation 的必需 paired comparators 为 SC5、fixed-SC8、adaptive-SC8 和 D3。fixed/adaptive-SC8 共用三次 resample，因而不额外重复采样。DirectJudge-3、PairJudge-3 只保留为开发阶段的负对照：它们在 count100 已呈净 harm，故不在 916 题确认集中再消耗每题六次额外调用。
 
 ## 数据角色
 
@@ -23,7 +25,7 @@ BBEH Mini 主指标为 micro accuracy；只有完整 BBEH Full 才使用官方 a
 
 ## 启用门槛
 
-Exact route 在 source parser、unique solver、canonicalization 通过时启用。Semantic route 只有在开发集 route-specific precision 单侧95%下界 > 0.5、metamorphic audit 和至少60个 IR 双人盲审通过后，才允许将 `semantic_override_enabled` 从 false 改为 true；当前配置保持 false。Soft auditor 同样默认关闭。
+Exact route 在 source parser、unique solver、canonicalization 通过时启用；候选池外的答案只能走 `candidate_completion`，不能由 Stage-A 触发。Semantic route 只有在开发集 route-specific precision 单侧95%下界 > 0.5、metamorphic audit 和至少60个 IR 双人盲审通过后，才允许将 `semantic_override_enabled` 从 false 改为 true；当前配置保持 false，且 semantic shadow 也关闭。Soft auditor 同样默认关闭。
 
 ## 必报审计
 

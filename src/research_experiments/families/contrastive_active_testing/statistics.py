@@ -651,14 +651,21 @@ def _summary(method: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
         for row in rows
         if method in {"catch_cert", "catch_cert_v2", "catch_kernel"} or row.get("certificate_count") is not None
     ]
+    # A D3 soft-route resample is not a verifier decision.  Keep the legacy
+    # fields for older protocols, but restrict them to rows with an actual
+    # unique certificate so soft-route harms are not mislabeled as verifier
+    # false-passes.
+    certified_rows = [
+        row for row in certificate_rows if float(row.get("certificate_coverage") or 0) > 0
+    ]
     verifier_false_pass = sum(
-        bool(row.get("override_accepted")) and float(row.get("score") or 0) < 1.0 for row in certificate_rows
+        bool(row.get("override_accepted")) and float(row.get("score") or 0) < 1.0 for row in certified_rows
     )
     verifier_false_reject = sum(
         bool(row.get("target_oracle_correct"))
         and float(row.get("initial_vote_score") or 0) < 1.0
         and not bool(row.get("override_accepted"))
-        for row in certificate_rows
+        for row in certified_rows
     )
     abstentions = sum(
         bool(row.get("certificate_abstained"))
@@ -744,6 +751,14 @@ def _summary(method: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
         "d3_harm_rate_one_sided_95_upper": _clopper_pearson_upper(
             d3_harms, len(d3_overrides), alpha=0.05
         ) if d3_overrides else None,
+        "d3_jurisdiction_abstention_rate": _ratio(
+            sum(
+                str(row.get("d3_route") or "") == "SOFT_UNSUPPORTED"
+                and not bool(row.get("override_accepted"))
+                for row in rows
+            ),
+            len(rows),
+        ),
         "micro_accuracy": _ratio(sum(scores), len(scores)),
         "accuracy_wilson_95": [accuracy_wilson[0], accuracy_wilson[1]],
         "macro_task_accuracy": _ratio(sum(task_accuracies.values()), len(task_accuracies)),
@@ -779,18 +794,34 @@ def _summary(method: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
             len(certificate_rows),
         ),
         "certificate_utilization": _ratio(
-            sum(bool(row.get("override_accepted")) for row in certificate_rows),
-            sum(float(row.get("certificate_coverage") or 0) > 0 for row in certificate_rows),
+            sum(bool(row.get("override_accepted")) for row in certified_rows),
+            len(certified_rows),
         ),
         "verifier_false_pass": verifier_false_pass,
         "verifier_false_reject": verifier_false_reject,
         "abstention_rate": _ratio(abstentions, len(certificate_rows)),
+        # Candidate-pool headroom excludes solver completions whose answer
+        # was absent from Stage-A.  Those recoveries are reported separately,
+        # otherwise candidate completion can make utilization exceed 100%.
         "headroom_utilization": _ratio(
-            transitions["wrong_to_correct"] - transitions["correct_to_wrong"],
             sum(
-                bool(row.get("target_oracle_correct")) and float(row.get("initial_vote_score") or 0) < 1.0
+                bool(row.get("corrected_by_debate"))
+                and bool(row.get("candidate_oracle_correct"))
+                for row in rows
+            )
+            - sum(
+                bool(row.get("harmed_by_debate"))
+                and bool(row.get("candidate_oracle_correct"))
                 for row in rows
             ),
+            sum(
+                bool(row.get("candidate_oracle_correct"))
+                and float(row.get("initial_vote_score") or 0) < 1.0
+                for row in rows
+            ),
+        ),
+        "candidate_completion_correction_count": sum(
+            bool(row.get("d3_candidate_completion")) and bool(row.get("corrected_by_debate")) for row in rows
         ),
         "answer_link_coverage": _ratio(
             sum(float(row.get("answer_link_coverage") or 0) for row in certificate_rows),

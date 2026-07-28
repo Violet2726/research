@@ -115,6 +115,7 @@ from research_experiments.families.contrastive_active_testing.kernel_adapters im
 from research_experiments.families.contrastive_active_testing.kernel_d3 import (
     D3_CAPABILITY_REGISTRY_VERSION,
     D3_IR_SCHEMA,
+    RouteDecision,
     SolverCertificate,
     SourceIR,
     answer_schema_for_sample,
@@ -1575,7 +1576,14 @@ def run_catch_kernel_d3_sample(
             raise ValueError("D3 precomputed Stage-A rows do not match the configured candidate count.")
 
     stage = build_stage_decision(stage_rows, seed=experiment.global_seed, sample_id=sample.sample_id)
+    risk_config = dict(getattr(experiment, "raw", {}).get("d3_risk") or {})
     route = route_for_sample(sample)
+    # Semantic compilation remains an explicit shadow experiment until the
+    # source compiler passes its independent IR and metamorphic audit.  The
+    # production D3 route therefore fails closed at the jurisdiction boundary
+    # unless a config explicitly opts into shadow collection.
+    if route.route == "SEMANTIC_COMPILABLE" and not bool(risk_config.get("semantic_shadow_enabled", False)):
+        route = RouteDecision("SOFT_UNSUPPORTED", "none", "semantic_shadow_disabled_until_audit")
     source_graph = build_source_span_graph(sample)
     source_ir: SourceIR | None = None
     certificate = None
@@ -1663,7 +1671,6 @@ def run_catch_kernel_d3_sample(
     solver_answer = certificate.canonical_answer if certificate is not None else None
     certificate_unique = bool(certificate is not None and certificate.status == "UNIQUE" and solver_answer)
     candidate_present = any(item.status == "VALID" for item in evaluations)
-    risk_config = dict(getattr(experiment, "raw", {}).get("d3_risk") or {})
     semantic_override_enabled = bool(risk_config.get("semantic_override_enabled", False))
     semantic_gate_passed = all(
         bool(risk_config.get(field, False))
@@ -1691,9 +1698,17 @@ def run_catch_kernel_d3_sample(
         resolver = "d3_semantic_shadow"
         override = False
     elif route.route == "SOFT_UNSUPPORTED":
-        final_answer = fixed_answer
-        resolver = "d3_soft_fixed_sc8"
-        override = bool(fixed_answer != stage.anchor_answer)
+        soft_fallback = str(risk_config.get("soft_fallback") or "stage_a_anchor")
+        if soft_fallback == "stage_a_anchor":
+            final_answer = stage.anchor_answer
+            resolver = "d3_soft_anchor"
+            override = False
+        elif soft_fallback in {"adaptive_sc_8", "fixed_sc_8"}:
+            final_answer = fixed_answer
+            resolver = f"d3_soft_{soft_fallback}"
+            override = bool(fixed_answer != stage.anchor_answer)
+        else:
+            raise ValueError(f"Unsupported D3 soft_fallback: {soft_fallback!r}")
     else:
         final_answer = stage.anchor_answer
         resolver = "d3_abstain"
@@ -1701,11 +1716,12 @@ def run_catch_kernel_d3_sample(
 
     candidate_oracle = any(_score(sample, candidate.answer) == 1.0 for candidate in stage.candidates)
     gold_keys = tuple(candidate.key for candidate in stage.candidates if _score(sample, candidate.answer) == 1.0)
+    soft_fallback = str(risk_config.get("soft_fallback") or "stage_a_anchor")
     interventions = (
         compiler_rows
         if route.route == "SEMANTIC_COMPILABLE"
         else resample_rows
-        if route.route == "SOFT_UNSUPPORTED"
+        if route.route == "SOFT_UNSUPPORTED" and soft_fallback in {"adaptive_sc_8", "fixed_sc_8"}
         else []
     )
     direct_rows: list[dict[str, Any]] = []
@@ -1831,6 +1847,7 @@ def run_catch_kernel_d3_sample(
         },
         "gold_candidate_keys": list(gold_keys),
         "gold_candidate_key": gold_keys[0] if gold_keys else None,
+        "stage_candidate_oracle_correct": candidate_oracle,
         "target_oracle_correct": candidate_oracle,
         "target_candidate_count": len(stage.candidates),
         "task_family": str(sample.metadata.get("task") or ""),
@@ -1892,16 +1909,56 @@ def run_catch_kernel_d3_sample(
                     if source_ir is not None else 0.0
                 ),
                 "typed_compilation_validity": float(source_ir is not None),
-                "semantic_validity": (
-                    None if route.route != "EXACT_EXECUTABLE" else float(certificate is not None and certificate.status == "UNIQUE")
-                ),
+                # A local parser/solver certificate is conditional on its
+                # source-to-IR interpretation; without the required human
+                # semantic audit it is not a semantic-validity estimate.
+                "semantic_validity": None,
                 "verifier_jurisdiction_coverage": float(route.route != "SOFT_UNSUPPORTED"),
                 "proof_completeness": float(certificate is not None and certificate.status == "UNIQUE"),
                 "override_reason": resolver,
-                "intervention_call_budget_per_question": 0 if route.route == "EXACT_EXECUTABLE" else 3,
+                "intervention_call_budget_per_question": (
+                    0
+                    if route.route == "EXACT_EXECUTABLE" or (route.route == "SOFT_UNSUPPORTED" and not interventions)
+                    else 3
+                ),
             },
         ),
     ]
+
+    # Full-run, post-hoc ablation: allow only the executable exact route to
+    # override and keep the Stage-A anchor everywhere else.  This is useful
+    # for deciding the next frozen protocol without mixing semantic shadow or
+    # soft resampling into the same estimate.
+    exact_only_answer = solver_answer if route.route == "EXACT_EXECUTABLE" and certificate_unique else stage.anchor_answer
+    exact_only_override = bool(
+        route.route == "EXACT_EXECUTABLE" and certificate_unique and exact_only_answer != stage.anchor_answer
+    )
+    predictions.append(
+        _prediction(
+            sample,
+            run_id,
+            split_name,
+            "catch_d3_exact_only_ablation",
+            exact_only_answer,
+            stage.anchor_answer,
+            stage,
+            stage_rows,
+            [],
+            exact_only_override,
+            "d3_exact_only_solver" if exact_only_override else "d3_exact_only_anchor",
+            candidate_oracle,
+            extra={
+                **common_extra,
+                "d3_variant": "catch_d3_exact_only_ablation",
+                "experimental_only": True,
+                "certificate_count": int(route.route == "EXACT_EXECUTABLE" and certificate_unique),
+                "certificate_coverage": float(route.route == "EXACT_EXECUTABLE" and certificate_unique),
+                "certificate_abstained": route.route != "EXACT_EXECUTABLE" or not certificate_unique,
+                "solver_status": certificate.status if certificate is not None else "UNSUPPORTED",
+                "intervention_call_budget_per_question": 0,
+            },
+        )
+    )
     variant_rows = [*stage_rows, *compiler_rows]
     variant_interventions = compiler_rows
     if route.route == "EXACT_EXECUTABLE":
@@ -3050,6 +3107,8 @@ def _prediction(
         "split": split_name,
         "sample_id": sample.sample_id,
         "task": sample.metadata.get("task"),
+        "high_level_domain": sample.metadata.get("high_level_domain"),
+        "subdomain": sample.metadata.get("subdomain"),
         "method_name": method_name,
         "prediction": prediction,
         "gold": sample.reference_answer,

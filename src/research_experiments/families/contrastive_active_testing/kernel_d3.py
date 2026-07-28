@@ -33,7 +33,11 @@ from research_experiments.families.contrastive_active_testing.kernel_adapters im
 D3_IR_SCHEMA = "catch_d3_source_ir_v1"
 D3_IR_VERSION = "1"
 D3_SOLVER_VERSION = "catch_d3_safe_numeric_v1"
-D3_CAPABILITY_REGISTRY_VERSION = "catch_d3_capability_registry_v1"
+# Bump the registry identity after the D3 development audit: multistep
+# arithmetic is explicitly withdrawn from semantic routing and soft routes
+# now keep the Stage-A anchor by default.  This prevents confirmation
+# artifacts from being confused with the earlier development policy.
+D3_CAPABILITY_REGISTRY_VERSION = "catch_d3_capability_registry_v2"
 
 Route = Literal["EXACT_EXECUTABLE", "SEMANTIC_COMPILABLE", "SOFT_UNSUPPORTED"]
 CertificateStatus = Literal["UNIQUE", "MULTIPLE", "UNSAT", "UNSUPPORTED"]
@@ -117,10 +121,16 @@ def route_for_sample(sample: DatasetSample) -> RouteDecision:
         if compiled is not None:
             return RouteDecision("EXACT_EXECUTABLE", "grid_path", "frozen_ordered_grid_parser")
         return RouteDecision("SOFT_UNSUPPORTED", "grid_path", error or "grid_parser_unsupported")
-    # A small, explicitly scoped semantic route is enabled only where a
-    # numeric answer can be checked without importing domain knowledge.
+    # BBEH multistep arithmetic uses task-defined operators and recursive
+    # bindings.  The current safe numeric IR cannot represent that language;
+    # keep it outside the executable jurisdiction until a typed AST adapter
+    # and its metamorphic suite exist.
     if sample.dataset == "bbeh" and task == "multistep_arithmetic":
-        return RouteDecision("SEMANTIC_COMPILABLE", "safe_numeric_expression", "numeric_dsl_scope")
+        return RouteDecision("SOFT_UNSUPPORTED", "none", "semantic_ast_adapter_unregistered")
+    # A small, explicitly scoped semantic route is enabled only where a
+    # numeric answer can be checked without importing domain knowledge.  The
+    # execution config may keep this route as a shadow audit, but it is never
+    # an override path before the independent gates pass.
     if sample.dataset == "gpqa_diamond":
         domain = str(sample.metadata.get("high_level_domain") or "").casefold()
         if domain == "physics":
@@ -139,7 +149,6 @@ def capability_registry() -> dict[str, Any]:
             "bbeh.spatial_reasoning": "grid_path_when_local_parser_succeeds",
         },
         "semantic": {
-            "bbeh.multistep_arithmetic": "safe_numeric_expression",
             "gpqa_diamond.Physics": "safe_numeric_expression",
         },
         "soft_default": True,
@@ -382,7 +391,27 @@ def canonical_ir(ir: SourceIR) -> str:
     payload["covered_span_ids"] = sorted(payload["covered_span_ids"])
     payload["uncovered_span_ids"] = sorted(payload["uncovered_span_ids"])
     payload["constraints"] = sorted(payload["constraints"], key=lambda item: json.dumps(item, sort_keys=True, ensure_ascii=False))
+    for constraint in payload["constraints"]:
+        if constraint.get("kind") == "numeric_expression" and isinstance(constraint.get("expression"), str):
+            constraint["expression"] = canonical_numeric_expression(constraint["expression"])
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def canonical_numeric_expression(expression: str) -> str:
+    """Normalize harmless numeric-expression formatting for IR agreement.
+
+    This deliberately does not erase source-span or constraint provenance;
+    those fields remain part of ``canonical_ir``.  It only prevents whitespace,
+    redundant parentheses, and the common ``^`` power spelling from creating a
+    false disagreement.
+    """
+
+    normalized = str(expression).strip().replace("^", "**")
+    try:
+        tree = ast.parse(normalized, mode="eval")
+    except SyntaxError:
+        return re.sub(r"\s+", "", normalized)
+    return ast.dump(tree, annotate_fields=True, include_attributes=False)
 
 
 def source_ir_to_dict(ir: SourceIR) -> dict[str, Any]:
@@ -424,7 +453,7 @@ def _safe_numeric_value(expression: str) -> tuple[float | None, str]:
     allowed_binops = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow, ast.Mod)
     allowed_unaryops = (ast.UAdd, ast.USub)
     try:
-        tree = ast.parse(expression, mode="eval")
+        tree = ast.parse(str(expression).replace("^", "**"), mode="eval")
     except SyntaxError:
         return None, "numeric_expression_syntax_invalid"
     for node in ast.walk(tree):

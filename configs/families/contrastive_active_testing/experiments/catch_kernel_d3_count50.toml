@@ -16,7 +16,9 @@ requests_per_minute_limit = 95
 
 [d3_risk]
 semantic_override_enabled = false
+semantic_shadow_enabled = false
 soft_auditor_enabled = false
+soft_fallback = "stage_a_anchor"
 required_one_sided_precision_lower_bound = 0.5
 semantic_precision_gate_passed = false
 semantic_metamorphic_suite_passed = false
@@ -41,3 +43,9 @@ selection_seed = 42
 run_direct_judge = true
 evaluation_role = "development_count50_adapter_freeze"
 expected_selection_sha256 = { bbeh = "377cb950bdf59bab0de1030ec5d293687e8c8ca8954795f6543d10edc45c17e5", musr = "cfeb8e4f1aaa28bb50acecadaa757b31184d7f3c570e02a9a0cedafea420610a", gpqa_diamond = "fbefa19ceede3aa456ef26db17a186a359b7f1dd775c9a71c487109869799ac8" }
+
+[d3_data_audit]
+official_bbeh_mini_split = "bbeh_mini460_seed42"
+previously_inspected_splits = ["catch_cert_dev200_seed42", "catch_cert_holdout200_seed42"]
+primary_confirmation_role = "development_count50_adapter_freeze"
+official_bbeh_mini_role = "secondary_benchmark_compatibility_only"

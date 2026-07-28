@@ -536,8 +536,7 @@ def run_experiment(
                 else "catch_cert"
                 if protocol.protocol_version == "catch_cert_v1"
                 else "catch",
-                "direct_judge_3",
-                "pair_judge_3",
+                *(["direct_judge_3", "pair_judge_3"] if run_direct_judge else []),
             ],
             "max_network_attempts": protocol.max_network_attempts,
             "network_attempt_limit_mode": "soft_warning",
@@ -1630,6 +1629,8 @@ def _selected_sample_manifest(samples_by_dataset: dict[str, list[Any]], *, phase
                     f"B{int(sample.metadata.get('backtracking_count_B') or 0)}_"
                     f"N{float(sample.metadata.get('noise_ratio_N') or 0):g}"
                 )
+            elif dataset == "gpqa_diamond":
+                key = str(sample.metadata.get("high_level_domain") or "unknown")
             else:
                 key = str(sample.metadata.get("task") or "all")
             strata[key] += 1

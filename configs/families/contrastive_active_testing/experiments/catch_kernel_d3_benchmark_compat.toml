@@ -16,7 +16,9 @@ requests_per_minute_limit = 95
 
 [d3_risk]
 semantic_override_enabled = false
+semantic_shadow_enabled = false
 soft_auditor_enabled = false
+soft_fallback = "stage_a_anchor"
 required_one_sided_precision_lower_bound = 0.5
 semantic_precision_gate_passed = false
 semantic_metamorphic_suite_passed = false

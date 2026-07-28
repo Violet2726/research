@@ -222,6 +222,7 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
                     f"network_calls=`{cert.get('mean_network_calls_per_question')}`",
                     f"- override_precision_one_sided_95_lower: `{cert.get('d3_override_precision_one_sided_95_lower')}`",
                     f"- corrections/harm: `{cert.get('d3_correction_count', 0)}` / `{cert.get('d3_harm_count', 0)}`; harm upper CI: `{cert.get('d3_harm_rate_one_sided_95_upper')}`",
+                    f"- jurisdiction_abstention_rate: `{cert.get('d3_jurisdiction_abstention_rate')}`",
                     "- certificate language: conditional `source/IR -> answer`; not a proof of source-to-gold semantic equivalence.",
                 ]
             )
