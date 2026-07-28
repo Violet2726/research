@@ -51,6 +51,21 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
         "",
     ]
     readiness = manifest.get("readiness_assessment") or {}
+    d3_audit = manifest.get("d3_data_audit") or {}
+    if d3_audit:
+        lines.extend(
+            [
+                "## D3 data-independence audit",
+                "",
+                f"- role: `{d3_audit.get('primary_confirmation_role')}`",
+                f"- official BBEH Mini: `{d3_audit.get('official_mini_count', 0)}`; overlap with inspected: `{d3_audit.get('official_mini_overlap_with_inspected_count', 0)}`",
+                f"- official Mini text-hash overlap with inspected: `{d3_audit.get('official_mini_text_hash_overlap_with_inspected_count', 0)}`",
+                f"- selected BBEH overlap with inspected: `{d3_audit.get('selected_bbeh_inspected_overlap_count', 0)}`",
+                f"- selected BBEH text-hash overlap with inspected: `{d3_audit.get('selected_bbeh_text_hash_overlap_with_inspected_count', 0)}`",
+                f"- selected BBEH overlap with official Mini: `{d3_audit.get('selected_bbeh_official_mini_overlap_count', 0)}`",
+                "",
+            ]
+        )
     if protocol_version == "catch_cert_v2" and manifest.get("phase_name") in {
         "heldout",
         "confirmation",
@@ -115,13 +130,15 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
             if method not in {
                 "sc_5",
                 "adaptive_sc_8",
+                "fixed_sc_8",
+                "solver_direct",
                 "catch",
                 "catch_cert",
                 "catch_cert_v2",
                 "catch_kernel",
                 "direct_judge_3",
                 "pair_judge_3",
-            }:
+            } and not method.startswith("catch_d3_"):
                 continue
             interval = row.get("accuracy_wilson_95") or [0, 0]
             lines.append(
@@ -187,6 +204,34 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
                         f"合法动作率={float(cert.get('seqbench_valid_action_rate') or 0):.4f}，"
                         f"执行前缀比例={float(cert.get('seqbench_execution_prefix_ratio') or 0):.4f}，"
                         f"完成有效率={float(cert.get('seqbench_completion_validity') or 0):.4f}。",
+                    ]
+                )
+        if manifest.get("kernel_revision") == "d3_source_blind_v1":
+            lines.extend(
+                [
+                    "",
+                    "D3 audit:",
+                    f"- primary_metric: `{payload.get('primary_metric') or cert.get('primary_metric')}`",
+                    f"- route_counts: `{json.dumps(cert.get('d3_route_counts') or {}, ensure_ascii=False)}`",
+                    f"- first_failure_counts: `{json.dumps(cert.get('d3_first_failure_counts') or {}, ensure_ascii=False)}`",
+                    f"- route_quality: `{json.dumps(cert.get('d3_route_quality') or {}, ensure_ascii=False)}`",
+                    f"- candidate_completion: `{cert.get('d3_candidate_completion_count', 0)}`; solver_direct: `{cert.get('d3_solver_direct_count', 0)}`",
+                    f"- semantic_shadow: `{cert.get('d3_semantic_shadow_count', 0)}`",
+                    f"- method cost: calls=`{cert.get('mean_calls_per_question')}`, tokens=`{cert.get('mean_total_tokens')}`, "
+                    f"latency_ms=`{cert.get('mean_latency_ms_per_question')}`, cache_hits=`{cert.get('mean_cache_hits_per_question')}`, "
+                    f"network_calls=`{cert.get('mean_network_calls_per_question')}`",
+                    f"- override_precision_one_sided_95_lower: `{cert.get('d3_override_precision_one_sided_95_lower')}`",
+                    f"- corrections/harm: `{cert.get('d3_correction_count', 0)}` / `{cert.get('d3_harm_count', 0)}`; harm upper CI: `{cert.get('d3_harm_rate_one_sided_95_upper')}`",
+                    "- certificate language: conditional `source/IR -> answer`; not a proof of source-to-gold semantic equivalence.",
+                ]
+            )
+            if dataset == "gpqa_diamond":
+                lines.extend(
+                    [
+                        f"- GPQA domain_accuracy: `{json.dumps(cert.get('per_domain_accuracy') or {}, ensure_ascii=False)}`",
+                        f"- GPQA subdomain_accuracy: `{json.dumps(cert.get('per_subdomain_accuracy') or {}, ensure_ascii=False)}`",
+                        f"- GPQA quantitative/conceptual available: `{bool(cert.get('reasoning_type_stratification_available'))}`; "
+                        "no heuristic labels are invented when audited labels are absent.",
                     ]
                 )
         paired = payload.get("paired_complete_cases") or {}

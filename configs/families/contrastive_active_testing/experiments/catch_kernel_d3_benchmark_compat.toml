@@ -1,0 +1,68 @@
+name = "catch_kernel_d3_benchmark_compat"
+description = "Secondary benchmark-compatible D3 run on official BBEH Mini and full MuSR/GPQA; not an independent confirmation because local development/heldout samples overlap these pools."
+study_type = "catch_kernel_cross_domain_benchmark_compatibility"
+confirmatory = false
+kernel_revision = "d3_source_blind_v1"
+benchmark_configs = [
+  "configs/core/shared/benchmarks/bbeh/bbeh-main.toml",
+  "configs/core/shared/benchmarks/musr/all.toml",
+  "configs/core/shared/benchmarks/gpqa/dataset.toml",
+]
+protocol = "configs/families/contrastive_active_testing/protocols/catch_kernel_d3_v1.toml"
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+global_seed = 42
+max_concurrent_requests = 75
+requests_per_minute_limit = 95
+
+[d3_risk]
+semantic_override_enabled = false
+soft_auditor_enabled = false
+required_one_sided_precision_lower_bound = 0.5
+semantic_precision_gate_passed = false
+semantic_metamorphic_suite_passed = false
+semantic_human_audit_passed = false
+
+[d3_data_audit]
+official_bbeh_mini_split = "bbeh_mini460_seed42"
+previously_inspected_splits = ["catch_cert_dev200_seed42", "catch_cert_holdout200_seed42"]
+primary_confirmation_role = "secondary_benchmark_compatibility_only"
+official_bbeh_mini_role = "official_mini_micro_comparable_not_independent"
+
+[cache_namespaces]
+development = "catch-dev-kernel_d3_v1"
+heldout = "catch-heldout-kernel_d3_v1"
+confirmation = "catch-confirm-kernel_d3_v1"
+
+[baseline_cache_namespaces]
+development = "catch-dev-kernel_d2_v1,catch-dev-kernel_d1_v3,catch-dev-cert_v2,catch-dev-cert_v1"
+heldout = "catch-heldout-kernel_d2_v1,catch-heldout-kernel_d1_v3,catch-heldout-cert_v2,catch-heldout-cert_v1"
+confirmation = "catch-confirm-kernel_d2_v1,catch-confirm-kernel_d1_v3,catch-confirm-cert_v2,catch-confirm-cert_v1"
+
+[phases.development]
+benchmark_slugs = ["bbeh", "musr", "gpqa_diamond"]
+split_overrides = { bbeh = "catch_kernel_d3_dev50_seed42", musr = "catch_kernel_d3_dev50_seed42", gpqa_diamond = "catch_kernel_d3_dev50_seed42" }
+sample_limits = { bbeh = 50, musr = 50, gpqa_diamond = 50 }
+selection_strategy = "frozen_manifest"
+selection_seed = 42
+run_direct_judge = true
+evaluation_role = "secondary_compatibility_development_only"
+
+[phases.heldout]
+benchmark_slugs = ["bbeh", "musr", "gpqa_diamond"]
+split_overrides = { bbeh = "catch_kernel_d3_dev100_seed42", musr = "catch_kernel_d3_dev100_seed42", gpqa_diamond = "catch_kernel_d3_dev50_seed42" }
+sample_limits = { bbeh = 100, musr = 100, gpqa_diamond = 50 }
+selection_strategy = "frozen_manifest"
+selection_seed = 42
+run_direct_judge = true
+evaluation_role = "secondary_compatibility_heldout_only"
+
+[phases.confirmation]
+benchmark_slugs = ["bbeh", "musr", "gpqa_diamond"]
+split_overrides = { bbeh = "bbeh_mini460_seed42", musr = "full756_seed42", gpqa_diamond = "full198_seed42" }
+sample_limits = { bbeh = 460, musr = 756, gpqa_diamond = 198 }
+selection_strategy = "frozen_manifest"
+selection_seed = 42
+run_direct_judge = true
+evaluation_role = "secondary_benchmark_compatibility_not_independent"
+required_comparison_methods = ["sc_5", "adaptive_sc_8", "fixed_sc_8", "direct_judge_3", "pair_judge_3", "catch_kernel"]
+expected_selection_sha256 = { bbeh = "c939bf75a13d038e54aed88b84525d966e56f6398db5bfc1484421ea41812e82", musr = "3e30351ade9fe0c6ba76646c8d22fd28a12946fee5ef71745bff9b1e5fb4c2b4", gpqa_diamond = "93ddf9d98d35c28188d1bb91c4a9f81880c6bab79024b1639923ba63190883b9" }

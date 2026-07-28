@@ -11,6 +11,7 @@ from research_experiments.families.contrastive_active_testing.statistics import 
     _v3_panel_dependence,
     materialize_development_catch,
 )
+from research_experiments.reporting.paired_inference import paired_statistics
 
 
 def test_development_grid_selection_is_global_and_materializes_one_primary_method() -> None:
@@ -65,6 +66,45 @@ def test_exact_one_sided_override_precision_bound_is_conservative() -> None:
     assert _clopper_pearson_lower(0, 0, alpha=0.05) == 0.0
     assert _clopper_pearson_lower(8, 10, alpha=0.05) < 0.65
     assert _clopper_pearson_lower(20, 20, alpha=0.05) > 0.85
+
+
+def test_bbeh_full_paired_inference_uses_adjusted_harmonic_scale() -> None:
+    rows = [
+        {"dataset": "bbeh", "sample_id": "1", "task": "t1", "method_name": "d3", "score": 1},
+        {"dataset": "bbeh", "sample_id": "1", "task": "t1", "method_name": "sc8", "score": 0},
+        {"dataset": "bbeh", "sample_id": "2", "task": "t2", "method_name": "d3", "score": 0},
+        {"dataset": "bbeh", "sample_id": "2", "task": "t2", "method_name": "sc8", "score": 0},
+        {"dataset": "musr", "sample_id": "m1", "task": "team_allocation", "method_name": "d3", "score": 1},
+        {"dataset": "musr", "sample_id": "m1", "task": "team_allocation", "method_name": "sc8", "score": 0},
+    ]
+    result = paired_statistics(
+        rows,
+        reference="d3",
+        competitors=["sc8"],
+        seed=42,
+        bootstrap_samples=100,
+        bbeh_adjusted_harmonic=True,
+    )
+    test = next(item for item in result["tests"] if item["dataset"] == "bbeh")
+    expected = 2 / (1 / 1.01 + 1 / 0.01) - 0.01
+    assert test["accuracy_metric"] == "task_adjusted_harmonic"
+    assert test["mean_accuracy_delta"] == pytest.approx(expected)
+    assert result["bbeh_resampling"] == "within_task_stratified_adjusted_harmonic"
+    assert result["holm_scope"] == ["bbeh", "musr", "gpqa_diamond"]
+    assert next(item for item in result["tests"] if item["dataset"] == "musr")["holm_adjusted_p"] is not None
+
+
+def test_gpqa_summary_reports_available_domains_without_inventing_reasoning_labels() -> None:
+    rows = [
+        {"score": 1, "high_level_domain": "Physics", "subdomain": "Optics"},
+        {"score": 0, "high_level_domain": "Physics", "subdomain": "Mechanics"},
+        {"score": 1, "high_level_domain": "Chemistry", "subdomain": "Organic"},
+    ]
+    summary = _summary("catch_kernel", rows)
+    assert summary["per_domain_accuracy"] == {"Physics": 0.5, "Chemistry": 1.0}
+    assert summary["per_subdomain_accuracy"]["Optics"] == 1.0
+    assert summary["per_reasoning_type_accuracy"] == {}
+    assert summary["reasoning_type_stratification_available"] is False
 
 
 def test_v3_reports_correlated_false_passes_and_position_diagnostics() -> None:
@@ -167,6 +207,9 @@ def test_kernel_summary_separates_protocol_semantics_jurisdiction_and_proofs() -
         "target_oracle_correct": True,
         "total_tokens_per_question": 1_000,
         "calls_per_question": 5,
+        "latency_ms_per_question": 125,
+        "cache_hits_per_question": 4,
+        "network_calls_per_question": 1,
         "certificate_coverage": 1,
         "override_accepted": True,
         "certificate_abstained": False,
@@ -191,6 +234,9 @@ def test_kernel_summary_separates_protocol_semantics_jurisdiction_and_proofs() -
     assert summary["contract_accuracy"] is None
     assert summary["verifier_jurisdiction_coverage"] == 1
     assert summary["proof_completeness"] == 1
+    assert summary["mean_latency_ms_per_question"] == 125
+    assert summary["mean_cache_hits_per_question"] == 4
+    assert summary["mean_network_calls_per_question"] == 1
     diagnostics = _kernel_diagnostics(
         [
             {

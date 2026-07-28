@@ -95,8 +95,8 @@ from research_experiments.families.contrastive_active_testing.kernel import (
     compile_answer_obligation_graph,
     compile_local_certificate_bank,
     compile_typed_obligations,
-    decide_with_unary_proof_kernel,
     decide_with_proof_kernel,
+    decide_with_unary_proof_kernel,
     kernel_decision_to_decode,
     kernel_decision_to_dict,
     proof_result_to_dict,
@@ -112,7 +112,28 @@ from research_experiments.families.contrastive_active_testing.kernel_adapters im
     run_kernel_adapters,
     run_kernel_unary_adapters,
 )
+from research_experiments.families.contrastive_active_testing.kernel_d3 import (
+    D3_CAPABILITY_REGISTRY_VERSION,
+    D3_IR_SCHEMA,
+    SolverCertificate,
+    SourceIR,
+    answer_schema_for_sample,
+    candidate_evaluation_to_dict,
+    canonical_ir,
+    evaluate_candidate,
+    parse_source_ir,
+    route_for_sample,
+    solve_exact,
+    solve_numeric_ir,
+    solver_certificate_to_dict,
+    source_ir_from_exact_sample,
+    source_ir_to_dict,
+)
+from research_experiments.families.contrastive_active_testing.kernel_d3 import (
+    KernelDecision as D3KernelDecision,
+)
 from research_experiments.families.contrastive_active_testing.kernel_prompts import (
+    build_d3_source_compiler_messages,
     build_kernel_designer_messages,
     build_kernel_verifier_messages,
 )
@@ -229,6 +250,22 @@ def run_catch_sample(
     precomputed_stage_rows: tuple[dict[str, Any], ...] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
     if protocol.protocol_version in {"catch_cert_v2", "catch_kernel_v1"}:
+        if (
+            protocol.protocol_version == "catch_kernel_v1"
+            and str(getattr(experiment, "raw", {}).get("kernel_revision") or "") == "d3_source_blind_v1"
+        ):
+            return run_catch_kernel_d3_sample(
+                sample,
+                run_id=run_id,
+                split_name=split_name,
+                experiment=experiment,
+                protocol=protocol,
+                endpoint=endpoint,
+                network_budget=network_budget,
+                phase_name=phase_name,
+                run_direct_judge=run_direct_judge,
+                precomputed_stage_rows=precomputed_stage_rows,
+            )
         return run_catch_cert_v2_sample(
             sample,
             run_id=run_id,
@@ -1495,6 +1532,533 @@ def run_catch_cert_sample(
     return physical_rows, router, predictions
 
 
+def run_catch_kernel_d3_sample(
+    sample: DatasetSample,
+    *,
+    run_id: str,
+    split_name: str,
+    experiment,
+    protocol,
+    endpoint,
+    network_budget: NetworkAttemptBudget,
+    phase_name: str,
+    run_direct_judge: bool = False,
+    precomputed_stage_rows: tuple[dict[str, Any], ...] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    """D3 route-exclusive execution with source-blind certificates.
+
+    Exact routes never spend additional model calls.  Semantic routes spend
+    exactly ``resample_candidates`` compiler calls and require agreement.  The
+    soft route resamples every item, including unanimous Stage-A items, so the
+    confident-wrong failure mode is not silently excluded.
+    """
+
+    if precomputed_stage_rows is None:
+        stage_rows = [
+            _answer_turn(
+                sample,
+                run_id=run_id,
+                split_name=split_name,
+                endpoint=endpoint,
+                network_budget=network_budget,
+                method_name="catch_stage_a_shared",
+                role="stage_a_solver",
+                agent_id=index,
+                seed=42_000 + index,
+                max_tokens=protocol.solver_max_tokens,
+            )
+            for index in range(1, protocol.stage_candidates + 1)
+        ]
+    else:
+        stage_rows = list(precomputed_stage_rows)
+        if len(stage_rows) != protocol.stage_candidates:
+            raise ValueError("D3 precomputed Stage-A rows do not match the configured candidate count.")
+
+    stage = build_stage_decision(stage_rows, seed=experiment.global_seed, sample_id=sample.sample_id)
+    route = route_for_sample(sample)
+    source_graph = build_source_span_graph(sample)
+    source_ir: SourceIR | None = None
+    certificate = None
+    compiler_rows: list[dict[str, Any]] = []
+    # These three rows are shared by fixed-SC8, adaptive-SC8 when triggered,
+    # and D3's soft route.  They are not charged to exact/semantic D3.
+    resample_rows = [
+        _answer_turn(
+            sample,
+            run_id=run_id,
+            split_name=split_name,
+            endpoint=endpoint,
+            network_budget=network_budget,
+            method_name="catch_adaptive_resample_shared",
+            role="independent_resample",
+            agent_id=index,
+            seed=45_000 + index,
+            max_tokens=protocol.solver_max_tokens,
+        )
+        for index in range(1, protocol.resample_candidates + 1)
+    ]
+
+    if route.route == "EXACT_EXECUTABLE":
+        source_ir = source_ir_from_exact_sample(sample, route)
+        certificate = solve_exact(sample, route, source_ir)
+    elif route.route == "SEMANTIC_COMPILABLE":
+        source_spans = [{"span_id": span.span_id, "text": span.text} for span in source_graph.spans]
+        answer_schema = answer_schema_for_sample(sample)
+        parsed_irs: list[SourceIR] = []
+        for compiler_index in range(1, protocol.resample_candidates + 1):
+            row, payload = _json_turn(
+                sample,
+                run_id=run_id,
+                split_name=split_name,
+                endpoint=endpoint,
+                network_budget=network_budget,
+                method_name="catch_kernel_d3_source_compiler",
+                role="d3_source_compiler",
+                agent_id=compiler_index,
+                seed=49_000 + compiler_index,
+                max_tokens=protocol.role_max_tokens,
+                messages=build_d3_source_compiler_messages(
+                    sample,
+                    source_spans=source_spans,
+                    answer_schema=answer_schema,
+                    operation_kind=route.operation_kind,
+                ),
+            )
+            parsed, parse_reason = parse_source_ir(payload, sample=sample, decision=route)
+            row["d3_ir_schema"] = D3_IR_SCHEMA
+            row["d3_source_ir"] = source_ir_to_dict(parsed) if parsed is not None else None
+            row["d3_source_ir_parse_reason"] = parse_reason
+            if parsed is None:
+                row["protocol_parse_status"] = "failed"
+                row["protocol_parse_error"] = parse_reason
+            else:
+                parsed_irs.append(parsed)
+            compiler_rows.append(row)
+        if len(parsed_irs) == protocol.resample_candidates and len({canonical_ir(item) for item in parsed_irs}) == 1:
+            source_ir = parsed_irs[0]
+            certificate = solve_numeric_ir(sample, route, source_ir)
+        else:
+            certificate = SolverCertificate(
+                status="UNSUPPORTED",
+                canonical_answer=None,
+                route=route.route,
+                operation_kind=route.operation_kind,
+                source_hash=_sha256(question_without_answer_contract(sample)),
+                ir_hash="",
+                solver_version="catch_d3_safe_numeric_v1",
+                cross_check_status="NOT_RUN",
+                metamorphic_test_status="NOT_RUN",
+                reason="compiler_ir_non_agreement_or_parse_failure",
+            )
+    fixed_sc = build_stage_decision(
+        [*stage_rows, *resample_rows], seed=experiment.global_seed, sample_id=sample.sample_id
+    )
+    adaptive = fixed_sc if stage.triggered else stage
+    adaptive_answer = adaptive.anchor_answer or stage.anchor_answer
+    fixed_answer = fixed_sc.anchor_answer or stage.anchor_answer
+    stage_canonical = canonicalize_answer(sample, stage.anchor_answer)
+    evaluations = []
+    if certificate is not None and certificate.status == "UNIQUE":
+        evaluations = [evaluate_candidate(sample, candidate.answer, certificate) for candidate in stage.candidates]
+    solver_answer = certificate.canonical_answer if certificate is not None else None
+    certificate_unique = bool(certificate is not None and certificate.status == "UNIQUE" and solver_answer)
+    candidate_present = any(item.status == "VALID" for item in evaluations)
+    risk_config = dict(getattr(experiment, "raw", {}).get("d3_risk") or {})
+    semantic_override_enabled = bool(risk_config.get("semantic_override_enabled", False))
+    semantic_gate_passed = all(
+        bool(risk_config.get(field, False))
+        for field in (
+            "semantic_precision_gate_passed",
+            "semantic_metamorphic_suite_passed",
+            "semantic_human_audit_passed",
+        )
+    )
+    solver_authorized = bool(
+        solver_answer
+        and certificate is not None
+        and certificate.status == "UNIQUE"
+        and (
+            route.route == "EXACT_EXECUTABLE"
+            or (semantic_override_enabled and semantic_gate_passed)
+        )
+    )
+    if solver_authorized:
+        final_answer = solver_answer
+        resolver = "d3_solver_direct" if candidate_present else "d3_candidate_completion"
+        override = not stage_canonical.valid or stage_canonical.key != solver_answer
+    elif solver_answer and certificate is not None and certificate.status == "UNIQUE":
+        final_answer = stage.anchor_answer
+        resolver = "d3_semantic_shadow"
+        override = False
+    elif route.route == "SOFT_UNSUPPORTED":
+        final_answer = fixed_answer
+        resolver = "d3_soft_fixed_sc8"
+        override = bool(fixed_answer != stage.anchor_answer)
+    else:
+        final_answer = stage.anchor_answer
+        resolver = "d3_abstain"
+        override = False
+
+    candidate_oracle = any(_score(sample, candidate.answer) == 1.0 for candidate in stage.candidates)
+    gold_keys = tuple(candidate.key for candidate in stage.candidates if _score(sample, candidate.answer) == 1.0)
+    interventions = (
+        compiler_rows
+        if route.route == "SEMANTIC_COMPILABLE"
+        else resample_rows
+        if route.route == "SOFT_UNSUPPORTED"
+        else []
+    )
+    direct_rows: list[dict[str, Any]] = []
+    pair_judge_rows: list[dict[str, Any]] = []
+    direct_selections: list[str | None] = []
+    pair_selections: list[str | None] = []
+    if run_direct_judge:
+        for judge_index in range(1, protocol.direct_judge_count + 1):
+            labels = build_hypothesis_labels(
+                stage,
+                seed=experiment.global_seed,
+                sample_id=f"{sample.sample_id}:d3-direct:{judge_index}",
+            )
+            row, payload = _json_turn(
+                sample,
+                run_id=run_id,
+                split_name=split_name,
+                endpoint=endpoint,
+                network_budget=network_budget,
+                method_name="direct_judge_3",
+                role="direct_judge",
+                agent_id=judge_index,
+                seed=46_000 + judge_index,
+                max_tokens=protocol.judge_max_tokens,
+                messages=build_direct_judge_messages(sample, stage=stage, hypothesis_to_key=labels),
+            )
+            selected_id = str(payload.get("selected_id") or "") if isinstance(payload, dict) else ""
+            selected_key = labels.get(selected_id)
+            if selected_key is None:
+                row["protocol_parse_status"] = "failed"
+                row["protocol_parse_error"] = "unknown_or_missing_candidate_id"
+            row["hypothesis_to_answer_class_key"] = labels
+            row["selected_answer_class_key"] = selected_key
+            direct_rows.append(row)
+            direct_selections.append(selected_key)
+
+        all_candidate_keys = [candidate.key for candidate in stage.candidates]
+        for judge_index in range(1, protocol.pair_judge_count + 1):
+            labels = _target_judge_labels(
+                all_candidate_keys,
+                seed=experiment.global_seed,
+                sample_id=f"{sample.sample_id}:d3-pair:{judge_index}",
+            )
+            row, payload = _json_turn(
+                sample,
+                run_id=run_id,
+                split_name=split_name,
+                endpoint=endpoint,
+                network_budget=network_budget,
+                method_name="pair_judge_3",
+                role="pair_judge",
+                agent_id=judge_index,
+                seed=47_000 + judge_index,
+                max_tokens=protocol.judge_max_tokens,
+                messages=build_pair_judge_messages(sample, stage=stage, public_to_key=labels),
+            )
+            selected_id = str(payload.get("selected_id") or "") if isinstance(payload, dict) else ""
+            selected_key = labels.get(selected_id)
+            if selected_key is None:
+                row["protocol_parse_status"] = "failed"
+                row["protocol_parse_error"] = "unknown_or_missing_target_candidate_id"
+            row["hypothesis_to_answer_class_key"] = labels
+            row["selected_answer_class_key"] = selected_key
+            pair_judge_rows.append(row)
+            pair_selections.append(selected_key)
+
+    physical_rows = [*stage_rows, *resample_rows, *compiler_rows, *direct_rows, *pair_judge_rows]
+    risk_tier = (
+        "TIER_1_EXACT"
+        if route.route == "EXACT_EXECUTABLE"
+        else "TIER_2_SEMANTIC"
+        if route.route == "SEMANTIC_COMPILABLE"
+        else "TIER_3_SOFT"
+    )
+    certificate_hash = _sha256(solver_certificate_to_dict(certificate)) if certificate is not None else None
+    decision_action = (
+        "candidate_completion"
+        if resolver == "d3_candidate_completion"
+        else "solver_direct"
+        if resolver == "d3_solver_direct"
+        else "keep_anchor"
+    )
+    decision_record = D3KernelDecision(
+        route=route.route,
+        anchor=stage.anchor_answer,
+        final_answer=final_answer,
+        action=decision_action,
+        override_reason=resolver,
+        certificate_hash=certificate_hash,
+        risk_tier=risk_tier,
+    )
+    first_failure_layer, first_failure_reason = _d3_first_failure(
+        route=route.route,
+        method_rows=[*stage_rows, *interventions],
+        source_ir=source_ir,
+        certificate=certificate,
+    )
+    common_extra = {
+        "protocol_version": protocol.protocol_version,
+        "kernel_revision": "d3_source_blind_v1",
+        "d3_capability_registry_version": D3_CAPABILITY_REGISTRY_VERSION,
+        "d3_route": route.route,
+        "d3_operation_kind": route.operation_kind,
+        "d3_route_reason": route.reason,
+        "d3_source_ir": source_ir_to_dict(source_ir) if source_ir is not None else None,
+        "d3_solver_certificate": solver_certificate_to_dict(certificate) if certificate is not None else None,
+        "d3_candidate_evaluations": [candidate_evaluation_to_dict(item) for item in evaluations],
+        "d3_candidate_completion": resolver == "d3_candidate_completion",
+        "d3_solver_direct": resolver == "d3_solver_direct",
+        "d3_semantic_override_enabled": semantic_override_enabled,
+        "d3_semantic_gate_passed": semantic_gate_passed,
+        "d3_risk_tier": risk_tier,
+        "d3_first_failure_layer": first_failure_layer,
+        "d3_first_failure_reason": first_failure_reason,
+        "d3_kernel_decision": {
+            "route": decision_record.route,
+            "anchor": decision_record.anchor,
+            "final_answer": decision_record.final_answer,
+            "action": decision_record.action,
+            "override_reason": decision_record.override_reason,
+            "certificate_hash": decision_record.certificate_hash,
+            "risk_tier": decision_record.risk_tier,
+        },
+        "gold_candidate_keys": list(gold_keys),
+        "gold_candidate_key": gold_keys[0] if gold_keys else None,
+        "target_oracle_correct": candidate_oracle,
+        "target_candidate_count": len(stage.candidates),
+        "task_family": str(sample.metadata.get("task") or ""),
+        "query_operator": route.operation_kind,
+        "adapter_kind": route.operation_kind,
+        "primary_metric": _d3_primary_metric(
+            sample.dataset,
+            split_name,
+            phase_name=phase_name,
+            sample_limit=int(
+                ((getattr(experiment, "raw", {}) or {}).get("phases", {}).get(phase_name, {})
+                 .get("sample_limits", {}) or {}).get(sample.dataset, 0)
+            ),
+        ),
+    }
+    predictions = [
+        _prediction(
+            sample, run_id, split_name, "sc_5", stage.anchor_answer, stage.anchor_answer,
+            stage, stage_rows, [], False, "stage_a_plurality", candidate_oracle, extra=common_extra,
+        ),
+        _prediction(
+            sample, run_id, split_name, "adaptive_sc_8", adaptive_answer, stage.anchor_answer,
+            stage, [*stage_rows, *(resample_rows if stage.triggered else [])],
+            resample_rows if stage.triggered else [],
+            bool(stage.triggered and adaptive_answer != stage.anchor_answer),
+            "adaptive_answer_class_plurality" if stage.triggered else "no_answer_class_disagreement",
+            candidate_oracle,
+            extra={**common_extra, "intervention_call_budget_per_question": 3},
+        ),
+        _prediction(
+            sample, run_id, split_name, "fixed_sc_8", fixed_answer, stage.anchor_answer,
+            stage, [*stage_rows, *resample_rows], resample_rows,
+            bool(fixed_answer != stage.anchor_answer), "fixed_answer_class_plurality",
+            candidate_oracle,
+            extra={**common_extra, "intervention_call_budget_per_question": 3},
+        ),
+        _prediction(
+            sample, run_id, split_name, "catch_kernel", final_answer, stage.anchor_answer,
+            stage, [*stage_rows, *interventions], interventions, override, resolver, candidate_oracle,
+            extra={
+                **common_extra,
+                "certificate_count": int(certificate is not None and certificate.status == "UNIQUE"),
+                "certificate_coverage": float(certificate_unique),
+                "certificate_abstained": bool(
+                    route.route != "SOFT_UNSUPPORTED"
+                    and not (certificate is not None and certificate.status == "UNIQUE")
+                ),
+                "solver_status": (
+                    certificate.status
+                    if certificate is not None
+                    else "NOT_APPLICABLE"
+                    if route.route == "SOFT_UNSUPPORTED"
+                    else "UNSUPPORTED"
+                ),
+                "solver_certificate_hash": certificate.ir_hash if certificate is not None else None,
+                "source_ir_coverage": (
+                    len(source_ir.covered_span_ids)
+                    / max(1, len(source_ir.covered_span_ids) + len(source_ir.uncovered_span_ids))
+                    if source_ir is not None else 0.0
+                ),
+                "typed_compilation_validity": float(source_ir is not None),
+                "semantic_validity": (
+                    None if route.route != "EXACT_EXECUTABLE" else float(certificate is not None and certificate.status == "UNIQUE")
+                ),
+                "verifier_jurisdiction_coverage": float(route.route != "SOFT_UNSUPPORTED"),
+                "proof_completeness": float(certificate is not None and certificate.status == "UNIQUE"),
+                "override_reason": resolver,
+                "intervention_call_budget_per_question": 0 if route.route == "EXACT_EXECUTABLE" else 3,
+            },
+        ),
+    ]
+    variant_rows = [*stage_rows, *compiler_rows]
+    variant_interventions = compiler_rows
+    if route.route == "EXACT_EXECUTABLE":
+        exact_without_completion = solver_answer if certificate_unique and candidate_present else stage.anchor_answer
+        exact_without_completion_override = bool(
+            certificate_unique and candidate_present and exact_without_completion != stage.anchor_answer
+        )
+        for method_name, answer, variant_override, resolver_name in (
+            (
+                "catch_d3_exact_no_completion",
+                exact_without_completion,
+                exact_without_completion_override,
+                (
+                    "d3_exact_no_candidate_completion"
+                    if certificate_unique and not candidate_present
+                    else "d3_solver_direct"
+                    if certificate_unique
+                    else "d3_exact_abstain"
+                ),
+            ),
+            (
+                "catch_d3_exact_completion",
+                solver_answer if certificate_unique else stage.anchor_answer,
+                bool(certificate_unique and solver_answer != stage.anchor_answer),
+                (
+                    "d3_candidate_completion"
+                    if certificate_unique and not candidate_present
+                    else "d3_solver_direct"
+                    if certificate_unique
+                    else "d3_exact_abstain"
+                ),
+            ),
+        ):
+            predictions.append(
+                _prediction(
+                    sample, run_id, split_name, method_name, answer, stage.anchor_answer,
+                    stage, variant_rows, variant_interventions, variant_override, resolver_name,
+                    candidate_oracle,
+                    extra={
+                        **common_extra,
+                        "d3_variant": method_name,
+                        "experimental_only": True,
+                        "certificate_count": int(certificate_unique),
+                        "certificate_coverage": float(certificate_unique),
+                        "certificate_abstained": not certificate_unique,
+                        "solver_status": certificate.status if certificate is not None else "UNSUPPORTED",
+                        "intervention_call_budget_per_question": 0,
+                    },
+                )
+            )
+    elif route.route == "SEMANTIC_COMPILABLE":
+        semantic_answer = solver_answer if certificate_unique else stage.anchor_answer
+        predictions.append(
+            _prediction(
+                sample, run_id, split_name, "catch_d3_semantic_compiler", semantic_answer, stage.anchor_answer,
+                stage, variant_rows, variant_interventions, bool(certificate_unique and semantic_answer != stage.anchor_answer),
+                "d3_semantic_compiler_ablation" if certificate_unique else "d3_semantic_compiler_abstain", candidate_oracle,
+                extra={
+                    **common_extra,
+                    "d3_variant": "catch_d3_semantic_compiler",
+                    "experimental_only": True,
+                    "certificate_count": int(certificate_unique),
+                    "certificate_coverage": float(certificate_unique),
+                    "certificate_abstained": not certificate_unique,
+                    "solver_status": certificate.status if certificate is not None else "UNSUPPORTED",
+                    "intervention_call_budget_per_question": 3,
+                },
+            )
+        )
+    if route.route != "SOFT_UNSUPPORTED":
+        solver_direct_answer = solver_answer if certificate_unique else stage.anchor_answer
+        solver_direct_override = bool(certificate_unique and (not stage_canonical.valid or stage_canonical.key != solver_answer))
+        predictions.insert(
+            2,
+            _prediction(
+                sample, run_id, split_name, "solver_direct", solver_direct_answer, stage.anchor_answer,
+                stage, [*stage_rows, *compiler_rows], compiler_rows,
+                solver_direct_override, "d3_solver_direct_shadow" if certificate_unique else "d3_solver_direct_abstain",
+                candidate_oracle,
+                extra={
+                    **common_extra,
+                    "certificate_count": int(certificate_unique),
+                    "certificate_coverage": float(certificate_unique),
+                    "certificate_abstained": not certificate_unique,
+                    "solver_status": certificate.status if certificate is not None else "UNSUPPORTED",
+                    "intervention_call_budget_per_question": 0 if route.route == "EXACT_EXECUTABLE" else 3,
+                },
+            ),
+        )
+    if run_direct_judge:
+        direct_answer, direct_override, direct_resolver = decide_direct_judges(stage, direct_selections)
+        pair_answer, pair_override, pair_resolver = decide_direct_judges(stage, pair_selections)
+        predictions.extend(
+            [
+                _prediction(
+                    sample, run_id, split_name, "direct_judge_3", direct_answer, stage.anchor_answer,
+                    stage, [*stage_rows, *direct_rows], direct_rows,
+                    direct_override, direct_resolver, candidate_oracle,
+                    extra={**common_extra, "intervention_call_budget_per_question": 3},
+                ),
+                _prediction(
+                    sample, run_id, split_name, "pair_judge_3", pair_answer, stage.anchor_answer,
+                    stage, [*stage_rows, *pair_judge_rows], pair_judge_rows,
+                    pair_override, pair_resolver, candidate_oracle,
+                    extra={**common_extra, "intervention_call_budget_per_question": 3},
+                ),
+            ]
+        )
+    router = {
+        "run_id": run_id,
+        "dataset": sample.dataset,
+        "split": split_name,
+        "sample_id": sample.sample_id,
+        "task": sample.metadata.get("task"),
+        "phase_name": phase_name,
+        "protocol_version": protocol.protocol_version,
+        "kernel_revision": "d3_source_blind_v1",
+        "route": route.route,
+        "operation_kind": route.operation_kind,
+        "route_reason": route.reason,
+        "audit_source_question": question_without_answer_contract(sample),
+        "triggered": stage.triggered,
+        "valid_stage_answers": stage.valid_count,
+        "anchor_answer": stage.anchor_answer,
+        "anchor_key": stage.anchor_key,
+        "answer_class_vote_counts": stage.vote_counts,
+        "candidate_count": len(stage.candidates),
+        "candidate_oracle_correct": candidate_oracle,
+        "source_ir": source_ir_to_dict(source_ir) if source_ir is not None else None,
+        "solver_certificate": solver_certificate_to_dict(certificate) if certificate is not None else None,
+        "candidate_evaluations": [candidate_evaluation_to_dict(item) for item in evaluations],
+        "compiler_diagnostics": [
+            {
+                "agent_id": row.get("agent_id"),
+                "parse_status": row.get("protocol_parse_status"),
+                "parse_reason": row.get("d3_source_ir_parse_reason"),
+                "ir_hash": _sha256(row.get("d3_source_ir")) if row.get("d3_source_ir") else None,
+            }
+            for row in compiler_rows
+        ],
+        "resample_call_count": len(resample_rows),
+        "direct_judge_selections": direct_selections,
+        "pair_judge_selections": pair_selections,
+        "decision": {
+            "answer": final_answer,
+            "override_accepted": override,
+            "resolver": resolver,
+            "candidate_completion": resolver == "d3_candidate_completion",
+            "certificate_hash": certificate_hash,
+            "risk_tier": risk_tier,
+        },
+        "first_failure_layer": first_failure_layer,
+        "first_failure_reason": first_failure_reason,
+    }
+    return physical_rows, router, predictions
+
+
 def run_catch_cert_v2_sample(
     sample: DatasetSample,
     *,
@@ -2409,6 +2973,12 @@ def _turn_base(
         "split": split_name,
         "sample_id": sample.sample_id,
         "task": sample.metadata.get("task"),
+        "high_level_domain": sample.metadata.get("high_level_domain"),
+        "subdomain": sample.metadata.get("subdomain"),
+        "reasoning_type": (
+            sample.metadata.get("reasoning_type")
+            or sample.metadata.get("quantitative_conceptual")
+        ),
         "method_name": method_name,
         "role": role,
         "agent_id": agent_id,
@@ -2505,6 +3075,9 @@ def _prediction(
             float(row.get("actual_completion_tokens") or row.get("completion_tokens") or 0) for row in logical_rows
         ),
         "network_attempts_per_question": sum(int(row.get("network_attempt_count") or 0) for row in logical_rows),
+        "latency_ms_per_question": sum(float(row.get("latency_ms") or 0) for row in logical_rows),
+        "cache_hits_per_question": sum(bool(row.get("cache_hit")) for row in logical_rows),
+        "network_calls_per_question": sum(int(row.get("network_request_count") or 0) for row in logical_rows),
         "intervention_call_budget_per_question": intervention_call_budget,
         "intervention_calls_per_question": actual_intervention_calls,
         "actual_intervention_calls_per_question": actual_intervention_calls,
@@ -2534,6 +3107,56 @@ def _prediction(
 
 def _score(sample: DatasetSample, answer: str) -> float:
     return score_prediction(sample.dataset, answer, sample.reference_answer, sample=sample) if answer else 0.0
+
+
+def _d3_primary_metric(
+    dataset: str,
+    split_name: str,
+    *,
+    phase_name: str | None = None,
+    sample_limit: int | None = None,
+) -> str:
+    if dataset == "bbeh":
+        if split_name == "bbeh_mini460_seed42":
+            return "bbeh_mini_micro"
+        if split_name == "full4520_seed42" and int(sample_limit or 0) >= 4520:
+            return "bbeh_full_adjusted_harmonic"
+        return "bbeh_task_stratified_micro"
+    if dataset == "musr":
+        return "musr_task_macro"
+    if dataset == "gpqa_diamond":
+        return "gpqa_accuracy"
+    return "accuracy"
+
+
+def _d3_first_failure(
+    *,
+    route: str,
+    method_rows: list[dict[str, Any]],
+    source_ir: SourceIR | None,
+    certificate: SolverCertificate | None,
+) -> tuple[str, str]:
+    for row in method_rows:
+        if row.get("request_error"):
+            return "REQUEST", str(row["request_error"])
+    for row in method_rows:
+        if row.get("protocol_parse_status") == "failed":
+            return "PARSE", str(
+                row.get("d3_source_ir_parse_reason")
+                or row.get("protocol_parse_error")
+                or "structured_output_parse_failed"
+            )
+    if route == "SOFT_UNSUPPORTED":
+        return "JURISDICTION_BOUNDARY", "no_frozen_executable_capability"
+    if source_ir is None:
+        return "SOURCE_IR_AGREEMENT", (
+            certificate.reason if certificate is not None else "source_ir_unavailable"
+        )
+    if certificate is None:
+        return "SOLVER", "solver_certificate_missing"
+    if certificate.status != "UNIQUE":
+        return "SOLVER", f"{certificate.status}:{certificate.reason}"
+    return "NONE", "none"
 
 
 def _cache_for_role(endpoint, role: str):

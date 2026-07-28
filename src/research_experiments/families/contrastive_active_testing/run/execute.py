@@ -16,6 +16,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 from research_experiments.core.data.datasets import (
+    load_samples,
     load_split_ids,
     resolve_split_manifest_path,
     select_samples,
@@ -46,11 +47,19 @@ from research_experiments.families.contrastive_active_testing.icv import build_t
 from research_experiments.families.contrastive_active_testing.kernel import (
     KERNEL_CAPABILITY_VERSION,
     KERNEL_D2_DECODER_VERSION,
+    KERNEL_D3_DECODER_VERSION,
     KERNEL_DECODER_VERSION,
     KERNEL_SCHEMA_VERSION,
     KERNEL_SEMANTICS_VERSION,
 )
-from research_experiments.families.contrastive_active_testing.kernel_prompts import KERNEL_PROMPT_VERSION
+from research_experiments.families.contrastive_active_testing.kernel_d3 import (
+    D3_CAPABILITY_REGISTRY_VERSION,
+    capability_registry,
+)
+from research_experiments.families.contrastive_active_testing.kernel_prompts import (
+    D3_PROMPT_VERSION,
+    KERNEL_PROMPT_VERSION,
+)
 from research_experiments.families.contrastive_active_testing.prompts import (
     CATCH_PROMPT_VERSION,
     CATCH_SCHEMA_VERSION,
@@ -258,6 +267,19 @@ def run_experiment(
             execution_warnings.append(f"{benchmark.slug}:dataset_skipped:{type(exc).__name__}:{exc}")
     sample_count = sum(len(samples) for samples in selected_by_benchmark.values())
     selected_sample_manifest = _selected_sample_manifest(selected_by_benchmark, phase_name=phase_name)
+    d3_data_audit = _d3_data_audit(
+        experiment,
+        benchmarks=benchmarks,
+        selected_by_benchmark=selected_by_benchmark,
+        phase=phase,
+        phase_name=phase_name,
+    )
+    d3_confirmation_role = str(d3_data_audit.get("primary_confirmation_role") or "")
+    if d3_confirmation_role.startswith("independent_") and (
+        int(d3_data_audit.get("selected_bbeh_inspected_overlap_count") or 0) > 0
+        or int(d3_data_audit.get("selected_bbeh_text_hash_overlap_with_inspected_count") or 0) > 0
+    ):
+        execution_warnings.append("d3_primary_confirmation_overlaps_previously_inspected_pool")
     expected_selection_hashes = dict(phase.get("expected_selection_sha256") or {})
     for dataset, expected_hash in expected_selection_hashes.items():
         actual_hash = (selected_sample_manifest.get(str(dataset)) or {}).get("sha256")
@@ -276,9 +298,9 @@ def run_experiment(
                 expected_metadata=_kernel_freeze_metadata(experiment, protocol=protocol, phase=phase),
             )
             if not kernel_freeze["valid"]:
-                execution_warnings.append(f"kernel_d2_freeze_invalid:{kernel_freeze['reason']}")
+                execution_warnings.append(f"kernel_freeze_invalid:{kernel_freeze['reason']}")
         else:
-            execution_warnings.append("kernel_d2_freeze_missing_d1_evidence_only")
+            execution_warnings.append("kernel_freeze_missing_development_evidence_only")
     endpoints: dict[str, CatchEndpoint] = {}
     stop_event = Event()
     for benchmark in benchmarks:
@@ -331,8 +353,22 @@ def run_experiment(
         jobs = []
     run_direct_judge = bool(phase.get("run_direct_judge", phase_name != "confirmation"))
     if protocol.protocol_version in {"catch_v3", "catch_cert_v1", "catch_cert_v2", "catch_kernel_v1"}:
-        calls_per_triggered = 17 if run_direct_judge else 11
-        predictions_per_sample = 5 if run_direct_judge else 3
+        is_d3_kernel = (
+            protocol.protocol_version == "catch_kernel_v1"
+            and str(experiment.raw.get("kernel_revision") or "") == "d3_source_blind_v1"
+        )
+        calls_per_triggered = (
+            17 if is_d3_kernel and run_direct_judge
+            else 11 if is_d3_kernel
+            else 17 if run_direct_judge
+            else 11
+        )
+        predictions_per_sample = (
+            9 if is_d3_kernel and run_direct_judge
+            else 7 if is_d3_kernel
+            else 5 if run_direct_judge
+            else 3
+        )
     else:
         calls_per_triggered = 18 if phase_name == "development" else 14 if run_direct_judge else 11
         predictions_per_sample = 9 if phase_name == "development" else 4 if run_direct_judge else 3
@@ -403,6 +439,18 @@ def run_experiment(
                 if protocol.protocol_version == "catch_kernel_v1"
                 else None
             ),
+            "d3_capability_registry_version": (
+                D3_CAPABILITY_REGISTRY_VERSION
+                if protocol.protocol_version == "catch_kernel_v1"
+                and str(experiment.raw.get("kernel_revision") or "") == "d3_source_blind_v1"
+                else None
+            ),
+            "d3_capability_registry": (
+                capability_registry()
+                if protocol.protocol_version == "catch_kernel_v1"
+                and str(experiment.raw.get("kernel_revision") or "") == "d3_source_blind_v1"
+                else None
+            ),
             "experiment_name": experiment.name,
             "phase_name": phase_name,
             "run_mode": run_mode,
@@ -410,7 +458,10 @@ def run_experiment(
             "resolved_model": asdict(backbone),
             "protocol": asdict(protocol),
             "prompt_version": (
-                KERNEL_PROMPT_VERSION
+                D3_PROMPT_VERSION
+                if protocol.protocol_version == "catch_kernel_v1"
+                and str(experiment.raw.get("kernel_revision") or "") == "d3_source_blind_v1"
+                else KERNEL_PROMPT_VERSION
                 if protocol.protocol_version == "catch_kernel_v1"
                 else CERT_V2_PROMPT_VERSION
                 if protocol.protocol_version == "catch_cert_v2"
@@ -449,6 +500,7 @@ def run_experiment(
             "sample_count": sample_count,
             "source_split_sample_count": sample_count,
             "selected_sample_manifest": selected_sample_manifest,
+            "d3_data_audit": d3_data_audit,
             "planned_sample_count": total_planned_samples,
             "screening_sample_count_per_dataset": int(phase.get("screening_sample_count") or 0)
             if cert_screening_mode
@@ -460,6 +512,23 @@ def run_experiment(
             "method_order": [
                 "sc_5",
                 "adaptive_sc_8",
+                *(["fixed_sc_8"] if protocol.protocol_version == "catch_kernel_v1" and str(experiment.raw.get("kernel_revision") or "") == "d3_source_blind_v1" else []),
+                *(
+                    ["solver_direct"]
+                    if protocol.protocol_version == "catch_kernel_v1"
+                    and str(experiment.raw.get("kernel_revision") or "") == "d3_source_blind_v1"
+                    else []
+                ),
+                *(
+                    [
+                        "catch_d3_exact_no_completion",
+                        "catch_d3_exact_completion",
+                        "catch_d3_semantic_compiler",
+                    ]
+                    if protocol.protocol_version == "catch_kernel_v1"
+                    and str(experiment.raw.get("kernel_revision") or "") == "d3_source_blind_v1"
+                    else []
+                ),
                 "catch_kernel"
                 if protocol.protocol_version == "catch_kernel_v1"
                 else "catch_cert_v2"
@@ -1351,6 +1420,17 @@ def _select_phase_samples(benchmark, phase: dict[str, Any], phase_name: str):
             seed=int(phase.get("selection_seed", 42)),
             limit=max(0, int(limit)) if limit is not None else len(selected),
         )
+    if str(phase.get("selection_strategy") or "") in {
+        "d3_task_stratified_hash",
+        "d3_confirmation_stratified_hash",
+    }:
+        return _select_d3_stratified_samples(
+            selected,
+            benchmark_slug=benchmark.slug,
+            phase_name=phase_name,
+            seed=int(phase.get("selection_seed", 42)),
+            limit=max(0, int(limit)) if limit is not None else len(selected),
+        )
     if bool(phase.get("hash_sample_selection", False)):
         selection_seed = int(phase.get("selection_seed", 42))
         selected = sorted(
@@ -1362,6 +1442,82 @@ def _select_phase_samples(benchmark, phase: dict[str, Any], phase_name: str):
     if limit is not None:
         selected = selected[: max(0, int(limit))]
     return selected
+
+
+def _d3_data_audit(
+    experiment,
+    *,
+    benchmarks: list[Any],
+    selected_by_benchmark: dict[str, list[Any]],
+    phase: dict[str, Any],
+    phase_name: str,
+) -> dict[str, Any]:
+    """Record official-Mini overlap and the role of this phase before scoring."""
+
+    if str(experiment.raw.get("kernel_revision") or "") != "d3_source_blind_v1":
+        return {}
+    audit_config = dict(experiment.raw.get("d3_data_audit") or {})
+    official_split = str(audit_config.get("official_bbeh_mini_split") or "bbeh_mini460_seed42")
+    bbeh = next((item for item in benchmarks if item.slug == "bbeh"), None)
+    if bbeh is None:
+        return {"status": "bbeh_not_in_phase", "phase_name": phase_name}
+    try:
+        official_ids = set(load_split_ids(bbeh.cache_namespace or bbeh.slug, official_split))
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        return {
+            "status": "official_mini_manifest_unavailable",
+            "phase_name": phase_name,
+            "official_split": official_split,
+            "error": type(exc).__name__,
+        }
+    inspected_ids: set[str] = set()
+    for split in audit_config.get("previously_inspected_splits") or []:
+        with suppress(FileNotFoundError, ValueError, OSError):
+            inspected_ids.update(load_split_ids(bbeh.cache_namespace or bbeh.slug, str(split)))
+    selected_samples = list(selected_by_benchmark.get("bbeh", []))
+    selected_ids = {str(item.sample_id) for item in selected_samples}
+    sample_by_id = {str(item.sample_id): item for item in load_samples(bbeh)}
+
+    def text_hashes(sample_ids: set[str]) -> set[str]:
+        return {
+            hashlib.sha256(str(sample_by_id[sample_id].question).encode("utf-8")).hexdigest()
+            for sample_id in sample_ids
+            if sample_id in sample_by_id
+        }
+
+    official_text_hashes = text_hashes(official_ids)
+    inspected_text_hashes = text_hashes(inspected_ids)
+    selected_text_hashes = {
+        hashlib.sha256(str(item.question).encode("utf-8")).hexdigest() for item in selected_samples
+    }
+    return {
+        "status": "audited",
+        "phase_name": phase_name,
+        "primary_confirmation_role": str(
+            phase.get("evaluation_role") or audit_config.get("primary_confirmation_role") or "unknown"
+        ),
+        "official_mini_role": str(audit_config.get("official_bbeh_mini_role") or "unclassified"),
+        "official_split": official_split,
+        "official_mini_count": len(official_ids),
+        "previously_inspected_count": len(inspected_ids),
+        "official_mini_overlap_with_inspected_count": len(official_ids & inspected_ids),
+        "official_mini_text_hash_overlap_with_inspected_count": len(
+            official_text_hashes & inspected_text_hashes
+        ),
+        "official_mini_independent_eligible_count": len(official_ids - inspected_ids),
+        "selected_bbeh_count": len(selected_ids),
+        "selected_bbeh_inspected_overlap_count": len(selected_ids & inspected_ids),
+        "selected_bbeh_text_hash_overlap_with_inspected_count": len(
+            selected_text_hashes & inspected_text_hashes
+        ),
+        "selected_bbeh_official_mini_overlap_count": len(selected_ids & official_ids),
+        "selected_bbeh_inspected_disjoint": not bool(selected_ids & inspected_ids),
+        "selected_bbeh_text_hash_inspected_disjoint": not bool(
+            selected_text_hashes & inspected_text_hashes
+        ),
+        "text_hash_algorithm": "sha256_utf8_question",
+        "selection_strategy": str(phase.get("selection_strategy") or ""),
+    }
 
 
 def _select_kernel_confirmation_strata(
@@ -1407,6 +1563,30 @@ def _select_kernel_confirmation_strata(
         strata.setdefault(stratum, []).append(sample)
     for items in strata.values():
         items.sort(key=lambda item: _selection_hash(seed, phase_name, benchmark_slug, item.sample_id))
+    return _round_robin_groups(strata, limit=limit)
+
+
+def _select_d3_stratified_samples(
+    samples: list[Any],
+    *,
+    benchmark_slug: str,
+    phase_name: str,
+    seed: int,
+    limit: int,
+) -> list[Any]:
+    """Gold-blind nested task/domain stratification for D3 development/confirmation."""
+
+    strata: dict[str, list[Any]] = defaultdict(list)
+    for sample in samples:
+        if benchmark_slug == "bbeh" or benchmark_slug == "musr":
+            key = str(sample.metadata.get("task") or "unknown")
+        elif benchmark_slug == "gpqa_diamond":
+            key = str(sample.metadata.get("high_level_domain") or "unknown").casefold()
+        else:
+            key = "all"
+        strata[key].append(sample)
+    for values in strata.values():
+        values.sort(key=lambda item: _selection_hash(seed, phase_name, benchmark_slug, item.sample_id))
     return _round_robin_groups(strata, limit=limit)
 
 
@@ -1464,7 +1644,11 @@ def _selected_sample_manifest(samples_by_dataset: dict[str, list[Any]], *, phase
 
 
 def write_kernel_d2_freeze(experiment_path: str | Path, output_path: str | Path) -> dict[str, Any]:
-    """Materialize the exact D2 components and confirmation IDs before confirmation."""
+    """Materialize the frozen Kernel components and confirmation IDs before confirmation.
+
+    The historical CLI name is retained for compatibility; D3 writes a D3
+    schema and carries its source-blind risk gates in the signed metadata.
+    """
 
     experiment = load_experiment_config(experiment_path)
     protocol = load_protocol_config(experiment.protocol)
@@ -1476,7 +1660,11 @@ def write_kernel_d2_freeze(experiment_path: str | Path, output_path: str | Path)
         selected[benchmark.slug] = _select_phase_samples(benchmark, phase, "confirmation")
     components = _frozen_component_hashes(experiment)
     unsigned = {
-        "schema_version": "catch_kernel_d2_freeze_v1",
+        "schema_version": (
+            "catch_kernel_d3_freeze_v1"
+            if str(experiment.raw.get("kernel_revision") or "") == "d3_source_blind_v1"
+            else "catch_kernel_d2_freeze_v1"
+        ),
         "component_sha256": components,
         "selected_sample_manifest": _selected_sample_manifest(selected, phase_name="confirmation"),
         **_kernel_freeze_metadata(experiment, protocol=protocol, phase=phase),
@@ -1534,18 +1722,29 @@ def _kernel_freeze_metadata(experiment, *, protocol, phase: dict[str, Any]) -> d
     kernel_revision = str(experiment.raw.get("kernel_revision") or "d1_pairwise_v1")
     return {
         "protocol_version": protocol.protocol_version,
-        "prompt_version": KERNEL_PROMPT_VERSION,
+        "prompt_version": (
+            D3_PROMPT_VERSION if kernel_revision == "d3_source_blind_v1" else KERNEL_PROMPT_VERSION
+        ),
         "schema_version_runtime": KERNEL_SCHEMA_VERSION,
         "semantics_version": KERNEL_SEMANTICS_VERSION,
         "capability_version": KERNEL_CAPABILITY_VERSION,
         "decoder_version": (
-            KERNEL_D2_DECODER_VERSION if kernel_revision == "d2_unary_exact_v1" else KERNEL_DECODER_VERSION
+            KERNEL_D3_DECODER_VERSION
+            if kernel_revision == "d3_source_blind_v1"
+            else KERNEL_D2_DECODER_VERSION
+            if kernel_revision == "d2_unary_exact_v1"
+            else KERNEL_DECODER_VERSION
         ),
         "kernel_revision": kernel_revision,
         "primary_model_ref": experiment.primary_model_ref,
         "global_seed": experiment.global_seed,
         "cache_namespaces": dict(experiment.cache_namespaces),
         "required_comparison_methods": list(phase.get("required_comparison_methods") or []),
+        "d3_capability_registry_version": (
+            D3_CAPABILITY_REGISTRY_VERSION if kernel_revision == "d3_source_blind_v1" else None
+        ),
+        "d3_risk": dict(experiment.raw.get("d3_risk") or {}) if kernel_revision == "d3_source_blind_v1" else None,
+        "evaluation_role": str(phase.get("evaluation_role") or "unknown"),
     }
 
 
@@ -1663,7 +1862,9 @@ def _frozen_config_sha(
         "experiment": experiment.raw,
         "protocol": Path(experiment.protocol).read_text(encoding="utf-8"),
         "prompt_version": (
-            KERNEL_PROMPT_VERSION
+            D3_PROMPT_VERSION
+            if is_kernel and str(experiment.raw.get("kernel_revision") or "") == "d3_source_blind_v1"
+            else KERNEL_PROMPT_VERSION
             if is_kernel
             else CERT_V2_PROMPT_VERSION
             if is_cert_v2
@@ -1681,7 +1882,9 @@ def _frozen_config_sha(
             else CATCH_SCHEMA_VERSION
         ),
         "decoder_version": (
-            KERNEL_D2_DECODER_VERSION
+            KERNEL_D3_DECODER_VERSION
+            if is_kernel and kernel_revision == "d3_source_blind_v1"
+            else KERNEL_D2_DECODER_VERSION
             if is_kernel and kernel_revision == "d2_unary_exact_v1"
             else KERNEL_DECODER_VERSION
             if is_kernel
@@ -1711,6 +1914,7 @@ def _frozen_component_hashes(experiment) -> dict[str, str]:
         family_root / "certificates.py",
         family_root / "certificates_v2.py",
         family_root / "kernel.py",
+        family_root / "kernel_d3.py",
         family_root / "kernel_adapters.py",
         family_root / "kernel_mechanism.py",
         family_root / "kernel_prompts.py",
@@ -1740,6 +1944,7 @@ def _frozen_component_hashes(experiment) -> dict[str, str]:
         repo_root / "src" / "research_experiments" / "core" / "execution" / "providers" / "client.py",
         repo_root / "src" / "research_experiments" / "family_runtime" / "free_text_protocol.py",
         repo_root / "src" / "research_experiments" / "family_runtime" / "output_protocols.py",
+        repo_root / "src" / "research_experiments" / "reporting" / "paired_inference.py",
     }
     if experiment.study_type == "post_failure_cross_domain_boundary_audit":
         boundary_phase = dict((experiment.raw.get("phases") or {}).get("boundary_audit") or {})
@@ -1837,7 +2042,9 @@ def _build_frozen_protocol_candidate(
         "dual_panel_unique_challenger_required": True,
         "selection_constraints_passed": True,
         "prompt_version": (
-            KERNEL_PROMPT_VERSION
+            D3_PROMPT_VERSION
+            if is_kernel and kernel_revision == "d3_source_blind_v1"
+            else KERNEL_PROMPT_VERSION
             if is_kernel
             else CERT_V2_PROMPT_VERSION
             if is_cert_v2
@@ -1855,7 +2062,9 @@ def _build_frozen_protocol_candidate(
             else CATCH_SCHEMA_VERSION
         ),
         "decoder_version": (
-            KERNEL_D2_DECODER_VERSION
+            KERNEL_D3_DECODER_VERSION
+            if is_kernel and kernel_revision == "d3_source_blind_v1"
+            else KERNEL_D2_DECODER_VERSION
             if is_kernel and kernel_revision == "d2_unary_exact_v1"
             else KERNEL_DECODER_VERSION
             if is_kernel

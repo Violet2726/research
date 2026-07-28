@@ -1,0 +1,43 @@
+name = "catch_kernel_d3_count50"
+description = "D3 development freeze run on nested task/domain-stratified count50 pools; use before the count100 development run."
+study_type = "catch_kernel_cross_domain_development"
+confirmatory = false
+kernel_revision = "d3_source_blind_v1"
+benchmark_configs = [
+  "configs/core/shared/benchmarks/bbeh/bbeh-main.toml",
+  "configs/core/shared/benchmarks/musr/all.toml",
+  "configs/core/shared/benchmarks/gpqa/dataset.toml",
+]
+protocol = "configs/families/contrastive_active_testing/protocols/catch_kernel_d3_v1.toml"
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+global_seed = 42
+max_concurrent_requests = 75
+requests_per_minute_limit = 95
+
+[d3_risk]
+semantic_override_enabled = false
+soft_auditor_enabled = false
+required_one_sided_precision_lower_bound = 0.5
+semantic_precision_gate_passed = false
+semantic_metamorphic_suite_passed = false
+semantic_human_audit_passed = false
+
+[cache_namespaces]
+development = "catch-dev-kernel_d3_v1"
+heldout = "catch-heldout-kernel_d3_v1"
+confirmation = "catch-confirm-kernel_d3_v1"
+
+[baseline_cache_namespaces]
+development = "catch-dev-kernel_d2_v1,catch-dev-kernel_d1_v3,catch-dev-cert_v2,catch-dev-cert_v1"
+heldout = "catch-heldout-kernel_d2_v1,catch-heldout-kernel_d1_v3,catch-heldout-cert_v2,catch-heldout-cert_v1"
+confirmation = "catch-confirm-kernel_d2_v1,catch-confirm-kernel_d1_v3,catch-confirm-cert_v2,catch-confirm-cert_v1"
+
+[phases.development]
+benchmark_slugs = ["bbeh", "musr", "gpqa_diamond"]
+split_overrides = { bbeh = "catch_kernel_d3_dev50_seed42", musr = "catch_kernel_d3_dev50_seed42", gpqa_diamond = "catch_kernel_d3_dev50_seed42" }
+sample_limits = { bbeh = 50, musr = 50, gpqa_diamond = 50 }
+selection_strategy = "frozen_manifest"
+selection_seed = 42
+run_direct_judge = true
+evaluation_role = "development_count50_adapter_freeze"
+expected_selection_sha256 = { bbeh = "377cb950bdf59bab0de1030ec5d293687e8c8ca8954795f6543d10edc45c17e5", musr = "cfeb8e4f1aaa28bb50acecadaa757b31184d7f3c570e02a9a0cedafea420610a", gpqa_diamond = "fbefa19ceede3aa456ef26db17a186a359b7f1dd775c9a71c487109869799ac8" }

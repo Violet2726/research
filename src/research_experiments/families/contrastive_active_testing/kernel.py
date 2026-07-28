@@ -44,6 +44,7 @@ KERNEL_SEMANTICS_VERSION = "catch_kernel_task_semantics_v3"
 KERNEL_CAPABILITY_VERSION = "catch_kernel_verifier_capabilities_v3"
 KERNEL_DECODER_VERSION = "catch_kernel_proof_decoder_v3"
 KERNEL_D2_DECODER_VERSION = "catch_kernel_unary_exact_decoder_v1"
+KERNEL_D3_DECODER_VERSION = "catch_kernel_d3_source_blind_decoder_v1"
 
 
 @dataclass(frozen=True)

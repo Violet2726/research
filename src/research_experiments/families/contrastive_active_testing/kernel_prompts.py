@@ -20,8 +20,68 @@ from research_experiments.families.contrastive_active_testing.kernel import (
 from research_experiments.families.contrastive_active_testing.kernel_adapters import (
     typed_payload_prompt_schema,
 )
+from research_experiments.families.contrastive_active_testing.kernel_d3 import D3_IR_SCHEMA, D3_IR_VERSION
 
 KERNEL_PROMPT_VERSION = "catch_kernel_atomic_truth_v3"
+D3_PROMPT_VERSION = "catch_kernel_d3_source_blind_v1"
+
+
+def build_d3_source_compiler_messages(
+    sample: DatasetSample,
+    *,
+    source_spans: list[dict[str, str]],
+    answer_schema: list[dict[str, str]],
+    operation_kind: str,
+) -> list[dict[str, str]]:
+    """Prompt a source-only compiler; Stage-A candidates are intentionally absent."""
+
+    schema = {
+        "schema": D3_IR_SCHEMA,
+        "ir_version": D3_IR_VERSION,
+        "query": {
+            "kind": "evaluate_numeric_expression",
+            "source_span_ids": ["S0"],
+            "constraint_ids": ["C0"],
+        },
+        "constraints": [
+            {
+                "constraint_id": "C0",
+                "kind": "numeric_expression",
+                "expression": "closed numeric expression only",
+                "source_span_ids": ["S0"],
+            }
+        ],
+        "covered_span_ids": ["S0"],
+        "uncovered_span_ids": [],
+    }
+    return [
+        {
+            "role": "system",
+            "content": (
+                "Return one JSON object only. You are a candidate-blind source compiler. "
+                "You do not see Stage-A answers, candidate labels, votes, an anchor, or gold. "
+                "Compile only the source into a closed typed IR. Do not invent facts, variables, "
+                "constraints, or answer choices. Every source span must be in exactly one of "
+                "covered_span_ids or uncovered_span_ids."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Compiler protocol: {D3_PROMPT_VERSION}\n"
+                f"Operation kind: {operation_kind}\n"
+                f"Source task (answer region removed):\n{question_without_answer_contract(sample)}\n\n"
+                f"Answer schema (allowed options only; no gold):\n{json.dumps(answer_schema, ensure_ascii=False)}\n\n"
+                f"Indexed source spans:\n{json.dumps(source_spans, ensure_ascii=False)}\n\n"
+                "For safe_numeric_expression, bind the query and the single C0 constraint to exact source spans. "
+                "Every numeric literal, constant, and function in expression must occur in those bound spans; "
+                "do not import conversion factors, formulas, or world knowledge. The expression may contain only "
+                "numeric literals, arithmetic, parentheses, and constants/functions permitted by the local checker. "
+                "Return exactly this object shape and no extra fields:\n"
+                f"{json.dumps(schema, ensure_ascii=False)}"
+            ),
+        },
+    ]
 
 
 def build_kernel_designer_messages(

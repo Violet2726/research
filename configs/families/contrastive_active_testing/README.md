@@ -75,6 +75,23 @@ Historical CATCH-v1/v2/v3 runs and their old audit artifacts remain read-only.
 The optional `canonicalization-replay` command is retained only for reproducing
 those archived results.
 
+## CATCH-Kernel D3
+
+The revised source-blind implementation is registered in
+`experiments/catch_kernel_d3.toml`. It routes every item deterministically,
+keeps exact/semantic/soft jurisdictions exclusive, and reports solver-direct
+and candidate-completion decisions separately. Development uses nested
+task/domain-stratified count50/count100 manifests; the primary confirmation is
+unseen BBEH/MuSR/GPQA. The official BBEH Mini and full MuSR/GPQA compatibility
+run is deliberately separate because the official Mini overlaps 45 of the 400
+previously inspected BBEH items.
+
+Use `experiments/catch_kernel_d3_count50.toml` to freeze the first development
+slice, then `catch_kernel_d3.toml` for count100/heldout and unseen confirmation.
+Use `catch_kernel_d3_benchmark_compat.toml` only for benchmark-compatible
+secondary reporting. See `D3_PREREGISTRATION.md` for metric, risk, and claim
+boundaries.
+
 ## CATCH-Kernel
 
 `catch_kernel_v1` treats the language model as an untrusted proof producer.

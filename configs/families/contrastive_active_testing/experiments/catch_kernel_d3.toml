@@ -1,0 +1,73 @@
+name = "catch_kernel_d3"
+description = "CATCH-Kernel D3: source-blind conditional certificates, exact candidate completion, and route-exclusive adaptive fallback on BBEH, MuSR, and GPQA Diamond."
+study_type = "catch_kernel_cross_domain"
+confirmatory = false
+kernel_revision = "d3_source_blind_v1"
+kernel_freeze_path = "configs/families/contrastive_active_testing/freezes/catch_kernel_d3_confirmation.json"
+benchmark_configs = [
+  "configs/core/shared/benchmarks/bbeh/bbeh-main.toml",
+  "configs/core/shared/benchmarks/musr/all.toml",
+  "configs/core/shared/benchmarks/gpqa/dataset.toml",
+]
+protocol = "configs/families/contrastive_active_testing/protocols/catch_kernel_d3_v1.toml"
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+global_seed = 42
+max_concurrent_requests = 75
+requests_per_minute_limit = 95
+
+[d3_risk]
+semantic_override_enabled = false
+soft_auditor_enabled = false
+required_one_sided_precision_lower_bound = 0.5
+semantic_precision_gate_passed = false
+semantic_metamorphic_suite_passed = false
+semantic_human_audit_passed = false
+
+[d3_data_audit]
+official_bbeh_mini_split = "bbeh_mini460_seed42"
+previously_inspected_splits = ["catch_cert_dev200_seed42", "catch_cert_holdout200_seed42"]
+primary_confirmation_role = "independent_mechanism_confirmation"
+official_bbeh_mini_role = "secondary_benchmark_compatibility_only"
+
+[cache_namespaces]
+development = "catch-dev-kernel_d3_v1"
+heldout = "catch-heldout-kernel_d3_v1"
+confirmation = "catch-confirm-kernel_d3_v1"
+
+[baseline_cache_namespaces]
+development = "catch-dev-kernel_d2_v1,catch-dev-kernel_d1_v3,catch-dev-cert_v2,catch-dev-cert_v1"
+heldout = "catch-heldout-kernel_d2_v1,catch-heldout-kernel_d1_v3,catch-heldout-cert_v2,catch-heldout-cert_v1"
+confirmation = "catch-confirm-kernel_d2_v1,catch-confirm-kernel_d1_v3,catch-confirm-cert_v2,catch-confirm-cert_v1"
+
+[phases.development]
+benchmark_slugs = ["bbeh", "musr", "gpqa_diamond"]
+split_overrides = { bbeh = "catch_kernel_d3_dev100_seed42", musr = "catch_kernel_d3_dev100_seed42", gpqa_diamond = "catch_kernel_d3_dev50_seed42" }
+sample_limits = { bbeh = 100, musr = 100, gpqa_diamond = 50 }
+selection_strategy = "frozen_manifest"
+selection_seed = 42
+run_direct_judge = true
+evaluation_role = "development_and_adapter_freeze"
+expected_selection_sha256 = { bbeh = "d9cc039397c58bb0fc9b0b64c8240b6a69272210889272e57e3696e4635e4754", musr = "a53ac7cb792c371cbca4beb1bf02f3ffdad611866dde41962455dcd0aded02b8", gpqa_diamond = "fbefa19ceede3aa456ef26db17a186a359b7f1dd775c9a71c487109869799ac8" }
+
+[phases.heldout]
+benchmark_slugs = ["bbeh", "musr", "gpqa_diamond"]
+split_overrides = { bbeh = "catch_cert_holdout200_seed42", musr = "catch_cert_holdout200_seed42", gpqa_diamond = "full198_seed42" }
+sample_limits = { bbeh = 200, musr = 200, gpqa_diamond = 48 }
+selection_strategy = "d3_task_stratified_hash"
+selection_seed = 43
+run_direct_judge = true
+evaluation_role = "heldout_diagnostic_not_independent_confirmation"
+expected_selection_sha256 = { bbeh = "4b37f5f44d38e4b7988279ee5726d498a383a7a51f7b42f4f3b96f4b8881a91b", musr = "15907c845e5d6dd56a6f186726cd289e8075902acf1f88ec26cb423dd4b28849", gpqa_diamond = "537d888663e9ba90135320ae40adbd7194acfd895991f1ad683d94588bfdb9b6" }
+
+[phases.confirmation]
+benchmark_slugs = ["bbeh", "musr", "gpqa_diamond"]
+split_overrides = { bbeh = "full4520_seed42", musr = "full756_seed42", gpqa_diamond = "full198_seed42" }
+exclude_splits = { bbeh = ["catch_cert_dev200_seed42", "catch_cert_holdout200_seed42"], musr = ["catch_cert_dev200_seed42", "catch_cert_holdout200_seed42"], gpqa_diamond = ["catch_cert_dev98_seed42"] }
+sample_limits = { bbeh = 460, musr = 356, gpqa_diamond = 100 }
+selection_strategy = "d3_confirmation_stratified_hash"
+selection_seed = 42
+hash_sample_selection = true
+run_direct_judge = true
+evaluation_role = "independent_unseen_mechanism_confirmation"
+required_comparison_methods = ["sc_5", "adaptive_sc_8", "fixed_sc_8", "direct_judge_3", "pair_judge_3", "catch_kernel"]
+expected_selection_sha256 = { bbeh = "e39663bd2ce8896efbc4e6596e5bc0992774494013755759a5f53f562d61355c", musr = "1da95125aab1da25f764591026ab0078d4b7727c7f5f16bcded3324ed3e96d57", gpqa_diamond = "5f507a66e4ca6405bbef7beb84c98d8f2f51f26bdcd8ff6216541e10ac9203e2" }

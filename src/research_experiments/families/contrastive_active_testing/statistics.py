@@ -14,6 +14,8 @@ from research_experiments.reporting.paired_inference import paired_statistics
 BASE_METHODS = (
     "sc_5",
     "adaptive_sc_8",
+    "fixed_sc_8",
+    "solver_direct",
     "catch",
     "catch_cert",
     "catch_cert_v2",
@@ -121,6 +123,8 @@ def build_metrics(predictions: list[dict[str, Any]]) -> dict[str, Any]:
         method
         for method in (
             "adaptive_sc_8",
+            "fixed_sc_8",
+            "solver_direct",
             "pair_judge_3",
             "direct_judge_3",
             "sc_5",
@@ -138,7 +142,10 @@ def build_metrics(predictions: list[dict[str, Any]]) -> dict[str, Any]:
             competitors=paired_competitors,
             seed=42,
             bootstrap_samples=10_000,
-            bbeh_harmonic=False,
+            bbeh_adjusted_harmonic=any(
+                row.get("dataset") == "bbeh" and row.get("primary_metric") == "bbeh_full_adjusted_harmonic"
+                for row in predictions
+            ),
         )
         if reference in available and paired_competitors
         else {"reference_method": reference, "tests": []}
@@ -598,11 +605,20 @@ def evaluate_gate(
 def _summary(method: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     scores = [float(row.get("score") or 0) for row in rows]
     per_task: dict[str, list[float]] = defaultdict(list)
+    per_domain: dict[str, list[float]] = defaultdict(list)
+    per_subdomain: dict[str, list[float]] = defaultdict(list)
+    per_reasoning_type: dict[str, list[float]] = defaultdict(list)
     oracle_per_task: dict[str, list[float]] = defaultdict(list)
     target_oracle_per_task: dict[str, list[float]] = defaultdict(list)
     for row in rows:
         task = str(row.get("task") or "unknown")
         per_task[task].append(float(row.get("score") or 0))
+        if row.get("high_level_domain"):
+            per_domain[str(row["high_level_domain"])].append(float(row.get("score") or 0))
+        if row.get("subdomain"):
+            per_subdomain[str(row["subdomain"])].append(float(row.get("score") or 0))
+        if row.get("reasoning_type"):
+            per_reasoning_type[str(row["reasoning_type"])].append(float(row.get("score") or 0))
         oracle_per_task[task].append(float(bool(row.get("candidate_oracle_correct"))))
         target_oracle_per_task[task].append(float(bool(row.get("target_oracle_correct"))))
     task_accuracies = {task: sum(values) / len(values) for task, values in per_task.items() if values}
@@ -610,7 +626,13 @@ def _summary(method: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     target_oracle_task_accuracies = {
         task: sum(values) / len(values) for task, values in target_oracle_per_task.items() if values
     }
+    domain_accuracies = {key: sum(values) / len(values) for key, values in per_domain.items() if values}
+    subdomain_accuracies = {key: sum(values) / len(values) for key, values in per_subdomain.items() if values}
+    reasoning_type_accuracies = {
+        key: sum(values) / len(values) for key, values in per_reasoning_type.items() if values
+    }
     token_values = [float(row.get("total_tokens_per_question") or 0) for row in rows]
+    latency_values = [float(row.get("latency_ms_per_question") or 0) for row in rows]
     total_tokens = sum(token_values)
     scores_sum = sum(scores)
     accuracy_wilson = _wilson_interval(int(scores_sum), len(scores))
@@ -669,13 +691,66 @@ def _summary(method: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
         )
         if any(row.get(key) is not None for row in rows)
     }
+    primary_metrics = {str(row.get("primary_metric")) for row in rows if row.get("primary_metric")}
+    primary_metric = next(iter(primary_metrics)) if len(primary_metrics) == 1 else None
+    d3_route_counts: dict[str, int] = defaultdict(int)
+    d3_first_failure_counts: dict[str, int] = defaultdict(int)
+    for row in rows:
+        if row.get("d3_route"):
+            d3_route_counts[str(row["d3_route"])] += 1
+        if row.get("d3_first_failure_layer"):
+            d3_first_failure_counts[str(row["d3_first_failure_layer"])] += 1
+    d3_overrides = [row for row in rows if row.get("d3_route") and row.get("override_accepted")]
+    d3_correct_overrides = sum(float(row.get("score") or 0) == 1.0 for row in d3_overrides)
+    d3_corrections = sum(bool(row.get("corrected_by_debate")) for row in d3_overrides)
+    d3_harms = sum(bool(row.get("harmed_by_debate")) for row in d3_overrides)
+    d3_route_quality: dict[str, dict[str, Any]] = {}
+    for route_name in sorted({str(row.get("d3_route")) for row in rows if row.get("d3_route")}):
+        route_rows = [row for row in rows if str(row.get("d3_route")) == route_name]
+        route_overrides = [row for row in route_rows if row.get("override_accepted")]
+        route_correct = sum(float(row.get("score") or 0) == 1.0 for row in route_overrides)
+        route_harm = sum(bool(row.get("harmed_by_debate")) for row in route_overrides)
+        d3_route_quality[route_name] = {
+            "sample_count": len(route_rows),
+            "override_count": len(route_overrides),
+            "override_precision": _ratio(route_correct, len(route_overrides)),
+            "harm_rate": _ratio(route_harm, len(route_overrides)),
+            "override_precision_one_sided_95_lower": _clopper_pearson_lower(
+                route_correct, len(route_overrides), alpha=0.05
+            ) if route_overrides else None,
+            "harm_rate_one_sided_95_upper": _clopper_pearson_upper(
+                route_harm, len(route_overrides), alpha=0.05
+            ) if route_overrides else None,
+        }
     return {
         "method_name": method,
         "sample_count": len(rows),
+        "primary_metric": primary_metric,
+        "d3_route_counts": dict(sorted(d3_route_counts.items())),
+        "d3_first_failure_counts": dict(sorted(d3_first_failure_counts.items())),
+        "d3_route_quality": d3_route_quality,
+        "d3_candidate_completion_count": sum(bool(row.get("d3_candidate_completion")) for row in rows),
+        "d3_solver_direct_count": sum(bool(row.get("d3_solver_direct")) for row in rows),
+        "d3_semantic_shadow_count": sum(str(row.get("resolver") or "") == "d3_semantic_shadow" for row in rows),
+        "d3_override_precision_one_sided_95_lower": _clopper_pearson_lower(
+            d3_correct_overrides, len(d3_overrides), alpha=0.05
+        ) if d3_overrides else None,
+        "d3_override_count": len(d3_overrides),
+        "d3_correction_count": d3_corrections,
+        "d3_harm_count": d3_harms,
+        "d3_correction_precision_one_sided_95_lower": _clopper_pearson_lower(
+            d3_corrections, len(d3_overrides), alpha=0.05
+        ) if d3_overrides else None,
+        "d3_harm_rate_one_sided_95_upper": _clopper_pearson_upper(
+            d3_harms, len(d3_overrides), alpha=0.05
+        ) if d3_overrides else None,
         "micro_accuracy": _ratio(sum(scores), len(scores)),
         "accuracy_wilson_95": [accuracy_wilson[0], accuracy_wilson[1]],
         "macro_task_accuracy": _ratio(sum(task_accuracies.values()), len(task_accuracies)),
         "task_harmonic_accuracy": _harmonic_mean(task_accuracies.values()),
+        "task_adjusted_harmonic_accuracy": _adjusted_harmonic_mean(task_accuracies.values())
+        if primary_metric == "bbeh_full_adjusted_harmonic"
+        else None,
         "candidate_oracle_micro": _ratio(sum(bool(row.get("candidate_oracle_correct")) for row in rows), len(rows)),
         "candidate_oracle_task_harmonic": _harmonic_mean(oracle_task_accuracies.values()),
         "target_oracle_micro": _ratio(sum(bool(row.get("target_oracle_correct")) for row in rows), len(rows)),
@@ -686,6 +761,15 @@ def _summary(method: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
         "mean_calls_per_question": _ratio(
             sum(float(row.get("logical_calls_per_question") or row.get("calls_per_question") or 0) for row in rows),
             len(rows),
+        ),
+        "mean_latency_ms_per_question": _ratio(sum(latency_values), len(latency_values)),
+        "median_latency_ms_per_question": _percentile(latency_values, 0.5),
+        "p90_latency_ms_per_question": _percentile(latency_values, 0.9),
+        "mean_cache_hits_per_question": _ratio(
+            sum(float(row.get("cache_hits_per_question") or 0) for row in rows), len(rows)
+        ),
+        "mean_network_calls_per_question": _ratio(
+            sum(float(row.get("network_calls_per_question") or 0) for row in rows), len(rows)
         ),
         "correct_per_1000_tokens": _ratio(scores_sum * 1000.0, total_tokens),
         "tokens_per_correct": _ratio(total_tokens, scores_sum),
@@ -761,6 +845,10 @@ def _summary(method: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
             sum(float(row.get("network_attempts_per_question") or 0) for row in rows), len(rows)
         ),
         "per_task_accuracy": task_accuracies,
+        "per_domain_accuracy": domain_accuracies,
+        "per_subdomain_accuracy": subdomain_accuracies,
+        "per_reasoning_type_accuracy": reasoning_type_accuracies,
+        "reasoning_type_stratification_available": bool(reasoning_type_accuracies),
     }
 
 
@@ -1000,6 +1088,16 @@ def _harmonic_mean(values) -> float:
     return len(materialized) / sum(1 / value for value in materialized)
 
 
+def _adjusted_harmonic_mean(values) -> float:
+    """BBEH Full metric: add one percentage point before harmonic averaging."""
+
+    materialized = [float(value) for value in values]
+    if not materialized:
+        return 0.0
+    adjusted = [value + 0.01 for value in materialized]
+    return max(0.0, len(adjusted) / sum(1 / value for value in adjusted) - 0.01)
+
+
 def _mean_present(rows: list[dict[str, Any]], field: str) -> float | None:
     values = [float(row[field]) for row in rows if row.get(field) is not None]
     return _ratio(sum(values), len(values)) if values else None
@@ -1021,6 +1119,14 @@ def _clopper_pearson_lower(successes: int, total: int, *, alpha: float) -> float
     if total <= 0 or successes <= 0:
         return 0.0
     return float(beta.ppf(alpha, successes, total - successes + 1))
+
+
+def _clopper_pearson_upper(failures: int, total: int, *, alpha: float) -> float:
+    if total <= 0:
+        return 0.0
+    if failures >= total:
+        return 1.0
+    return float(beta.ppf(1 - alpha, failures + 1, total - failures))
 
 
 def _wilson_lower(successes: int, total: int, z: float) -> float:
