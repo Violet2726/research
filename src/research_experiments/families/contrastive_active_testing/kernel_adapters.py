@@ -1,4 +1,4 @@
-"""Kernel-only typed payload compilers and deterministic adapters.
+"""Kernel-only typed payload compilers and deterministic adapters（内核适配器）。
 
 This module deliberately sits outside ``certificates_v2.py`` so frozen
 CATCH-Cert v2 reruns keep their historical adapter semantics.

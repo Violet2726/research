@@ -12,6 +12,7 @@ benchmark_configs = [
 protocol = "configs/families/contrastive_active_testing/protocols/catch_kernel_d3_v1.toml"
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 global_seed = 42
+provider_runtime_profile = "xiaomimimo_75x95_validated_v1"
 max_concurrent_requests = 75
 requests_per_minute_limit = 95
 

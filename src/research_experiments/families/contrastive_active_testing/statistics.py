@@ -20,6 +20,9 @@ BASE_METHODS = (
     "catch_cert",
     "catch_cert_v2",
     "catch_kernel",
+    "catch_d3_exact_only",
+    "ssv_raw",
+    "catch_kernel_d4",
     "direct_judge_3",
     "pair_judge_3",
 )
@@ -111,7 +114,9 @@ def build_metrics(predictions: list[dict[str, Any]]) -> dict[str, Any]:
         for method in [*ordered, *variants]
     ]
     reference = (
-        "catch_kernel"
+        "catch_kernel_d4"
+        if "catch_kernel_d4" in available
+        else "catch_kernel"
         if "catch_kernel" in available
         else "catch_cert_v2"
         if "catch_cert_v2" in available
@@ -122,16 +127,20 @@ def build_metrics(predictions: list[dict[str, Any]]) -> dict[str, Any]:
     paired_competitors = [
         method
         for method in (
-            "adaptive_sc_8",
-            "fixed_sc_8",
-            "solver_direct",
-            "pair_judge_3",
-            "direct_judge_3",
-            "sc_5",
-            "catch",
-            "catch_cert",
-            "catch_cert_v2",
-            "catch_kernel",
+            ("sc_5", "fixed_sc_8")
+            if reference == "catch_kernel_d4"
+            else (
+                "adaptive_sc_8",
+                "fixed_sc_8",
+                "solver_direct",
+                "pair_judge_3",
+                "direct_judge_3",
+                "sc_5",
+                "catch",
+                "catch_cert",
+                "catch_cert_v2",
+                "catch_kernel",
+            )
         )
         if method in available and method != reference
     ]
@@ -711,6 +720,17 @@ def _summary(method: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     d3_correct_overrides = sum(float(row.get("score") or 0) == 1.0 for row in d3_overrides)
     d3_corrections = sum(bool(row.get("corrected_by_debate")) for row in d3_overrides)
     d3_harms = sum(bool(row.get("harmed_by_debate")) for row in d3_overrides)
+    d4_route_counts: dict[str, int] = defaultdict(int)
+    d4_first_failure_counts: dict[str, int] = defaultdict(int)
+    for row in rows:
+        if row.get("d4_route"):
+            d4_route_counts[str(row["d4_route"])] += 1
+        if row.get("d4_first_failure_layer"):
+            d4_first_failure_counts[str(row["d4_first_failure_layer"])] += 1
+    d4_overrides = [row for row in rows if row.get("d4_route") and row.get("override_accepted")]
+    d4_correct_overrides = sum(float(row.get("score") or 0) == 1.0 for row in d4_overrides)
+    d4_corrections = sum(bool(row.get("corrected_by_debate")) for row in d4_overrides)
+    d4_harms = sum(bool(row.get("harmed_by_debate")) for row in d4_overrides)
     d3_route_quality: dict[str, dict[str, Any]] = {}
     for route_name in sorted({str(row.get("d3_route")) for row in rows if row.get("d3_route")}):
         route_rows = [row for row in rows if str(row.get("d3_route")) == route_name]
@@ -758,6 +778,50 @@ def _summary(method: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
                 for row in rows
             ),
             len(rows),
+        ),
+        "d4_route_counts": dict(sorted(d4_route_counts.items())),
+        "d4_first_failure_counts": dict(sorted(d4_first_failure_counts.items())),
+        "d4_override_count": len(d4_overrides),
+        "d4_correction_count": d4_corrections,
+        "d4_harm_count": d4_harms,
+        "d4_override_precision": _ratio(d4_correct_overrides, len(d4_overrides)),
+        "d4_override_precision_one_sided_95_lower": (
+            _clopper_pearson_lower(d4_correct_overrides, len(d4_overrides), alpha=0.05)
+            if d4_overrides
+            else None
+        ),
+        "d4_harm_rate_one_sided_95_upper": (
+            _clopper_pearson_upper(d4_harms, len(d4_overrides), alpha=0.05)
+            if d4_overrides
+            else None
+        ),
+        "d4_jurisdiction_coverage": _ratio(
+            sum(str(row.get("d4_route") or "") != "SOFT_UNSUPPORTED" for row in rows),
+            len(rows),
+        ),
+        "d4_executable_coverage": _ratio(
+            sum(
+                str((row.get("d4_solver_result") or {}).get("status") or "") == "UNIQUE"
+                for row in rows
+            ),
+            len(rows),
+        ),
+        "d4_authorized_coverage": _ratio(
+            sum(
+                str(row.get("method_name") or "") == "catch_kernel_d4"
+                and str(row.get("resolver") or "") in {"d4_solver_direct", "d4_candidate_completion"}
+                for row in rows
+            ),
+            len(rows),
+        ),
+        "d4_abstention_rate": _ratio(
+            sum(str(row.get("resolver") or "").endswith("abstain") for row in rows),
+            len(rows),
+        ),
+        "d4_confirmation_safety_gate_passed": bool(
+            len(d4_overrides) >= 59
+            and _clopper_pearson_lower(d4_correct_overrides, len(d4_overrides), alpha=0.05) >= 0.95
+            and _clopper_pearson_upper(d4_harms, len(d4_overrides), alpha=0.05) <= 0.05
         ),
         "micro_accuracy": _ratio(sum(scores), len(scores)),
         "accuracy_wilson_95": [accuracy_wilson[0], accuracy_wilson[1]],

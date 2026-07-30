@@ -168,21 +168,27 @@ def load_experiment_config(path: str | Path) -> CatchExperimentConfig:
         if study_type == "catch_cert_cross_domain_baseline"
         else {
             "development": (
-                "catch-dev-kernel_d3_v1"
+                "catch-dev-kernel_d4_v1"
+                if kernel_revision == "d4_proof_carrying_v1"
+                else "catch-dev-kernel_d3_v1"
                 if kernel_revision == "d3_source_blind_v1"
                 else "catch-dev-kernel_d2_v1"
                 if kernel_revision == "d2_unary_exact_v1"
                 else "catch-dev-kernel_d1_v3"
             ),
             "heldout": (
-                "catch-heldout-kernel_d3_v1"
+                "catch-heldout-kernel_d4_v1"
+                if kernel_revision == "d4_proof_carrying_v1"
+                else "catch-heldout-kernel_d3_v1"
                 if kernel_revision == "d3_source_blind_v1"
                 else "catch-heldout-kernel_d2_v1"
                 if kernel_revision == "d2_unary_exact_v1"
                 else "catch-heldout-kernel_d1_v3"
             ),
             "confirmation": (
-                "catch-confirm-kernel_d3_v1"
+                "catch-confirm-kernel_d4_v1"
+                if kernel_revision == "d4_proof_carrying_v1"
+                else "catch-confirm-kernel_d3_v1"
                 if kernel_revision == "d3_source_blind_v1"
                 else "catch-confirm-kernel_d2_v1"
                 if kernel_revision == "d2_unary_exact_v1"
@@ -205,21 +211,27 @@ def load_experiment_config(path: str | Path) -> CatchExperimentConfig:
         if is_boundary
         else {
             "development": (
-                "catch-dev-kernel_d2_v1,catch-dev-kernel_d1_v3,catch-dev-cert_v2,catch-dev-cert_v1"
+                "catch-dev-kernel_d3_v1,catch-dev-kernel_d2_v1,catch-dev-kernel_d1_v3,catch-dev-cert_v2,catch-dev-cert_v1"
+                if kernel_revision == "d4_proof_carrying_v1"
+                else "catch-dev-kernel_d2_v1,catch-dev-kernel_d1_v3,catch-dev-cert_v2,catch-dev-cert_v1"
                 if kernel_revision == "d3_source_blind_v1"
                 else "catch-dev-kernel_d1_v3,catch-dev-cert_v2,catch-dev-cert_v1"
                 if kernel_revision == "d2_unary_exact_v1"
                 else "catch-dev-cert_v2,catch-dev-cert_v1"
             ),
             "heldout": (
-                "catch-heldout-kernel_d2_v1,catch-heldout-kernel_d1_v3,catch-heldout-cert_v2,catch-heldout-cert_v1"
+                "catch-heldout-kernel_d3_v1,catch-heldout-kernel_d2_v1,catch-heldout-kernel_d1_v3,catch-heldout-cert_v2,catch-heldout-cert_v1"
+                if kernel_revision == "d4_proof_carrying_v1"
+                else "catch-heldout-kernel_d2_v1,catch-heldout-kernel_d1_v3,catch-heldout-cert_v2,catch-heldout-cert_v1"
                 if kernel_revision == "d3_source_blind_v1"
                 else "catch-heldout-kernel_d1_v3,catch-heldout-cert_v2,catch-heldout-cert_v1"
                 if kernel_revision == "d2_unary_exact_v1"
                 else "catch-heldout-cert_v2,catch-heldout-cert_v1"
             ),
             "confirmation": (
-                "catch-confirm-kernel_d2_v1,catch-confirm-kernel_d1_v3,catch-confirm-cert_v2,catch-confirm-cert_v1"
+                "catch-confirm-kernel_d3_v1,catch-confirm-kernel_d2_v1,catch-confirm-kernel_d1_v3,catch-confirm-cert_v2,catch-confirm-cert_v1"
+                if kernel_revision == "d4_proof_carrying_v1"
+                else "catch-confirm-kernel_d2_v1,catch-confirm-kernel_d1_v3,catch-confirm-cert_v2,catch-confirm-cert_v1"
                 if kernel_revision == "d3_source_blind_v1"
                 else "catch-confirm-kernel_d1_v3,catch-confirm-cert_v2,catch-confirm-cert_v1"
                 if kernel_revision == "d2_unary_exact_v1"

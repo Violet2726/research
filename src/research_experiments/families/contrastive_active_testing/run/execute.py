@@ -43,6 +43,14 @@ from research_experiments.families.contrastive_active_testing.config import (
     load_protocol_config,
     phase_metadata,
 )
+from research_experiments.families.contrastive_active_testing.d4_audit import (
+    evaluate_d4_human_audit,
+    validate_d4_gate_evidence,
+)
+from research_experiments.families.contrastive_active_testing.d4_data import validate_sealed_manifest
+from research_experiments.families.contrastive_active_testing.d4_protocol_ab import (
+    validate_output_protocol_ab_assessment,
+)
 from research_experiments.families.contrastive_active_testing.icv import build_target_pairs
 from research_experiments.families.contrastive_active_testing.kernel import (
     KERNEL_CAPABILITY_VERSION,
@@ -55,6 +63,20 @@ from research_experiments.families.contrastive_active_testing.kernel import (
 from research_experiments.families.contrastive_active_testing.kernel_d3 import (
     D3_CAPABILITY_REGISTRY_VERSION,
     capability_registry,
+)
+from research_experiments.families.contrastive_active_testing.kernel_d4 import (
+    D4_CAPABILITY_REGISTRY_VERSION,
+    D4_DECODER_VERSION,
+    D4_IR_SCHEMA,
+    D4_PROMPT_VERSION,
+    load_risk_evidence,
+    risk_gate_snapshot,
+)
+from research_experiments.families.contrastive_active_testing.kernel_d4 import (
+    capability_registry as d4_capability_registry,
+)
+from research_experiments.families.contrastive_active_testing.kernel_d4 import (
+    route_for_sample as d4_route_for_sample,
 )
 from research_experiments.families.contrastive_active_testing.kernel_prompts import (
     D3_PROMPT_VERSION,
@@ -145,10 +167,20 @@ def run_experiment(
         return run_boundary_audit(experiment, backbone, run_root=run_root, cache_root=cache_root)
     load_dotenv(".env.local", override=False)
     execution_warnings: list[str] = list(getattr(experiment, "config_warnings", ()))
-    if backbone.provider != "xiaomimimo":
-        execution_warnings.append(f"provider_differs_from_original_study:{backbone.provider}")
     phase = phase_metadata(experiment, phase_name)
     protocol = load_protocol_config(experiment.protocol)
+    if (
+        phase_name == "confirmation"
+        and protocol.protocol_version == "catch_kernel_v1"
+        and str(experiment.raw.get("kernel_revision") or "") == "d4_proof_carrying_v1"
+        and not bool(phase.get("sealed_data_ready", False))
+    ):
+        raise RuntimeError(
+            "D4 confirmation is blocked: sealed_data_ready=true is required after MuSR-X/SuperGPQA manifests "
+            "and BBEH unseen selection are frozen."
+        )
+    if backbone.provider != "xiaomimimo":
+        execution_warnings.append(f"provider_differs_from_original_study:{backbone.provider}")
     if run_mode not in {"full", "structural_preflight"}:
         raise ValueError(f"Unsupported CATCH run mode {run_mode!r}.")
     if run_mode == "structural_preflight" and (phase_name != "development" or protocol.protocol_version != "catch_v3"):
@@ -219,10 +251,56 @@ def run_experiment(
                     "selection_constraints_passed": False,
                     "source": "protocol_default",
                 }
-    if phase_name in {"heldout", "confirmation"}:
+    is_d4_confirmation = (
+        phase_name == "confirmation"
+        and protocol.protocol_version == "catch_kernel_v1"
+        and str(experiment.raw.get("kernel_revision") or "") == "d4_proof_carrying_v1"
+    )
+    if phase_name in {"heldout", "confirmation"} and not is_d4_confirmation:
         execution_warnings.append("confirmatory_evidence_missing_or_not_enforced")
 
     cache_namespace = experiment.cache_namespaces[phase_name]
+    d4_human_audit = None
+    d4_sealed_manifests = None
+    d4_protocol_ab = None
+    d4_risk_evidence = None
+    if is_d4_confirmation:
+        if not experiment.confirmatory:
+            raise RuntimeError("D4 confirmation is blocked: confirmatory=true is required.")
+        expected_hashes = dict(phase.get("expected_selection_sha256") or {})
+        if not expected_hashes:
+            raise RuntimeError("D4 confirmation is blocked: frozen selection hashes are required.")
+        freeze_path = Path(str(experiment.raw.get("kernel_freeze_path") or ""))
+        if not freeze_path.is_file():
+            raise RuntimeError("D4 confirmation is blocked: kernel freeze is missing.")
+        d4_protocol_ab = _require_passing_d4_protocol_ab(
+            Path(str(experiment.raw.get("protocol_ab_assessment_path") or ""))
+        )
+        d4_risk_evidence = _require_passing_d4_risk_evidence(experiment)
+        d4_risk = dict(experiment.raw.get("d4_risk") or {})
+        if bool(d4_risk.get("semantic_override_enabled", False)):
+            d4_human_audit = _require_passing_d4_human_audit(
+                experiment.human_audit_path,
+                required_kernels=set(d4_risk_evidence["required_semantic_kernels"]),
+            )
+            if d4_human_audit["sha256"] != d4_risk_evidence["human_audit_sha256"]:
+                raise RuntimeError("D4 confirmation is blocked: risk evidence and active human audit differ.")
+        else:
+            d4_human_audit = {"required": False, "status": "semantic_overrides_disabled"}
+        d4_sealed_manifests = _require_d4_sealed_manifests(
+            dict(phase.get("sealed_manifest_paths") or {}),
+            expected_labels=set(phase.get("benchmark_slugs") or []),
+        )
+        provider_audit = {
+            "required": True,
+            "status": "passed",
+            **_require_passing_provider_audit(
+                experiment.provider_audit_path,
+                expected_cache_namespace=cache_namespace,
+                expected_provider=str(backbone.provider),
+                expected_model_id=str(backbone.model_id),
+            ),
+        }
     provider = OpenAICompatibleProvider(backbone)
     active_router = RequestCacheRouter(cache_root, namespace=cache_namespace)
     baseline_namespace = experiment.baseline_cache_namespaces.get(phase_name)
@@ -265,6 +343,15 @@ def run_experiment(
                 }
             )
             execution_warnings.append(f"{benchmark.slug}:dataset_skipped:{type(exc).__name__}:{exc}")
+    if is_d4_confirmation and (
+        dataset_errors
+        or set(selected_by_benchmark) != {str(item) for item in phase.get("benchmark_slugs") or []}
+        or any(not rows for rows in selected_by_benchmark.values())
+    ):
+        raise RuntimeError(
+            "D4 confirmation is blocked: every preregistered sealed dataset must resolve to a non-empty sample set "
+            f"without loader errors; errors={dataset_errors}."
+        )
     sample_count = sum(len(samples) for samples in selected_by_benchmark.values())
     selected_sample_manifest = _selected_sample_manifest(selected_by_benchmark, phase_name=phase_name)
     d3_data_audit = _d3_data_audit(
@@ -301,6 +388,17 @@ def run_experiment(
                 execution_warnings.append(f"kernel_freeze_invalid:{kernel_freeze['reason']}")
         else:
             execution_warnings.append("kernel_freeze_missing_development_evidence_only")
+    if is_d4_confirmation:
+        mismatched = [
+            dataset
+            for dataset, expected_hash in expected_selection_hashes.items()
+            if (selected_sample_manifest.get(str(dataset)) or {}).get("sha256") != str(expected_hash)
+        ]
+        if mismatched:
+            raise RuntimeError(f"D4 confirmation is blocked: selection hash mismatch for {sorted(mismatched)}.")
+        if not kernel_freeze or not kernel_freeze.get("valid"):
+            reason = (kernel_freeze or {}).get("reason", "freeze_missing")
+            raise RuntimeError(f"D4 confirmation is blocked: kernel freeze is invalid: {reason}.")
     endpoints: dict[str, CatchEndpoint] = {}
     stop_event = Event()
     for benchmark in benchmarks:
@@ -357,15 +455,25 @@ def run_experiment(
             protocol.protocol_version == "catch_kernel_v1"
             and str(experiment.raw.get("kernel_revision") or "") == "d3_source_blind_v1"
         )
+        is_d4_kernel = (
+            protocol.protocol_version == "catch_kernel_v1"
+            and str(experiment.raw.get("kernel_revision") or "") == "d4_proof_carrying_v1"
+        )
+        is_d4_output_ab = is_d4_kernel and str(phase.get("evaluation_role") or "").startswith(
+            "d4_output_protocol_ab_"
+        )
         calls_per_triggered = (
-            17 if is_d3_kernel and run_direct_judge
-            else 11 if is_d3_kernel
+            5 if is_d4_output_ab
+            else 17 if is_d3_kernel and run_direct_judge
+            else 11 if is_d3_kernel or is_d4_kernel
             else 17 if run_direct_judge
             else 11
         )
         predictions_per_sample = (
-            9 if is_d3_kernel and run_direct_judge
+            1 if is_d4_output_ab
+            else 9 if is_d3_kernel and run_direct_judge
             else 7 if is_d3_kernel
+            else 6 if is_d4_kernel
             else 5 if run_direct_judge
             else 3
         )
@@ -422,7 +530,10 @@ def run_experiment(
             "created_at": datetime.now(UTC).isoformat(),
             "family_name": "contrastive_active_testing",
             "paper_method_name": (
-                "CATCH-Kernel"
+                "Risk-Calibrated Proof-Carrying Candidate Completion"
+                if protocol.protocol_version == "catch_kernel_v1"
+                and str(experiment.raw.get("kernel_revision") or "") == "d4_proof_carrying_v1"
+                else "CATCH-Kernel"
                 if protocol.protocol_version == "catch_kernel_v1"
                 else "CATCH-Cert v2"
                 if protocol.protocol_version == "catch_cert_v2"
@@ -451,6 +562,18 @@ def run_experiment(
                 and str(experiment.raw.get("kernel_revision") or "") == "d3_source_blind_v1"
                 else None
             ),
+            "d4_capability_registry_version": (
+                D4_CAPABILITY_REGISTRY_VERSION
+                if protocol.protocol_version == "catch_kernel_v1"
+                and str(experiment.raw.get("kernel_revision") or "") == "d4_proof_carrying_v1"
+                else None
+            ),
+            "d4_capability_registry": (
+                d4_capability_registry()
+                if protocol.protocol_version == "catch_kernel_v1"
+                and str(experiment.raw.get("kernel_revision") or "") == "d4_proof_carrying_v1"
+                else None
+            ),
             "experiment_name": experiment.name,
             "phase_name": phase_name,
             "run_mode": run_mode,
@@ -458,7 +581,10 @@ def run_experiment(
             "resolved_model": asdict(backbone),
             "protocol": asdict(protocol),
             "prompt_version": (
-                D3_PROMPT_VERSION
+                D4_PROMPT_VERSION
+                if protocol.protocol_version == "catch_kernel_v1"
+                and str(experiment.raw.get("kernel_revision") or "") == "d4_proof_carrying_v1"
+                else D3_PROMPT_VERSION
                 if protocol.protocol_version == "catch_kernel_v1"
                 and str(experiment.raw.get("kernel_revision") or "") == "d3_source_blind_v1"
                 else KERNEL_PROMPT_VERSION
@@ -470,7 +596,10 @@ def run_experiment(
                 else CATCH_PROMPT_VERSION
             ),
             "schema_version": (
-                KERNEL_SCHEMA_VERSION
+                D4_IR_SCHEMA
+                if protocol.protocol_version == "catch_kernel_v1"
+                and str(experiment.raw.get("kernel_revision") or "") == "d4_proof_carrying_v1"
+                else KERNEL_SCHEMA_VERSION
                 if protocol.protocol_version == "catch_kernel_v1"
                 else CERT_V2_SCHEMA_VERSION
                 if protocol.protocol_version == "catch_cert_v2"
@@ -501,6 +630,20 @@ def run_experiment(
             "source_split_sample_count": sample_count,
             "selected_sample_manifest": selected_sample_manifest,
             "d3_data_audit": d3_data_audit,
+            "d4_risk": (
+                dict(experiment.raw.get("d4_risk") or {})
+                if str(experiment.raw.get("kernel_revision") or "") == "d4_proof_carrying_v1"
+                else None
+            ),
+            "d4_output": (
+                dict(experiment.raw.get("d4_output") or {})
+                if str(experiment.raw.get("kernel_revision") or "") == "d4_proof_carrying_v1"
+                else None
+            ),
+            "d4_human_audit": d4_human_audit if is_d4_confirmation else None,
+            "d4_sealed_manifests": d4_sealed_manifests if is_d4_confirmation else None,
+            "d4_output_protocol_ab": d4_protocol_ab if is_d4_confirmation else None,
+            "d4_risk_evidence_validation": d4_risk_evidence if is_d4_confirmation else None,
             "planned_sample_count": total_planned_samples,
             "screening_sample_count_per_dataset": int(phase.get("screening_sample_count") or 0)
             if cert_screening_mode
@@ -511,7 +654,12 @@ def run_experiment(
             "selection_rule": "gold_blind_stage_a_disagreement_sha256" if cert_screening_mode else None,
             "method_order": [
                 "sc_5",
-                "adaptive_sc_8",
+                *(
+                    ["fixed_sc_8", "catch_d3_exact_only", "ssv_raw", "catch_kernel_d4", "adaptive_sc_8"]
+                    if protocol.protocol_version == "catch_kernel_v1"
+                    and str(experiment.raw.get("kernel_revision") or "") == "d4_proof_carrying_v1"
+                    else ["adaptive_sc_8"]
+                ),
                 *(["fixed_sc_8"] if protocol.protocol_version == "catch_kernel_v1" and str(experiment.raw.get("kernel_revision") or "") == "d3_source_blind_v1" else []),
                 *(
                     ["solver_direct"]
@@ -529,13 +677,20 @@ def run_experiment(
                     and str(experiment.raw.get("kernel_revision") or "") == "d3_source_blind_v1"
                     else []
                 ),
-                "catch_kernel"
-                if protocol.protocol_version == "catch_kernel_v1"
-                else "catch_cert_v2"
-                if protocol.protocol_version == "catch_cert_v2"
-                else "catch_cert"
-                if protocol.protocol_version == "catch_cert_v1"
-                else "catch",
+                *(
+                    []
+                    if protocol.protocol_version == "catch_kernel_v1"
+                    and str(experiment.raw.get("kernel_revision") or "") == "d4_proof_carrying_v1"
+                    else [
+                        "catch_kernel"
+                        if protocol.protocol_version == "catch_kernel_v1"
+                        else "catch_cert_v2"
+                        if protocol.protocol_version == "catch_cert_v2"
+                        else "catch_cert"
+                        if protocol.protocol_version == "catch_cert_v1"
+                        else "catch"
+                    ]
+                ),
                 *(["direct_judge_3", "pair_judge_3"] if run_direct_judge else []),
             ],
             "max_network_attempts": protocol.max_network_attempts,
@@ -1411,6 +1566,34 @@ def _select_phase_samples(benchmark, phase: dict[str, Any], phase_name: str):
         excluded.update(load_split_ids(benchmark.cache_namespace or benchmark.slug, str(excluded_name)))
     selected = [sample for sample in samples if sample.sample_id not in excluded]
     limit = dict(phase.get("sample_limits") or {}).get(benchmark.slug)
+    if str(phase.get("selection_strategy") or "") == "d4_sealed_manifest_only":
+        manifest_paths = dict(phase.get("sealed_manifest_paths") or {})
+        manifest_path = manifest_paths.get(benchmark.slug)
+        if not manifest_path:
+            raise ValueError(f"D4 sealed manifest path is missing for {benchmark.slug}.")
+        payload = json.loads(Path(str(manifest_path)).read_text(encoding="utf-8"))
+        split_name = str(phase.get("sealed_manifest_split") or "confirmation")
+        rows = list((payload.get("splits") or {}).get(split_name) or [])
+        ids = {str(row.get("record_id") or "") for row in rows if isinstance(row, dict)}
+        selected = [sample for sample in selected if str(sample.sample_id) in ids]
+        if len(selected) != len(ids):
+            raise ValueError(
+                f"D4 sealed manifest IDs do not resolve exactly for {benchmark.slug}: "
+                f"manifest={len(ids)} resolved={len(selected)}"
+            )
+        return selected[: max(0, int(limit))] if limit is not None else selected
+    if str(phase.get("selection_strategy") or "") == "d4_capability_stratified_hash":
+        per_dataset = dict(phase.get("capability_sample_limits") or {}).get(benchmark.slug)
+        if not isinstance(per_dataset, dict) or not per_dataset:
+            raise ValueError(f"D4 capability calibration quotas are missing for {benchmark.slug}.")
+        return _select_d4_capability_samples(
+            selected,
+            benchmark_slug=benchmark.slug,
+            phase_name=phase_name,
+            seed=int(phase.get("selection_seed", 42)),
+            quotas={str(key): int(value) for key, value in per_dataset.items()},
+            limit=max(0, int(limit)) if limit is not None else len(selected),
+        )
     if str(phase.get("selection_strategy") or "") == "kernel_confirmation_stratified_sha256":
         return _select_kernel_confirmation_strata(
             selected,
@@ -1565,6 +1748,40 @@ def _select_kernel_confirmation_strata(
     return _round_robin_groups(strata, limit=limit)
 
 
+def _select_d4_capability_samples(
+    samples: list[Any],
+    *,
+    benchmark_slug: str,
+    phase_name: str,
+    seed: int,
+    quotas: dict[str, int],
+    limit: int,
+) -> list[Any]:
+    """Gold-blind development selection with frozen per-capability quotas."""
+
+    if any(value < 0 for value in quotas.values()) or sum(quotas.values()) > limit:
+        raise ValueError(f"Invalid D4 capability quotas for {benchmark_slug}.")
+    groups: dict[str, list[Any]] = defaultdict(list)
+    for sample in samples:
+        groups[d4_route_for_sample(sample).capability_id].append(sample)
+    selected: list[Any] = []
+    for capability_id, requested in sorted(quotas.items()):
+        available = sorted(
+            groups.get(capability_id, []),
+            key=lambda item: _selection_hash(seed, phase_name, benchmark_slug, item.sample_id),
+        )
+        if len(available) < requested:
+            raise ValueError(
+                f"Insufficient D4 development samples for {benchmark_slug}:{capability_id}; "
+                f"requested={requested} available={len(available)}."
+            )
+        selected.extend(available[:requested])
+    return sorted(
+        selected,
+        key=lambda item: _selection_hash(seed, phase_name, benchmark_slug, item.sample_id),
+    )
+
+
 def _select_d3_stratified_samples(
     samples: list[Any],
     *,
@@ -1662,7 +1879,9 @@ def write_kernel_d2_freeze(experiment_path: str | Path, output_path: str | Path)
     components = _frozen_component_hashes(experiment)
     unsigned = {
         "schema_version": (
-            "catch_kernel_d3_freeze_v1"
+            "catch_kernel_d4_freeze_v1"
+            if str(experiment.raw.get("kernel_revision") or "") == "d4_proof_carrying_v1"
+            else "catch_kernel_d3_freeze_v1"
             if str(experiment.raw.get("kernel_revision") or "") == "d3_source_blind_v1"
             else "catch_kernel_d2_freeze_v1"
         ),
@@ -1680,6 +1899,36 @@ def write_kernel_d2_freeze(experiment_path: str | Path, output_path: str | Path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
+
+
+def write_kernel_d4_freeze(experiment_path: str | Path, output_path: str | Path) -> dict[str, Any]:
+    """Materialize a D4 freeze only after sealed confirmation data is ready."""
+
+    experiment = load_experiment_config(experiment_path)
+    if str(experiment.raw.get("kernel_revision") or "") != "d4_proof_carrying_v1":
+        raise ValueError("D4 freeze requires kernel_revision=d4_proof_carrying_v1.")
+    phase = phase_metadata(experiment, "confirmation")
+    if not bool(phase.get("sealed_data_ready", False)):
+        raise RuntimeError("D4 freeze is blocked until sealed_data_ready=true.")
+    if not experiment.confirmatory:
+        raise RuntimeError("D4 freeze requires confirmatory=true.")
+    _require_passing_d4_protocol_ab(
+        Path(str(experiment.raw.get("protocol_ab_assessment_path") or ""))
+    )
+    risk_evidence = _require_passing_d4_risk_evidence(experiment)
+    d4_risk = dict(experiment.raw.get("d4_risk") or {})
+    if bool(d4_risk.get("semantic_override_enabled", False)):
+        human_audit = _require_passing_d4_human_audit(
+            experiment.human_audit_path,
+            required_kernels=set(risk_evidence["required_semantic_kernels"]),
+        )
+        if human_audit["sha256"] != risk_evidence["human_audit_sha256"]:
+            raise RuntimeError("D4 freeze is blocked: risk evidence and active human audit differ.")
+    _require_d4_sealed_manifests(
+        dict(phase.get("sealed_manifest_paths") or {}),
+        expected_labels=set(phase.get("benchmark_slugs") or []),
+    )
+    return write_kernel_d2_freeze(experiment_path, output_path)
 
 
 def _validate_kernel_freeze(
@@ -1724,13 +1973,19 @@ def _kernel_freeze_metadata(experiment, *, protocol, phase: dict[str, Any]) -> d
     return {
         "protocol_version": protocol.protocol_version,
         "prompt_version": (
-            D3_PROMPT_VERSION if kernel_revision == "d3_source_blind_v1" else KERNEL_PROMPT_VERSION
+            D4_PROMPT_VERSION
+            if kernel_revision == "d4_proof_carrying_v1"
+            else D3_PROMPT_VERSION
+            if kernel_revision == "d3_source_blind_v1"
+            else KERNEL_PROMPT_VERSION
         ),
-        "schema_version_runtime": KERNEL_SCHEMA_VERSION,
+        "schema_version_runtime": D4_IR_SCHEMA if kernel_revision == "d4_proof_carrying_v1" else KERNEL_SCHEMA_VERSION,
         "semantics_version": KERNEL_SEMANTICS_VERSION,
         "capability_version": KERNEL_CAPABILITY_VERSION,
         "decoder_version": (
-            KERNEL_D3_DECODER_VERSION
+            D4_DECODER_VERSION
+            if kernel_revision == "d4_proof_carrying_v1"
+            else KERNEL_D3_DECODER_VERSION
             if kernel_revision == "d3_source_blind_v1"
             else KERNEL_D2_DECODER_VERSION
             if kernel_revision == "d2_unary_exact_v1"
@@ -1745,6 +2000,10 @@ def _kernel_freeze_metadata(experiment, *, protocol, phase: dict[str, Any]) -> d
             D3_CAPABILITY_REGISTRY_VERSION if kernel_revision == "d3_source_blind_v1" else None
         ),
         "d3_risk": dict(experiment.raw.get("d3_risk") or {}) if kernel_revision == "d3_source_blind_v1" else None,
+        "d4_capability_registry_version": (
+            D4_CAPABILITY_REGISTRY_VERSION if kernel_revision == "d4_proof_carrying_v1" else None
+        ),
+        "d4_risk": dict(experiment.raw.get("d4_risk") or {}) if kernel_revision == "d4_proof_carrying_v1" else None,
         "evaluation_role": str(phase.get("evaluation_role") or "unknown"),
     }
 
@@ -1863,7 +2122,9 @@ def _frozen_config_sha(
         "experiment": experiment.raw,
         "protocol": Path(experiment.protocol).read_text(encoding="utf-8"),
         "prompt_version": (
-            D3_PROMPT_VERSION
+            D4_PROMPT_VERSION
+            if is_kernel and kernel_revision == "d4_proof_carrying_v1"
+            else D3_PROMPT_VERSION
             if is_kernel and str(experiment.raw.get("kernel_revision") or "") == "d3_source_blind_v1"
             else KERNEL_PROMPT_VERSION
             if is_kernel
@@ -1874,7 +2135,9 @@ def _frozen_config_sha(
             else CATCH_PROMPT_VERSION
         ),
         "schema_version": (
-            KERNEL_SCHEMA_VERSION
+            D4_IR_SCHEMA
+            if is_kernel and kernel_revision == "d4_proof_carrying_v1"
+            else KERNEL_SCHEMA_VERSION
             if is_kernel
             else CERT_V2_SCHEMA_VERSION
             if is_cert_v2
@@ -1883,7 +2146,9 @@ def _frozen_config_sha(
             else CATCH_SCHEMA_VERSION
         ),
         "decoder_version": (
-            KERNEL_D3_DECODER_VERSION
+            D4_DECODER_VERSION
+            if is_kernel and kernel_revision == "d4_proof_carrying_v1"
+            else KERNEL_D3_DECODER_VERSION
             if is_kernel and kernel_revision == "d3_source_blind_v1"
             else KERNEL_D2_DECODER_VERSION
             if is_kernel and kernel_revision == "d2_unary_exact_v1"
@@ -1916,6 +2181,10 @@ def _frozen_component_hashes(experiment) -> dict[str, str]:
         family_root / "certificates_v2.py",
         family_root / "kernel.py",
         family_root / "kernel_d3.py",
+        family_root / "kernel_d4.py",
+        family_root / "d4_audit.py",
+        family_root / "d4_data.py",
+        family_root / "d4_protocol_ab.py",
         family_root / "kernel_adapters.py",
         family_root / "kernel_mechanism.py",
         family_root / "kernel_prompts.py",
@@ -1944,6 +2213,7 @@ def _frozen_component_hashes(experiment) -> dict[str, str]:
         repo_root / "src" / "research_experiments" / "core" / "execution" / "runtime.py",
         repo_root / "src" / "research_experiments" / "core" / "execution" / "providers" / "client.py",
         repo_root / "src" / "research_experiments" / "family_runtime" / "free_text_protocol.py",
+        repo_root / "src" / "research_experiments" / "family_runtime" / "answer_first_json_protocol.py",
         repo_root / "src" / "research_experiments" / "family_runtime" / "output_protocols.py",
         repo_root / "src" / "research_experiments" / "reporting" / "paired_inference.py",
     }
@@ -1955,6 +2225,18 @@ def _frozen_component_hashes(experiment) -> dict[str, str]:
         paths.add(family_root / "boundary.py")
         paths.add(Path(__file__).with_name("boundary_execute.py").resolve())
         paths.add(Path(__file__).with_name("boundary_report.py").resolve())
+    if str(experiment.raw.get("kernel_revision") or "") == "d4_proof_carrying_v1":
+        risk_path = dict(experiment.raw.get("d4_risk") or {}).get("evidence_path")
+        if risk_path:
+            paths.add(Path(str(risk_path)).resolve())
+        protocol_ab_path = experiment.raw.get("protocol_ab_assessment_path")
+        if protocol_ab_path:
+            paths.add(Path(str(protocol_ab_path)).resolve())
+        if bool(dict(experiment.raw.get("d4_risk") or {}).get("semantic_override_enabled", False)):
+            paths.add(experiment.human_audit_path.resolve())
+        confirmation_phase = dict((experiment.raw.get("phases") or {}).get("confirmation") or {})
+        for manifest_path in dict(confirmation_phase.get("sealed_manifest_paths") or {}).values():
+            paths.add(Path(str(manifest_path)).resolve())
     for phase_name, phase in (experiment.raw.get("phases") or {}).items():
         benchmarks = {item.slug: item for item in load_phase_benchmarks(experiment, str(phase_name))}
         for slug, split_name in dict(phase.get("split_overrides") or {}).items():
@@ -2016,7 +2298,9 @@ def _build_frozen_protocol_candidate(
 
     payload = {
         "freeze_kind": (
-            "catch_kernel_protocol_v1"
+            "catch_kernel_d4_protocol_v1"
+            if is_kernel and kernel_revision == "d4_proof_carrying_v1"
+            else "catch_kernel_protocol_v1"
             if is_kernel
             else "catch_cert_protocol_v2"
             if is_cert_v2
@@ -2043,7 +2327,9 @@ def _build_frozen_protocol_candidate(
         "dual_panel_unique_challenger_required": True,
         "selection_constraints_passed": True,
         "prompt_version": (
-            D3_PROMPT_VERSION
+            D4_PROMPT_VERSION
+            if is_kernel and kernel_revision == "d4_proof_carrying_v1"
+            else D3_PROMPT_VERSION
             if is_kernel and kernel_revision == "d3_source_blind_v1"
             else KERNEL_PROMPT_VERSION
             if is_kernel
@@ -2054,7 +2340,9 @@ def _build_frozen_protocol_candidate(
             else CATCH_PROMPT_VERSION
         ),
         "schema_version": (
-            KERNEL_SCHEMA_VERSION
+            D4_IR_SCHEMA
+            if is_kernel and kernel_revision == "d4_proof_carrying_v1"
+            else KERNEL_SCHEMA_VERSION
             if is_kernel
             else CERT_V2_SCHEMA_VERSION
             if is_cert_v2
@@ -2063,7 +2351,9 @@ def _build_frozen_protocol_candidate(
             else CATCH_SCHEMA_VERSION
         ),
         "decoder_version": (
-            KERNEL_D3_DECODER_VERSION
+            D4_DECODER_VERSION
+            if is_kernel and kernel_revision == "d4_proof_carrying_v1"
+            else KERNEL_D3_DECODER_VERSION
             if is_kernel and kernel_revision == "d3_source_blind_v1"
             else KERNEL_D2_DECODER_VERSION
             if is_kernel and kernel_revision == "d2_unary_exact_v1"
@@ -2204,6 +2494,219 @@ def _require_passing_provider_audit(
         "passed": True,
         "conditions": evaluated["conditions"],
     }
+
+
+def _require_passing_d4_human_audit(
+    path: Path,
+    *,
+    required_kernels: set[str] | None = None,
+) -> dict[str, Any]:
+    if not path.exists():
+        raise RuntimeError(f"D4 confirmation is blocked: blind IR audit is missing at {path}.")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if required_kernels:
+            payload = {**payload, "required_kernels": sorted(required_kernels)}
+        assessment = evaluate_d4_human_audit(payload)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"D4 confirmation is blocked: blind IR audit is invalid: {exc}") from exc
+    if not assessment.get("passed"):
+        raise RuntimeError("D4 confirmation is blocked: blind IR audit did not pass all kernel conditions.")
+    return {
+        "path": path.resolve().as_posix(),
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "assessment": assessment,
+    }
+
+
+def _require_passing_d4_protocol_ab(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise RuntimeError(f"D4 confirmation is blocked: output-protocol A/B assessment is missing at {path}.")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError("D4 confirmation is blocked: output-protocol A/B assessment is invalid.") from exc
+    assessment_validation = validate_output_protocol_ab_assessment(payload, verify_source_files=True)
+    expected_arms = {"tagged_text", "reasoning_first_json", "answer_first_json"}
+    expected_source_metadata = {
+        "tagged_text": ("d4_output_protocol_ab_tagged_text", "tagged_text"),
+        "reasoning_first_json": (
+            "d4_output_protocol_ab_reasoning_first_json",
+            "reasoning_first_json",
+        ),
+        "answer_first_json": (
+            "d4_output_protocol_ab_answer_first_json",
+            "answer_first_json",
+        ),
+    }
+    sources = dict(payload.get("sources") or {})
+    source_files_valid = set(sources) == expected_arms
+    source_metadata_valid = set(sources) == expected_arms
+    for arm, source in sources.items():
+        root = Path(str(source.get("run_root") or "")) if isinstance(source, dict) else Path("")
+        artifacts = {
+            "manifest_sha256": root / "manifest.json",
+            "turns_sha256": root / "turns" / "agent_turns.jsonl",
+            "predictions_sha256": root / "views" / "predictions.jsonl",
+        }
+        source_files_valid &= all(
+            artifact.is_file() and hashlib.sha256(artifact.read_bytes()).hexdigest() == source.get(key)
+            for key, artifact in artifacts.items()
+        )
+        expected_role, expected_protocol = expected_source_metadata.get(arm, ("", ""))
+        source_metadata_valid &= bool(
+            source.get("kernel_revision") == "d4_proof_carrying_v1"
+            and source.get("evaluation_role") == expected_role
+            and source.get("stage_a_protocol") == expected_protocol
+            and source.get("phase_name") == "development"
+            and source.get("run_id")
+            and source.get("run_status") == "completed"
+            and int(source.get("dataset_error_count") or 0) == 0
+            and int(source.get("sample_count") or 0) == 300
+        )
+    conditions = {
+        "schema": payload.get("schema") == "catch_d4_output_protocol_ab_assessment_v1",
+        "answer_first_json_accepted": payload.get("answer_first_json_accepted") is True,
+        "answer_first_json_certified": payload.get("answer_first_json_certified") is True,
+        "selection_matched": payload.get("selection_matched_across_arms") is True,
+        "all_three_arms": set(dict(payload.get("arms") or {})) == expected_arms,
+        "source_files": source_files_valid,
+        "source_metadata": source_metadata_valid,
+        "recomputed_assessment": assessment_validation.get("passed") is True,
+    }
+    if not all(conditions.values()):
+        raise RuntimeError(f"D4 confirmation is blocked: output-protocol A/B gate failed: {conditions}.")
+    return {
+        "path": path.resolve().as_posix(),
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "conditions": conditions,
+        "assessment_validation": assessment_validation,
+    }
+
+
+def _require_passing_d4_risk_evidence(experiment) -> dict[str, Any]:
+    d4_risk = dict(experiment.raw.get("d4_risk") or {})
+    expected_design = {
+        "development_minimum_overrides_per_capability": 50,
+        "development_precision_lower_bound": 0.90,
+        "development_gate_family_size": 9,
+        "development_familywise_alpha": 0.05,
+        "development_multiplicity_correction": "bonferroni_fixed_preregistered_capability_family",
+        "confirmation_minimum_pooled_overrides": 59,
+        "confirmation_precision_lower_bound": 0.95,
+        "confirmation_harm_upper_bound": 0.05,
+    }
+    mismatched_design = {
+        key: {"expected": expected, "actual": d4_risk.get(key)}
+        for key, expected in expected_design.items()
+        if d4_risk.get(key) != expected
+    }
+    if mismatched_design:
+        raise RuntimeError(
+            "D4 confirmation is blocked: configured risk design differs from the frozen implementation: "
+            f"{mismatched_design}."
+        )
+    exact_enabled = bool(d4_risk.get("new_exact_override_enabled", False))
+    semantic_enabled = bool(d4_risk.get("semantic_override_enabled", False))
+    if not (exact_enabled or semantic_enabled):
+        raise RuntimeError(
+            "D4 confirmation is blocked: at least one independently gated new exact or semantic capability "
+            "must be enabled; otherwise the run is only the frozen D3 method under a D4 label."
+        )
+    path = Path(str(d4_risk.get("evidence_path") or ""))
+    if not path.is_file():
+        raise RuntimeError(f"D4 confirmation is blocked: risk evidence is missing at {path}.")
+    try:
+        payload = load_risk_evidence(path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"D4 confirmation is blocked: risk evidence is invalid: {exc}") from exc
+    validation = validate_d4_gate_evidence(payload, verify_source_files=True)
+    if not validation.get("passed"):
+        raise RuntimeError(f"D4 confirmation is blocked: risk evidence failed validation: {validation}.")
+    active = []
+    active_exact: list[str] = []
+    active_semantic: list[str] = []
+    semantic_kernels: set[str] = set()
+    for capability_id, row in sorted(dict(payload.get("capabilities") or {}).items()):
+        route = str(row.get("route") or "SOFT_UNSUPPORTED")
+        enabled = exact_enabled if route == "EXACT_EXECUTABLE" else semantic_enabled if route == "SEMANTIC_EXECUTABLE" else False
+        if not enabled:
+            continue
+        snapshot = risk_gate_snapshot(
+            str(capability_id),
+            route=route,
+            evidence=payload,
+            phase="development",
+        )
+        if snapshot.route_activation_state == "ACTIVE":
+            active.append(str(capability_id))
+            if route == "EXACT_EXECUTABLE":
+                active_exact.append(str(capability_id))
+            elif route == "SEMANTIC_EXECUTABLE":
+                active_semantic.append(str(capability_id))
+                semantic_kernels.add(str(row.get("kernel_id") or ""))
+    if not active:
+        raise RuntimeError("D4 confirmation is blocked: no enabled new capability passed the development risk gate.")
+    if exact_enabled and not active_exact:
+        raise RuntimeError("D4 confirmation is blocked: new exact overrides are enabled but none passed the gate.")
+    if semantic_enabled and not active_semantic:
+        raise RuntimeError("D4 confirmation is blocked: semantic overrides are enabled but none passed the gate.")
+    return {
+        "path": path.resolve().as_posix(),
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "validation": validation,
+        "active_capabilities": active,
+        "required_semantic_kernels": sorted(item for item in semantic_kernels if item),
+        "human_audit_sha256": str((payload.get("source") or {}).get("human_audit_sha256") or ""),
+    }
+
+
+def _require_d4_sealed_manifests(
+    paths: dict[str, Any],
+    *,
+    expected_labels: set[str] | None = None,
+) -> dict[str, Any]:
+    if not paths:
+        raise RuntimeError("D4 confirmation is blocked: sealed manifest paths are missing.")
+    if expected_labels is not None and set(paths) != set(expected_labels):
+        raise RuntimeError(
+            "D4 confirmation is blocked: sealed manifest labels must exactly match the preregistered benchmarks; "
+            f"expected={sorted(expected_labels)} actual={sorted(paths)}."
+        )
+    validated: dict[str, Any] = {}
+    for label, raw_path in sorted(paths.items()):
+        path = Path(str(raw_path))
+        if not path.exists():
+            raise RuntimeError(f"D4 confirmation is blocked: sealed manifest is missing: {label}={path}")
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"D4 confirmation is blocked: sealed manifest is invalid: {label}") from exc
+        schema = str(payload.get("schema") or "")
+        if schema == "catch_d4_latent_first_sealed_manifest_v2":
+            if str(label) not in {"musr", "musr_x"}:
+                raise RuntimeError(
+                    f"D4 confirmation is blocked: latent-first MuSR manifest cannot authorize {label}."
+                )
+            expected = {"development": 1200, "human_audit": 600, "confirmation": 1200}
+            result = validate_sealed_manifest(
+                payload,
+                expected_counts=expected,
+                expected_strata=("murder_mysteries", "object_placements", "team_allocation"),
+            )
+            if not result.get("passed"):
+                raise RuntimeError(f"D4 confirmation is blocked: latent manifest failed: {label}:{result}")
+        else:
+            raise RuntimeError(
+                f"D4 confirmation is blocked: sealed manifest schema is not implemented or allow-listed: "
+                f"{label}:{schema or 'missing'}"
+            )
+        validated[str(label)] = {
+            "path": path.resolve().as_posix(),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "validation": result,
+        }
+    return validated
 
 
 def _require_passing_gate(

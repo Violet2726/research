@@ -9,6 +9,10 @@ from research_experiments.core.prompts.dataset_contracts import (
     build_json_system_prompt,
     dataset_instruction_for_sample,
 )
+from research_experiments.family_runtime.answer_first_json_protocol import (
+    ANSWER_FIRST_JSON_PROMPT_VERSION,
+    build_answer_first_json_instruction,
+)
 from research_experiments.family_runtime.free_text_protocol import (
     build_free_text_answer_instruction,
     build_free_text_system_prompt,
@@ -62,6 +66,15 @@ def build_mv_messages(
 
 
 def _system_prompt(prompt_version: str | None) -> str:
+    if prompt_version == ANSWER_FIRST_JSON_PROMPT_VERSION:
+        return build_json_system_prompt(
+            "You are an expert reasoning assistant for controlled research experiments.",
+            extra_rules=[
+                "Follow the task instruction carefully.",
+                'Output the keys in exactly this order: final_answer, reasoning.',
+                "Do not duplicate keys or add fields.",
+            ],
+        )
     if prompt_version == FREE_TEXT_V1_PROMPT_VERSION:
         return build_free_text_system_prompt(
             "You are an expert reasoning assistant for controlled research experiments.",
@@ -108,6 +121,9 @@ def _user_prompt(sample: DatasetSample, prompt_version: str | None) -> str:
     if sample.prompt_context:
         user_prompt += f"Context:\n{sample.prompt_context}\n\n"
 
+    if prompt_version == ANSWER_FIRST_JSON_PROMPT_VERSION:
+        user_prompt += build_answer_first_json_instruction(sample.dataset)
+        return user_prompt
     if prompt_version == FREE_TEXT_V1_PROMPT_VERSION:
         user_prompt += build_free_text_answer_instruction(sample.dataset)
         return user_prompt

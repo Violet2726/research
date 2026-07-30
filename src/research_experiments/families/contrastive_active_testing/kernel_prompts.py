@@ -21,9 +21,81 @@ from research_experiments.families.contrastive_active_testing.kernel_adapters im
     typed_payload_prompt_schema,
 )
 from research_experiments.families.contrastive_active_testing.kernel_d3 import D3_IR_SCHEMA, D3_IR_VERSION
+from research_experiments.families.contrastive_active_testing.kernel_d4 import (
+    D4_PROMPT_VERSION,
+    D4RouteDecision,
+)
 
 KERNEL_PROMPT_VERSION = "catch_kernel_atomic_truth_v3"
 D3_PROMPT_VERSION = "catch_kernel_d3_source_blind_v1"
+
+
+def build_d4_source_compiler_messages(
+    sample: DatasetSample,
+    *,
+    source_spans: list[dict[str, str]],
+    answer_contract: dict[str, object],
+    decision: D4RouteDecision,
+) -> list[dict[str, str]]:
+    """Build a D4 compiler prompt from source-only inputs.
+
+    The caller cannot pass Stage-A state.  ``canonical_ir_hash`` is emitted as
+    an empty placeholder and is computed by trusted local code after parsing.
+    """
+
+    schema = {
+        "capability_id": decision.capability_id,
+        "query_operator": decision.query_operator,
+        "entities": [{"entity_id": "source entity", "kind": "typed kind"}],
+        "facts": [{"fact_id": "F0", "kind": "typed fact", "source_span_ids": ["S0"]}],
+        "events": [{"event_id": "E0", "kind": "typed event", "source_span_ids": ["S0"]}],
+        "constraints": [
+            {
+                "constraint_id": "C0",
+                "kind": "numeric_expression",
+                "expression": "closed expression using source literals only",
+                "source_span_ids": ["S0"],
+            }
+        ],
+        "query": {"kind": decision.query_operator, "source_span_ids": ["S0"]},
+        "answer_contract": answer_contract,
+        "source_span_map": source_spans,
+        "mandatory_spans": ["S0"],
+        "uncovered_spans": [],
+        "canonical_ir_hash": "",
+    }
+    return [
+        {
+            "role": "system",
+            "content": (
+                "Return exactly one JSON object and no other text. You are a candidate-blind source compiler. "
+                "You never receive Stage-A answers, candidates, an anchor, vote counts, gold, or a candidate "
+                "oracle. Compile only source-grounded entities, facts, ordered events, constraints, and query. "
+                "Do not infer open-world facts. Copy source_span_map and answer_contract exactly. Leave "
+                "canonical_ir_hash empty for trusted local computation."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Compiler protocol: {D4_PROMPT_VERSION}\n"
+                f"Kernel: {decision.kernel_id}\n"
+                f"Capability: {decision.capability_id}\n"
+                f"Query operator: {decision.query_operator}\n\n"
+                f"Source task (answer key removed):\n{question_without_answer_contract(sample)}\n\n"
+                f"Allowed answer contract (schema only, never gold):\n"
+                f"{json.dumps(answer_contract, ensure_ascii=False)}\n\n"
+                f"Exact indexed source spans:\n{json.dumps(source_spans, ensure_ascii=False)}\n\n"
+                "Every decisive fact, event, constraint, and query field must cite source_span_ids. "
+                "Put genuinely irrelevant spans in uncovered_spans; all query-critical spans must be mandatory. "
+                "For evaluate_numeric_expression, use one closed numeric_expression and no unmentioned constants, "
+                "formulas, conversions, chemical structures, or retrieved knowledge. If the source cannot be "
+                "compiled into the declared operator, preserve the source span map but return empty typed lists and "
+                "a query whose status is unsupported. Return exactly these keys and no others:\n"
+                f"{json.dumps(schema, ensure_ascii=False)}"
+            ),
+        },
+    ]
 
 
 def build_d3_source_compiler_messages(

@@ -1,0 +1,89 @@
+name = "catch_kernel_d4"
+description = "Risk-Calibrated Proof-Carrying Candidate Completion with reusable sequence, event-state, and calculator kernels. Confirmation remains hard-blocked until new sealed data and audits exist."
+study_type = "catch_kernel_cross_domain"
+confirmatory = true
+kernel_revision = "d4_proof_carrying_v1"
+kernel_freeze_path = "configs/families/contrastive_active_testing/freezes/catch_kernel_d4_confirmation.json"
+provider_audit_path = "local/audits/catch_kernel_d4_provider_audit.json"
+human_audit_path = "local/audits/catch_kernel_d4_blind_ir_audit.json"
+protocol_ab_assessment_path = "local/audits/catch_kernel_d4_output_protocol_ab_assessment.json"
+benchmark_configs = [
+  "configs/core/shared/benchmarks/bbeh/bbeh-main.toml",
+  "configs/core/shared/benchmarks/musr/all.toml",
+  "configs/core/shared/benchmarks/gpqa/dataset.toml",
+]
+protocol = "configs/families/contrastive_active_testing/protocols/catch_kernel_d4_v1.toml"
+primary_model_ref = "xiaomimimo/mimo-v2.5"
+global_seed = 42
+provider_runtime_profile = "xiaomimimo_75x95_validated_v1"
+max_concurrent_requests = 75
+requests_per_minute_limit = 95
+
+[d4_output]
+stage_a_protocol = "answer_first_json"
+parse_failure_target = 0.002
+accuracy_noninferiority_margin = 0.005
+conflicts_fail_closed = true
+
+[d4_risk]
+evidence_path = "configs/families/contrastive_active_testing/d4_gate_evidence.example.json"
+new_exact_override_enabled = false
+semantic_override_enabled = false
+development_minimum_overrides_per_capability = 50
+development_precision_lower_bound = 0.90
+development_gate_family_size = 9
+development_familywise_alpha = 0.05
+development_multiplicity_correction = "bonferroni_fixed_preregistered_capability_family"
+confirmation_minimum_pooled_overrides = 59
+confirmation_precision_lower_bound = 0.95
+confirmation_harm_upper_bound = 0.05
+
+[d4_data_roles]
+bbeh_development = "existing_inspected_development_only"
+bbeh_confirmation = "new_upstream_release_or_independent_custodian_extension_required_local_full4520_is_development_only"
+musr_756 = "development_compatibility_only"
+musr_confirmation = "new_musr_x_requires_pinned_official_generator_plus_independent_generation_and_validation"
+gpqa_198 = "development_compatibility_only"
+science_confirmation = "new_supergpqa_science_manifest_required"
+
+[cache_namespaces]
+development = "catch-dev-kernel_d4_v1"
+heldout = "catch-heldout-kernel_d4_v1"
+confirmation = "catch-confirm-kernel_d4_v1"
+
+[baseline_cache_namespaces]
+development = "catch-dev-kernel_d3_v1,catch-dev-kernel_d2_v1,catch-dev-kernel_d1_v3,catch-dev-cert_v2,catch-dev-cert_v1"
+heldout = "catch-heldout-kernel_d3_v1,catch-heldout-kernel_d2_v1,catch-heldout-kernel_d1_v3,catch-heldout-cert_v2,catch-heldout-cert_v1"
+confirmation = "catch-confirm-kernel_d3_v1,catch-confirm-kernel_d2_v1,catch-confirm-kernel_d1_v3,catch-confirm-cert_v2,catch-confirm-cert_v1"
+
+[phases.development]
+benchmark_slugs = ["bbeh", "musr", "gpqa_diamond"]
+split_overrides = { bbeh = "full4520_seed42", musr = "full756_seed42", gpqa_diamond = "full198_seed42" }
+sample_limits = { bbeh = 540, musr = 120, gpqa_diamond = 47 }
+capability_sample_limits = { bbeh = { "sequence.shuffled_swap_v1" = 200, "constraint.truth_graph_v1" = 40, "sequence.word_sort_error_trace_v1" = 60, "sequence.temporal_interval_trace_v1" = 60, "event.structured_state_ledger_v1" = 60, "constraint.truth_formula_v1" = 60, "constraint.explicit_calculator_v1" = 60 }, musr = { "event.musr_object_belief_ledger_v1" = 60, "event.musr_team_constraint_ledger_v1" = 60 }, gpqa_diamond = { "constraint.explicit_calculator_v1" = 47 } }
+selection_strategy = "d4_capability_stratified_hash"
+selection_seed = 42
+run_direct_judge = false
+evaluation_role = "d4_public_engineering_shadow_not_activation_calibration"
+expected_selection_sha256 = { bbeh = "7567e5d2b7921f6dd40c9b7b8a4cb754f466f2d3d1f90f32356e769df91c808d", musr = "0027d4c62cd04435074a5939072e28088056f6cf462a56ec487c2aac8c68c63d", gpqa_diamond = "dda76d2cc1a18b9f93c53a8414e9abaaab8dac430140f33d06558577eb31d439" }
+
+[phases.heldout]
+benchmark_slugs = ["bbeh", "musr", "gpqa_diamond"]
+split_overrides = { bbeh = "catch_cert_holdout200_seed42", musr = "catch_cert_holdout200_seed42", gpqa_diamond = "full198_seed42" }
+sample_limits = { bbeh = 200, musr = 200, gpqa_diamond = 48 }
+selection_strategy = "d3_task_stratified_hash"
+selection_seed = 43
+run_direct_judge = false
+evaluation_role = "inspected_compatibility_diagnostic_not_confirmation"
+
+[phases.confirmation]
+sealed_data_ready = false
+benchmark_slugs = ["bbeh", "musr", "gpqa_diamond"]
+split_overrides = { bbeh = "full4520_seed42", musr = "full756_seed42", gpqa_diamond = "full198_seed42" }
+sample_limits = { bbeh = 0, musr = 0, gpqa_diamond = 0 }
+selection_strategy = "d4_sealed_manifest_only"
+selection_seed = 42
+hash_sample_selection = true
+run_direct_judge = false
+evaluation_role = "BLOCKED_UNTIL_NEW_BBEH_MUSR_X_SUPERGPQA_MANIFESTS"
+required_comparison_methods = ["sc_5", "fixed_sc_8", "catch_d3_exact_only", "ssv_raw", "catch_kernel_d4"]

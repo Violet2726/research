@@ -6,9 +6,14 @@ import hashlib
 import json
 import re
 import threading
+from dataclasses import replace
 from typing import Any
 
-from research_experiments.core.controls.control_prompts import build_cot_messages
+from research_experiments.core.controls.control_prompts import (
+    CONSISTENT_JSON_V2_PROMPT_VERSION,
+    FREE_TEXT_V1_PROMPT_VERSION,
+    build_cot_messages,
+)
 from research_experiments.core.data.datasets import DatasetSample, question_without_answer_contract
 from research_experiments.core.data.evaluation import (
     canonicalize_answer,
@@ -133,8 +138,45 @@ from research_experiments.families.contrastive_active_testing.kernel_d3 import (
 from research_experiments.families.contrastive_active_testing.kernel_d3 import (
     KernelDecision as D3KernelDecision,
 )
+from research_experiments.families.contrastive_active_testing.kernel_d4 import (
+    D4_CAPABILITY_REGISTRY_VERSION,
+    D4_IR_SCHEMA,
+    D4_PROMPT_VERSION,
+    D4SolverResult,
+    build_proof_package,
+    compile_exact_source_ir,
+    load_risk_evidence,
+    metamorphic_checks_passed,
+    parse_source_ir_v2,
+    proof_package_to_dict,
+    risk_gate_snapshot,
+    risk_gate_to_dict,
+    run_metamorphic_checks,
+)
+from research_experiments.families.contrastive_active_testing.kernel_d4 import (
+    answer_contract_for_sample as d4_answer_contract_for_sample,
+)
+from research_experiments.families.contrastive_active_testing.kernel_d4 import (
+    canonical_ir_hash as d4_canonical_ir_hash,
+)
+from research_experiments.families.contrastive_active_testing.kernel_d4 import (
+    evaluate_candidates as d4_evaluate_candidates,
+)
+from research_experiments.families.contrastive_active_testing.kernel_d4 import (
+    route_for_sample as d4_route_for_sample,
+)
+from research_experiments.families.contrastive_active_testing.kernel_d4 import (
+    solve_source_ir as d4_solve_source_ir,
+)
+from research_experiments.families.contrastive_active_testing.kernel_d4 import (
+    solver_result_to_dict as d4_solver_result_to_dict,
+)
+from research_experiments.families.contrastive_active_testing.kernel_d4 import (
+    source_ir_to_dict as d4_source_ir_to_dict,
+)
 from research_experiments.families.contrastive_active_testing.kernel_prompts import (
     build_d3_source_compiler_messages,
+    build_d4_source_compiler_messages,
     build_kernel_designer_messages,
     build_kernel_verifier_messages,
 )
@@ -145,6 +187,11 @@ from research_experiments.families.contrastive_active_testing.prompts import (
     build_icv_witness_messages,
     build_pair_judge_messages,
     build_witness_messages,
+)
+from research_experiments.family_runtime.answer_first_json_protocol import (
+    ANSWER_FIRST_JSON_PROMPT_VERSION,
+    ANSWER_FIRST_JSON_PROTOCOL_V1,
+    REASONING_FIRST_JSON_PROTOCOL_V1,
 )
 from research_experiments.family_runtime.free_text_protocol import FREE_TEXT_ANSWER_PROTOCOL_V1
 from research_experiments.family_runtime.output_protocols import execute_output_protocol_turn
@@ -251,6 +298,22 @@ def run_catch_sample(
     precomputed_stage_rows: tuple[dict[str, Any], ...] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
     if protocol.protocol_version in {"catch_cert_v2", "catch_kernel_v1"}:
+        if (
+            protocol.protocol_version == "catch_kernel_v1"
+            and str(getattr(experiment, "raw", {}).get("kernel_revision") or "")
+            == "d4_proof_carrying_v1"
+        ):
+            return run_catch_kernel_d4_sample(
+                sample,
+                run_id=run_id,
+                split_name=split_name,
+                experiment=experiment,
+                protocol=protocol,
+                endpoint=endpoint,
+                network_budget=network_budget,
+                phase_name=phase_name,
+                precomputed_stage_rows=precomputed_stage_rows,
+            )
         if (
             protocol.protocol_version == "catch_kernel_v1"
             and str(getattr(experiment, "raw", {}).get("kernel_revision") or "") == "d3_source_blind_v1"
@@ -1531,6 +1594,447 @@ def run_catch_cert_sample(
         "pair_judge_selections": pair_selections,
     }
     return physical_rows, router, predictions
+
+
+def run_catch_kernel_d4_sample(
+    sample: DatasetSample,
+    *,
+    run_id: str,
+    split_name: str,
+    experiment,
+    protocol,
+    endpoint,
+    network_budget: NetworkAttemptBudget,
+    phase_name: str,
+    precomputed_stage_rows: tuple[dict[str, Any], ...] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    """Run the five D4 main comparators plus supplementary adaptive-SC8.
+
+    Physical calls may be shared across comparators, but each prediction row
+    records its own logical calls: 5 for exact/soft routes and 8 for semantic
+    compiler routes.
+    """
+
+    output_mode = str(
+        dict(getattr(experiment, "raw", {}).get("d4_output") or {}).get("stage_a_protocol")
+        or "answer_first_json"
+    )
+    output_protocol_by_mode = {
+        "tagged_text": FREE_TEXT_ANSWER_PROTOCOL_V1,
+        "reasoning_first_json": REASONING_FIRST_JSON_PROTOCOL_V1,
+        "answer_first_json": ANSWER_FIRST_JSON_PROTOCOL_V1,
+    }
+    prompt_version_by_mode = {
+        "tagged_text": FREE_TEXT_V1_PROMPT_VERSION,
+        "reasoning_first_json": CONSISTENT_JSON_V2_PROMPT_VERSION,
+        "answer_first_json": ANSWER_FIRST_JSON_PROMPT_VERSION,
+    }
+    if output_mode not in output_protocol_by_mode:
+        raise ValueError(f"Unsupported D4 Stage-A output protocol: {output_mode!r}")
+    stage_output_protocol = output_protocol_by_mode[output_mode]
+    stage_prompt_version = prompt_version_by_mode[output_mode]
+    if precomputed_stage_rows is None:
+        stage_rows = [
+            _answer_turn(
+                sample,
+                run_id=run_id,
+                split_name=split_name,
+                endpoint=endpoint,
+                network_budget=network_budget,
+                method_name="catch_stage_a_shared",
+                role="stage_a_solver",
+                agent_id=index,
+                seed=42_000 + index,
+                max_tokens=protocol.solver_max_tokens,
+                output_protocol=stage_output_protocol,
+                prompt_version=stage_prompt_version,
+            )
+            for index in range(1, protocol.stage_candidates + 1)
+        ]
+    else:
+        stage_rows = list(precomputed_stage_rows)
+        if len(stage_rows) != protocol.stage_candidates:
+            raise ValueError("D4 precomputed Stage-A rows do not match the configured candidate count.")
+    stage = build_stage_decision(stage_rows, seed=experiment.global_seed, sample_id=sample.sample_id)
+    phase_config = dict(((getattr(experiment, "raw", {}) or {}).get("phases") or {}).get(phase_name) or {})
+    evaluation_role = str(phase_config.get("evaluation_role") or "")
+    if evaluation_role.startswith("d4_output_protocol_ab_"):
+        candidate_oracle = any(_score(sample, candidate.answer) == 1.0 for candidate in stage.candidates)
+        prediction = _prediction(
+            sample,
+            run_id,
+            split_name,
+            "sc_5",
+            stage.anchor_answer,
+            stage.anchor_answer,
+            stage,
+            stage_rows,
+            [],
+            False,
+            "stage_a_plurality",
+            candidate_oracle,
+            extra={
+                "kernel_revision": "d4_proof_carrying_v1",
+                "d4_stage_a_output_protocol": output_mode,
+                "output_protocol_ab_only": True,
+                "main_table_eligible": False,
+            },
+        )
+        router = {
+            "run_id": run_id,
+            "dataset": sample.dataset,
+            "split": split_name,
+            "sample_id": sample.sample_id,
+            "task": sample.metadata.get("task"),
+            "phase_name": phase_name,
+            "protocol_version": protocol.protocol_version,
+            "kernel_revision": "d4_proof_carrying_v1",
+            "route": "OUTPUT_PROTOCOL_AB_ONLY",
+            "output_protocol": output_mode,
+            "anchor_answer": stage.anchor_answer,
+            "first_failure_layer": "NONE",
+        }
+        return stage_rows, router, [prediction]
+    resample_rows = [
+        _answer_turn(
+            sample,
+            run_id=run_id,
+            split_name=split_name,
+            endpoint=endpoint,
+            network_budget=network_budget,
+            method_name="catch_fixed_resample_shared",
+            role="independent_resample",
+            agent_id=index,
+            seed=45_000 + index,
+            max_tokens=protocol.solver_max_tokens,
+            output_protocol=stage_output_protocol,
+            prompt_version=stage_prompt_version,
+        )
+        for index in range(1, protocol.resample_candidates + 1)
+    ]
+    fixed_stage = build_stage_decision(
+        [*stage_rows, *resample_rows], seed=experiment.global_seed, sample_id=sample.sample_id
+    )
+    fixed_answer = fixed_stage.anchor_answer or stage.anchor_answer
+    adaptive_stage = fixed_stage if stage.triggered else stage
+    adaptive_answer = adaptive_stage.anchor_answer or stage.anchor_answer
+
+    decision = d4_route_for_sample(sample)
+    source_ir = None
+    solver = D4SolverResult(
+        status="UNSUPPORTED",
+        canonical_answer=None,
+        answer_text=None,
+        solver_trace=(),
+        reference_checker_status="NOT_RUN",
+        concrete_witness_status={"status": "NOT_AVAILABLE"},
+        reason="route_not_compiled",
+    )
+    compiler_rows: list[dict[str, Any]] = []
+    parsed_irs = []
+    compiler_vote_hashes: tuple[str, ...] = ()
+    compiler_agreement = False
+    if decision.route == "EXACT_EXECUTABLE":
+        source_ir, compile_reason = compile_exact_source_ir(sample, decision)
+        if source_ir is None:
+            solver = replace(solver, reason=compile_reason)
+        else:
+            solver = d4_solve_source_ir(sample, decision, source_ir)
+    elif decision.route == "SEMANTIC_EXECUTABLE":
+        graph = build_source_span_graph(sample)
+        source_spans = [{"span_id": span.span_id, "text": span.text} for span in graph.spans]
+        answer_contract = d4_answer_contract_for_sample(sample)
+        for compiler_index in range(1, protocol.resample_candidates + 1):
+            row, payload = _json_turn(
+                sample,
+                run_id=run_id,
+                split_name=split_name,
+                endpoint=endpoint,
+                network_budget=network_budget,
+                method_name="catch_kernel_d4_source_compiler",
+                role="d4_source_compiler",
+                agent_id=compiler_index,
+                seed=49_000 + compiler_index,
+                max_tokens=protocol.role_max_tokens,
+                messages=build_d4_source_compiler_messages(
+                    sample,
+                    source_spans=source_spans,
+                    answer_contract=answer_contract,
+                    decision=decision,
+                ),
+            )
+            parsed, reason = parse_source_ir_v2(payload, sample=sample, decision=decision)
+            row["d4_ir_schema"] = D4_IR_SCHEMA
+            row["d4_source_ir"] = d4_source_ir_to_dict(parsed) if parsed is not None else None
+            row["d4_source_ir_parse_reason"] = reason
+            if parsed is None:
+                row["protocol_parse_status"] = "failed"
+                row["protocol_parse_error"] = reason
+            else:
+                parsed_irs.append(parsed)
+            compiler_rows.append(row)
+        compiler_vote_hashes = tuple(item.canonical_ir_hash for item in parsed_irs)
+        compiler_agreement = (
+            len(parsed_irs) == protocol.resample_candidates
+            and len(set(compiler_vote_hashes)) == 1
+            and all(d4_canonical_ir_hash(item) == item.canonical_ir_hash for item in parsed_irs)
+        )
+        if compiler_agreement:
+            source_ir = parsed_irs[0]
+            solver = d4_solve_source_ir(sample, decision, source_ir)
+        else:
+            solver = replace(solver, reason="compiler_ir_non_agreement_or_parse_failure")
+
+    candidate_evaluation = d4_evaluate_candidates(
+        sample,
+        [candidate.answer for candidate in stage.candidates],
+        solver,
+    )
+    candidate_present = any(item.get("status") == "VALID" for item in candidate_evaluation)
+    metamorphic_status = (
+        run_metamorphic_checks(source_ir, solver, sample=sample, decision=decision)
+        if source_ir is not None
+        else {}
+    )
+    d4_risk = dict(getattr(experiment, "raw", {}).get("d4_risk") or {})
+    evidence = load_risk_evidence(d4_risk.get("evidence_path"))
+    risk_snapshot = risk_gate_snapshot(
+        decision.capability_id,
+        route=decision.route,
+        evidence=evidence,
+        phase="development",
+    )
+    meta_passed = bool(
+        source_ir is not None
+        and metamorphic_checks_passed(source_ir, solver, metamorphic_status)
+    )
+    gate_active = risk_snapshot.route_activation_state.startswith("ACTIVE")
+    route_enabled = (
+        decision.foundation
+        or (
+            decision.route == "EXACT_EXECUTABLE"
+            and bool(d4_risk.get("new_exact_override_enabled", False))
+            and gate_active
+        )
+        or (
+            decision.route == "SEMANTIC_EXECUTABLE"
+            and bool(d4_risk.get("semantic_override_enabled", False))
+            and gate_active
+        )
+    )
+    solver_unique = solver.status == "UNIQUE" and bool(solver.canonical_answer)
+    d4_authorized = bool(solver_unique and meta_passed and route_enabled)
+    d4_answer = solver.canonical_answer if d4_authorized else stage.anchor_answer
+    stage_canonical = canonicalize_answer(sample, stage.anchor_answer)
+    d4_override = bool(
+        d4_authorized
+        and (not stage_canonical.valid or stage_canonical.key != solver.canonical_answer)
+    )
+    shadow_override = bool(
+        solver_unique
+        and (not stage_canonical.valid or stage_canonical.key != solver.canonical_answer)
+    )
+    shadow_score = _score(sample, solver.canonical_answer) if solver_unique else None
+    initial_score = _score(sample, stage.anchor_answer)
+    d4_resolver = (
+        "d4_candidate_completion"
+        if d4_override and not candidate_present
+        else "d4_solver_direct"
+        if d4_authorized
+        else "d4_risk_abstain"
+        if solver_unique
+        else "d4_jurisdiction_abstain"
+    )
+
+    # SSV-raw shares the three candidate-blind compiler calls but omits the
+    # frozen risk gate and metamorphic/provenance authorization layer.
+    ssv_authorized = bool(
+        decision.route == "SEMANTIC_EXECUTABLE" and compiler_agreement and solver_unique
+    )
+    ssv_answer = solver.canonical_answer if ssv_authorized else stage.anchor_answer
+    ssv_override = bool(
+        ssv_authorized and (not stage_canonical.valid or stage_canonical.key != solver.canonical_answer)
+    )
+
+    d3_decision = route_for_sample(sample)
+    d3_certificate = (
+        solve_exact(sample, d3_decision)
+        if d3_decision.route == "EXACT_EXECUTABLE"
+        else None
+    )
+    d3_unique = bool(
+        d3_certificate is not None
+        and d3_certificate.status == "UNIQUE"
+        and d3_certificate.canonical_answer
+    )
+    d3_answer = d3_certificate.canonical_answer if d3_unique else stage.anchor_answer
+    d3_override = bool(
+        d3_unique and (not stage_canonical.valid or stage_canonical.key != d3_certificate.canonical_answer)
+    )
+
+    first_failure_layer = (
+        "JURISDICTION"
+        if decision.route == "SOFT_UNSUPPORTED"
+        else "PARSE"
+        if source_ir is None and decision.route == "EXACT_EXECUTABLE"
+        else "COMPILER_PARSE_OR_AGREEMENT"
+        if decision.route == "SEMANTIC_EXECUTABLE" and not compiler_agreement
+        else "SOLVER"
+        if not solver_unique
+        else "METAMORPHIC"
+        if not meta_passed
+        else "RISK_GATE"
+        if not route_enabled
+        else "NONE"
+    )
+    proof_package = build_proof_package(
+        sample=sample,
+        ir=source_ir,
+        solver=solver,
+        compiler_vote_hashes=compiler_vote_hashes,
+        candidate_evaluation=candidate_evaluation,
+        metamorphic_status=metamorphic_status,
+        risk_snapshot=risk_snapshot,
+        compiler_input_fields=(
+            "source",
+            "answer_contract",
+            "source_spans",
+            "capability_id",
+            "query_operator",
+        ),
+        first_failure_layer=first_failure_layer,
+    )
+    candidate_oracle = any(_score(sample, candidate.answer) == 1.0 for candidate in stage.candidates)
+    semantic_rows = [*stage_rows, *compiler_rows]
+    phase_sample_limit = int(dict(phase_config.get("sample_limits") or {}).get(sample.dataset, 0))
+    common_extra = {
+        "protocol_version": protocol.protocol_version,
+        "kernel_revision": "d4_proof_carrying_v1",
+        "d4_capability_registry_version": D4_CAPABILITY_REGISTRY_VERSION,
+        "d4_prompt_version": D4_PROMPT_VERSION,
+        "d4_stage_a_output_protocol": output_mode,
+        "d4_route": decision.route,
+        "d4_kernel_id": decision.kernel_id,
+        "d4_capability_id": decision.capability_id,
+        "d4_query_operator": decision.query_operator,
+        "d4_route_reason": decision.reason,
+        "d4_source_ir": d4_source_ir_to_dict(source_ir) if source_ir is not None else None,
+        "d4_solver_result": d4_solver_result_to_dict(solver),
+        "d4_proof_package": proof_package_to_dict(proof_package),
+        "d4_risk_gate_snapshot": risk_gate_to_dict(risk_snapshot),
+        "d4_first_failure_layer": first_failure_layer,
+        "d4_candidate_completion": d4_resolver == "d4_candidate_completion",
+        "d4_solver_direct": d4_resolver == "d4_solver_direct",
+        "d4_compiler_agreement": compiler_agreement,
+        "d4_shadow_answer": solver.canonical_answer if solver_unique else None,
+        "d4_shadow_score": shadow_score,
+        "d4_shadow_override": shadow_override,
+        "d4_shadow_correction": bool(shadow_override and initial_score < 1 and shadow_score == 1),
+        "d4_shadow_harm": bool(shadow_override and initial_score == 1 and shadow_score is not None and shadow_score < 1),
+        "d4_metamorphic_checks_passed": meta_passed,
+        "primary_metric": _d3_primary_metric(
+            sample.dataset,
+            split_name,
+            phase_name=phase_name,
+            sample_limit=phase_sample_limit,
+        ),
+    }
+    predictions = [
+        _prediction(
+            sample, run_id, split_name, "sc_5", stage.anchor_answer, stage.anchor_answer,
+            stage, stage_rows, [], False, "stage_a_plurality", candidate_oracle,
+            extra={**common_extra, "main_table_eligible": True},
+        ),
+        _prediction(
+            sample, run_id, split_name, "fixed_sc_8", fixed_answer, stage.anchor_answer,
+            stage, [*stage_rows, *resample_rows], resample_rows,
+            fixed_answer != stage.anchor_answer, "fixed_answer_class_plurality", candidate_oracle,
+            extra={**common_extra, "main_table_eligible": True, "intervention_call_budget_per_question": 3},
+        ),
+        _prediction(
+            sample, run_id, split_name, "catch_d3_exact_only", d3_answer, stage.anchor_answer,
+            stage, stage_rows, [], d3_override,
+            "d3_exact_solver" if d3_unique else "d3_exact_anchor", candidate_oracle,
+            extra={**common_extra, "main_table_eligible": True},
+        ),
+        _prediction(
+            sample, run_id, split_name, "ssv_raw", ssv_answer, stage.anchor_answer,
+            stage, semantic_rows if decision.route == "SEMANTIC_EXECUTABLE" else stage_rows,
+            compiler_rows if decision.route == "SEMANTIC_EXECUTABLE" else [],
+            ssv_override, "ssv_raw_solver" if ssv_authorized else "ssv_raw_abstain", candidate_oracle,
+            extra={
+                **common_extra,
+                "main_table_eligible": True,
+                "ssv_raw": True,
+                "intervention_call_budget_per_question": 3
+                if decision.route == "SEMANTIC_EXECUTABLE"
+                else 0,
+            },
+        ),
+        _prediction(
+            sample, run_id, split_name, "catch_kernel_d4", d4_answer, stage.anchor_answer,
+            stage, semantic_rows if decision.route == "SEMANTIC_EXECUTABLE" else stage_rows,
+            compiler_rows if decision.route == "SEMANTIC_EXECUTABLE" else [],
+            d4_override, d4_resolver, candidate_oracle,
+            extra={
+                **common_extra,
+                "main_table_eligible": True,
+                "certificate_count": int(solver_unique),
+                "certificate_coverage": float(solver_unique),
+                "certificate_abstained": not d4_authorized,
+                "solver_status": solver.status,
+                "intervention_call_budget_per_question": 3
+                if decision.route == "SEMANTIC_EXECUTABLE"
+                else 0,
+            },
+        ),
+        _prediction(
+            sample, run_id, split_name, "adaptive_sc_8", adaptive_answer, stage.anchor_answer,
+            stage, [*stage_rows, *(resample_rows if stage.triggered else [])],
+            resample_rows if stage.triggered else [],
+            bool(stage.triggered and adaptive_answer != stage.anchor_answer),
+            "adaptive_answer_class_plurality" if stage.triggered else "no_answer_class_disagreement",
+            candidate_oracle,
+            extra={**common_extra, "main_table_eligible": False, "supplementary_only": True},
+        ),
+    ]
+    router = {
+        "run_id": run_id,
+        "dataset": sample.dataset,
+        "split": split_name,
+        "sample_id": sample.sample_id,
+        "task": sample.metadata.get("task"),
+        "phase_name": phase_name,
+        "protocol_version": protocol.protocol_version,
+        "kernel_revision": "d4_proof_carrying_v1",
+        "route": decision.route,
+        "kernel_id": decision.kernel_id,
+        "capability_id": decision.capability_id,
+        "query_operator": decision.query_operator,
+        "route_reason": decision.reason,
+        "source_ir": d4_source_ir_to_dict(source_ir) if source_ir is not None else None,
+        "solver_result": d4_solver_result_to_dict(solver),
+        "proof_package": proof_package_to_dict(proof_package),
+        "risk_gate_snapshot": risk_gate_to_dict(risk_snapshot),
+        "anchor_answer": stage.anchor_answer,
+        "decision": {
+            "answer": d4_answer,
+            "override_accepted": d4_override,
+            "resolver": d4_resolver,
+            "candidate_completion": d4_resolver == "d4_candidate_completion",
+        },
+        "first_failure_layer": first_failure_layer,
+        "compiler_diagnostics": [
+            {
+                "agent_id": row.get("agent_id"),
+                "parse_status": row.get("protocol_parse_status"),
+                "parse_reason": row.get("d4_source_ir_parse_reason"),
+                "ir_hash": (row.get("d4_source_ir") or {}).get("canonical_ir_hash"),
+            }
+            for row in compiler_rows
+        ],
+    }
+    return [*stage_rows, *resample_rows, *compiler_rows], router, predictions
 
 
 def run_catch_kernel_d3_sample(
@@ -2856,6 +3360,8 @@ def _answer_turn(
     agent_id: int,
     seed: int,
     max_tokens: int,
+    output_protocol: str = FREE_TEXT_ANSWER_PROTOCOL_V1,
+    prompt_version: str = "single_agent_free_text_v1",
 ) -> dict[str, Any]:
     _raise_if_cancelled(endpoint)
     reservation = network_budget.reserve()
@@ -2867,13 +3373,13 @@ def _answer_turn(
             cache=cache,
             throttle=endpoint.throttle,
             sample=sample,
-            messages=build_cot_messages(sample, agent_id, "single_agent_free_text_v1"),
+            messages=build_cot_messages(sample, agent_id, prompt_version),
             temperature=0.7,
             top_p=1.0,
             seed=seed,
             dataset=sample.dataset,
             role=role,
-            output_protocol=FREE_TEXT_ANSWER_PROTOCOL_V1,
+            output_protocol=output_protocol,
             max_tokens=max_tokens,
         )
         network_budget.settle(reservation, result.network_request_count)
@@ -2965,7 +3471,10 @@ def _json_turn(
     parse_error = request.request_error
     if not parse_error:
         try:
-            candidate = json.loads(str(request.response_payload.get("assistant_text") or ""))
+            candidate = json.loads(
+                str(request.response_payload.get("assistant_text") or ""),
+                object_pairs_hook=_reject_duplicate_json_keys,
+            )
             if not isinstance(candidate, dict):
                 raise ValueError("JSON output must be an object")
             parsed = candidate
@@ -2996,6 +3505,15 @@ def _json_turn(
     )
     _annotate_cache_audit(row, endpoint=endpoint, cache=cache, cache_key=request.cache_key)
     return row, parsed
+
+
+def _reject_duplicate_json_keys(items: list[tuple[str, Any]]) -> dict[str, Any]:
+    output: dict[str, Any] = {}
+    for key, value in items:
+        if key in output:
+            raise ValueError(f"duplicate_json_key:{key}")
+        output[key] = value
+    return output
 
 
 def _turn_base(

@@ -1,4 +1,4 @@
-"""Gold-blind merger for frozen CATCH comparator runs on identical Stage-A candidates."""
+"""冻结 CATCH 对比运行的盲金标准合并器（gold-blind merger）。"""
 
 from __future__ import annotations
 

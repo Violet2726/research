@@ -1,4 +1,4 @@
-"""CATCH-Kernel D3 source-blind routing and conditional certificates.
+"""CATCH-Kernel D3 的 source-blind 路由与条件证书（conditional certificates）。
 
 This module intentionally keeps the D3 surface separate from the frozen D2
 pair/candidate protocol.  A source IR is created without looking at Stage-A

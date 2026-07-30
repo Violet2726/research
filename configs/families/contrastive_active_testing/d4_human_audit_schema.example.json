@@ -1,0 +1,38 @@
+{
+  "schema": "catch_d4_blind_ir_audit_v1",
+  "blinding_contract": {
+    "hidden": [
+      "candidate",
+      "candidates",
+      "stage_a_candidates",
+      "gold",
+      "solver_answer",
+      "final_accuracy",
+      "anchor",
+      "vote_counts"
+    ],
+    "two_independent_annotators": true,
+    "third_person_adjudication": true
+  },
+  "items": [
+    {
+      "item_id": "replace-me",
+      "kernel_id": "sequence_trace_kernel_v1",
+      "capability_id": "replace-me",
+      "ir_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "visible_fields": ["source", "source_ir", "source_span_map"],
+      "annotations": [
+        {"annotator_id": "A", "ir_valid": false, "critical_error": false},
+        {"annotator_id": "B", "ir_valid": false, "critical_error": false}
+      ],
+      "adjudicated_ir_valid": false,
+      "critical_semantic_error": false,
+      "unexplained_high_severity_false_pass": false
+    }
+  ],
+  "metamorphic": {
+    "sequence_trace_kernel_v1": {"total": 0, "passed": 0},
+    "event_state_kernel_v1": {"total": 0, "passed": 0},
+    "constraint_calculator_kernel_v1": {"total": 0, "passed": 0}
+  }
+}

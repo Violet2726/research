@@ -25,52 +25,81 @@ def paired_statistics(
             pairs = _pairs(rows, dataset, reference, competitor)
             if not pairs:
                 continue
-            use_task_adjusted_harmonic = bbeh_adjusted_harmonic and dataset == "bbeh"
-            point = _paired_point(pairs, task_adjusted_harmonic=use_task_adjusted_harmonic)
+            metric = _primary_metric(dataset)
+            point = _paired_point(pairs, metric=metric)
             low, high = _bootstrap(
                 pairs,
                 samples=bootstrap_samples,
                 seed=f"{seed}:{dataset}:{competitor}",
-                adjusted_harmonic=use_task_adjusted_harmonic,
+                metric=metric,
             )
             reference_only = sum(left > right for left, right, _ in pairs)
             competitor_only = sum(right > left for left, right, _ in pairs)
-            tests.append(
-                {
+            result = {
                     "dataset": dataset,
                     "reference_method": reference,
                     "comparison_method": competitor,
                     "paired_question_count": len(pairs),
                     "mean_accuracy_delta": point,
-                    "accuracy_metric": (
-                        "task_adjusted_harmonic" if use_task_adjusted_harmonic else "micro_accuracy"
-                    ),
+                    "accuracy_metric": metric,
                     "bootstrap_ci_95": [low, high],
                     "mcnemar_b_reference_only_correct": reference_only,
                     "mcnemar_c_comparator_only_correct": competitor_only,
                     "mcnemar_exact_p": _mcnemar_p(reference_only, competitor_only),
                 }
-            )
-    holm_datasets = {"bbeh", "musr", "gpqa_diamond"}
+            if bbeh_adjusted_harmonic and dataset == "bbeh":
+                compat_low, compat_high = _bootstrap(
+                    pairs,
+                    samples=bootstrap_samples,
+                    seed=f"{seed}:{dataset}:{competitor}:adjusted_harmonic",
+                    metric="task_adjusted_harmonic",
+                )
+                result.update(
+                    {
+                        "bbeh_adjusted_harmonic_delta": _paired_point(
+                            pairs,
+                            metric="task_adjusted_harmonic",
+                        ),
+                        "bbeh_adjusted_harmonic_bootstrap_ci_95": [compat_low, compat_high],
+                        "bbeh_adjusted_harmonic_interpretation": "secondary_full_compatibility_metric",
+                    }
+                )
+            tests.append(result)
+    present_datasets = {str(item["dataset"]) for item in tests}
+    science_dataset = (
+        "supergpqa_science"
+        if "supergpqa_science" in present_datasets
+        else "supergpqa"
+        if "supergpqa" in present_datasets
+        else "gpqa_diamond"
+    )
+    holm_scope = ["bbeh", "musr", science_dataset]
+    holm_datasets = set(holm_scope)
     primary_tests = [item for item in tests if item["dataset"] in holm_datasets]
     _holm(primary_tests)
     return {
         "reference_method": reference,
         "bootstrap_samples": bootstrap_samples,
         "tests": tests,
-        "bbeh_resampling": (
-            "within_task_stratified_adjusted_harmonic" if bbeh_adjusted_harmonic else "item_micro"
-        ),
-        "holm_scope": ["bbeh", "musr", "gpqa_diamond"],
+        "bbeh_resampling": "within_task_stratified_micro_with_secondary_adjusted_harmonic"
+        if bbeh_adjusted_harmonic
+        else "within_task_stratified_micro",
+        "musr_resampling": "within_task_stratified_macro",
+        "science_resampling": "within_domain_stratified_macro",
+        "holm_scope": holm_scope,
+        "holm_scope_datasets_present": sorted({item["dataset"] for item in primary_tests}),
     }
 
 
 def _pairs(rows, dataset, reference, competitor):
-    index = {
-        (str(row["sample_id"]), str(row["method_name"])): row
-        for row in rows
-        if row.get("dataset") == dataset
-    }
+    index = {}
+    for row in rows:
+        if row.get("dataset") != dataset:
+            continue
+        key = (str(row["sample_id"]), str(row["method_name"]))
+        if key in index:
+            raise ValueError(f"Duplicate paired-inference row for {dataset}:{key[0]}:{key[1]}.")
+        index[key] = row
     sample_ids = sorted(
         {sample for sample, method in index if method == reference}
         & {sample for sample, method in index if method == competitor}
@@ -79,29 +108,48 @@ def _pairs(rows, dataset, reference, competitor):
         (
             float(index[(sample, reference)].get("score") or 0),
             float(index[(sample, competitor)].get("score") or 0),
-            str(index[(sample, reference)].get("task") or "unknown"),
+            _stratum_for(dataset, index[(sample, reference)]),
         )
         for sample in sample_ids
     ]
 
 
-def _bootstrap(pairs, *, samples, seed, adjusted_harmonic):
+def _bootstrap(pairs, *, samples, seed, metric):
     rng = random.Random(int(hashlib.sha256(seed.encode()).hexdigest()[:16], 16))
     values = []
-    if adjusted_harmonic:
+    if metric in {
+        "task_stratified_micro_accuracy",
+        "task_macro_accuracy",
+        "domain_macro_accuracy",
+        "task_adjusted_harmonic",
+    }:
         groups: dict[str, list[tuple[float, float, str]]] = defaultdict(list)
         for pair in pairs:
             groups[pair[2]].append(pair)
         tasks = sorted(groups)
         for _ in range(samples):
-            left_task_scores = []
-            right_task_scores = []
+            left_group_scores = []
+            right_group_scores = []
+            left_total = 0.0
+            right_total = 0.0
+            item_total = 0
             for task in tasks:
                 group = groups[task]
                 draw = [group[rng.randrange(len(group))] for _ in group]
-                left_task_scores.append(sum(left for left, _, _ in draw) / len(draw))
-                right_task_scores.append(sum(right for _, right, _ in draw) / len(draw))
-            values.append(_adjusted_harmonic(left_task_scores) - _adjusted_harmonic(right_task_scores))
+                left_group_scores.append(sum(left for left, _, _ in draw) / len(draw))
+                right_group_scores.append(sum(right for _, right, _ in draw) / len(draw))
+                left_total += sum(left for left, _, _ in draw)
+                right_total += sum(right for _, right, _ in draw)
+                item_total += len(draw)
+            if metric == "task_adjusted_harmonic":
+                values.append(_adjusted_harmonic(left_group_scores) - _adjusted_harmonic(right_group_scores))
+            elif metric in {"task_macro_accuracy", "domain_macro_accuracy"}:
+                values.append(
+                    sum(left_group_scores) / len(left_group_scores)
+                    - sum(right_group_scores) / len(right_group_scores)
+                )
+            else:
+                values.append((left_total - right_total) / item_total)
     else:
         for _ in range(samples):
             draw = [pairs[rng.randrange(len(pairs))] for _ in pairs]
@@ -110,15 +158,35 @@ def _bootstrap(pairs, *, samples, seed, adjusted_harmonic):
     return values[int(0.025 * (len(values) - 1))], values[int(0.975 * (len(values) - 1))]
 
 
-def _paired_point(pairs, *, task_adjusted_harmonic: bool) -> float:
-    if not task_adjusted_harmonic:
+def _paired_point(pairs, *, metric: str) -> float:
+    if metric in {"micro_accuracy", "task_stratified_micro_accuracy"}:
         return sum(left - right for left, right, _ in pairs) / len(pairs)
     groups: dict[str, list[tuple[float, float, str]]] = defaultdict(list)
     for pair in pairs:
         groups[pair[2]].append(pair)
     left_scores = [sum(left for left, _, _ in group) / len(group) for group in groups.values()]
     right_scores = [sum(right for _, right, _ in group) / len(group) for group in groups.values()]
-    return _adjusted_harmonic(left_scores) - _adjusted_harmonic(right_scores)
+    if metric == "task_adjusted_harmonic":
+        return _adjusted_harmonic(left_scores) - _adjusted_harmonic(right_scores)
+    return sum(left_scores) / len(left_scores) - sum(right_scores) / len(right_scores)
+
+
+def _primary_metric(dataset: str) -> str:
+    if dataset == "bbeh":
+        return "task_stratified_micro_accuracy"
+    if dataset == "musr":
+        return "task_macro_accuracy"
+    if dataset in {"gpqa_diamond", "supergpqa", "supergpqa_science"}:
+        return "domain_macro_accuracy"
+    return "micro_accuracy"
+
+
+def _stratum_for(dataset: str, row: dict[str, Any]) -> str:
+    if dataset in {"bbeh", "musr"}:
+        return str(row.get("task") or "unknown")
+    if dataset in {"gpqa_diamond", "supergpqa", "supergpqa_science"}:
+        return str(row.get("high_level_domain") or row.get("subdomain") or "unknown").casefold()
+    return "all"
 
 
 def _adjusted_harmonic(values: list[float]) -> float:

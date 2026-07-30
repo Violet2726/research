@@ -1,0 +1,20 @@
+{
+  "schema": "catch_d4_latent_first_sealed_manifest_v2",
+  "generator_repository": "https://github.com/Zayne-Sprague/MuSR",
+  "generator_commit": "PIN_FULL_40_CHARACTER_OFFICIAL_COMMIT",
+  "generation_lock_sha256": "HASH_THE_PINNED_GENERATION_ENVIRONMENT_LOCK",
+  "narrative_generator_id": "PIN_INDEPENDENT_NARRATIVE_GENERATOR_MODEL_AND_VERSION",
+  "quality_validation_protocol_sha256": "HASH_THE_FROZEN_QUALITY_VALIDATION_PROTOCOL",
+  "custodian_id": "INDEPENDENT_CUSTODIAN_IDENTIFIER",
+  "independent_custodian": true,
+  "seed": 42,
+  "split_order": ["development", "human_audit", "confirmation"],
+  "splits": {
+    "development": [],
+    "human_audit": [],
+    "confirmation": []
+  },
+  "contains_text": false,
+  "contains_gold": false,
+  "sha256": "COMPUTE_AFTER_POPULATION"
+}

@@ -87,11 +87,14 @@ def test_bbeh_full_paired_inference_uses_adjusted_harmonic_scale() -> None:
     )
     test = next(item for item in result["tests"] if item["dataset"] == "bbeh")
     expected = 2 / (1 / 1.01 + 1 / 0.01) - 0.01
-    assert test["accuracy_metric"] == "task_adjusted_harmonic"
-    assert test["mean_accuracy_delta"] == pytest.approx(expected)
-    assert result["bbeh_resampling"] == "within_task_stratified_adjusted_harmonic"
+    assert test["accuracy_metric"] == "task_stratified_micro_accuracy"
+    assert test["mean_accuracy_delta"] == pytest.approx(0.5)
+    assert test["bbeh_adjusted_harmonic_delta"] == pytest.approx(expected)
+    assert result["bbeh_resampling"] == "within_task_stratified_micro_with_secondary_adjusted_harmonic"
     assert result["holm_scope"] == ["bbeh", "musr", "gpqa_diamond"]
-    assert next(item for item in result["tests"] if item["dataset"] == "musr")["holm_adjusted_p"] is not None
+    musr = next(item for item in result["tests"] if item["dataset"] == "musr")
+    assert musr["accuracy_metric"] == "task_macro_accuracy"
+    assert musr["holm_adjusted_p"] is not None
 
 
 def test_gpqa_summary_reports_available_domains_without_inventing_reasoning_labels() -> None:
@@ -105,6 +108,41 @@ def test_gpqa_summary_reports_available_domains_without_inventing_reasoning_labe
     assert summary["per_subdomain_accuracy"]["Optics"] == 1.0
     assert summary["per_reasoning_type_accuracy"] == {}
     assert summary["reasoning_type_stratification_available"] is False
+
+
+def test_science_paired_inference_uses_domain_macro_and_rejects_duplicates() -> None:
+    rows = []
+    for sample_id, domain, left, right in (
+        ("p1", "Physics", 1, 0),
+        ("p2", "Physics", 0, 0),
+        ("p3", "Physics", 0, 0),
+        ("c1", "Chemistry", 0, 1),
+    ):
+        rows.extend(
+            [
+                {
+                    "dataset": "supergpqa_science",
+                    "sample_id": sample_id,
+                    "high_level_domain": domain,
+                    "method_name": "d4",
+                    "score": left,
+                },
+                {
+                    "dataset": "supergpqa_science",
+                    "sample_id": sample_id,
+                    "high_level_domain": domain,
+                    "method_name": "sc5",
+                    "score": right,
+                },
+            ]
+        )
+    result = paired_statistics(rows, reference="d4", competitors=["sc5"], seed=42, bootstrap_samples=20)
+    test = result["tests"][0]
+    assert test["accuracy_metric"] == "domain_macro_accuracy"
+    assert test["mean_accuracy_delta"] == pytest.approx((1 / 3 - 1) / 2)
+    assert result["holm_scope"] == ["bbeh", "musr", "supergpqa_science"]
+    with pytest.raises(ValueError, match="Duplicate paired-inference row"):
+        paired_statistics([*rows, rows[0]], reference="d4", competitors=["sc5"], seed=42)
 
 
 def test_v3_reports_correlated_false_passes_and_position_diagnostics() -> None:

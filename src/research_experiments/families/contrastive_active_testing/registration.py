@@ -20,6 +20,10 @@ from research_experiments.families.contrastive_active_testing.config import (
     load_protocol_config,
     phase_metadata,
 )
+from research_experiments.families.contrastive_active_testing.d4_audit import write_d4_gate_evidence
+from research_experiments.families.contrastive_active_testing.d4_protocol_ab import (
+    write_output_protocol_ab_assessment,
+)
 from research_experiments.families.contrastive_active_testing.kernel_mechanism import (
     ingest_kernel_mechanism_results,
     summarize_kernel_mechanism,
@@ -34,6 +38,7 @@ from research_experiments.families.contrastive_active_testing.replay import repl
 from research_experiments.families.contrastive_active_testing.run.execute import (
     run_experiment,
     write_kernel_d2_freeze,
+    write_kernel_d4_freeze,
 )
 from research_experiments.families.contrastive_active_testing.run.report import render_report, summarize_run
 from research_experiments.families.contrastive_active_testing.run.validate import validate_run
@@ -61,7 +66,10 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "name": experiment.name,
         "description": experiment.description,
         "paper_method_name": (
-            "CATCH-Kernel"
+            "Risk-Calibrated Proof-Carrying Candidate Completion"
+            if protocol.protocol_version == "catch_kernel_v1"
+            and str(experiment.raw.get("kernel_revision") or "") == "d4_proof_carrying_v1"
+            else "CATCH-Kernel"
             if protocol.protocol_version == "catch_kernel_v1"
             else "CATCH-Cert v2"
             if protocol.protocol_version == "catch_cert_v2"
@@ -187,6 +195,30 @@ def configure_parser(parser) -> None:
         )
         kernel_freeze.add_argument("--experiment", required=True)
         kernel_freeze.add_argument("--output", required=True)
+        d4_freeze = action.add_parser(
+            "freeze-kernel-d4",
+            help="Freeze D4 proof-carrying components after sealed data and audit gates pass.",
+        )
+        d4_freeze.add_argument("--experiment", required=True)
+        d4_freeze.add_argument("--output", required=True)
+        d4_evidence = action.add_parser(
+            "assess-kernel-d4-evidence",
+            help=(
+                "Build hash-linked D4 risk evidence from a completed independent post-freeze calibration run "
+                "and optional blind audit. Public engineering runs are rejected."
+            ),
+        )
+        d4_evidence.add_argument("--predictions", required=True)
+        d4_evidence.add_argument("--human-audit")
+        d4_evidence.add_argument("--output", required=True)
+        d4_protocol_ab = action.add_parser(
+            "assess-kernel-d4-output-protocol",
+            help="Assess the three completed D4 output-protocol A/B runs with hash-linked artifacts.",
+        )
+        d4_protocol_ab.add_argument("--tagged-text-run", required=True)
+        d4_protocol_ab.add_argument("--reasoning-first-json-run", required=True)
+        d4_protocol_ab.add_argument("--answer-first-json-run", required=True)
+        d4_protocol_ab.add_argument("--output", required=True)
         return
     raise RuntimeError("CATCH parser is missing subcommands.")
 
@@ -321,6 +353,59 @@ def dispatch_extra_command(args) -> bool:
                     "selection_hashes": {
                         key: value["sha256"] for key, value in payload["selected_sample_manifest"].items()
                     },
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return True
+    if args.command == "freeze-kernel-d4":
+        payload = write_kernel_d4_freeze(args.experiment, args.output)
+        print(
+            json.dumps(
+                {
+                    "output": args.output,
+                    "sha256": payload["sha256"],
+                    "selection_hashes": {
+                        key: value["sha256"] for key, value in payload["selected_sample_manifest"].items()
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return True
+    if args.command == "assess-kernel-d4-evidence":
+        payload = write_d4_gate_evidence(
+            args.predictions,
+            args.output,
+            human_audit_path=args.human_audit,
+        )
+        print(
+            json.dumps(
+                {
+                    "output": args.output,
+                    "sha256": payload["sha256"],
+                    "capability_count": len(payload["capabilities"]),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return True
+    if args.command == "assess-kernel-d4-output-protocol":
+        payload = write_output_protocol_ab_assessment(
+            tagged_text_run=args.tagged_text_run,
+            reasoning_first_json_run=args.reasoning_first_json_run,
+            answer_first_json_run=args.answer_first_json_run,
+            output_path=args.output,
+        )
+        print(
+            json.dumps(
+                {
+                    "output": args.output,
+                    "answer_first_json_accepted": payload["answer_first_json_accepted"],
+                    "answer_first_json_certified": payload["answer_first_json_certified"],
                 },
                 ensure_ascii=False,
                 indent=2,

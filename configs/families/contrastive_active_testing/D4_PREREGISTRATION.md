@@ -1,0 +1,48 @@
+# CATCH-Kernel D4 preregistration
+
+Method name: **Risk-Calibrated Proof-Carrying Candidate Completion**.
+
+## Primary hypothesis
+
+Under one frozen backbone, no training, one shared Stage-A of five samples, and at most eight logical model calls per method, D4 should expand executable coverage while preserving a calibrated low-harm override policy. Candidate completion may emit a locally solved answer that was absent from the Stage-A candidate pool.
+
+The proof language is strictly conditional: `source -> SourceIRv2 -> local answer`. It is not a proof of natural-language/IR equivalence and never a proof of gold correctness.
+
+## Main methods
+
+The main table contains exactly `SC5`, `fixed-SC8`, `D3-exact-only`, `SSV-raw`, and `D4-full`. Adaptive-SC8 and the historical generic judges are supplementary/development-only, respectively. DirectJudge-3 and PairJudge-3 are forbidden in large confirmation.
+
+## Jurisdiction
+
+- `SequenceTraceKernel`: frozen D3 Dyck/sort/spatial foundation; new shuffled-state exact shadow; word-sort error and temporal trace semantic shadow.
+- `EventStateKernel`: typed shadow interface for BBEH structured state plus MuSR object-belief/team-constraint ledgers. No EventState override is authorized until a concrete local operator, per-item metamorphic relation, and independent audit all pass. Murder mysteries remain unsupported for override.
+- `ConstraintCalculatorKernel`: explicit truth constraints and closed local calculations. Retrieval, knowledge APIs, and name-to-structure inference are forbidden.
+
+Task names may rule out an open-world task but do not authorize an executable route. Authorization requires a source signature, a closed query operator, a valid answer contract, and a passing risk snapshot.
+
+## Gates
+
+Before development risk calibration, the three Stage-A output protocols are evaluated in Stage-A-only runs on the same 300 development samples (1500 turns per arm). Every selected sample must have exactly one SC5 prediction and agent IDs 1–5 exactly once. The assessment is recomputed from hash-linked completed run artifacts. The answer-first arm must have an observed parse-failure rate below 0.2%, a one-sided 95% Clopper-Pearson upper bound below 0.2%, and an SC5 point estimate no more than 0.5 percentage points below tagged text. Only the parse bound is called certified; the accuracy comparison is a descriptive operational screen unless a separately preregistered paired confidence procedure is added.
+
+Development uses a fixed preregistered family of nine new capabilities. To protect the family of data-selected activations, each capability uses a Bonferroni one-sided Clopper-Pearson bound with alpha `0.05/9`. Consequently, the zero-error minimum for a 0.90 precision lower bound is 50 shadow overrides, not the single-capability value of 29. All applicable, actually executed metamorphic relations must pass. Semantic capabilities additionally require at least 60 independently double-annotated, unique IRs per activated semantic kernel, two distinct raters on every item, Gwet's AC1 at least 0.80, observed critical semantic error at most 2%, observed adjudicated validity at least 95%, independent third-person adjudication of every disagreement, and zero unexplained high-severity false pass. Cohen's kappa and raw agreement are reported, but kappa is not the activation gate because the expected high prevalence of valid IRs can make it undefined or paradoxically low. The two audit error-rate thresholds are quality-control point estimates, not confidence guarantees. A metamorphic field that is absent, hard-coded, or entirely `NOT_APPLICABLE` cannot activate a new route.
+
+The activation artifact must be generated from one completed, error-free, independent post-freeze calibration run, hash-link its manifest, turns, predictions, and any audit file, match the frozen capability registry, and pass count-consistency and source-recomputation checks. Hand-written capability counts or summaries are not accepted by the freeze or confirmation gates. The current capability-stratified engineering sample contains 540 BBEH records, 120 MuSR records, and the 47 locally routed GPQA compatibility records; because these public pools were used while designing and gold-checking the parsers, they are diagnostics only and cannot generate activation evidence. New data must be split into calibration and confirmation before either split is exposed, and the calibration role is fixed as `d4_independent_calibration_after_method_freeze`.
+
+Confirmation activation uses only frozen development evidence. Confirmation gold is not used to tune or activate a route. After the one-shot run, the preregistered pooled claim requires at least 59 overrides, a one-sided precision lower bound at least 0.95, and a one-sided harm upper bound at most 0.05. Fifty-nine is only the zero-error minimum; it is not sufficient when any error is observed. Failure permits only a `shadow` or `high-precision narrow-coverage` interpretation.
+
+Confirmation is a hard gate: `confirmatory=true`, exact selection hashes, a valid component freeze, a passing output-protocol assessment, validated hash-linked development risk evidence, any required semantic blind audit, schema-valid sealed manifests for exactly every preregistered benchmark, a passing live provider audit, and `sealed_data_ready=true` are all required before sample materialization or any API call. Every sealed benchmark must resolve without loader errors to a non-empty sample set. BBEH-extension and SuperGPQA loaders/manifests are not yet implemented, so the current repository intentionally cannot launch the three-domain confirmation.
+
+The provider-specific `xiaomimimo_75x95_validated_v1` runtime profile records the previously validated 75-concurrent/95-RPM operating point. It is an execution profile, not part of the logical-call budget, and confirmation still requires a fresh live provider audit.
+
+## Data independence
+
+- Local BBEH Full 4520 has been used for aggregate route/parser validation and is therefore development/compatibility only. No subset of those same records may be relabeled as calibration or sealed confirmation. A primary BBEH result requires a genuinely new upstream release or an independently generated and custodian-sealed extension that is split into post-freeze calibration and one-shot confirmation before disclosure.
+- Existing MuSR 756 and GPQA Diamond 198 are development/compatibility only.
+- MuSR-X requires the official repository URL, a full 40-character generator commit, a hashed generation-environment lock, a pinned narrative-generator identity, a hashed quality-validation protocol, and an independent custodian. New latent graphs are split by latent graph hash before rendering (post-freeze calibration 1200, audit 600, confirmation 1200). The official repository uses model-assisted generation, so changing latent seeds alone is not sufficient evidence of a valid new benchmark; the old simplified manifest v1 is rejected.
+- Science calibration/confirmation requires previously unanalysed, disjoint text-only, single-choice physics/chemistry/biology SuperGPQA subsets, with SHA-256/MinHash de-duplication against GPQA and SciBench before disclosure. String/hash similarity is only a duplicate screen, not evidence that model-training contamination is absent.
+- Confirmation text, gold, and latent graphs remain unreadable before method freeze. A manifest must use an exact allow-listed schema with unique record and latent hashes; self-declared `contains_text=false` or `contains_gold=false` flags alone are insufficient.
+- SuperGPQA is composite and includes transformed material from named prior datasets; source provenance, licenses, and near-duplicate exclusions are reported rather than treating the pool as automatically uncontaminated.
+
+## Statistics
+
+Only D4 vs SC5 and D4 vs fixed-SC8 are preregistered. Across BBEH, MuSR, and science this gives six McNemar tests under one Holm correction; old GPQA is not added as a fourth confirmatory family when SuperGPQA science is present. BBEH uses task-stratified micro accuracy as primary, with adjusted harmonic as a secondary Full-compatibility metric. MuSR uses three-task macro accuracy, and science uses domain-macro accuracy. Bootstrap resampling is within task/domain strata. Report correction/harm, jurisdiction coverage, solver-executable coverage, authorized coverage, selective risk, calls, tokens, latency, cache/network calls, and parse/request failures.

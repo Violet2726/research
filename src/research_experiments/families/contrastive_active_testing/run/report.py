@@ -30,7 +30,9 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
     protocol_version = manifest.get("protocol_version")
     is_cert = protocol_version in {"catch_cert_v1", "catch_cert_v2", "catch_kernel_v1"}
     primary_method = (
-        "catch_kernel"
+        "catch_kernel_d4"
+        if manifest.get("kernel_revision") == "d4_proof_carrying_v1"
+        else "catch_kernel"
         if protocol_version == "catch_kernel_v1"
         else "catch_cert_v2"
         if protocol_version == "catch_cert_v2"
@@ -63,6 +65,39 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
                 f"- selected BBEH overlap with inspected: `{d3_audit.get('selected_bbeh_inspected_overlap_count', 0)}`",
                 f"- selected BBEH text-hash overlap with inspected: `{d3_audit.get('selected_bbeh_text_hash_overlap_with_inspected_count', 0)}`",
                 f"- selected BBEH overlap with official Mini: `{d3_audit.get('selected_bbeh_official_mini_overlap_count', 0)}`",
+                "",
+            ]
+        )
+    if manifest.get("kernel_revision") == "d4_proof_carrying_v1":
+        pooled = next(
+            (
+                row
+                for row in list(metrics.get("summary") or [])
+                if row.get("method_name") == "catch_kernel_d4"
+            ),
+            {},
+        )
+        threshold_passed = pooled.get("d4_confirmation_safety_gate_passed") is True
+        claim_ready = bool(
+            manifest.get("phase_name") == "confirmation"
+            and manifest.get("run_status") == "completed"
+            and threshold_passed
+        )
+        interpretation = (
+            "certified_low_harm_pooled_confirmation"
+            if claim_ready
+            else "high_precision_narrow_coverage_or_shadow_only"
+            if manifest.get("phase_name") == "confirmation"
+            else "development_or_compatibility_only"
+        )
+        lines.extend(
+            [
+                "## D4 pooled claim gate",
+                "",
+                f"- post-run pooled threshold passed: `{threshold_passed}`",
+                f"- complete one-shot confirmation claim ready: `{claim_ready}`",
+                f"- allowed interpretation: `{interpretation}`",
+                "- The 59-override minimum is sufficient only in the zero-error case; the confidence bounds remain binding.",
                 "",
             ]
         )
@@ -136,6 +171,9 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
                 "catch_cert",
                 "catch_cert_v2",
                 "catch_kernel",
+                "catch_d3_exact_only",
+                "ssv_raw",
+                "catch_kernel_d4",
                 "direct_judge_3",
                 "pair_judge_3",
             } and not method.startswith("catch_d3_"):
@@ -224,6 +262,23 @@ def render_report(run_dir: str | Path, output_path: str | Path | None = None) ->
                     f"- corrections/harm: `{cert.get('d3_correction_count', 0)}` / `{cert.get('d3_harm_count', 0)}`; harm upper CI: `{cert.get('d3_harm_rate_one_sided_95_upper')}`",
                     f"- jurisdiction_abstention_rate: `{cert.get('d3_jurisdiction_abstention_rate')}`",
                     "- certificate language: conditional `source/IR -> answer`; not a proof of source-to-gold semantic equivalence.",
+                ]
+            )
+        if manifest.get("kernel_revision") == "d4_proof_carrying_v1":
+            lines.extend(
+                [
+                    "",
+                    "D4 proof-carrying audit:",
+                    f"- route_counts: `{json.dumps(cert.get('d4_route_counts') or {}, ensure_ascii=False)}`",
+                    f"- first_failure_counts: `{json.dumps(cert.get('d4_first_failure_counts') or {}, ensure_ascii=False)}`",
+                    f"- jurisdiction/executable/authorized coverage: `{cert.get('d4_jurisdiction_coverage')}` / "
+                    f"`{cert.get('d4_executable_coverage')}` / `{cert.get('d4_authorized_coverage')}`",
+                    f"- overrides and correction/harm: `{cert.get('d4_override_count', 0)}`; "
+                    f"`{cert.get('d4_correction_count', 0)}` / `{cert.get('d4_harm_count', 0)}`",
+                    f"- override precision lower CI: `{cert.get('d4_override_precision_one_sided_95_lower')}`; "
+                    f"harm upper CI: `{cert.get('d4_harm_rate_one_sided_95_upper')}`",
+                    f"- abstention_rate: `{cert.get('d4_abstention_rate')}`",
+                    "- certificate language: conditional `source/IR -> answer`; never a source-to-gold equivalence proof.",
                 ]
             )
             if dataset == "gpqa_diamond":

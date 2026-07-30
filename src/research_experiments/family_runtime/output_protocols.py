@@ -14,6 +14,12 @@ from research_experiments.core.execution.runner_common import (
     TurnRequestExecutor,
     execute_cached_request,
 )
+from research_experiments.family_runtime.answer_first_json_protocol import (
+    ANSWER_FIRST_JSON_PROTOCOL_V1,
+    REASONING_FIRST_JSON_PROTOCOL_V1,
+    parse_answer_first_json_output,
+    parse_reasoning_first_json_output,
+)
 from research_experiments.family_runtime.free_text_protocol import (
     FREE_TEXT_ANSWER_PROTOCOL_V1,
     parse_free_text_answer_output,
@@ -24,7 +30,12 @@ from research_experiments.family_runtime.json_object_protocol import (
     parse_json_object_answer_output,
 )
 
-OutputProtocol = Literal["free_text_answer_v1", "json_object_answer_v3"]
+OutputProtocol = Literal[
+    "free_text_answer_v1",
+    "json_object_answer_v3",
+    "answer_first_json_v1",
+    "reasoning_first_json_v1",
+]
 ProtocolParseStatus = Literal["ok", "failed", "not_attempted"]
 
 
@@ -85,7 +96,11 @@ def execute_output_protocol_turn(
         temperature=temperature,
         top_p=top_p,
         seed=seed,
-        use_response_format=output_protocol == JSON_OBJECT_ANSWER_PROTOCOL_V3,
+        use_response_format=output_protocol in {
+            JSON_OBJECT_ANSWER_PROTOCOL_V3,
+            ANSWER_FIRST_JSON_PROTOCOL_V1,
+            REASONING_FIRST_JSON_PROTOCOL_V1,
+        },
         max_tokens=max_tokens,
         request_executor=request_executor,
     )
@@ -165,7 +180,12 @@ def refresh_output_protocol_turn(
 
 def validate_output_protocol(value: str) -> OutputProtocol:
     normalized = str(value or "").strip()
-    if normalized not in {FREE_TEXT_ANSWER_PROTOCOL_V1, JSON_OBJECT_ANSWER_PROTOCOL_V3}:
+    if normalized not in {
+        FREE_TEXT_ANSWER_PROTOCOL_V1,
+        JSON_OBJECT_ANSWER_PROTOCOL_V3,
+        ANSWER_FIRST_JSON_PROTOCOL_V1,
+        REASONING_FIRST_JSON_PROTOCOL_V1,
+    }:
         raise ValueError(
             f"Unsupported output_protocol {value!r}. "
             f"Expected {FREE_TEXT_ANSWER_PROTOCOL_V1!r} or {JSON_OBJECT_ANSWER_PROTOCOL_V3!r}."
@@ -305,7 +325,15 @@ def _parse_output_protocol_response(
         )
 
     try:
-        if output_protocol == JSON_OBJECT_ANSWER_PROTOCOL_V3:
+        if output_protocol in {ANSWER_FIRST_JSON_PROTOCOL_V1, REASONING_FIRST_JSON_PROTOCOL_V1}:
+            if sample is None:
+                raise ValueError("two-key JSON protocols require a DatasetSample.")
+            validated = (
+                parse_answer_first_json_output(sample, cleaned)
+                if output_protocol == ANSWER_FIRST_JSON_PROTOCOL_V1
+                else parse_reasoning_first_json_output(sample, cleaned)
+            )
+        elif output_protocol == JSON_OBJECT_ANSWER_PROTOCOL_V3:
             validated = parse_json_object_answer_output(cleaned, dataset=dataset)
         else:
             validated = (

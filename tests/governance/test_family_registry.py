@@ -98,12 +98,25 @@ def test_family_experiment_configs_use_standard_runtime_limits() -> None:
 
 
 def _is_declared_provider_runtime_profile(experiment, actual: dict[str, int | None]) -> bool:
-    """Allow the two documented high-throughput provider profiles only."""
+    """Allow only named, documented provider-specific runtime profiles."""
 
-    del experiment
-    return actual in (
+    if actual in (
         {"max_concurrent_requests": 1000, "requests_per_minute_limit": 1000},
         {"max_concurrent_requests": 8, "requests_per_minute_limit": 18},
+    ):
+        return True
+    provider_name = str(experiment.primary_model_ref).split("/", 1)[0]
+    provider_profile = dict((experiment.raw.get("runtime_profiles") or {}).get(provider_name) or {})
+    if provider_profile:
+        return actual == {
+            "max_concurrent_requests": int(provider_profile.get("max_concurrent_requests") or 0),
+            "requests_per_minute_limit": int(provider_profile.get("requests_per_minute_limit") or 0),
+        }
+    return (
+        str(experiment.raw.get("provider_runtime_profile") or "")
+        == "xiaomimimo_75x95_validated_v1"
+        and actual == {"max_concurrent_requests": 75, "requests_per_minute_limit": 95}
+        and str(experiment.primary_model_ref).startswith("xiaomimimo/")
     )
 
 
