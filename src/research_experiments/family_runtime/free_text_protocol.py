@@ -179,9 +179,9 @@ def _invalid_sample_answer_output(reason: str) -> dict[str, Any]:
 
 def _explicit_final_answers(cleaned: str) -> list[str]:
     values: list[str] = []
-    for match in re.finditer(r"(?im)^\s*FINAL_ANSWER\s*:\s*(.*?)\s*$", cleaned):
+    for match in re.finditer(r"(?im)^\s*FINAL[\s_]+ANSWER\s*:\s*(.*?)\s*$", cleaned):
         value = re.split(
-            r"(?i)</?think>|\b(?:REASONING|REASONNING|REASON|RATIONALE|WHY|FINAL_ANSWER)\s*:",
+            r"(?i)</?think>|\b(?:REASONING|REASONNING|REASON|RATIONALE|WHY|FINAL[\s_]+ANSWER)\s*:",
             match.group(1),
             maxsplit=1,
         )[0]
@@ -229,7 +229,7 @@ def _parse_strict_free_text_answer(cleaned: str, *, dataset: str) -> dict[str, A
 def _recover_embedded_final_answer(cleaned: str, *, dataset: str) -> dict[str, Any] | None:
     markers = [
         marker
-        for marker in re.finditer(r"(?i)\bFINAL_ANSWER\s*:\s*", cleaned)
+        for marker in re.finditer(r"(?i)\bFINAL[\s_]+ANSWER\s*:\s*", cleaned)
         if not _marker_starts_labeled_line(cleaned, marker.start())
     ]
     if not markers:
@@ -383,7 +383,8 @@ def _extract_labeled_match(text: str, labels: list[str]) -> dict[str, Any] | Non
     lines = str(text or "").splitlines()
     for line_index, line in enumerate(lines):
         for label in labels:
-            pattern = rf"(?i)^\s*{re.escape(label)}\s*:\s*(.+?)\s*$"
+            label_pattern = re.escape(label).replace("_", r"[\s_]+")
+            pattern = rf"(?i)^\s*{label_pattern}\s*:\s*(.+?)\s*$"
             match = re.match(pattern, line)
             if match is None:
                 continue

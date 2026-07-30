@@ -11,6 +11,7 @@ from typing import Any
 
 from research_experiments.core.controls.control_prompts import (
     CONSISTENT_JSON_V2_PROMPT_VERSION,
+    CONSISTENT_JSON_V3_PROMPT_VERSION,
     FREE_TEXT_V1_PROMPT_VERSION,
     build_cot_messages,
 )
@@ -189,6 +190,7 @@ from research_experiments.families.contrastive_active_testing.prompts import (
     build_witness_messages,
 )
 from research_experiments.family_runtime.answer_first_json_protocol import (
+    ANSWER_FIRST_JSON_PROMPT_V2,
     ANSWER_FIRST_JSON_PROMPT_VERSION,
     ANSWER_FIRST_JSON_PROTOCOL_V1,
     REASONING_FIRST_JSON_PROTOCOL_V1,
@@ -1615,8 +1617,9 @@ def run_catch_kernel_d4_sample(
     compiler routes.
     """
 
+    d4_output_config = dict(getattr(experiment, "raw", {}).get("d4_output") or {})
     output_mode = str(
-        dict(getattr(experiment, "raw", {}).get("d4_output") or {}).get("stage_a_protocol")
+        d4_output_config.get("stage_a_protocol")
         or "answer_first_json"
     )
     output_protocol_by_mode = {
@@ -1624,10 +1627,21 @@ def run_catch_kernel_d4_sample(
         "reasoning_first_json": REASONING_FIRST_JSON_PROTOCOL_V1,
         "answer_first_json": ANSWER_FIRST_JSON_PROTOCOL_V1,
     }
+    prompt_variant = str(d4_output_config.get("prompt_variant") or "legacy")
+    if prompt_variant not in {"legacy", "short_reasoning_v3"}:
+        raise ValueError(f"Unsupported D4 Stage-A prompt variant: {prompt_variant!r}")
     prompt_version_by_mode = {
         "tagged_text": FREE_TEXT_V1_PROMPT_VERSION,
-        "reasoning_first_json": CONSISTENT_JSON_V2_PROMPT_VERSION,
-        "answer_first_json": ANSWER_FIRST_JSON_PROMPT_VERSION,
+        "reasoning_first_json": (
+            CONSISTENT_JSON_V3_PROMPT_VERSION
+            if prompt_variant == "short_reasoning_v3"
+            else CONSISTENT_JSON_V2_PROMPT_VERSION
+        ),
+        "answer_first_json": (
+            ANSWER_FIRST_JSON_PROMPT_V2
+            if prompt_variant == "short_reasoning_v3"
+            else ANSWER_FIRST_JSON_PROMPT_VERSION
+        ),
     }
     if output_mode not in output_protocol_by_mode:
         raise ValueError(f"Unsupported D4 Stage-A output protocol: {output_mode!r}")
@@ -1658,7 +1672,10 @@ def run_catch_kernel_d4_sample(
     stage = build_stage_decision(stage_rows, seed=experiment.global_seed, sample_id=sample.sample_id)
     phase_config = dict(((getattr(experiment, "raw", {}) or {}).get("phases") or {}).get(phase_name) or {})
     evaluation_role = str(phase_config.get("evaluation_role") or "")
-    if evaluation_role.startswith("d4_output_protocol_ab_"):
+    if evaluation_role.startswith((
+        "d4_output_protocol_ab_",
+        "d4_output_protocol_independent_validation_",
+    )):
         candidate_oracle = any(_score(sample, candidate.answer) == 1.0 for candidate in stage.candidates)
         prediction = _prediction(
             sample,
@@ -3549,6 +3566,9 @@ def _turn_base(
         "sample_id": sample.sample_id,
         "task": sample.metadata.get("task"),
         "high_level_domain": sample.metadata.get("high_level_domain"),
+        "domain": sample.metadata.get("domain"),
+        "field": sample.metadata.get("field"),
+        "discipline": sample.metadata.get("discipline"),
         "subdomain": sample.metadata.get("subdomain"),
         "reasoning_type": (
             sample.metadata.get("reasoning_type")
@@ -3626,6 +3646,9 @@ def _prediction(
         "sample_id": sample.sample_id,
         "task": sample.metadata.get("task"),
         "high_level_domain": sample.metadata.get("high_level_domain"),
+        "domain": sample.metadata.get("domain"),
+        "field": sample.metadata.get("field"),
+        "discipline": sample.metadata.get("discipline"),
         "subdomain": sample.metadata.get("subdomain"),
         "method_name": method_name,
         "prediction": prediction,
@@ -3693,13 +3716,13 @@ def _d3_primary_metric(
     phase_name: str | None = None,
     sample_limit: int | None = None,
 ) -> str:
-    if dataset == "bbeh":
+    if dataset in {"bbeh", "bbeh_extension"}:
         if split_name == "bbeh_mini460_seed42":
             return "bbeh_mini_micro"
         if split_name == "full4520_seed42" and int(sample_limit or 0) >= 4520:
             return "bbeh_full_adjusted_harmonic"
         return "bbeh_task_stratified_micro"
-    if dataset == "musr":
+    if dataset in {"musr", "musr_x"}:
         return "musr_task_macro"
     if dataset == "gpqa_diamond":
         return "gpqa_accuracy"

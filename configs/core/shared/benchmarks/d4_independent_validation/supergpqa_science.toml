@@ -1,0 +1,14 @@
+name = "D4 independent SuperGPQA Science protocol-validation set"
+slug = "supergpqa_science"
+loader = "supergpqa_science_jsonl"
+source_path = "d4_independent_validation/supergpqa_science.jsonl"
+source_split = "protocol_validation"
+sample_id_prefix = "supergpqa_science"
+question_field = "question"
+answer_field = "answer_letter"
+options_field = "options"
+smoke_size = 20
+pilot_size = 100
+main_size = 100
+random_seed = 42
+notes = "按官方 SuperGPQA schema 筛选、去重并由独立托管方密封的 100 条 Science 协议验证数据占位路径。"

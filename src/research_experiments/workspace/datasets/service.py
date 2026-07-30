@@ -24,6 +24,11 @@ from research_experiments.workspace.layout import default_datasets_root
 DATASETS_DOCS_ROOT = Path("datasets")
 SPLITS_ROOT = Path("configs/core/shared/benchmarks/splits")
 CONFIGS_ROOT = Path("configs")
+CUSTODIAN_SEALED_SLUGS = {
+    "bbeh_extension",
+    "musr_x",
+    "supergpqa_science",
+}
 
 
 @dataclass(frozen=True)
@@ -298,6 +303,42 @@ def build_primary_dataset_specs(benchmarks: list[BenchmarkConfig]) -> list[Datas
             source_label="Official GitHub archive",
             source_url="https://github.com/google-deepmind/bbeh/archive/refs/heads/main.zip",
             source_split="benchmark_tasks",
+        ),
+        "bbeh_extension": DatasetAssetSpec(
+            slug="bbeh_extension",
+            dataset_name="D4 independent BBEH extension protocol-validation set",
+            asset_id="protocol_validation",
+            purpose="independent_protocol_validation",
+            relative_path=Path("d4_independent_validation/bbeh_extension.jsonl"),
+            source_kind="custodian_sealed",
+            source_label="Independent custodian sealed delivery",
+            source_url="custodian://d4/bbeh_extension",
+            source_split="protocol_validation",
+            notes="不可自动下载；必须由独立托管方连同可验证 manifest 与去重审计一起交付。",
+        ),
+        "musr_x": DatasetAssetSpec(
+            slug="musr_x",
+            dataset_name="D4 independent MuSR-X protocol-validation set",
+            asset_id="protocol_validation",
+            purpose="independent_protocol_validation",
+            relative_path=Path("d4_independent_validation/musr_x.jsonl"),
+            source_kind="custodian_sealed",
+            source_label="Independent custodian sealed delivery",
+            source_url="custodian://d4/musr_x",
+            source_split="protocol_validation",
+            notes="不可自动下载；必须由独立托管方提供 latent-first v3 manifest、渲染资产和独立审计。",
+        ),
+        "supergpqa_science": DatasetAssetSpec(
+            slug="supergpqa_science",
+            dataset_name="D4 independent SuperGPQA Science protocol-validation set",
+            asset_id="protocol_validation",
+            purpose="independent_protocol_validation",
+            relative_path=Path("d4_independent_validation/supergpqa_science.jsonl"),
+            source_kind="custodian_sealed",
+            source_label="Independent custodian sealed delivery",
+            source_url="custodian://d4/supergpqa_science",
+            source_split="protocol_validation",
+            notes="不可自动下载；必须由独立托管方提供密封 manifest 与对 GPQA/SciBench 的去重审计。",
         ),
         "mmlu": DatasetAssetSpec(
             slug="mmlu",
@@ -845,7 +886,10 @@ def prepare_used_datasets(
     primary_downloads = download_primary_dataset_sources(benchmarks, force=force)
     runtime_support_downloads = download_runtime_support_dataset_sources(benchmarks, force=force)
     downloads = [*primary_downloads, *runtime_support_downloads]
-    created_splits = regenerate_used_dataset_splits(benchmarks, output_dir=splits_root)
+    created_splits = regenerate_used_dataset_splits(
+        [benchmark for benchmark in benchmarks if benchmark.slug not in CUSTODIAN_SEALED_SLUGS],
+        output_dir=splits_root,
+    )
     inventory_paths = write_dataset_inventory_files(benchmarks, datasets_root=_current_datasets_root(), docs_root=DATASETS_DOCS_ROOT, splits_root=splits_root)
     inventory = collect_dataset_inventory(benchmarks, splits_root=splits_root)
     return {
@@ -889,6 +933,20 @@ def _download_specs(specs: list[DatasetAssetSpec], *, force: bool) -> list[Datas
     for spec in specs:
         local_path = _resolve_asset_path(spec.relative_path)
         local_path.parent.mkdir(parents=True, exist_ok=True)
+        if spec.source_kind == "custodian_sealed":
+            results.append(
+                DatasetDownloadResult(
+                    slug=spec.slug,
+                    asset_id=spec.asset_id,
+                    purpose=spec.purpose,
+                    local_path=local_path,
+                    source_label=spec.source_label,
+                    source_url=spec.source_url,
+                    status="present" if local_path.exists() else "custodian_required",
+                    size_bytes=local_path.stat().st_size if local_path.exists() else 0,
+                )
+            )
+            continue
         if local_path.exists() and not force:
             _materialize_special_asset(spec, local_path)
             results.append(

@@ -10,6 +10,7 @@ from research_experiments.core.prompts.dataset_contracts import (
     dataset_instruction_for_sample,
 )
 from research_experiments.family_runtime.answer_first_json_protocol import (
+    ANSWER_FIRST_JSON_PROMPT_V2,
     ANSWER_FIRST_JSON_PROMPT_VERSION,
     build_answer_first_json_instruction,
 )
@@ -20,6 +21,7 @@ from research_experiments.family_runtime.free_text_protocol import (
 
 CONTROL_PROMPT_VERSION = "unified_control_v1"
 CONSISTENT_JSON_V2_PROMPT_VERSION = "single_agent_consistent_json_v2"
+CONSISTENT_JSON_V3_PROMPT_VERSION = "single_agent_consistent_json_v3"
 FREE_TEXT_V1_PROMPT_VERSION = "single_agent_free_text_v1"
 
 
@@ -66,13 +68,22 @@ def build_mv_messages(
 
 
 def _system_prompt(prompt_version: str | None) -> str:
-    if prompt_version == ANSWER_FIRST_JSON_PROMPT_VERSION:
+    if prompt_version in {ANSWER_FIRST_JSON_PROMPT_VERSION, ANSWER_FIRST_JSON_PROMPT_V2}:
+        concise_rules = (
+            [
+                "Keep reasoning concise, no more than 80 words.",
+                "Use plain text only inside reasoning; do not use markdown, LaTeX, or backslashes.",
+            ]
+            if prompt_version == ANSWER_FIRST_JSON_PROMPT_V2
+            else []
+        )
         return build_json_system_prompt(
             "You are an expert reasoning assistant for controlled research experiments.",
             extra_rules=[
                 "Follow the task instruction carefully.",
                 'Output the keys in exactly this order: final_answer, reasoning.',
                 "Do not duplicate keys or add fields.",
+                *concise_rules,
             ],
         )
     if prompt_version == FREE_TEXT_V1_PROMPT_VERSION:
@@ -86,16 +97,26 @@ def _system_prompt(prompt_version: str | None) -> str:
                 "If your reasoning changes the answer, rewrite FINAL_ANSWER to the corrected answer.",
             ],
         )
-    if prompt_version == CONSISTENT_JSON_V2_PROMPT_VERSION:
+    if prompt_version in {CONSISTENT_JSON_V2_PROMPT_VERSION, CONSISTENT_JSON_V3_PROMPT_VERSION}:
+        concise_rules = (
+            [
+                "Keep reasoning concise, no more than 80 words.",
+                "Use plain text only inside reasoning; do not use markdown, LaTeX, or backslashes.",
+            ]
+            if prompt_version == CONSISTENT_JSON_V3_PROMPT_VERSION
+            else [
+                "reasoning is required.",
+                "Keep reasoning concise, but include enough detail to justify or revise the answer.",
+                "If your reasoning changes the answer, rewrite final_answer to the corrected answer.",
+            ]
+        )
         return build_json_system_prompt(
             "You are an expert reasoning assistant for controlled research experiments.",
             extra_rules=[
                 "Follow the task instruction carefully.",
                 "Return exactly one JSON object with keys reasoning and final_answer.",
                 "Output the keys in exactly this order: reasoning, final_answer.",
-                "reasoning is required.",
-                "Keep reasoning concise, but include enough detail to justify or revise the answer.",
-                "If your reasoning changes the answer, rewrite final_answer to the corrected answer.",
+                *concise_rules,
             ],
         )
     return build_json_system_prompt(
@@ -121,11 +142,20 @@ def _user_prompt(sample: DatasetSample, prompt_version: str | None) -> str:
     if sample.prompt_context:
         user_prompt += f"Context:\n{sample.prompt_context}\n\n"
 
-    if prompt_version == ANSWER_FIRST_JSON_PROMPT_VERSION:
-        user_prompt += build_answer_first_json_instruction(sample.dataset)
+    if prompt_version in {ANSWER_FIRST_JSON_PROMPT_VERSION, ANSWER_FIRST_JSON_PROMPT_V2}:
+        user_prompt += build_answer_first_json_instruction(
+            sample.dataset,
+            prompt_version=prompt_version,
+        )
         return user_prompt
     if prompt_version == FREE_TEXT_V1_PROMPT_VERSION:
         user_prompt += build_free_text_answer_instruction(sample.dataset)
+        return user_prompt
+    if prompt_version == CONSISTENT_JSON_V3_PROMPT_VERSION:
+        user_prompt += (
+            'Return exactly one JSON object like '
+            '{"reasoning":"brief reasoning under 80 words","final_answer":"canonical answer"}'
+        )
         return user_prompt
     if prompt_version == CONSISTENT_JSON_V2_PROMPT_VERSION:
         user_prompt += (

@@ -119,3 +119,15 @@ def test_sample_parser_accepts_equivalent_duplicate_forms_and_truncates_think_po
     )
     assert payload["canonical_valid"] is True
     assert payload["canonical_key"] == "A"
+
+
+def test_sample_parser_accepts_case_insensitive_spaced_final_answer_label() -> None:
+    sample = DatasetSample(
+        "bbeh", "spaced-label", "q", "B", "", {"options": [{"label": "B", "text": "yes"}]}
+    )
+    payload = parse_sample_answer_output(
+        sample,
+        "REASONING: verified\nFinal answer: B.",
+    )
+    assert payload["canonical_valid"] is True
+    assert payload["canonical_key"] == "B"

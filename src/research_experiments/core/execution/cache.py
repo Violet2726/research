@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 import sqlite3
 import threading
 from dataclasses import dataclass
@@ -473,5 +474,5 @@ def _is_truncated_output(text: str) -> bool:
     text_upper = text.upper()
     # Has REASONING but no FINAL_ANSWER - indicates truncated output
     has_reasoning = "REASONING:" in text_upper
-    has_final_answer = "FINAL_ANSWER:" in text_upper
+    has_final_answer = bool(re.search(r"\bFINAL[\s_]+ANSWER\s*:", text_upper))
     return has_reasoning and not has_final_answer

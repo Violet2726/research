@@ -5,8 +5,13 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 from research_experiments.core.contracts import FamilyCliHelp, FamilyRunRequest
+from research_experiments.core.execution.provider_audit import run_mimo_provider_audit
+from research_experiments.core.execution.providers import OpenAICompatibleProvider
 from research_experiments.families.contrastive_active_testing.causal_ledger import (
     build_causal_ledger,
     summarize_counterfactual_ledger,
@@ -21,8 +26,13 @@ from research_experiments.families.contrastive_active_testing.config import (
     phase_metadata,
 )
 from research_experiments.families.contrastive_active_testing.d4_audit import write_d4_gate_evidence
+from research_experiments.families.contrastive_active_testing.d4_data import (
+    write_latent_sealed_manifest_from_files,
+    write_text_sealed_manifest_from_files,
+)
 from research_experiments.families.contrastive_active_testing.d4_protocol_ab import (
     write_output_protocol_ab_assessment,
+    write_tagged_protocol_validation_assessment,
 )
 from research_experiments.families.contrastive_active_testing.kernel_mechanism import (
     ingest_kernel_mechanism_results,
@@ -37,6 +47,7 @@ from research_experiments.families.contrastive_active_testing.mechanism_factoria
 from research_experiments.families.contrastive_active_testing.replay import replay_from_experiment
 from research_experiments.families.contrastive_active_testing.run.execute import (
     run_experiment,
+    write_d4_independent_protocol_validation_selection,
     write_kernel_d2_freeze,
     write_kernel_d4_freeze,
 )
@@ -219,11 +230,101 @@ def configure_parser(parser) -> None:
         d4_protocol_ab.add_argument("--reasoning-first-json-run", required=True)
         d4_protocol_ab.add_argument("--answer-first-json-run", required=True)
         d4_protocol_ab.add_argument("--output", required=True)
+        d4_tagged_validation = action.add_parser(
+            "assess-kernel-d4-tagged-protocol-validation",
+            help="Assess a fresh independent tagged-text run under the frozen per-turn and SC5-quorum bounds.",
+        )
+        d4_tagged_validation.add_argument("--run", required=True)
+        d4_tagged_validation.add_argument("--output", required=True)
+        d4_validation_selection = action.add_parser(
+            "inspect-kernel-d4-protocol-validation-selection",
+            help=(
+                "Offline validation of the three sealed tagged-v2 assets; emits only the selection hashes "
+                "that must be frozen before the run."
+            ),
+        )
+        d4_validation_selection.add_argument("--experiment", required=True)
+        d4_validation_selection.add_argument("--output", required=True)
+        d4_provider_audit = action.add_parser(
+            "kernel-d4-provider-audit",
+            help="Run the cache-bypassed live provider preflight required before D4 formal runs.",
+        )
+        d4_provider_audit.add_argument("--experiment", required=True)
+        d4_provider_audit.add_argument("--output", default=None)
+        d4_text_seal = action.add_parser(
+            "seal-kernel-d4-text-data",
+            help="Partition and seal BBEH-extension or SuperGPQA Science without writing text/gold into the manifest.",
+        )
+        d4_text_seal.add_argument("--records", required=True)
+        d4_text_seal.add_argument("--dataset-id", required=True, choices=("bbeh_extension", "supergpqa_science"))
+        d4_text_seal.add_argument("--counts", required=True, help="JSON file mapping split names to counts.")
+        d4_text_seal.add_argument("--strata", required=True, nargs="+")
+        d4_text_seal.add_argument("--source-repository", required=True)
+        d4_text_seal.add_argument("--source-revision", required=True)
+        d4_text_seal.add_argument("--license-id", required=True)
+        d4_text_seal.add_argument("--partition-protocol", required=True)
+        d4_text_seal.add_argument("--dedup-audit", required=True)
+        d4_text_seal.add_argument("--custodian-id", required=True)
+        d4_text_seal.add_argument("--seed", type=int, default=42)
+        d4_text_seal.add_argument("--output", required=True)
+        d4_latent_seal = action.add_parser(
+            "seal-kernel-d4-latent-data",
+            help="Partition latent MuSR-X graphs and hash-link the rendered asset and independent render audit.",
+        )
+        d4_latent_seal.add_argument("--latent-records", required=True)
+        d4_latent_seal.add_argument("--rendered-asset", required=True)
+        d4_latent_seal.add_argument("--render-audit", required=True)
+        d4_latent_seal.add_argument("--counts", required=True, help="JSON file mapping split names to counts.")
+        d4_latent_seal.add_argument("--strata", required=True, nargs="+")
+        d4_latent_seal.add_argument("--generator-repository", required=True)
+        d4_latent_seal.add_argument("--generator-commit", required=True)
+        d4_latent_seal.add_argument("--generation-lock", required=True)
+        d4_latent_seal.add_argument("--narrative-generator-id", required=True)
+        d4_latent_seal.add_argument("--quality-validation-protocol", required=True)
+        d4_latent_seal.add_argument("--custodian-id", required=True)
+        d4_latent_seal.add_argument("--seed", type=int, default=42)
+        d4_latent_seal.add_argument("--output", required=True)
         return
     raise RuntimeError("CATCH parser is missing subcommands.")
 
 
 def dispatch_extra_command(args) -> bool:
+    if args.command == "kernel-d4-provider-audit":
+        experiment = load_experiment_config(args.experiment)
+        protocol = load_protocol_config(experiment.protocol)
+        if (
+            protocol.protocol_version != "catch_kernel_v1"
+            or str(experiment.raw.get("kernel_revision") or "") != "d4_proof_carrying_v1"
+        ):
+            raise ValueError("The D4 provider audit requires a catch_kernel_v1 D4 experiment.")
+        backbone = resolve_model(experiment.primary_model_ref)
+        if backbone.provider != "xiaomimimo":
+            raise ValueError("The frozen D4 provider audit is defined only for xiaomimimo.")
+        load_dotenv(".env.local", override=False)
+        provider = OpenAICompatibleProvider(backbone)
+        try:
+            payload = run_mimo_provider_audit(
+                backbone=backbone,
+                provider=provider,
+                cache_namespace=experiment.cache_namespaces["confirmation"],
+            )
+        finally:
+            provider.close()
+        target = Path(args.output or experiment.provider_audit_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(
+            json.dumps(
+                {
+                    "output": target.as_posix(),
+                    "passed": payload["passed"],
+                    "conditions": payload["conditions"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return True
     if args.command == "canonicalization-replay":
         experiment = load_experiment_config(args.experiment)
         payload = replay_from_experiment(args.run, experiment, output_path=args.output)
@@ -412,7 +513,109 @@ def dispatch_extra_command(args) -> bool:
             )
         )
         return True
+    if args.command == "assess-kernel-d4-tagged-protocol-validation":
+        payload = write_tagged_protocol_validation_assessment(
+            run=args.run,
+            output_path=args.output,
+        )
+        print(
+            json.dumps(
+                {
+                    "output": args.output,
+                    "independent_validation_passed": payload["independent_validation_passed"],
+                    "summary": payload["summary"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return True
+    if args.command == "inspect-kernel-d4-protocol-validation-selection":
+        payload = write_d4_independent_protocol_validation_selection(
+            args.experiment,
+            args.output,
+        )
+        print(
+            json.dumps(
+                {
+                    "output": args.output,
+                    "sha256": payload["sha256"],
+                    "selection_hashes": payload["selection_hashes"],
+                    "selected_counts": payload["selected_counts"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return True
+    if args.command == "seal-kernel-d4-text-data":
+        counts = _load_d4_split_counts(args.counts)
+        result = write_text_sealed_manifest_from_files(
+            records_path=args.records,
+            output_path=args.output,
+            dataset_id=args.dataset_id,
+            counts_by_split=counts,
+            strata=tuple(args.strata),
+            source_repository=args.source_repository,
+            source_revision=args.source_revision,
+            license_id=args.license_id,
+            partition_protocol_path=args.partition_protocol,
+            dedup_audit_path=args.dedup_audit,
+            custodian_id=args.custodian_id,
+            seed=args.seed,
+        )
+        print(
+            json.dumps(
+                {
+                    "output": result["output_path"],
+                    "sha256": result["manifest"]["sha256"],
+                    "passed": result["validation"]["passed"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return True
+    if args.command == "seal-kernel-d4-latent-data":
+        counts = _load_d4_split_counts(args.counts)
+        result = write_latent_sealed_manifest_from_files(
+            latent_records_path=args.latent_records,
+            rendered_asset_path=args.rendered_asset,
+            render_audit_path=args.render_audit,
+            output_path=args.output,
+            counts_by_split=counts,
+            strata=tuple(args.strata),
+            generator_repository=args.generator_repository,
+            generator_commit=args.generator_commit,
+            generation_lock_path=args.generation_lock,
+            narrative_generator_id=args.narrative_generator_id,
+            quality_validation_protocol_path=args.quality_validation_protocol,
+            custodian_id=args.custodian_id,
+            seed=args.seed,
+        )
+        print(
+            json.dumps(
+                {
+                    "output": result["output_path"],
+                    "sha256": result["manifest"]["sha256"],
+                    "passed": result["validation"]["passed"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return True
     return False
+
+
+def _load_d4_split_counts(path: str | Path) -> dict[str, int]:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not payload:
+        raise ValueError("D4 split-count file must contain a non-empty JSON object.")
+    counts = {str(key): int(value) for key, value in payload.items()}
+    if any(value <= 0 for value in counts.values()):
+        raise ValueError("D4 split counts must all be positive integers.")
+    return counts
 
 
 REGISTRATION = make_family_registration(

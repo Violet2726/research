@@ -35,6 +35,13 @@ def test_label_text_conflict_and_unmapped_answers_are_invalid() -> None:
     assert score_prediction("bbeh", "(D) Bob", sample.reference_answer, sample=sample) == 0.0
 
 
+def test_single_choice_option_ordinals_are_unambiguous_contract_aliases() -> None:
+    sample = _sample()
+    assert canonicalize_answer(sample, "option 3").key == "D"
+    assert canonicalize_answer(sample, "3").key == "D"
+    assert canonicalize_answer(sample, "4").invalid_reason == "unmapped_option_answer"
+
+
 def test_non_option_bbeh_uses_conservative_legacy_format_key() -> None:
     sample = DatasetSample("bbeh", "plain", "x", "(b)", "", {"task": "plain", "options": []})
     result = canonicalize_answer(sample, "b")

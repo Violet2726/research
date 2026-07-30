@@ -3,6 +3,7 @@ description = "D4 Stage-A-only output reliability A/B arm: answer-first JSON on 
 study_type = "catch_kernel_cross_domain_development"
 confirmatory = false
 kernel_revision = "d4_proof_carrying_v1"
+provider_audit_path = "local/audits/catch_kernel_d4_provider_audit.json"
 benchmark_configs = [
   "configs/core/shared/benchmarks/bbeh/bbeh-main.toml",
   "configs/core/shared/benchmarks/musr/all.toml",

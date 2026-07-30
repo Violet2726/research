@@ -1,0 +1,15 @@
+name = "D4 independent MuSR-X protocol-validation set"
+slug = "musr_x"
+loader = "musr_x_jsonl"
+source_path = "d4_independent_validation/musr_x.jsonl"
+source_split = "protocol_validation"
+sample_id_prefix = "musr_x"
+question_field = "question"
+answer_field = "answer_index"
+options_field = "choices"
+answer_index_field = "answer_index"
+smoke_size = 20
+pilot_size = 100
+main_size = 100
+random_seed = 42
+notes = "独立渲染并审计的 100 条 MuSR-X 协议验证数据占位路径；公开 MuSR 记录均不符合资格。"

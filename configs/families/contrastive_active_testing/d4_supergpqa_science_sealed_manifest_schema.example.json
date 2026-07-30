@@ -1,0 +1,23 @@
+{
+  "schema": "catch_d4_text_sealed_manifest_v1",
+  "dataset_id": "supergpqa_science",
+  "source_repository": "https://huggingface.co/datasets/m-a-p/SuperGPQA",
+  "source_revision": "PIN_FULL_40_CHARACTER_DATASET_COMMIT",
+  "source_asset_sha256": "HASH_THE_PREFILTERED_SEALED_ASSET",
+  "license_id": "odc-by",
+  "partition_protocol_sha256": "HASH_THE_FROZEN_SPLIT_PROTOCOL",
+  "dedup_audit_relative_path": "supergpqa_science_dedup_audit.json",
+  "dedup_audit_sha256": "HASH_THE_GPQA_SCIBENCH_DEDUP_AUDIT",
+  "custodian_id": "INDEPENDENT_CUSTODIAN_IDENTIFIER",
+  "independent_custodian": true,
+  "seed": 42,
+  "split_order": ["development", "human_audit", "confirmation"],
+  "splits": {
+    "development": [],
+    "human_audit": [],
+    "confirmation": []
+  },
+  "contains_text": false,
+  "contains_gold": false,
+  "sha256": "COMPUTE_AFTER_POPULATION"
+}

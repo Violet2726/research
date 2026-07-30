@@ -66,6 +66,8 @@ def paired_statistics(
                 )
             tests.append(result)
     present_datasets = {str(item["dataset"]) for item in tests}
+    bbeh_dataset = "bbeh_extension" if "bbeh_extension" in present_datasets else "bbeh"
+    musr_dataset = "musr_x" if "musr_x" in present_datasets else "musr"
     science_dataset = (
         "supergpqa_science"
         if "supergpqa_science" in present_datasets
@@ -73,7 +75,7 @@ def paired_statistics(
         if "supergpqa" in present_datasets
         else "gpqa_diamond"
     )
-    holm_scope = ["bbeh", "musr", science_dataset]
+    holm_scope = [bbeh_dataset, musr_dataset, science_dataset]
     holm_datasets = set(holm_scope)
     primary_tests = [item for item in tests if item["dataset"] in holm_datasets]
     _holm(primary_tests)
@@ -172,9 +174,9 @@ def _paired_point(pairs, *, metric: str) -> float:
 
 
 def _primary_metric(dataset: str) -> str:
-    if dataset == "bbeh":
+    if dataset in {"bbeh", "bbeh_extension"}:
         return "task_stratified_micro_accuracy"
-    if dataset == "musr":
+    if dataset in {"musr", "musr_x"}:
         return "task_macro_accuracy"
     if dataset in {"gpqa_diamond", "supergpqa", "supergpqa_science"}:
         return "domain_macro_accuracy"
@@ -182,10 +184,16 @@ def _primary_metric(dataset: str) -> str:
 
 
 def _stratum_for(dataset: str, row: dict[str, Any]) -> str:
-    if dataset in {"bbeh", "musr"}:
+    if dataset in {"bbeh", "bbeh_extension", "musr", "musr_x"}:
         return str(row.get("task") or "unknown")
     if dataset in {"gpqa_diamond", "supergpqa", "supergpqa_science"}:
-        return str(row.get("high_level_domain") or row.get("subdomain") or "unknown").casefold()
+        return str(
+            row.get("field")
+            or row.get("domain")
+            or row.get("high_level_domain")
+            or row.get("subdomain")
+            or "unknown"
+        ).casefold()
     return "all"
 
 

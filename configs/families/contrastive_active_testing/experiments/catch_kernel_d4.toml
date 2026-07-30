@@ -6,7 +6,7 @@ kernel_revision = "d4_proof_carrying_v1"
 kernel_freeze_path = "configs/families/contrastive_active_testing/freezes/catch_kernel_d4_confirmation.json"
 provider_audit_path = "local/audits/catch_kernel_d4_provider_audit.json"
 human_audit_path = "local/audits/catch_kernel_d4_blind_ir_audit.json"
-protocol_ab_assessment_path = "local/audits/catch_kernel_d4_output_protocol_ab_assessment.json"
+protocol_ab_assessment_path = "local/audits/catch_kernel_d4_output_protocol_independent_validation_tagged_v2.json"
 benchmark_configs = [
   "configs/core/shared/benchmarks/bbeh/bbeh-main.toml",
   "configs/core/shared/benchmarks/musr/all.toml",
@@ -20,8 +20,11 @@ max_concurrent_requests = 75
 requests_per_minute_limit = 95
 
 [d4_output]
-stage_a_protocol = "answer_first_json"
-parse_failure_target = 0.002
+stage_a_protocol = "tagged_text"
+parse_failure_target = 0.01
+stage_a_quorum_minimum_valid_turns = 3
+stage_a_quorum_failure_target = 0.01
+selection_status = "development_selected_requires_independent_validation"
 accuracy_noninferiority_margin = 0.005
 conflicts_fail_closed = true
 
@@ -78,6 +81,12 @@ evaluation_role = "inspected_compatibility_diagnostic_not_confirmation"
 
 [phases.confirmation]
 sealed_data_ready = false
+# These remain empty until the independent custodian publishes genuinely new
+# BBEH-extension, MuSR-X, and SuperGPQA Science assets.  Counts and strata must
+# be filled here before `sealed_data_ready=true`; the runner rejects inferred
+# expectations and does not accept the old public pools.
+sealed_manifest_paths = {}
+sealed_manifest_expectations = {}
 benchmark_slugs = ["bbeh", "musr", "gpqa_diamond"]
 split_overrides = { bbeh = "full4520_seed42", musr = "full756_seed42", gpqa_diamond = "full198_seed42" }
 sample_limits = { bbeh = 0, musr = 0, gpqa_diamond = 0 }

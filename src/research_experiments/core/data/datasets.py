@@ -63,6 +63,10 @@ def load_samples(config: BenchmarkConfig) -> list[DatasetSample]:
         "mmlu_pro_parquet": _load_mmlu_pro,
         "gpqa_zip_csv": _load_gpqa_zip_csv,
         "musr_csv": _load_musr_csv,
+        "musr_x_jsonl": _load_musr_x,
+        "bbeh_extension_jsonl": _load_bbeh_extension,
+        "supergpqa_science_jsonl": _load_supergpqa_science,
+        "supergpqa_science_parquet": _load_supergpqa_science,
         "seqbench_jsonl_gz": _load_seqbench_jsonl_gz,
         "realmistake_error_detection_zip": _load_realmistake_error_detection,
     }
@@ -569,6 +573,210 @@ def _load_bbeh(config: BenchmarkConfig) -> list[DatasetSample]:
             )
             raw_index += 1
     return samples
+
+
+def _load_bbeh_extension(config: BenchmarkConfig) -> list[DatasetSample]:
+    """Load a custodian-sealed BBEH-like extension with explicit provenance.
+
+    The public BBEH task bundle has a different layout, so extensions use a
+    deliberately small JSON/JSONL contract.  A record is not accepted unless
+    its question, task, answer, stable ID, and upstream provenance are all
+    present.  This prevents a future confirmation run from silently turning a
+    hand-written score table into a dataset.
+    """
+
+    records = _read_d4_json_records(config)
+    samples: list[DatasetSample] = []
+    seen_ids: set[str] = set()
+    for index, record in enumerate(records):
+        if not isinstance(record, dict):
+            raise ValueError(f"BBEH extension row {index} must be an object.")
+        sample_id = str(record.get("record_id") or record.get("id") or "").strip()
+        task = str(record.get("task") or record.get("task_name") or "").strip()
+        question = str(record.get("input") or record.get("question") or "").strip()
+        if not sample_id or sample_id in seen_ids:
+            raise ValueError(f"BBEH extension row {index} has a duplicate or empty record_id.")
+        if not task or not question:
+            raise ValueError(f"BBEH extension row {index} requires non-empty task and input.")
+        _validate_d4_provenance(record.get("provenance"), row_index=index)
+        if "target" not in record and "answer" not in record:
+            raise ValueError(f"BBEH extension row {index} is missing target/answer.")
+        target = record.get("target", record.get("answer"))
+        answer_contract = _parse_bbeh_answer_contract(question)
+        seen_ids.add(sample_id)
+        samples.append(
+            DatasetSample(
+                dataset=config.slug,
+                sample_id=sample_id,
+                question=question,
+                reference_answer=_canonicalize_d4_answer(target),
+                prompt_context="",
+                metadata={
+                    "raw_index": index,
+                    "record_id": sample_id,
+                    "task": task,
+                    "task_index": record.get("task_index", index),
+                    "options": list(answer_contract["options"]),
+                    "answer_contract": answer_contract,
+                    "provenance": dict(record["provenance"]),
+                    "source_record_sha256": _stable_record_sha256(record),
+                    "extension_schema": "catch_d4_bbeh_extension_record_v1",
+                },
+            )
+        )
+    if not samples:
+        raise ValueError("BBEH extension source produced no records.")
+    return samples
+
+
+def _load_supergpqa_science(config: BenchmarkConfig) -> list[DatasetSample]:
+    """Load a prefiltered SuperGPQA Science single-choice asset.
+
+    The official dataset exposes ``uuid``, ``question``, ``options``,
+    ``answer``, ``answer_letter``, ``discipline``, ``field``, ``subfield``,
+    ``difficulty`` and ``is_calculation``.  We accept JSON/JSONL and Parquet,
+    but require the same semantic contract for every format.  The loader is
+    intentionally science-only: a mixed official train file must be filtered
+    into a separate, auditable asset before this loader is used.
+    """
+
+    records = _read_d4_structured_records(config)
+    samples: list[DatasetSample] = []
+    seen_ids: set[str] = set()
+    for index, record in enumerate(records):
+        if not isinstance(record, dict):
+            raise ValueError(f"SuperGPQA Science row {index} must be an object.")
+        sample_id = str(record.get("uuid") or record.get("record_id") or "").strip()
+        question = str(record.get("question") or "").strip()
+        discipline = str(record.get("discipline") or "").strip()
+        field = str(record.get("field") or "").strip()
+        subfield = str(record.get("subfield") or "").strip()
+        options_raw = record.get("options")
+        options = [str(item).strip() for item in options_raw] if isinstance(options_raw, list) else []
+        if not sample_id or sample_id in seen_ids:
+            raise ValueError(f"SuperGPQA Science row {index} has a duplicate or empty uuid.")
+        if not question or not subfield:
+            raise ValueError(f"SuperGPQA Science row {index} requires question and subfield.")
+        if discipline.casefold() != "science" or field.casefold() not in {"physics", "chemistry", "biology"}:
+            raise ValueError(
+                f"SuperGPQA Science row {index} is outside the preregistered Science fields."
+            )
+        if len(options) < 2 or len(options) > 10 or any(not item for item in options):
+            raise ValueError(f"SuperGPQA Science row {index} requires 2-10 non-empty options.")
+        if len(set(options)) != len(options):
+            raise ValueError(f"SuperGPQA Science row {index} contains duplicate options.")
+        answer_text = str(record.get("answer") or "").strip()
+        answer_letter = str(record.get("answer_letter") or "").strip().upper()
+        if not answer_text and not answer_letter:
+            raise ValueError(f"SuperGPQA Science row {index} is missing answer/answer_letter.")
+        if answer_letter:
+            if not re.fullmatch(r"[A-J]", answer_letter):
+                raise ValueError(f"SuperGPQA Science row {index} has an invalid answer_letter.")
+            answer_index = ord(answer_letter) - ord("A")
+            if answer_index >= len(options):
+                raise ValueError(f"SuperGPQA Science row {index} answer_letter is out of range.")
+            if answer_text and _normalize_dataset_text(answer_text) != _normalize_dataset_text(options[answer_index]):
+                raise ValueError(f"SuperGPQA Science row {index} answer and answer_letter disagree.")
+        else:
+            matches = [item_index for item_index, option in enumerate(options) if _normalize_dataset_text(option) == _normalize_dataset_text(answer_text)]
+            if len(matches) != 1:
+                raise ValueError(f"SuperGPQA Science row {index} answer text does not identify one option.")
+            answer_index = matches[0]
+            answer_letter = _choice_letter(answer_index)
+        answer_text = options[answer_index]
+        seen_ids.add(sample_id)
+        samples.append(
+            DatasetSample(
+                dataset=config.slug,
+                sample_id=sample_id,
+                question=question,
+                reference_answer=f"{answer_letter}|||{answer_text}",
+                prompt_context=_render_multiple_choice_options(options),
+                metadata={
+                    "raw_index": index,
+                    "uuid": sample_id,
+                    "record_id": sample_id,
+                    "discipline": discipline,
+                    "field": field,
+                    "domain": field,
+                    "subfield": subfield,
+                    "difficulty": str(record.get("difficulty") or "").strip(),
+                    "is_calculation": bool(record.get("is_calculation", False)),
+                    "options": options,
+                    "answer_index": answer_index,
+                    "answer_letter": answer_letter,
+                    "answer_text": answer_text,
+                    "provenance": record.get("provenance"),
+                    "source_record_sha256": _stable_record_sha256(record),
+                    "dataset_schema": "supergpqa_official_science_v1",
+                },
+            )
+        )
+    if not samples:
+        raise ValueError("SuperGPQA Science source produced no eligible records.")
+    return samples
+
+
+def _read_d4_json_records(config: BenchmarkConfig) -> list[dict[str, Any]]:
+    path = resolve_dataset_source_path(config.source_path)
+    if path.is_dir():
+        candidates = sorted([*path.glob("*.jsonl"), *path.glob("*.json")])
+        if len(candidates) != 1:
+            raise ValueError("D4 JSON source directory must contain exactly one .json/.jsonl file.")
+        path = candidates[0]
+    if path.is_file() and path.suffix.lower() == ".zip":
+        member = str(getattr(config, "archive_member", None) or "").strip()
+        with zipfile.ZipFile(path) as archive:
+            candidates = [name for name in archive.namelist() if name.lower().endswith((".json", ".jsonl"))]
+            if member:
+                candidates = [member]
+            if len(candidates) != 1:
+                raise ValueError("D4 JSON zip source requires one explicit archive_member.")
+            with archive.open(candidates[0]) as handle:
+                raw = handle.read().decode("utf-8")
+            return _parse_d4_json_payload(raw, source_name=candidates[0])
+    return _parse_d4_json_payload(path.read_text(encoding="utf-8"), source_name=str(path))
+
+
+def _read_d4_structured_records(config: BenchmarkConfig) -> list[dict[str, Any]]:
+    path = resolve_dataset_source_path(config.source_path)
+    if path.suffix.lower() == ".parquet":
+        return [dict(record) for record in pq.read_table(path).to_pylist()]
+    return _read_d4_json_records(config)
+
+
+def _parse_d4_json_payload(raw: str, *, source_name: str) -> list[dict[str, Any]]:
+    if source_name.lower().endswith(".jsonl"):
+        records = [json.loads(line) for line in raw.splitlines() if line.strip()]
+    else:
+        payload = json.loads(raw)
+        records = payload if isinstance(payload, list) else payload.get("records") if isinstance(payload, dict) else None
+    if not isinstance(records, list) or not records or not all(isinstance(item, dict) for item in records):
+        raise ValueError(f"D4 source {source_name} must contain a non-empty object list.")
+    return [dict(item) for item in records]
+
+
+def _validate_d4_provenance(value: Any, *, row_index: int) -> None:
+    if not isinstance(value, dict):
+        raise ValueError(f"D4 row {row_index} requires an object-valued provenance field.")
+    source_id = str(value.get("source_id") or "").strip()
+    source_sha256 = str(value.get("source_sha256") or "").strip().lower()
+    if not source_id or not re.fullmatch(r"[0-9a-f]{64}", source_sha256):
+        raise ValueError(f"D4 row {row_index} provenance requires source_id and a SHA-256 hash.")
+
+
+def _canonicalize_d4_answer(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _stable_record_sha256(record: dict[str, Any]) -> str:
+    return hashlib.sha256(json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _normalize_dataset_text(value: str) -> str:
+    return " ".join(str(value or "").casefold().split())
 
 
 def _parse_bbeh_options(question: str) -> list[dict[str, str]]:
@@ -1169,6 +1377,81 @@ def _load_musr_csv(config: BenchmarkConfig) -> list[DatasetSample]:
                     },
                 )
             )
+    return samples
+
+
+def _load_musr_x(config: BenchmarkConfig) -> list[DatasetSample]:
+    """Load independently generated MuSR-X narratives linked to latent hashes."""
+
+    records = _read_d4_json_records(config)
+    allowed_tasks = {"murder_mysteries", "object_placements", "team_allocation"}
+    samples: list[DatasetSample] = []
+    seen_ids: set[str] = set()
+    seen_latent_hashes: set[str] = set()
+    for index, record in enumerate(records):
+        sample_id = str(record.get("record_id") or "").strip()
+        task = str(record.get("task") or "").strip()
+        narrative = str(record.get("narrative") or "").strip()
+        question = str(record.get("question") or "").strip()
+        latent_hash = str(record.get("latent_graph_sha256") or "").strip().lower()
+        raw_choices = record.get("choices")
+        choices = [str(item).strip() for item in raw_choices] if isinstance(raw_choices, list) else []
+        if not sample_id or sample_id in seen_ids:
+            raise ValueError(f"MuSR-X row {index} has a duplicate or empty record_id.")
+        if task not in allowed_tasks:
+            raise ValueError(f"MuSR-X row {index} has an unsupported task.")
+        if not narrative or not question:
+            raise ValueError(f"MuSR-X row {index} requires narrative and question.")
+        if not re.fullmatch(r"[0-9a-f]{64}", latent_hash) or latent_hash in seen_latent_hashes:
+            raise ValueError(f"MuSR-X row {index} has a duplicate or invalid latent_graph_sha256.")
+        if len(choices) < 2 or any(not item for item in choices) or len(set(choices)) != len(choices):
+            raise ValueError(f"MuSR-X row {index} requires unique non-empty choices.")
+        try:
+            source_answer_index = int(record.get("answer_index"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"MuSR-X row {index} has an invalid answer_index.") from exc
+        if not 0 <= source_answer_index < len(choices):
+            raise ValueError(f"MuSR-X row {index} answer_index is out of range.")
+        indexed = list(enumerate(choices))
+        indexed.sort(
+            key=lambda item: hashlib.sha256(
+                f"{config.random_seed}\0{sample_id}\0{item[0]}".encode()
+            ).hexdigest()
+        )
+        options = [text for _, text in indexed]
+        answer_index = next(
+            position for position, (source_index, _) in enumerate(indexed) if source_index == source_answer_index
+        )
+        answer_letter = _choice_letter(answer_index)
+        answer_text = choices[source_answer_index]
+        seen_ids.add(sample_id)
+        seen_latent_hashes.add(latent_hash)
+        samples.append(
+            DatasetSample(
+                dataset=config.slug,
+                sample_id=sample_id,
+                question=f"Narrative:\n{narrative}\n\nQuestion:\n{question}",
+                reference_answer=f"{answer_letter}|||{answer_text}",
+                prompt_context=_render_multiple_choice_options(options),
+                metadata={
+                    "raw_index": index,
+                    "record_id": sample_id,
+                    "task": task,
+                    "domain": task,
+                    "options": options,
+                    "answer_contract": _multiple_choice_answer_contract(options),
+                    "answer_index": answer_index,
+                    "answer_letter": answer_letter,
+                    "answer_text": answer_text,
+                    "source_answer_index": source_answer_index,
+                    "latent_graph_sha256": latent_hash,
+                    "source_record_sha256": _stable_record_sha256(record),
+                    "dataset_schema": "catch_d4_musr_x_record_v1",
+                },
+            )
+        )
+    if not samples:
+        raise ValueError("MuSR-X source produced no records.")
     return samples
 
 

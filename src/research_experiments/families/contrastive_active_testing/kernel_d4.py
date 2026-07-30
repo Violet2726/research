@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from dataclasses import asdict, dataclass, replace
 from functools import lru_cache
@@ -238,6 +239,10 @@ class SequenceTraceKernel:
             )
         if decision.capability_id == "sequence.shuffled_swap_v1":
             return _solve_shuffled_swap(sample, ir)
+        if decision.capability_id == "sequence.word_sort_error_trace_v1":
+            return _solve_word_sort_trace(sample, ir)
+        if decision.capability_id == "sequence.temporal_interval_trace_v1":
+            return _solve_temporal_interval_trace(sample, ir)
         return _unsupported_solver("sequence_solver_capability_unsupported")
 
 
@@ -245,10 +250,13 @@ class EventStateKernel:
     kernel_id = "event_state_kernel_v1"
 
     def solve(self, sample: DatasetSample, decision: D4RouteDecision, ir: SourceIRv2) -> D4SolverResult:
-        del sample, decision, ir
-        # Event-state routes remain compiler-backed shadow routes until their
-        # typed ledgers and independent semantic audit authorize an operator.
-        return _unsupported_solver("event_state_operator_not_yet_authorized")
+        if decision.capability_id not in {
+            "event.structured_state_ledger_v1",
+            "event.musr_object_belief_ledger_v1",
+            "event.musr_team_constraint_ledger_v1",
+        }:
+            return _unsupported_solver("event_state_capability_unsupported")
+        return _solve_event_state_ledger(sample, decision, ir)
 
 
 class ConstraintCalculatorKernel:
@@ -335,9 +343,9 @@ def route_for_sample(sample: DatasetSample) -> D4RouteDecision:
     if _looks_like_event_state(sample, lowered):
         capability = (
             "event.musr_object_belief_ledger_v1"
-            if sample.dataset == "musr" and task == "object_placements"
+            if sample.dataset in {"musr", "musr_x"} and task == "object_placements"
             else "event.musr_team_constraint_ledger_v1"
-            if sample.dataset == "musr" and task == "team_allocation"
+            if sample.dataset in {"musr", "musr_x"} and task == "team_allocation"
             else "event.structured_state_ledger_v1"
         )
         operator = "belief_state_at_query_time" if "object" in capability else "constraint_state_at_query_time"
@@ -998,6 +1006,278 @@ def _solve_shuffled_swap(sample: DatasetSample, ir: SourceIRv2) -> D4SolverResul
     )
 
 
+def _solve_event_state_ledger(
+    sample: DatasetSample,
+    decision: D4RouteDecision,
+    ir: SourceIRv2,
+) -> D4SolverResult:
+    """Solve a conservative typed event ledger emitted by the blind compiler.
+
+    The operator deliberately accepts only a small closed vocabulary. It does
+    not infer events from prose and therefore cannot turn an unverified parser
+    into an exact route; semantic activation still requires the independent IR
+    audit and risk gate.  The benefit is that a valid audited ledger now has a
+    deterministic local execution path instead of an unconditional unsupported
+    result.
+    """
+
+    capability = decision.capability_id
+    if capability == "event.structured_state_ledger_v1":
+        fact_kinds = {"state_initial"}
+        event_kinds = {"state_set", "state_delete", "state_append"}
+        query_kinds = {"state_value", "state_membership", "state_count"}
+    elif capability == "event.musr_object_belief_ledger_v1":
+        fact_kinds = {"object_location_initial"}
+        event_kinds = {"object_move", "object_location_set"}
+        query_kinds = {"object_location"}
+    else:
+        fact_kinds = {"team_assignment_initial"}
+        event_kinds = {"team_assign"}
+        query_kinds = {"team_assignment"}
+
+    state: dict[str, Any] = {}
+    trace: list[dict[str, Any]] = []
+    for fact in ir.facts:
+        kind = str(fact.get("kind") or "")
+        if kind not in fact_kinds:
+            return _unsupported_solver(f"event_state_fact_kind_unsupported:{kind or 'missing'}")
+        key = str(fact.get("key") or fact.get("entity") or fact.get("object") or fact.get("person") or "")
+        if not key or key in state:
+            return _unsupported_solver("event_state_duplicate_or_empty_initial_key")
+        if "value" not in fact and "location" not in fact and "task" not in fact:
+            return _unsupported_solver("event_state_initial_value_missing")
+        value = fact.get("value", fact.get("location", fact.get("task")))
+        state[key] = value
+
+    for index, event in enumerate(ir.events):
+        kind = str(event.get("kind") or "")
+        key = str(event.get("key") or event.get("entity") or event.get("object") or event.get("person") or "")
+        if kind not in event_kinds or not key:
+            return _unsupported_solver(f"event_state_event_invalid:{kind or 'missing'}")
+        if kind in {"state_set", "state_append", "object_location_set", "team_assign"}:
+            if "value" in event:
+                value = event["value"]
+            elif "location" in event:
+                value = event["location"]
+            elif "task" in event:
+                value = event["task"]
+            else:
+                return _unsupported_solver("event_state_event_value_missing")
+            if kind == "state_append":
+                if key not in state:
+                    return _unsupported_solver("event_state_append_unknown_key")
+                current = state[key]
+                if not isinstance(current, list):
+                    return _unsupported_solver("event_state_append_target_not_list")
+                state[key] = [*current, value]
+            else:
+                state[key] = value
+        elif kind == "object_move":
+            if key not in state:
+                return _unsupported_solver("event_state_move_unknown_object")
+            destination = str(event.get("to") or event.get("location") or "").strip()
+            if not destination:
+                return _unsupported_solver("event_state_move_destination_missing")
+            state[key] = destination
+        elif kind == "state_delete":
+            if key not in state:
+                return _unsupported_solver("event_state_delete_unknown_key")
+            del state[key]
+        trace.append(
+            {
+                "event_index": index,
+                "event_kind": kind,
+                "state_hash": _sha256(state),
+            }
+        )
+
+    for constraint in ir.constraints:
+        kind = str(constraint.get("kind") or "")
+        if kind == "all_different":
+            keys = [str(value) for value in constraint.get("keys") or []]
+            values = [state.get(key) for key in keys]
+            if not keys or len(keys) != len(set(keys)) or any(key not in state for key in keys):
+                return _unsupported_solver("event_state_all_different_keys_invalid")
+            if len(values) != len(set(json.dumps(value, sort_keys=True) for value in values)):
+                return _unsupported_solver("event_state_all_different_constraint_failed")
+        elif kind == "domain":
+            key = str(constraint.get("key") or "")
+            domain = constraint.get("values")
+            if key not in state or not isinstance(domain, list) or state[key] not in domain:
+                return _unsupported_solver("event_state_domain_constraint_failed")
+        else:
+            return _unsupported_solver(f"event_state_constraint_unsupported:{kind or 'missing'}")
+
+    query_kind = str(ir.query.get("kind") or "")
+    if query_kind not in query_kinds:
+        return _unsupported_solver(f"event_state_query_kind_unsupported:{query_kind or 'missing'}")
+    key = str(ir.query.get("key") or ir.query.get("entity") or ir.query.get("object") or ir.query.get("person") or "")
+    if not key:
+        return _unsupported_solver("event_state_query_key_missing")
+    if query_kind == "state_membership":
+        value = key in state
+    elif query_kind == "state_count":
+        current = state.get(key)
+        if not isinstance(current, (list, dict, str)):
+            return _unsupported_solver("event_state_count_target_invalid")
+        value = len(current)
+    else:
+        if key not in state:
+            if "default" not in ir.query:
+                return _unsupported_solver("event_state_query_unknown_key")
+            value = ir.query["default"]
+        else:
+            value = state[key]
+    answer_text = _event_state_answer_text(sample, value)
+    canonical = canonicalize_answer(sample, answer_text)
+    if not canonical.valid or not canonical.key:
+        return _unsupported_solver("event_state_answer_outside_contract")
+    return D4SolverResult(
+        status="UNIQUE",
+        canonical_answer=canonical.key,
+        answer_text=answer_text,
+        solver_trace=tuple(trace),
+        reference_checker_status="PASSED_TYPED_EVENT_STATE_CHECKER",
+        concrete_witness_status={
+            "status": "PASSED",
+            "kind": capability,
+            "event_count": len(ir.events),
+            "state_key_count": len(state),
+        },
+        reason="typed_event_state_ledger_unique",
+    )
+
+
+def _event_state_answer_text(sample: DatasetSample, value: Any) -> str:
+    if isinstance(value, bool):
+        candidates = ("true", "yes") if value else ("false", "no")
+        contract = sample.metadata.get("answer_contract")
+        options = contract.get("options") if isinstance(contract, dict) else []
+        for option in options if isinstance(options, list) else []:
+            text = str(option.get("text") or "") if isinstance(option, dict) else str(option)
+            if text.casefold() in candidates:
+                return text
+        return candidates[0]
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return str(value)
+
+
+def _solve_word_sort_trace(sample: DatasetSample, ir: SourceIRv2) -> D4SolverResult:
+    """Check a compiler-emitted word-sort trace without sorting prose itself."""
+
+    if len(ir.facts) != 1 or str(ir.facts[0].get("kind") or "") != "word_sort_target":
+        return _unsupported_solver("word_sort_target_fact_missing")
+    words = ir.facts[0].get("words")
+    if not isinstance(words, list) or not words or any(not isinstance(word, str) or not word.strip() for word in words):
+        return _unsupported_solver("word_sort_target_words_invalid")
+    expected_multiset = sorted(str(word).casefold() for word in words)
+    first_error: int | None = None
+    trace: list[dict[str, Any]] = []
+    for expected_index, event in enumerate(ir.events, start=1):
+        if str(event.get("kind") or "") != "word_sort_step" or int(event.get("step_index") or 0) != expected_index:
+            return _unsupported_solver("word_sort_step_sequence_invalid")
+        observed = event.get("observed")
+        expected = event.get("expected")
+        if not isinstance(observed, list) or not isinstance(expected, list):
+            return _unsupported_solver("word_sort_step_lists_invalid")
+        observed_text = [str(word).strip() for word in observed]
+        expected_text = [str(word).strip() for word in expected]
+        if sorted(observed_text, key=str.casefold) != expected_multiset or sorted(expected_text, key=str.casefold) != expected_multiset:
+            return _unsupported_solver("word_sort_step_word_set_invalid")
+        mismatch = observed_text != expected_text
+        if mismatch and first_error is None:
+            first_error = expected_index
+        trace.append(
+            {
+                "step_index": expected_index,
+                "matches_expected": not mismatch,
+                "observed_hash": _sha256(observed_text),
+                "expected_hash": _sha256(expected_text),
+            }
+        )
+    if first_error is None:
+        no_error = ir.query.get("no_error_value")
+        if no_error is None:
+            return _unsupported_solver("word_sort_no_error_value_missing")
+        answer_text = str(no_error)
+    else:
+        answer_text = str(first_error)
+    canonical = canonicalize_answer(sample, answer_text)
+    if not canonical.valid or not canonical.key:
+        return _unsupported_solver("word_sort_answer_outside_contract")
+    return D4SolverResult(
+        status="UNIQUE",
+        canonical_answer=canonical.key,
+        answer_text=answer_text,
+        solver_trace=tuple(trace),
+        reference_checker_status="PASSED_WORD_SORT_TRACE_CHECKER",
+        concrete_witness_status={"status": "PASSED", "step_count": len(trace)},
+        reason="word_sort_trace_unique",
+    )
+
+
+def _solve_temporal_interval_trace(sample: DatasetSample, ir: SourceIRv2) -> D4SolverResult:
+    """Solve compiler-emitted feasible windows on a fixed start-time grid."""
+
+    if str(ir.query.get("kind") or "") != "longest_feasible_interval":
+        return _unsupported_solver("temporal_query_kind_invalid")
+    try:
+        grid = int(ir.query.get("grid_minutes") or 30)
+    except (TypeError, ValueError):
+        return _unsupported_solver("temporal_grid_invalid")
+    if grid <= 0 or not ir.facts:
+        return _unsupported_solver("temporal_grid_or_windows_missing")
+    best_duration = -1
+    best_count = 0
+    trace: list[dict[str, Any]] = []
+    for index, fact in enumerate(ir.facts):
+        if str(fact.get("kind") or "") != "feasible_window":
+            return _unsupported_solver("temporal_window_kind_invalid")
+        try:
+            start = float(fact["start_min"])
+            end = float(fact["end_min"])
+        except (KeyError, TypeError, ValueError):
+            return _unsupported_solver("temporal_window_bounds_invalid")
+        if not end > start:
+            return _unsupported_solver("temporal_window_order_invalid")
+        first_start = int(math.ceil(start / grid) * grid)
+        last_start = int(math.floor(end / grid) * grid)
+        if first_start >= last_start:
+            continue
+        duration = int(last_start - first_start)
+        if duration > best_duration:
+            best_duration = duration
+            best_count = 1
+        elif duration == best_duration:
+            best_count += 1
+        trace.append(
+            {
+                "window_index": index,
+                "start_grid": first_start,
+                "end_grid": last_start,
+                "duration": duration,
+            }
+        )
+    answer_text = "0, 0" if best_duration < 0 else f"{best_duration:g}, {best_count}"
+    canonical = canonicalize_answer(sample, answer_text)
+    if not canonical.valid or not canonical.key:
+        return _unsupported_solver("temporal_answer_outside_contract")
+    return D4SolverResult(
+        status="UNIQUE",
+        canonical_answer=canonical.key,
+        answer_text=answer_text,
+        solver_trace=tuple(trace),
+        reference_checker_status="PASSED_TEMPORAL_INTERVAL_CHECKER",
+        concrete_witness_status={
+            "status": "PASSED",
+            "window_count": len(trace),
+            "grid_minutes": grid,
+        },
+        reason="temporal_interval_trace_unique",
+    )
+
+
 def _compile_truth_graph(
     sample: DatasetSample,
     decision: D4RouteDecision,
@@ -1241,7 +1521,7 @@ def _looks_like_event_state(sample: DatasetSample, lowered: str) -> bool:
         ("collection" in lowered and "went through a few changes" in lowered)
         or ("table was converted to markdown" in lowered and "mistakenly replaced" in lowered)
         or (
-            sample.dataset == "musr"
+            sample.dataset in {"musr", "musr_x"}
             and task == "object_placements"
             and "narrative:" in lowered
             and "question:" in lowered
@@ -1249,7 +1529,7 @@ def _looks_like_event_state(sample: DatasetSample, lowered: str) -> bool:
             and "would look to find" in lowered
         )
         or (
-            sample.dataset == "musr"
+            sample.dataset in {"musr", "musr_x"}
             and task == "team_allocation"
             and "narrative:" in lowered
             and "question:" in lowered

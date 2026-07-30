@@ -197,6 +197,7 @@ def _canonicalize_bbeh_multiple_choice(
     options: list[object],
 ) -> AnswerCanonicalization:
     option_by_label: dict[str, str] = {}
+    ordered_labels: list[str] = []
     labels_by_text: dict[str, list[str]] = {}
     for option in options:
         if not isinstance(option, dict):
@@ -206,6 +207,7 @@ def _canonicalize_bbeh_multiple_choice(
         if not re.fullmatch(r"[A-Z]", label) or not text or label in option_by_label:
             continue
         option_by_label[label] = text
+        ordered_labels.append(label)
         labels_by_text.setdefault(text, []).append(label)
     if not option_by_label:
         return AnswerCanonicalization("", False, "invalid_option_metadata")
@@ -229,6 +231,11 @@ def _canonicalize_bbeh_multiple_choice(
         return AnswerCanonicalization(labels[0], True)
     if len(labels) > 1:
         return AnswerCanonicalization("", False, "ambiguous_option_text")
+    ordinal_match = re.fullmatch(r"(?i)(?:option\s*)?([1-9]\d*)", value)
+    if ordinal_match is not None:
+        ordinal = int(ordinal_match.group(1))
+        if ordinal <= len(ordered_labels):
+            return AnswerCanonicalization(ordered_labels[ordinal - 1], True)
     return AnswerCanonicalization("", False, "unmapped_option_answer")
 
 

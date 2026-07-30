@@ -15,20 +15,32 @@ from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.data.evaluation import canonicalize_answer
 
 ANSWER_FIRST_JSON_PROTOCOL_V1 = "answer_first_json_v1"
-ANSWER_FIRST_JSON_PROMPT_VERSION = "single_agent_answer_first_json_v1"
+ANSWER_FIRST_JSON_PROMPT_V1 = "single_agent_answer_first_json_v1"
+ANSWER_FIRST_JSON_PROMPT_V2 = "single_agent_answer_first_json_v2"
+ANSWER_FIRST_JSON_PROMPT_VERSION = ANSWER_FIRST_JSON_PROMPT_V1
 REASONING_FIRST_JSON_PROTOCOL_V1 = "reasoning_first_json_v1"
 
 
-def build_answer_first_json_instruction(dataset: str) -> str:
+def build_answer_first_json_instruction(
+    dataset: str,
+    *,
+    prompt_version: str = ANSWER_FIRST_JSON_PROMPT_VERSION,
+) -> str:
     lines = [
         "Return exactly one JSON object and no other text.",
         'The first key must be "final_answer" and the second key must be "reasoning".',
         'Use exactly this shape: {"final_answer":"canonical answer","reasoning":"concise verification"}',
         "Do not repeat either key. Both values must be non-empty JSON strings.",
     ]
-    if dataset in {"gpqa_diamond", "musr", "supergpqa", "supergpqa_science"}:
+    if prompt_version == ANSWER_FIRST_JSON_PROMPT_V2:
+        lines.append(
+            "reasoning must be plain text of at most 80 words; do not use Markdown, LaTeX, or backslashes."
+        )
+    elif prompt_version != ANSWER_FIRST_JSON_PROMPT_VERSION:
+        raise ValueError(f"Unsupported answer-first JSON prompt version: {prompt_version!r}")
+    if dataset in {"gpqa_diamond", "musr", "musr_x", "supergpqa", "supergpqa_science"}:
         lines.append('final_answer must be exactly one option letter such as "A" or "B".')
-    elif dataset == "bbeh":
+    elif dataset in {"bbeh", "bbeh_extension"}:
         lines.append("final_answer must contain only the exact answer requested by the task.")
     return "\n".join(lines)
 

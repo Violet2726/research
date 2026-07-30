@@ -1,0 +1,13 @@
+name = "D4 independent BBEH extension protocol-validation set"
+slug = "bbeh_extension"
+loader = "bbeh_extension_jsonl"
+source_path = "d4_independent_validation/bbeh_extension.jsonl"
+source_split = "protocol_validation"
+sample_id_prefix = "bbeh_extension"
+question_field = "input"
+answer_field = "target"
+smoke_size = 20
+pilot_size = 100
+main_size = 100
+random_seed = 42
+notes = "独立托管方密封的 100 条协议验证数据占位路径；安装 manifest 并冻结选择哈希前，运行器保持阻断。"

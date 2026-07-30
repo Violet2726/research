@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import defaultdict
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import suppress
@@ -18,6 +19,7 @@ from dotenv import load_dotenv
 from research_experiments.core.data.datasets import (
     load_samples,
     load_split_ids,
+    resolve_dataset_source_path,
     resolve_split_manifest_path,
     select_samples,
 )
@@ -47,9 +49,13 @@ from research_experiments.families.contrastive_active_testing.d4_audit import (
     evaluate_d4_human_audit,
     validate_d4_gate_evidence,
 )
-from research_experiments.families.contrastive_active_testing.d4_data import validate_sealed_manifest
+from research_experiments.families.contrastive_active_testing.d4_data import (
+    text_sha256,
+    validate_sealed_manifest,
+    validate_text_sealed_manifest,
+)
 from research_experiments.families.contrastive_active_testing.d4_protocol_ab import (
-    validate_output_protocol_ab_assessment,
+    validate_tagged_protocol_validation_assessment,
 )
 from research_experiments.families.contrastive_active_testing.icv import build_target_pairs
 from research_experiments.families.contrastive_active_testing.kernel import (
@@ -111,6 +117,39 @@ from research_experiments.family_runtime.layout import prepare_registered_run_la
 from research_experiments.family_runtime.manifest import finalize_family_manifest
 from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
+D4_OUTPUT_PROTOCOL_AB_SOURCE_CONTRACT = {
+    "tagged_text": (
+        "d4_output_protocol_ab_tagged_text",
+        "tagged_text",
+        "legacy",
+    ),
+    "reasoning_first_json": (
+        "d4_output_protocol_ab_reasoning_first_json_short_v2",
+        "reasoning_first_json",
+        "short_reasoning_v3",
+    ),
+    "answer_first_json": (
+        "d4_output_protocol_ab_answer_first_json_short_v2",
+        "answer_first_json",
+        "short_reasoning_v3",
+    ),
+}
+D4_OUTPUT_PROTOCOL_ONLY_ROLE_PREFIXES = (
+    "d4_output_protocol_ab_",
+    "d4_output_protocol_independent_validation_",
+)
+D4_INDEPENDENT_PROTOCOL_VALIDATION_ROLE = (
+    "d4_output_protocol_independent_validation_tagged_v2"
+)
+D4_INDEPENDENT_PROTOCOL_VALIDATION_DATA_ROLE = (
+    "fresh_independent_protocol_validation_after_prompt_freeze"
+)
+D4_INDEPENDENT_PROTOCOL_VALIDATION_BENCHMARKS = {
+    "bbeh_extension",
+    "musr_x",
+    "supergpqa_science",
+}
+
 
 @dataclass(frozen=True)
 class CatchEndpoint:
@@ -169,6 +208,18 @@ def run_experiment(
     execution_warnings: list[str] = list(getattr(experiment, "config_warnings", ()))
     phase = phase_metadata(experiment, phase_name)
     protocol = load_protocol_config(experiment.protocol)
+    is_d4_kernel_run = (
+        protocol.protocol_version == "catch_kernel_v1"
+        and str(experiment.raw.get("kernel_revision") or "") == "d4_proof_carrying_v1"
+    )
+    evaluation_role = str(phase.get("evaluation_role") or "")
+    is_d4_output_protocol_only = is_d4_kernel_run and evaluation_role.startswith(
+        D4_OUTPUT_PROTOCOL_ONLY_ROLE_PREFIXES
+    )
+    is_d4_independent_protocol_validation = (
+        is_d4_kernel_run
+        and evaluation_role == D4_INDEPENDENT_PROTOCOL_VALIDATION_ROLE
+    )
     if (
         phase_name == "confirmation"
         and protocol.protocol_version == "catch_kernel_v1"
@@ -253,8 +304,7 @@ def run_experiment(
                 }
     is_d4_confirmation = (
         phase_name == "confirmation"
-        and protocol.protocol_version == "catch_kernel_v1"
-        and str(experiment.raw.get("kernel_revision") or "") == "d4_proof_carrying_v1"
+        and is_d4_kernel_run
     )
     if phase_name in {"heldout", "confirmation"} and not is_d4_confirmation:
         execution_warnings.append("confirmatory_evidence_missing_or_not_enforced")
@@ -264,6 +314,28 @@ def run_experiment(
     d4_sealed_manifests = None
     d4_protocol_ab = None
     d4_risk_evidence = None
+    if is_d4_output_protocol_only:
+        provider_audit = {
+            "required": True,
+            "status": "passed",
+            **_require_passing_provider_audit(
+                experiment.provider_audit_path,
+                expected_cache_namespace=experiment.cache_namespaces["confirmation"],
+                expected_provider=str(backbone.provider),
+                expected_model_id=str(backbone.model_id),
+            ),
+        }
+    if is_d4_independent_protocol_validation:
+        _validate_d4_independent_protocol_validation_config(
+            experiment,
+            phase_name=phase_name,
+            phase=phase,
+        )
+        d4_sealed_manifests = _require_d4_sealed_manifests(
+            dict(phase.get("sealed_manifest_paths") or {}),
+            expected_labels=D4_INDEPENDENT_PROTOCOL_VALIDATION_BENCHMARKS,
+            expectations=dict(phase.get("sealed_manifest_expectations") or {}),
+        )
     if is_d4_confirmation:
         if not experiment.confirmatory:
             raise RuntimeError("D4 confirmation is blocked: confirmatory=true is required.")
@@ -290,6 +362,7 @@ def run_experiment(
         d4_sealed_manifests = _require_d4_sealed_manifests(
             dict(phase.get("sealed_manifest_paths") or {}),
             expected_labels=set(phase.get("benchmark_slugs") or []),
+            expectations=dict(phase.get("sealed_manifest_expectations") or {}),
         )
         provider_audit = {
             "required": True,
@@ -343,13 +416,13 @@ def run_experiment(
                 }
             )
             execution_warnings.append(f"{benchmark.slug}:dataset_skipped:{type(exc).__name__}:{exc}")
-    if is_d4_confirmation and (
+    if (is_d4_confirmation or is_d4_independent_protocol_validation) and (
         dataset_errors
         or set(selected_by_benchmark) != {str(item) for item in phase.get("benchmark_slugs") or []}
         or any(not rows for rows in selected_by_benchmark.values())
     ):
         raise RuntimeError(
-            "D4 confirmation is blocked: every preregistered sealed dataset must resolve to a non-empty sample set "
+            "D4 sealed-data run is blocked: every preregistered dataset must resolve to a non-empty sample set "
             f"without loader errors; errors={dataset_errors}."
         )
     sample_count = sum(len(samples) for samples in selected_by_benchmark.values())
@@ -399,6 +472,25 @@ def run_experiment(
         if not kernel_freeze or not kernel_freeze.get("valid"):
             reason = (kernel_freeze or {}).get("reason", "freeze_missing")
             raise RuntimeError(f"D4 confirmation is blocked: kernel freeze is invalid: {reason}.")
+    if is_d4_independent_protocol_validation:
+        mismatched = [
+            dataset
+            for dataset, expected_hash in expected_selection_hashes.items()
+            if (selected_sample_manifest.get(str(dataset)) or {}).get("sha256") != str(expected_hash)
+        ]
+        if mismatched:
+            raise RuntimeError(
+                "D4 independent protocol validation is blocked: selection hash mismatch for "
+                f"{sorted(mismatched)}."
+            )
+        if sample_count != 300 or any(
+            len(selected_by_benchmark.get(dataset, [])) != 100
+            for dataset in D4_INDEPENDENT_PROTOCOL_VALIDATION_BENCHMARKS
+        ):
+            raise RuntimeError(
+                "D4 independent protocol validation requires exactly 100 sealed records from each "
+                "of BBEH-extension, MuSR-X, and SuperGPQA Science."
+            )
     endpoints: dict[str, CatchEndpoint] = {}
     stop_event = Event()
     for benchmark in benchmarks:
@@ -459,18 +551,18 @@ def run_experiment(
             protocol.protocol_version == "catch_kernel_v1"
             and str(experiment.raw.get("kernel_revision") or "") == "d4_proof_carrying_v1"
         )
-        is_d4_output_ab = is_d4_kernel and str(phase.get("evaluation_role") or "").startswith(
-            "d4_output_protocol_ab_"
-        )
+        is_d4_output_protocol_only = is_d4_kernel and str(
+            phase.get("evaluation_role") or ""
+        ).startswith(D4_OUTPUT_PROTOCOL_ONLY_ROLE_PREFIXES)
         calls_per_triggered = (
-            5 if is_d4_output_ab
+            5 if is_d4_output_protocol_only
             else 17 if is_d3_kernel and run_direct_judge
             else 11 if is_d3_kernel or is_d4_kernel
             else 17 if run_direct_judge
             else 11
         )
         predictions_per_sample = (
-            1 if is_d4_output_ab
+            1 if is_d4_output_protocol_only
             else 9 if is_d3_kernel and run_direct_judge
             else 7 if is_d3_kernel
             else 6 if is_d4_kernel
@@ -641,7 +733,7 @@ def run_experiment(
                 else None
             ),
             "d4_human_audit": d4_human_audit if is_d4_confirmation else None,
-            "d4_sealed_manifests": d4_sealed_manifests if is_d4_confirmation else None,
+            "d4_sealed_manifests": d4_sealed_manifests,
             "d4_output_protocol_ab": d4_protocol_ab if is_d4_confirmation else None,
             "d4_risk_evidence_validation": d4_risk_evidence if is_d4_confirmation else None,
             "planned_sample_count": total_planned_samples,
@@ -1558,31 +1650,83 @@ def _require_passing_preflight_human_audit(
 
 
 def _select_phase_samples(benchmark, phase: dict[str, Any], phase_name: str):
-    split_name = str(phase["split_overrides"][benchmark.slug])
-    samples = select_samples(benchmark, split_name)
-    excluded_names = dict(phase.get("exclude_splits") or {}).get(benchmark.slug, [])
-    excluded: set[str] = set()
-    for excluded_name in excluded_names:
-        excluded.update(load_split_ids(benchmark.cache_namespace or benchmark.slug, str(excluded_name)))
-    selected = [sample for sample in samples if sample.sample_id not in excluded]
+    selection_strategy = str(phase.get("selection_strategy") or "")
+    if selection_strategy == "d4_sealed_manifest_only":
+        if dict(phase.get("exclude_splits") or {}).get(benchmark.slug):
+            raise ValueError("D4 sealed selection cannot apply a post-sealing exclusion split.")
+        # The sealed manifest is the selection authority.  Requiring an
+        # independently generated local split manifest here would introduce a
+        # second, mutable source of truth before the sealed IDs are checked.
+        selected = list(load_samples(benchmark))
+    else:
+        split_name = str(phase["split_overrides"][benchmark.slug])
+        samples = select_samples(benchmark, split_name)
+        excluded_names = dict(phase.get("exclude_splits") or {}).get(benchmark.slug, [])
+        excluded: set[str] = set()
+        for excluded_name in excluded_names:
+            excluded.update(load_split_ids(benchmark.cache_namespace or benchmark.slug, str(excluded_name)))
+        selected = [sample for sample in samples if sample.sample_id not in excluded]
     limit = dict(phase.get("sample_limits") or {}).get(benchmark.slug)
-    if str(phase.get("selection_strategy") or "") == "d4_sealed_manifest_only":
+    if selection_strategy == "d4_sealed_manifest_only":
         manifest_paths = dict(phase.get("sealed_manifest_paths") or {})
         manifest_path = manifest_paths.get(benchmark.slug)
         if not manifest_path:
             raise ValueError(f"D4 sealed manifest path is missing for {benchmark.slug}.")
         payload = json.loads(Path(str(manifest_path)).read_text(encoding="utf-8"))
+        expected_asset_hash = str(
+            payload.get("source_asset_sha256") or payload.get("rendered_asset_sha256") or ""
+        )
+        source_path = resolve_dataset_source_path(benchmark.source_path)
+        if (
+            not expected_asset_hash
+            or not source_path.is_file()
+            or hashlib.sha256(source_path.read_bytes()).hexdigest() != expected_asset_hash
+        ):
+            raise ValueError(f"D4 sealed source asset hash mismatch for {benchmark.slug}.")
         split_name = str(phase.get("sealed_manifest_split") or "confirmation")
         rows = list((payload.get("splits") or {}).get(split_name) or [])
-        ids = {str(row.get("record_id") or "") for row in rows if isinstance(row, dict)}
+        rows_by_id = {
+            str(row.get("record_id") or ""): row
+            for row in rows
+            if isinstance(row, dict) and str(row.get("record_id") or "")
+        }
+        if len(rows_by_id) != len(rows):
+            raise ValueError(f"D4 sealed manifest has duplicate or empty IDs for {benchmark.slug}.")
+        ids = set(rows_by_id)
         selected = [sample for sample in selected if str(sample.sample_id) in ids]
         if len(selected) != len(ids):
             raise ValueError(
                 f"D4 sealed manifest IDs do not resolve exactly for {benchmark.slug}: "
                 f"manifest={len(ids)} resolved={len(selected)}"
             )
-        return selected[: max(0, int(limit))] if limit is not None else selected
-    if str(phase.get("selection_strategy") or "") == "d4_capability_stratified_hash":
+        for sample in selected:
+            row = rows_by_id[str(sample.sample_id)]
+            if row.get("question_sha256") and text_sha256(sample.question) != str(row["question_sha256"]):
+                raise ValueError(f"D4 sealed question hash mismatch for {benchmark.slug}:{sample.sample_id}.")
+            if row.get("source_record_sha256") and str(
+                sample.metadata.get("source_record_sha256") or ""
+            ) != str(row["source_record_sha256"]):
+                raise ValueError(f"D4 sealed record hash mismatch for {benchmark.slug}:{sample.sample_id}.")
+            if row.get("latent_graph_sha256") and str(
+                sample.metadata.get("latent_graph_sha256") or ""
+            ) != str(row["latent_graph_sha256"]):
+                raise ValueError(f"D4 sealed latent hash mismatch for {benchmark.slug}:{sample.sample_id}.")
+            expected_stratum = str(row.get("stratum") or row.get("task") or "")
+            actual_stratum = str(
+                sample.metadata.get("task")
+                or sample.metadata.get("field")
+                or sample.metadata.get("domain")
+                or ""
+            )
+            if expected_stratum and actual_stratum != expected_stratum:
+                raise ValueError(f"D4 sealed stratum mismatch for {benchmark.slug}:{sample.sample_id}.")
+        if limit is not None and len(selected) != max(0, int(limit)):
+            raise ValueError(
+                f"D4 sealed manifest count differs from the preregistered sample limit for {benchmark.slug}: "
+                f"manifest={len(selected)} limit={int(limit)}"
+            )
+        return selected
+    if selection_strategy == "d4_capability_stratified_hash":
         per_dataset = dict(phase.get("capability_sample_limits") or {}).get(benchmark.slug)
         if not isinstance(per_dataset, dict) or not per_dataset:
             raise ValueError(f"D4 capability calibration quotas are missing for {benchmark.slug}.")
@@ -1594,7 +1738,7 @@ def _select_phase_samples(benchmark, phase: dict[str, Any], phase_name: str):
             quotas={str(key): int(value) for key, value in per_dataset.items()},
             limit=max(0, int(limit)) if limit is not None else len(selected),
         )
-    if str(phase.get("selection_strategy") or "") == "kernel_confirmation_stratified_sha256":
+    if selection_strategy == "kernel_confirmation_stratified_sha256":
         return _select_kernel_confirmation_strata(
             selected,
             benchmark_slug=benchmark.slug,
@@ -1602,7 +1746,7 @@ def _select_phase_samples(benchmark, phase: dict[str, Any], phase_name: str):
             seed=int(phase.get("selection_seed", 42)),
             limit=max(0, int(limit)) if limit is not None else len(selected),
         )
-    if str(phase.get("selection_strategy") or "") in {
+    if selection_strategy in {
         "d3_task_stratified_hash",
         "d3_confirmation_stratified_hash",
     }:
@@ -1741,7 +1885,11 @@ def _select_kernel_confirmation_strata(
         return _round_robin_groups(primary_orders, limit=limit)
     strata: dict[tuple[Any, ...], list[Any]] = {}
     for sample in samples:
-        stratum = (str(sample.metadata.get("task") or "unknown"),) if benchmark_slug == "musr" else ("all",)
+        stratum = (
+            (str(sample.metadata.get("task") or "unknown"),)
+            if benchmark_slug in {"musr", "musr_x"}
+            else ("all",)
+        )
         strata.setdefault(stratum, []).append(sample)
     for items in strata.values():
         items.sort(key=lambda item: _selection_hash(seed, phase_name, benchmark_slug, item.sample_id))
@@ -1794,7 +1942,7 @@ def _select_d3_stratified_samples(
 
     strata: dict[str, list[Any]] = defaultdict(list)
     for sample in samples:
-        if benchmark_slug == "bbeh" or benchmark_slug == "musr":
+        if benchmark_slug in {"bbeh", "bbeh_extension", "musr", "musr_x"}:
             key = str(sample.metadata.get("task") or "unknown")
         elif benchmark_slug == "gpqa_diamond":
             key = str(sample.metadata.get("high_level_domain") or "unknown").casefold()
@@ -1839,7 +1987,7 @@ def _selected_sample_manifest(samples_by_dataset: dict[str, list[Any]], *, phase
         raw = json.dumps(ids, ensure_ascii=False, separators=(",", ":"))
         strata: dict[str, int] = defaultdict(int)
         for sample in samples:
-            if dataset == "musr":
+            if dataset in {"musr", "musr_x"}:
                 key = str(sample.metadata.get("task") or "unknown")
             elif dataset == "seqbench":
                 key = (
@@ -1927,8 +2075,107 @@ def write_kernel_d4_freeze(experiment_path: str | Path, output_path: str | Path)
     _require_d4_sealed_manifests(
         dict(phase.get("sealed_manifest_paths") or {}),
         expected_labels=set(phase.get("benchmark_slugs") or []),
+        expectations=dict(phase.get("sealed_manifest_expectations") or {}),
     )
     return write_kernel_d2_freeze(experiment_path, output_path)
+
+
+def write_d4_independent_protocol_validation_selection(
+    experiment_path: str | Path,
+    output_path: str | Path,
+) -> dict[str, Any]:
+    """Inspect sealed validation assets and emit the hashes needed to freeze the run.
+
+    This command is deliberately offline.  It never constructs a provider and
+    emits no question text, answer, latent graph, or selected record ID.
+    """
+
+    experiment = load_experiment_config(experiment_path)
+    phase = phase_metadata(experiment, "development")
+    protocol = load_protocol_config(experiment.protocol)
+    role = str(phase.get("evaluation_role") or "")
+    if (
+        protocol.protocol_version != "catch_kernel_v1"
+        or str(experiment.raw.get("kernel_revision") or "") != "d4_proof_carrying_v1"
+        or role != D4_INDEPENDENT_PROTOCOL_VALIDATION_ROLE
+    ):
+        raise ValueError("The selection inspector requires the D4 tagged-v2 validation template.")
+    conditions = _d4_independent_protocol_validation_config_conditions(
+        experiment,
+        phase_name="development",
+        phase=phase,
+    )
+    structural_conditions = {
+        key: value
+        for key, value in conditions.items()
+        if key not in {"sealed_data_ready", "selection_hashes_frozen"}
+    }
+    if not all(structural_conditions.values()):
+        raise RuntimeError(
+            "D4 protocol-validation selection inspection is blocked by its structural contract: "
+            f"{structural_conditions}."
+        )
+    sealed = _require_d4_sealed_manifests(
+        dict(phase.get("sealed_manifest_paths") or {}),
+        expected_labels=D4_INDEPENDENT_PROTOCOL_VALIDATION_BENCHMARKS,
+        expectations=dict(phase.get("sealed_manifest_expectations") or {}),
+    )
+    benchmarks = load_phase_benchmarks(experiment, "development")
+    selected = {
+        benchmark.slug: _select_phase_samples(benchmark, phase, "development")
+        for benchmark in benchmarks
+    }
+    if set(selected) != D4_INDEPENDENT_PROTOCOL_VALIDATION_BENCHMARKS or any(
+        len(selected.get(dataset, [])) != 100
+        for dataset in D4_INDEPENDENT_PROTOCOL_VALIDATION_BENCHMARKS
+    ):
+        raise RuntimeError("D4 protocol-validation selection must resolve to exactly 100/100/100 records.")
+    selection = _selected_sample_manifest(selected, phase_name="development")
+    selection_hashes = {
+        dataset: str(row["sha256"])
+        for dataset, row in sorted(selection.items())
+    }
+    frozen_hashes = {
+        str(key): str(value)
+        for key, value in dict(phase.get("expected_selection_sha256") or {}).items()
+    }
+    if frozen_hashes and frozen_hashes != selection_hashes:
+        raise RuntimeError(
+            "D4 protocol-validation selection differs from already frozen expected hashes."
+        )
+    unsigned = {
+        "schema": "catch_d4_independent_protocol_validation_selection_v1",
+        "experiment_path": Path(experiment_path).resolve().as_posix(),
+        "experiment_sha256": hashlib.sha256(Path(experiment_path).read_bytes()).hexdigest(),
+        "evaluation_role": role,
+        "validation_data_role": phase.get("validation_data_role"),
+        "sealed_manifest_split": phase.get("sealed_manifest_split"),
+        "selection_hashes": selection_hashes,
+        "selected_counts": {
+            dataset: len(rows) for dataset, rows in sorted(selected.items())
+        },
+        "selected_stratum_counts": {
+            dataset: dict(selection[dataset].get("stratum_counts") or {})
+            for dataset in sorted(selection)
+        },
+        "sealed_manifest_sha256": {
+            dataset: str(row["sha256"])
+            for dataset, row in sorted(sealed.items())
+        },
+        "contains_question_text": False,
+        "contains_gold": False,
+        "contains_latent_graph": False,
+    }
+    payload = {
+        **unsigned,
+        "sha256": hashlib.sha256(
+            json.dumps(unsigned, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+    }
+    target = Path(output_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
 
 
 def _validate_kernel_freeze(
@@ -2521,65 +2768,26 @@ def _require_passing_d4_human_audit(
 
 def _require_passing_d4_protocol_ab(path: Path) -> dict[str, Any]:
     if not path.is_file():
-        raise RuntimeError(f"D4 confirmation is blocked: output-protocol A/B assessment is missing at {path}.")
+        raise RuntimeError(
+            f"D4 confirmation is blocked: independent tagged protocol validation is missing at {path}."
+        )
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError("D4 confirmation is blocked: output-protocol A/B assessment is invalid.") from exc
-    assessment_validation = validate_output_protocol_ab_assessment(payload, verify_source_files=True)
-    expected_arms = {"tagged_text", "reasoning_first_json", "answer_first_json"}
-    expected_source_metadata = {
-        "tagged_text": ("d4_output_protocol_ab_tagged_text", "tagged_text"),
-        "reasoning_first_json": (
-            "d4_output_protocol_ab_reasoning_first_json",
-            "reasoning_first_json",
-        ),
-        "answer_first_json": (
-            "d4_output_protocol_ab_answer_first_json",
-            "answer_first_json",
-        ),
-    }
-    sources = dict(payload.get("sources") or {})
-    source_files_valid = set(sources) == expected_arms
-    source_metadata_valid = set(sources) == expected_arms
-    for arm, source in sources.items():
-        root = Path(str(source.get("run_root") or "")) if isinstance(source, dict) else Path("")
-        artifacts = {
-            "manifest_sha256": root / "manifest.json",
-            "turns_sha256": root / "turns" / "agent_turns.jsonl",
-            "predictions_sha256": root / "views" / "predictions.jsonl",
-        }
-        source_files_valid &= all(
-            artifact.is_file() and hashlib.sha256(artifact.read_bytes()).hexdigest() == source.get(key)
-            for key, artifact in artifacts.items()
+        raise RuntimeError("D4 confirmation is blocked: tagged protocol validation is invalid.") from exc
+    assessment_validation = validate_tagged_protocol_validation_assessment(
+        payload,
+        verify_source_files=True,
+    )
+    if not assessment_validation.get("passed"):
+        raise RuntimeError(
+            "D4 confirmation is blocked: independent tagged protocol validation failed: "
+            f"{assessment_validation.get('conditions', {})}."
         )
-        expected_role, expected_protocol = expected_source_metadata.get(arm, ("", ""))
-        source_metadata_valid &= bool(
-            source.get("kernel_revision") == "d4_proof_carrying_v1"
-            and source.get("evaluation_role") == expected_role
-            and source.get("stage_a_protocol") == expected_protocol
-            and source.get("phase_name") == "development"
-            and source.get("run_id")
-            and source.get("run_status") == "completed"
-            and int(source.get("dataset_error_count") or 0) == 0
-            and int(source.get("sample_count") or 0) == 300
-        )
-    conditions = {
-        "schema": payload.get("schema") == "catch_d4_output_protocol_ab_assessment_v1",
-        "answer_first_json_accepted": payload.get("answer_first_json_accepted") is True,
-        "answer_first_json_certified": payload.get("answer_first_json_certified") is True,
-        "selection_matched": payload.get("selection_matched_across_arms") is True,
-        "all_three_arms": set(dict(payload.get("arms") or {})) == expected_arms,
-        "source_files": source_files_valid,
-        "source_metadata": source_metadata_valid,
-        "recomputed_assessment": assessment_validation.get("passed") is True,
-    }
-    if not all(conditions.values()):
-        raise RuntimeError(f"D4 confirmation is blocked: output-protocol A/B gate failed: {conditions}.")
     return {
         "path": path.resolve().as_posix(),
         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        "conditions": conditions,
+        "conditions": assessment_validation["conditions"],
         "assessment_validation": assessment_validation,
     }
 
@@ -2665,40 +2873,73 @@ def _require_d4_sealed_manifests(
     paths: dict[str, Any],
     *,
     expected_labels: set[str] | None = None,
+    expectations: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not paths:
-        raise RuntimeError("D4 confirmation is blocked: sealed manifest paths are missing.")
+        raise RuntimeError("D4 sealed-data run is blocked: sealed manifest paths are missing.")
     if expected_labels is not None and set(paths) != set(expected_labels):
         raise RuntimeError(
-            "D4 confirmation is blocked: sealed manifest labels must exactly match the preregistered benchmarks; "
+            "D4 sealed-data run is blocked: sealed manifest labels must exactly match the preregistered benchmarks; "
             f"expected={sorted(expected_labels)} actual={sorted(paths)}."
         )
     validated: dict[str, Any] = {}
+    expected_specs = dict(expectations or {})
+    if set(expected_specs) != set(paths):
+        raise RuntimeError(
+            "D4 sealed-data run is blocked: every sealed manifest needs a preregistered expectation; "
+            f"paths={sorted(paths)} expectations={sorted(expected_specs)}."
+        )
     for label, raw_path in sorted(paths.items()):
         path = Path(str(raw_path))
         if not path.exists():
-            raise RuntimeError(f"D4 confirmation is blocked: sealed manifest is missing: {label}={path}")
+            raise RuntimeError(f"D4 sealed-data run is blocked: sealed manifest is missing: {label}={path}")
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            raise RuntimeError(f"D4 confirmation is blocked: sealed manifest is invalid: {label}") from exc
+            raise RuntimeError(f"D4 sealed-data run is blocked: sealed manifest is invalid: {label}") from exc
         schema = str(payload.get("schema") or "")
-        if schema == "catch_d4_latent_first_sealed_manifest_v2":
+        spec = dict(expected_specs.get(str(label)) or {})
+        raw_counts = spec.get("counts")
+        expected = (
+            {str(key): int(value) for key, value in dict(raw_counts).items()}
+            if isinstance(raw_counts, dict)
+            else {}
+        )
+        expected_strata = tuple(str(item) for item in spec.get("strata") or [])
+        if not expected or any(value <= 0 for value in expected.values()) or not expected_strata:
+            raise RuntimeError(
+                f"D4 sealed-data run is blocked: sealed expectation must preregister positive counts and strata: {label}."
+            )
+        if schema == "catch_d4_latent_first_sealed_manifest_v3":
             if str(label) not in {"musr", "musr_x"}:
                 raise RuntimeError(
-                    f"D4 confirmation is blocked: latent-first MuSR manifest cannot authorize {label}."
+                    f"D4 sealed-data run is blocked: latent-first MuSR manifest cannot authorize {label}."
                 )
-            expected = {"development": 1200, "human_audit": 600, "confirmation": 1200}
             result = validate_sealed_manifest(
                 payload,
                 expected_counts=expected,
-                expected_strata=("murder_mysteries", "object_placements", "team_allocation"),
+                expected_strata=expected_strata,
+                manifest_path=path,
             )
             if not result.get("passed"):
-                raise RuntimeError(f"D4 confirmation is blocked: latent manifest failed: {label}:{result}")
+                raise RuntimeError(f"D4 sealed-data run is blocked: latent manifest failed: {label}:{result}")
+        elif schema == "catch_d4_text_sealed_manifest_v1":
+            if str(label) not in {"bbeh_extension", "supergpqa_science"}:
+                raise RuntimeError(
+                    f"D4 sealed-data run is blocked: text-sealed manifest cannot authorize {label}."
+                )
+            result = validate_text_sealed_manifest(
+                payload,
+                expected_dataset_id=str(label),
+                expected_counts=expected,
+                expected_strata=expected_strata,
+                manifest_path=path,
+            )
+            if not result.get("passed"):
+                raise RuntimeError(f"D4 sealed-data run is blocked: text manifest failed: {label}:{result}")
         else:
             raise RuntimeError(
-                f"D4 confirmation is blocked: sealed manifest schema is not implemented or allow-listed: "
+                f"D4 sealed-data run is blocked: sealed manifest schema is not implemented or allow-listed: "
                 f"{label}:{schema or 'missing'}"
             )
         validated[str(label)] = {
@@ -2707,6 +2948,62 @@ def _require_d4_sealed_manifests(
             "validation": result,
         }
     return validated
+
+
+def _validate_d4_independent_protocol_validation_config(
+    experiment,
+    *,
+    phase_name: str,
+    phase: dict[str, Any],
+) -> None:
+    """Fail before data loading or API calls when the validation design is not frozen."""
+
+    conditions = _d4_independent_protocol_validation_config_conditions(
+        experiment,
+        phase_name=phase_name,
+        phase=phase,
+    )
+    if not all(conditions.values()):
+        raise RuntimeError(
+            "D4 independent protocol validation is blocked until its fresh sealed design is frozen: "
+            f"{conditions}."
+        )
+
+
+def _d4_independent_protocol_validation_config_conditions(
+    experiment,
+    *,
+    phase_name: str,
+    phase: dict[str, Any],
+) -> dict[str, bool]:
+    d4_output = dict(experiment.raw.get("d4_output") or {})
+    expected_hashes = dict(phase.get("expected_selection_sha256") or {})
+    benchmark_slugs = {str(item) for item in phase.get("benchmark_slugs") or []}
+    sample_limits = {
+        str(key): int(value)
+        for key, value in dict(phase.get("sample_limits") or {}).items()
+    }
+    return {
+        "development_phase": phase_name == "development",
+        "nonconfirmatory_run": not experiment.confirmatory,
+        "tagged_legacy_protocol": d4_output.get("stage_a_protocol") == "tagged_text"
+        and str(d4_output.get("prompt_variant") or "legacy") == "legacy",
+        "frozen_targets": d4_output.get("parse_failure_target") == 0.01
+        and d4_output.get("stage_a_quorum_minimum_valid_turns") == 3
+        and d4_output.get("stage_a_quorum_failure_target") == 0.01,
+        "sealed_data_ready": phase.get("sealed_data_ready") is True,
+        "independent_data_role": phase.get("validation_data_role")
+        == D4_INDEPENDENT_PROTOCOL_VALIDATION_DATA_ROLE,
+        "sealed_selection": phase.get("selection_strategy") == "d4_sealed_manifest_only"
+        and phase.get("sealed_manifest_split") == "protocol_validation",
+        "three_frozen_benchmarks": benchmark_slugs
+        == D4_INDEPENDENT_PROTOCOL_VALIDATION_BENCHMARKS,
+        "exact_100_per_benchmark": sample_limits
+        == {dataset: 100 for dataset in D4_INDEPENDENT_PROTOCOL_VALIDATION_BENCHMARKS},
+        "selection_hashes_frozen": set(expected_hashes)
+        == D4_INDEPENDENT_PROTOCOL_VALIDATION_BENCHMARKS
+        and all(re.fullmatch(r"[0-9a-f]{64}", str(value)) for value in expected_hashes.values()),
+    }
 
 
 def _require_passing_gate(

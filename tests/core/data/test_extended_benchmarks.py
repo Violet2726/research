@@ -6,7 +6,9 @@ import json
 import zipfile
 from pathlib import Path
 
-from research_experiments.core.config import load_benchmark_config
+import pytest
+
+from research_experiments.core.config import BenchmarkConfig, load_benchmark_config
 from research_experiments.core.data.datasets import load_samples
 from research_experiments.core.data.evaluation import normalize_prediction, score_prediction
 
@@ -120,11 +122,165 @@ def test_math_expression_normalization_handles_fraction_notation_and_unordered_s
     predicted_roots = r"-2+\sqrt3,2+\sqrt{3}"
     assert normalize_prediction("competition_math", gold_roots) == normalize_prediction("competition_math", predicted_roots)
     assert score_prediction("competition_math", predicted_roots, gold_roots) == 1.0
-
     gold_integer = "17700"
     predicted_with_comma = "17,700"
     assert normalize_prediction("competition_math", gold_integer) == normalize_prediction("competition_math", predicted_with_comma)
     assert score_prediction("competition_math", predicted_with_comma, gold_integer) == 1.0
+
+
+def test_bbeh_extension_loader_requires_provenance_and_preserves_task(tmp_path: Path) -> None:
+    source = tmp_path / "extension.jsonl"
+    source.write_text(
+        json.dumps(
+            {
+                "record_id": "ext-001",
+                "task": "shuffled_objects",
+                "input": "At the start there are A and B. Swap A and B. What is at the end?\n(A) A\n(B) B",
+                "target": "(A)",
+                "provenance": {
+                    "source_id": "generator-001",
+                    "source_sha256": "a" * 64,
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    samples = load_samples(_d4_config("bbeh_extension", "bbeh_extension_jsonl", source))
+    assert len(samples) == 1
+    assert samples[0].sample_id == "ext-001"
+    assert samples[0].metadata["task"] == "shuffled_objects"
+    assert samples[0].metadata["provenance"]["source_sha256"] == "a" * 64
+    assert samples[0].metadata["extension_schema"] == "catch_d4_bbeh_extension_record_v1"
+
+
+def test_bbeh_extension_loader_rejects_missing_or_duplicate_provenance(tmp_path: Path) -> None:
+    source = tmp_path / "extension.jsonl"
+    base = {
+        "record_id": "ext-001",
+        "task": "shuffled_objects",
+        "input": "Question",
+        "target": "A",
+    }
+    source.write_text(json.dumps(base) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="provenance"):
+        load_samples(_d4_config("bbeh_extension", "bbeh_extension_jsonl", source))
+    base["provenance"] = {"source_id": "generator", "source_sha256": "a" * 64}
+    source.write_text(json.dumps(base) + "\n" + json.dumps(base) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate"):
+        load_samples(_d4_config("bbeh_extension", "bbeh_extension_jsonl", source))
+
+
+def test_supergpqa_science_loader_matches_official_schema_and_gold(tmp_path: Path) -> None:
+    source = tmp_path / "science.jsonl"
+    source.write_text(
+        json.dumps(
+            {
+                "uuid": "a" * 32,
+                "question": "Which field studies stars?",
+                "options": ["Physics", "Biology", "Chemistry", "History"],
+                "answer": "Physics",
+                "answer_letter": "A",
+                "discipline": "Science",
+                "field": "Physics",
+                "subfield": "Astrophysics",
+                "difficulty": "middle",
+                "is_calculation": False,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    samples = load_samples(_d4_config("supergpqa_science", "supergpqa_science_jsonl", source))
+    assert len(samples) == 1
+    sample = samples[0]
+    assert sample.reference_answer == "A|||Physics"
+    assert sample.metadata["domain"] == "Physics"
+    assert sample.metadata["subfield"] == "Astrophysics"
+    assert sample.metadata["dataset_schema"] == "supergpqa_official_science_v1"
+
+
+def test_supergpqa_science_loader_rejects_non_science_and_gold_mismatch(tmp_path: Path) -> None:
+    source = tmp_path / "science.jsonl"
+    record = {
+        "uuid": "b" * 32,
+        "question": "Question",
+        "options": ["one", "two"],
+        "answer": "two",
+        "answer_letter": "A",
+        "discipline": "Science",
+        "field": "Physics",
+        "subfield": "Mechanics",
+    }
+    source.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="disagree"):
+        load_samples(_d4_config("supergpqa_science", "supergpqa_science_jsonl", source))
+    record["answer_letter"] = "B"
+    record["discipline"] = "Engineering"
+    source.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="outside"):
+        load_samples(_d4_config("supergpqa_science", "supergpqa_science_jsonl", source))
+
+
+def test_musr_x_loader_preserves_latent_identity_and_deterministic_gold(tmp_path: Path) -> None:
+    source = tmp_path / "musr_x.jsonl"
+    source.write_text(
+        json.dumps(
+            {
+                "record_id": "musr-x-001",
+                "task": "object_placements",
+                "latent_graph_sha256": "c" * 64,
+                "narrative": "A key moved from the table to the drawer.",
+                "question": "Where is the key?",
+                "choices": ["table", "drawer", "shelf"],
+                "answer_index": 1,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    samples = load_samples(_d4_config("musr_x", "musr_x_jsonl", source))
+    assert len(samples) == 1
+    sample = samples[0]
+    assert sample.metadata["task"] == "object_placements"
+    assert sample.metadata["latent_graph_sha256"] == "c" * 64
+    assert sample.metadata["answer_text"] == "drawer"
+    assert sample.reference_answer.endswith("|||drawer")
+
+
+def test_musr_x_loader_rejects_duplicate_latent_graphs(tmp_path: Path) -> None:
+    source = tmp_path / "musr_x.jsonl"
+    record = {
+        "record_id": "musr-x-001",
+        "task": "team_allocation",
+        "latent_graph_sha256": "d" * 64,
+        "narrative": "Two people must perform two tasks.",
+        "question": "Which allocation works?",
+        "choices": ["first", "second"],
+        "answer_index": 0,
+    }
+    second = {**record, "record_id": "musr-x-002"}
+    source.write_text(json.dumps(record) + "\n" + json.dumps(second) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="latent_graph_sha256"):
+        load_samples(_d4_config("musr_x", "musr_x_jsonl", source))
+
+
+def _d4_config(slug: str, loader: str, source: Path) -> BenchmarkConfig:
+    return BenchmarkConfig(
+        name=slug,
+        slug=slug,
+        loader=loader,
+        source_path=str(source),
+        source_split="sealed",
+        sample_id_prefix=slug,
+        question_field="question",
+        answer_field="answer",
+        smoke_size=1,
+        pilot_size=1,
+        main_size=1,
+        random_seed=42,
+        notes="D4 loader fixture",
+    )
 
 
 def test_math_expression_normalization_handles_latex_trig_function_commands() -> None:

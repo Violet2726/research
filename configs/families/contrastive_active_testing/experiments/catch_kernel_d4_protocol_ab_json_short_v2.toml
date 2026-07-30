@@ -1,5 +1,5 @@
-name = "catch_kernel_d4_protocol_ab_tagged"
-description = "D4 Stage-A-only output reliability A/B arm: tagged text on 300 development samples (1500 turns), sufficient to certify a <0.2% parse-failure rate if no failures occur."
+name = "catch_kernel_d4_protocol_ab_json_short_v2"
+description = "D4 Stage-A-only output reliability A/B arm: reasoning-first JSON with short-reasoning prompt variant and the unchanged high completion-token cap."
 study_type = "catch_kernel_cross_domain_development"
 confirmatory = false
 kernel_revision = "d4_proof_carrying_v1"
@@ -17,7 +17,8 @@ max_concurrent_requests = 75
 requests_per_minute_limit = 95
 
 [d4_output]
-stage_a_protocol = "tagged_text"
+stage_a_protocol = "reasoning_first_json"
+prompt_variant = "short_reasoning_v3"
 parse_failure_target = 0.002
 accuracy_noninferiority_margin = 0.005
 conflicts_fail_closed = true
@@ -44,5 +45,5 @@ sample_limits = { bbeh = 100, musr = 100, gpqa_diamond = 100 }
 selection_strategy = "frozen_manifest"
 selection_seed = 42
 run_direct_judge = false
-evaluation_role = "d4_output_protocol_ab_tagged_text"
+evaluation_role = "d4_output_protocol_ab_reasoning_first_json_short_v2"
 expected_selection_sha256 = { bbeh = "d9cc039397c58bb0fc9b0b64c8240b6a69272210889272e57e3696e4635e4754", musr = "a53ac7cb792c371cbca4beb1bf02f3ffdad611866dde41962455dcd0aded02b8", gpqa_diamond = "1edfb485a600590bf96ac8abac617561ae9d4484faa10a8e4af6ecf7a894dcd4" }

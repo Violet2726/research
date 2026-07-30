@@ -1,0 +1,23 @@
+{
+  "schema": "catch_d4_text_sealed_manifest_v1",
+  "dataset_id": "bbeh_extension",
+  "source_repository": "https://REPLACE_WITH_CUSTODIAN_SOURCE_REPOSITORY",
+  "source_revision": "PIN_FULL_40_CHARACTER_SOURCE_COMMIT",
+  "source_asset_sha256": "HASH_THE_SEALED_JSONL_ASSET",
+  "license_id": "RECORD_THE_DATA_LICENSE",
+  "partition_protocol_sha256": "HASH_THE_FROZEN_SPLIT_PROTOCOL",
+  "dedup_audit_relative_path": "bbeh_extension_dedup_audit.json",
+  "dedup_audit_sha256": "HASH_THE_LINKED_DEDUP_AUDIT",
+  "custodian_id": "INDEPENDENT_CUSTODIAN_IDENTIFIER",
+  "independent_custodian": true,
+  "seed": 42,
+  "split_order": ["development", "human_audit", "confirmation"],
+  "splits": {
+    "development": [],
+    "human_audit": [],
+    "confirmation": []
+  },
+  "contains_text": false,
+  "contains_gold": false,
+  "sha256": "COMPUTE_AFTER_POPULATION"
+}
