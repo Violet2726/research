@@ -677,6 +677,7 @@ def _execute_json_turn(
             seed=seed,
             use_response_format=True,
             max_tokens=max_tokens,
+            response_validator=lambda response: parser(str(response.get("assistant_text") or "")),
         )
         requests.append(request)
         response = request.response_payload

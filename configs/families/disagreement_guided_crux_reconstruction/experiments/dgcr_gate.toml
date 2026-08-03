@@ -8,10 +8,7 @@ max_concurrent_requests = 15
 requests_per_minute_limit = 18
 provider_audit_path = "configs/families/disagreement_guided_crux_reconstruction/provider_audits/dgcr_provider_audit_v1.json"
 
-[cache_namespaces]
-provider_audit = "dgcr-provider-audit-v1"
-development = "dgcr-dev-v1"
-heldout = "dgcr-heldout-v1"
+cache_policy = "global_validated_response_v3"
 
 [phases.development]
 benchmark_slugs = ["bbeh"]

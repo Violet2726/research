@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from research_experiments.core.execution.cache import (
+    CACHE_KEY_POLICY_VERSION,
     CachedResponse,
     RequestCache,
     RequestCacheRouter,
@@ -25,9 +26,7 @@ def test_request_cache_round_trip(tmp_path: Path) -> None:
         cache_key="abc",
         payload_json=json_dump({"a": 1}),
         response_json=json_dump({"b": 2}),
-        http_status=200,
-        latency_ms=12.5,
-        provider_request_id="req_1",
+        completion_tokens=12,
     )
     cache.put(record)
     loaded = cache.get("abc")
@@ -56,7 +55,7 @@ def test_build_request_cache_key_depends_only_on_payload() -> None:
     )
 
 
-def test_build_request_cache_key_tracks_payload_fields_without_special_cases() -> None:
+def test_build_request_cache_key_tracks_generation_fields_except_completion_cap() -> None:
     payload = {
         "model": "demo",
         "messages": [{"role": "user", "content": "hi"}],
@@ -72,6 +71,26 @@ def test_build_request_cache_key_tracks_payload_fields_without_special_cases() -
         request_model="demo_model",
         payload={**payload, "seed": 42},
     )
+    assert build_request_cache_key(
+        provider="demo_provider",
+        request_model="demo_model",
+        payload=payload,
+    ) != build_request_cache_key(
+        provider="demo_provider",
+        request_model="demo_model",
+        payload={**payload, "response_format": {"type": "json_object"}},
+    )
+    assert build_request_cache_key(
+        provider="demo_provider",
+        request_model="demo_model",
+        payload=payload,
+    ) == build_request_cache_key(
+        provider="demo_provider",
+        request_model="demo_model",
+        payload={**payload, "max_completion_tokens": 65_536},
+    )
+    assert normalize_payload_for_cache_key({**payload, "max_tokens": 2_048}) == payload
+    assert CACHE_KEY_POLICY_VERSION == "request_identity_without_completion_cap_v2"
 
 def test_cache_successful_response_rejects_failed_request(tmp_path: Path) -> None:
     cache = RequestCache(tmp_path / "requests.sqlite")
@@ -87,6 +106,28 @@ def test_cache_successful_response_rejects_failed_request(tmp_path: Path) -> Non
                 "latency_ms": 0.0,
                 "provider_request_id": "req_failed",
                 "request_error": "boom",
+            },
+        )
+    assert cache.get("abc") is None
+    cache.close()
+
+
+@pytest.mark.parametrize("finish_reason", ["length", "repetition_truncation", "", "tool_calls"])
+def test_cache_successful_response_rejects_completion_boundary_results(
+    tmp_path: Path,
+    finish_reason: str,
+) -> None:
+    cache = RequestCache(tmp_path / "requests.sqlite")
+    with pytest.raises(ValueError, match="must not be cached"):
+        cache_successful_response(
+            cache,
+            cache_key="abc",
+            payload={"model": "demo"},
+            response_payload={
+                "http_status": 200,
+                "finish_reason": finish_reason,
+                "assistant_text": "REASONING: x\nFINAL_ANSWER: y",
+                "latency_ms": 0.0,
             },
         )
     assert cache.get("abc") is None
@@ -146,16 +187,13 @@ def test_resolve_cache_shard_path_preserves_dataset_hierarchy(tmp_path: Path) ->
     assert resolved.as_posix().endswith("providers/xiaomimimo/mimo-v2-5/hotpotqa/validation/requests.sqlite")
 
 
-def test_cache_namespace_isolated_and_completion_cap_changes_key(tmp_path: Path) -> None:
+def test_global_cache_path_and_completion_cap_does_not_change_key(tmp_path: Path) -> None:
     payload = {"model": "mimo-v2.5", "messages": [{"role": "user", "content": "hi"}], "max_completion_tokens": 2048}
     changed_cap = {**payload, "max_completion_tokens": 16384}
-    assert build_request_cache_key(provider="xiaomimimo", request_model="mimo-v2.5", payload=payload) != build_request_cache_key(
+    assert build_request_cache_key(provider="xiaomimimo", request_model="mimo-v2.5", payload=payload) == build_request_cache_key(
         provider="xiaomimimo", request_model="mimo-v2.5", payload=changed_cap
     )
     default_path = resolve_cache_shard_path(tmp_path, provider="xiaomimimo", request_model="mimo-v2.5", dataset="bbeh")
-    namespaced_path = resolve_cache_shard_path(
-        tmp_path, provider="xiaomimimo", request_model="mimo-v2.5", dataset="bbeh", namespace="dgcr-dev-v1"
-    )
     assert "namespaces" not in default_path.parts
-    assert namespaced_path.as_posix().endswith("namespaces/dgcr-dev-v1/providers/xiaomimimo/mimo-v2-5/bbeh/requests.sqlite")
+    assert default_path.as_posix().endswith("providers/xiaomimimo/mimo-v2-5/bbeh/requests.sqlite")
 

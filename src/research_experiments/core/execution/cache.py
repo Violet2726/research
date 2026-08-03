@@ -13,6 +13,14 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+# The cache identity intentionally excludes only transport-side completion
+# ceilings.  A response that reached ``stop`` below a smaller ceiling is still
+# a complete response for the same deterministic request at a larger ceiling.
+# All other submitted generation fields remain part of the identity.
+CACHE_KEY_POLICY_VERSION = "request_identity_without_completion_cap_v2"
+_COMPLETION_CAP_FIELDS = frozenset({"max_completion_tokens", "max_tokens"})
+_UNCACHEABLE_FINISH_REASONS = frozenset({"length", "repetition_truncation"})
+
 
 @dataclass(frozen=True)
 class CachedResponse:
@@ -21,31 +29,26 @@ class CachedResponse:
     cache_key: str
     payload_json: str
     response_json: str
-    http_status: int
-    latency_ms: float
-    provider_request_id: str | None
+    completion_tokens: int | None = None
 
 
 REQUESTS_TABLE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS requests (
     cache_key TEXT PRIMARY KEY,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     payload_json TEXT NOT NULL,
     response_json TEXT NOT NULL,
-    http_status INTEGER NOT NULL,
-    latency_ms REAL NOT NULL,
-    provider_request_id TEXT
+    completion_tokens INTEGER
 )
 """
 
 REQUESTS_SELECT_COLUMNS = """
-rowid, cache_key, payload_json, response_json, http_status, latency_ms, provider_request_id
+rowid, cache_key, payload_json, response_json, completion_tokens
 """
 
 REQUESTS_INSERT_SQL = """
 INSERT OR REPLACE INTO requests (
-    cache_key, payload_json, response_json, http_status, latency_ms, provider_request_id
-) VALUES (?, ?, ?, ?, ?, ?)
+    cache_key, payload_json, response_json, completion_tokens
+) VALUES (?, ?, ?, ?)
 """
 
 
@@ -67,7 +70,7 @@ class RequestCache:
             row = self._execute_with_recovery(
                 lambda: self.connection.execute(
                     """
-                    SELECT cache_key, payload_json, response_json, http_status, latency_ms, provider_request_id
+                    SELECT cache_key, payload_json, response_json, completion_tokens
                     FROM requests
                     WHERE cache_key = ?
                     """,
@@ -90,9 +93,7 @@ class RequestCache:
                         record.cache_key,
                         record.payload_json,
                         record.response_json,
-                        record.http_status,
-                        record.latency_ms,
-                        record.provider_request_id,
+                        record.completion_tokens,
                     ),
                 )
                 self._pending_writes += 1
@@ -151,9 +152,8 @@ class RequestCache:
 class RequestCacheRouter:
     """Route provider/model/dataset tuples to cache shards."""
 
-    def __init__(self, cache_root: str | Path, *, namespace: str | None = None) -> None:
+    def __init__(self, cache_root: str | Path) -> None:
         self.cache_root = Path(cache_root)
-        self.namespace = _normalize_namespace(namespace)
         self.cache_root.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self._caches: dict[str, RequestCache] = {}
@@ -171,7 +171,6 @@ class RequestCacheRouter:
             provider=provider,
             request_model=request_model,
             dataset=dataset,
-            namespace=self.namespace,
         )
         with self._lock:
             cache = self._caches.get(shard_identity)
@@ -183,7 +182,6 @@ class RequestCacheRouter:
                     provider=provider,
                     request_model=request_model,
                     dataset=dataset,
-                    namespace=self.namespace,
                 )
             )
             self._caches[shard_identity] = cache
@@ -214,6 +212,7 @@ def build_request_cache_key(
     """Build a cache key from the real request identity."""
 
     fingerprint = {
+        "cache_key_policy": CACHE_KEY_POLICY_VERSION,
         "provider": provider,
         "request_model": request_model,
         "payload": normalize_payload_for_cache_key(payload),
@@ -224,10 +223,30 @@ def build_request_cache_key(
 def normalize_payload_for_cache_key(payload: dict[str, Any]) -> dict[str, Any]:
     """Return the canonical payload fingerprint used for cache keys."""
 
-    # Every submitted payload field is semantically relevant, including the
-    # provider's completion cap.  Historical caches that elided a cap are not
-    # valid confirmation evidence.
-    return dict(payload)
+    return {key: value for key, value in payload.items() if key not in _COMPLETION_CAP_FIELDS}
+
+
+def cache_rejection_reason(response_payload: dict[str, Any]) -> str | None:
+    """Return a stable reason when a provider response must not enter cache."""
+
+    if response_payload.get("request_error") is not None:
+        return "request_error"
+    http_status = response_payload.get("http_status")
+    if http_status is not None and (not isinstance(http_status, int) or not 200 <= http_status < 300):
+        return "non_success_http_status"
+    finish_reason = str(response_payload.get("finish_reason") or "").strip().lower()
+    if finish_reason in _UNCACHEABLE_FINISH_REASONS:
+        return f"finish_reason_{finish_reason}"
+    if finish_reason != "stop":
+        return "finish_reason_not_stop"
+    assistant_text = str(response_payload.get("assistant_text") or "")
+    if not assistant_text.strip():
+        return "empty_assistant_text"
+    if looks_like_soft_rejection(assistant_text):
+        return "soft_rejection"
+    if _is_truncated_output(assistant_text):
+        return "truncated_tagged_output"
+    return None
 
 
 def cache_successful_response(
@@ -236,33 +255,31 @@ def cache_successful_response(
     cache_key: str,
     payload: dict[str, Any],
     response_payload: dict[str, Any],
+    validated_output: dict[str, Any] | None = None,
 ) -> None:
-    """Persist only successful, parseable request results."""
+    """Persist only provider-successful responses that passed a validator."""
 
-    if response_payload.get("request_error") is not None:
-        raise ValueError("Request failures must not be cached.")
+    rejection = cache_rejection_reason(response_payload)
+    if rejection is not None:
+        raise ValueError(f"Response must not be cached: {rejection}.")
+    if validated_output is None:
+        raise ValueError("Response must not be cached without a validated output.")
 
-    # Reject API rejections (soft rejections)
-    assistant_text = str(response_payload.get("assistant_text") or "")
-    if looks_like_soft_rejection(assistant_text):
-        raise ValueError("API rejection responses must not be cached.")
-
-    # Reject truncated outputs (missing FINAL_ANSWER for free-text protocols)
-    if _is_truncated_output(assistant_text):
-        raise ValueError("Truncated outputs must not be cached.")
+    usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
+    completion_tokens = _completion_tokens(usage)
+    cached_response = {
+        "assistant_text": str(response_payload.get("assistant_text") or ""),
+        "provider_reasoning_text": str(response_payload.get("provider_reasoning_text") or ""),
+        "finish_reason": "stop",
+        "validated_output": validated_output,
+    }
 
     cache.put(
         CachedResponse(
             cache_key=cache_key,
-            payload_json=json_dump(payload),
-            response_json=json_dump(response_payload),
-            http_status=int(response_payload.get("http_status") or 0),
-            latency_ms=float(response_payload.get("latency_ms") or 0.0),
-            provider_request_id=(
-                str(response_payload["provider_request_id"])
-                if response_payload.get("provider_request_id") is not None
-                else None
-            ),
+            payload_json=json_dump(normalize_payload_for_cache_key(payload)),
+            response_json=json_dump(cached_response),
+            completion_tokens=completion_tokens,
         )
     )
 
@@ -273,14 +290,10 @@ def resolve_cache_shard_path(
     provider: str,
     request_model: str,
     dataset: str,
-    namespace: str | None = None,
 ) -> Path:
     """Resolve the shard path for a provider/model/dataset tuple."""
 
     root = Path(cache_root)
-    normalized_namespace = _normalize_namespace(namespace)
-    if normalized_namespace:
-        root = root / "namespaces" / _slugify_segment(normalized_namespace)
     return (
         root
         / "providers"
@@ -339,13 +352,12 @@ def repair_cache_shard(shard_path: str | Path) -> dict[str, Any]:
     }
 
 
-def _shard_identity(*, provider: str, request_model: str, dataset: str, namespace: str | None) -> str:
+def _shard_identity(*, provider: str, request_model: str, dataset: str) -> str:
     return json_dump(
         {
             "provider": provider,
             "request_model": request_model,
             "dataset": dataset,
-            "namespace": namespace,
         }
     )
 
@@ -365,15 +377,6 @@ def _slugify_dataset_path(dataset: str) -> Path:
         return Path("default")
     parts = [part for part in normalized.split("/") if part]
     return Path(*[_slugify_segment(part) for part in parts])
-
-
-def _normalize_namespace(value: str | None) -> str | None:
-    normalized = str(value or "").strip()
-    if not normalized:
-        return None
-    if normalized in {".", ".."} or "/" in normalized or "\\" in normalized:
-        raise ValueError("Cache namespace must be a single non-path segment.")
-    return normalized
 
 
 def _open_cache_connection(db_path: Path) -> sqlite3.Connection:
@@ -421,6 +424,17 @@ def _recover_cache_shard_rows(source_path: Path, target_path: Path) -> tuple[int
         source.close()
         target.close()
     return recovered_row_count, skipped_rowids
+
+
+def _completion_tokens(usage: Any) -> int | None:
+    if not isinstance(usage, dict):
+        return None
+    value = usage.get("completion_tokens")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
 
 
 def _read_rows_with_salvage(

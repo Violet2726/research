@@ -2,11 +2,33 @@
 
 Method name: **Risk-Calibrated Proof-Carrying Candidate Completion**.
 
+The sole executable D4 mainline is `catch_kernel_d4_mainline_v3`, implemented
+by `protocols/catch_kernel_d4_v3.toml`. It fixes tagged-text Stage-A and the
+65,536/65,536/32,768 solver/compiler/judge completion caps. Retired D4 JSON,
+answer-first, A/B, high-cap diagnostic, and v1/v2 protocol configurations are
+not executable fallbacks.
+
+## Executable state machine
+
+1. **Current terminal state:** the single allowed source-only compiler smoke is
+   hash-linked as `failed_blocking_downstream`; it cannot be rerun in a new
+   directory.
+2. Selection inspection and the live provider audit both require a passing,
+   current-mainline smoke artifact before they can read sealed rows or construct
+   a provider.
+3. The 300-record tagged validation additionally requires all three sealed
+   manifests and exact 100/100/100 selection hashes. It uses the project-wide
+   `global_validated_response_v3` cache; protocol and selection hashes remain
+   bound in the run manifest instead of the cache path.
+4. Calibration, semantic IR audit, risk freeze, and one-shot confirmation are
+   strictly downstream. No failure permits cap changes, row deletion,
+   resampling, or fallback to a retired protocol.
+
 ## Primary hypothesis
 
 Under one frozen backbone, no training, one shared Stage-A of five samples, and at most eight logical model calls per method, D4 should expand executable coverage while preserving a calibrated low-harm override policy. Candidate completion may emit a locally solved answer that was absent from the Stage-A candidate pool.
 
-The proof language is strictly conditional: `source -> SourceIRv2 -> local answer`. It is not a proof of natural-language/IR equivalence and never a proof of gold correctness.
+The proof language is strictly conditional: `source -> SourceIRv3 -> local answer`. It is not a proof of natural-language/IR equivalence and never a proof of gold correctness.
 
 ## Main methods
 
@@ -20,11 +42,15 @@ The main table contains exactly `SC5`, `fixed-SC8`, `D3-exact-only`, `SSV-raw`, 
 
 Task names may rule out an open-world task but do not authorize an executable route. Authorization requires a source signature, a closed query operator, a valid answer contract, and a passing risk snapshot.
 
+For a semantic route, SourceIR v3 is the only compiler contract. Trusted host code binds the capability, query operator, answer contract, complete reversible span map, mandatory-span set, and IR hash. The model supplies only candidate-blind entities, facts, events, constraints, query, and `uncovered_span_ids`. Every compiler output must independently parse, solve uniquely, pass its reference checker and applicable metamorphic checks; the three canonical answers must agree. Their surface IR hashes need not match, and all three hashes, solver traces, and audits are retained in the proof package.
+
 ## Gates
+
+The one permitted 45-by-3 public-development SourceIR v3 compiler smoke completed on 2026-08-01 and failed its frozen stopping rules: 91/135 outputs passed the SourceIR v3 parser versus the required 122, and none of the nine capabilities produced a sample with three independently verified agreeing proof chains. All 135 requests ended with `stop`, there were no request errors or leakage findings, and the largest completion was 19,193 tokens under the 65,536 cap; the failure is therefore structural rather than a completion-cap shortage. Semantic activation and every downstream formal phase remain stopped. The immutable result and offline diagnosis are retained in `local/runs/contrastive_active_testing/catch_kernel_d4/source_compiler_smoke_v3_20260801` and `local/analysis/D4_SOURCE_IR_V3_SMOKE_20260801.md`; no prompt retry or resampling is authorized under this revision. The runner, selection inspector, and live provider-audit entry point all enforce this terminal smoke gate before data materialization or provider construction.
 
 The first completed D4 output-protocol A/B run on 2026-07-29 failed the original 0.2% parse gate for all three arms (tagged 7/1500, reasoning-first JSON 136/1500, answer-first JSON 219/1500). A later high-cap short-reasoning rerun also failed: reasoning-first JSON had 34/1500 parse failures and lost 6.67 percentage points of SC5 accuracy, while answer-first JSON had 66/1500 failures and lost 16 points. The recomputed evidence is retained in `local/analysis/D4_OUTPUT_PROTOCOL_AB_20260729.md`; neither JSON protocol can authorize calibration or confirmation. The evidence rejects answer-first JSON as the D4 default.
 
-The frozen Stage-A default is therefore the byte-for-byte legacy tagged-text prompt with the unchanged 16,384 completion-token cap. Deterministic parsing may accept case/space variants of the explicit final-answer label and a unique one-based option ordinal under a known single-choice contract; conflicts, missing answers, duplicate incompatible answers, and label/text mismatches remain fail-closed. Selective cache deletion and re-sampling of observed failures is forbidden as evidence.
+The frozen Stage-A default is therefore the byte-for-byte legacy tagged-text prompt with a 65,536 completion-token safety cap; source-compiler/resample turns use the same cap and judges use 32,768. Cache identity is `request_identity_without_completion_cap_v2`: it excludes only the two completion-cap field names and retains every other generation-semantic field. Requested and origin caps, usage, and finish reason remain in the turn audit. Only successful `stop` responses are reusable; length/repetition truncations, request errors, empty outputs, soft rejections, and D4 contract failures are not shared-cache entries. Each frozen D4 run separately keeps an append-only completion ledger, so an interrupted resume replays an already completed failure rather than making a new request. Deterministic parsing may accept case/space variants of the explicit final-answer label and a unique one-based option ordinal under a known single-choice contract; conflicts, missing answers, duplicate incompatible answers, and label/text mismatches remain fail-closed. Selective cache deletion and re-sampling of observed failures is forbidden as evidence.
 
 The original 0.2% per-turn threshold was an unsupported engineering constant and selected a protocol objective that was empirically anti-correlated with task accuracy. The revised operational contract targets the actual SC5 failure mode: on a fresh, frozen, independent protocol-validation sample, tagged text must have a per-turn parse/request-failure one-sided 95% Clopper-Pearson upper bound below 1%, and the probability that a sample has fewer than three valid answers out of five must also have an upper bound below 1%. Every sample must still have agent IDs 1-5 exactly once, and all failures are abstentions. The validation design is fixed at 300 samples: 100 custodian-sealed records each from a new BBEH extension, MuSR-X, and a deduplicated SuperGPQA Science subset. Its three selection hashes, manifest split, counts, and manifest expectations must be frozen before `sealed_data_ready=true`; the runner rejects missing or mismatched values before any task API call. The development result (7/1500 failures, zero quorum failures among 300 samples; bounds about 0.875% and 0.994%) motivated this revision and is not itself confirmation because the threshold was revised after inspection. A new hash-linked independent validation artifact is mandatory before risk calibration.
 
@@ -38,7 +64,7 @@ Confirmation is a hard gate: `confirmatory=true`, exact selection hashes, a vali
 
 The provider-specific `xiaomimimo_75x95_validated_v1` runtime profile records the previously validated 75-concurrent/95-RPM operating point. It is an execution profile, not part of the logical-call budget, and confirmation still requires a fresh live provider audit.
 
-Before any complete output-protocol arm or later calibration/confirmation run, `kernel-d4-provider-audit` must pass ten cache-bypassed live requests. Output-protocol A/B and independent-validation execution now enforce this artifact rather than relying on an operator checklist. This is a transport and payload-contract preflight, not evidence about task accuracy. A failed preflight blocks the larger run; transport failures with zero completion tokens must never be counted as output-protocol parse failures.
+Before independent validation or later calibration/confirmation, `kernel-d4-provider-audit` must pass ten cache-bypassed live requests, including the 32K and 64K payload caps. This is a transport and payload-contract preflight, not evidence about task accuracy. A failed preflight blocks the larger run; transport failures with zero completion tokens must never be counted as output-protocol parse failures.
 
 ## Data independence
 

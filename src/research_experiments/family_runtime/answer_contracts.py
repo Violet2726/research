@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -118,6 +117,10 @@ def execute_answer_contract_turn(
         seed=seed,
         use_response_format=use_response_format,
         request_executor=request_executor,
+        response_validator=lambda response: _admit_answer_contract_response(
+            response,
+            dataset=dataset,
+        ),
     )
     return _finalize_turn_result(request, dataset=dataset)
 
@@ -259,7 +262,6 @@ def _parse_answer_contract_response(raw_text: str, *, dataset: str) -> ParsedAns
             answer_field_consistent=False,
             reasoning_present=False,
         )
-
     try:
         validated = validate_structured_output(cleaned, SCHEMA_ANSWER_ANCHOR_V2, dataset=dataset)
         return ParsedAnswerContract(
@@ -281,6 +283,16 @@ def _parse_answer_contract_response(raw_text: str, *, dataset: str) -> ParsedAns
             answer_field_consistent=False,
             reasoning_present=False,
         )
+
+
+def _admit_answer_contract_response(response_payload: dict[str, Any], *, dataset: str) -> dict[str, Any]:
+    parsed = _parse_answer_contract_response(
+        str(response_payload.get("assistant_text") or ""),
+        dataset=dataset,
+    )
+    if parsed.status != "ok":
+        raise ValueError(parsed.error or "Answer contract validation failed.")
+    return parsed.validated_output
 
 
 def _raw_finish_reason(response_payload: dict[str, Any]) -> str | None:

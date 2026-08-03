@@ -81,7 +81,7 @@ def _turn_contract_hashes(turns: list[dict[str, Any]]) -> dict[str, Any]:
             (
                 str(row.get("role") or ""),
                 str(row.get("cache_key") or ""),
-                str(row.get("cache_namespace") or ""),
+                str(row.get("cache_policy") or ""),
                 str(row.get("request_source") or ""),
             )
             for row in rows

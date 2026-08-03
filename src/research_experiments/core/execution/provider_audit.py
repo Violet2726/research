@@ -18,7 +18,6 @@ def run_mimo_provider_audit(
     *,
     backbone,
     provider,
-    cache_namespace: str = "dgcr-provider-audit-v1",
 ) -> dict[str, Any]:
     """Run ten uncached requests and report, rather than assume, seed behavior.
 
@@ -29,8 +28,9 @@ def run_mimo_provider_audit(
     specs: list[tuple[str, int, int]] = [
         (AUDIT_PROMPTS[0], 2_048, 42),
         (AUDIT_PROMPTS[0], 4_096, 42),
-        (AUDIT_PROMPTS[1], 16_384, 42),
-        *[(AUDIT_PROMPTS[0], 2_048, 42) for _ in range(4)],
+        (AUDIT_PROMPTS[1], 32_768, 42),
+        (AUDIT_PROMPTS[1], 65_536, 42),
+        *[(AUDIT_PROMPTS[0], 2_048, 42) for _ in range(3)],
         (AUDIT_PROMPTS[0], 2_048, 41),
         (AUDIT_PROMPTS[0], 2_048, 43),
         (AUDIT_PROMPTS[0], 2_048, 44),
@@ -60,10 +60,9 @@ def run_mimo_provider_audit(
                 response=response,
                 cap=cap,
                 seed=seed,
-                cache_namespace=cache_namespace,
             )
         )
-    report = evaluate_mimo_provider_audit(records, expected_cache_namespace=cache_namespace)
+    report = evaluate_mimo_provider_audit(records, expected_cache_policy="live_only")
     report["provider"] = backbone.provider
     report["model_id"] = backbone.model_id
     return report
@@ -72,7 +71,7 @@ def run_mimo_provider_audit(
 def evaluate_mimo_provider_audit(
     records: Iterable[dict[str, Any]],
     *,
-    expected_cache_namespace: str | None = None,
+    expected_cache_policy: str | None = None,
 ) -> dict[str, Any]:
     """Evaluate audit records; suitable for deterministic unit tests."""
 
@@ -124,9 +123,9 @@ def evaluate_mimo_provider_audit(
             for row in rows
         ),
     }
-    if expected_cache_namespace is not None:
-        conditions["all_records_use_expected_audit_namespace"] = bool(rows) and all(
-            row.get("cache_namespace") == expected_cache_namespace for row in rows
+    if expected_cache_policy is not None:
+        conditions["all_records_use_live_only_cache_policy"] = bool(rows) and all(
+            row.get("cache_policy") == expected_cache_policy for row in rows
         )
     return {
         "audit_kind": "mimo_live_provider_contract_v1",
@@ -149,7 +148,6 @@ def _audit_record(
     response: dict[str, Any],
     cap: int,
     seed: int,
-    cache_namespace: str,
 ) -> dict[str, Any]:
     usage = dict(response.get("usage_reported") or {})
     completion_details = usage.get("completion_tokens_details") or {}
@@ -157,7 +155,7 @@ def _audit_record(
     return {
         "index": index,
         "payload": payload,
-        "cache_namespace": cache_namespace,
+        "cache_policy": "live_only",
         "request_source": "live_uncached_provider_audit",
         "cache_hit": False,
         "prompt_kind": "one" if "one" in str(payload["messages"][0]["content"]) else "two",

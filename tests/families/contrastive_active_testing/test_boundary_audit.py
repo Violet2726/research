@@ -42,12 +42,7 @@ def test_boundary_config_is_nonconfirmatory_isolated_and_capped() -> None:
         "seqbench",
         "gpqa_diamond",
     ]
-    assert set(experiment.cache_namespaces.values()) == {
-        "catch-boundary-v3-bbeh",
-        "catch-boundary-v3-musr",
-        "catch-boundary-v3-seqbench",
-        "catch-boundary-v3-gpqa",
-    }
+    assert experiment.cache_policy == "global_validated_response_v3"
     assert verify_frozen_v3_mechanism()["exact_component_hash_match"] is True
 
 

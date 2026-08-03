@@ -24,13 +24,12 @@ from research_experiments.core.data.datasets import (
     select_samples,
 )
 from research_experiments.core.data.evaluation import score_prediction
-from research_experiments.core.execution.cache import RequestCacheRouter
+from research_experiments.core.execution.cache import CACHE_KEY_POLICY_VERSION, RequestCacheRouter
 from research_experiments.core.execution.provider_audit import evaluate_mimo_provider_audit
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
 from research_experiments.core.execution.rate_limits import RequestThrottle
 from research_experiments.core.execution.runtime import RunProgressTracker, build_run_id
 from research_experiments.families.contrastive_active_testing.algorithms import build_stage_decision
-from research_experiments.families.contrastive_active_testing.cache_layers import ReadThroughRequestCache
 from research_experiments.families.contrastive_active_testing.cert_prompts import (
     CERT_PROMPT_VERSION,
     CERT_SCHEMA_VERSION,
@@ -49,12 +48,16 @@ from research_experiments.families.contrastive_active_testing.d4_audit import (
     evaluate_d4_human_audit,
     validate_d4_gate_evidence,
 )
+from research_experiments.families.contrastive_active_testing.d4_contract import (
+    D4_MAINLINE_PROTOCOL_VERSION,
+    D4_SOURCE_COMPILER_SMOKE_PASSED,
+)
 from research_experiments.families.contrastive_active_testing.d4_data import (
     text_sha256,
     validate_sealed_manifest,
     validate_text_sealed_manifest,
 )
-from research_experiments.families.contrastive_active_testing.d4_protocol_ab import (
+from research_experiments.families.contrastive_active_testing.d4_protocol_validation import (
     validate_tagged_protocol_validation_assessment,
 )
 from research_experiments.families.contrastive_active_testing.icv import build_target_pairs
@@ -93,6 +96,9 @@ from research_experiments.families.contrastive_active_testing.prompts import (
     CATCH_SCHEMA_VERSION,
 )
 from research_experiments.families.contrastive_active_testing.replay import replay_canonicalization
+from research_experiments.families.contrastive_active_testing.run.d4_ledger import (
+    D4CompletionLedger,
+)
 from research_experiments.families.contrastive_active_testing.run.lifecycle import (
     render_report_with_fallback,
     write_nonblocking_validation,
@@ -117,29 +123,11 @@ from research_experiments.family_runtime.layout import prepare_registered_run_la
 from research_experiments.family_runtime.manifest import finalize_family_manifest
 from research_experiments.workspace.layout import default_cache_root, default_runs_root
 
-D4_OUTPUT_PROTOCOL_AB_SOURCE_CONTRACT = {
-    "tagged_text": (
-        "d4_output_protocol_ab_tagged_text",
-        "tagged_text",
-        "legacy",
-    ),
-    "reasoning_first_json": (
-        "d4_output_protocol_ab_reasoning_first_json_short_v2",
-        "reasoning_first_json",
-        "short_reasoning_v3",
-    ),
-    "answer_first_json": (
-        "d4_output_protocol_ab_answer_first_json_short_v2",
-        "answer_first_json",
-        "short_reasoning_v3",
-    ),
-}
 D4_OUTPUT_PROTOCOL_ONLY_ROLE_PREFIXES = (
-    "d4_output_protocol_ab_",
     "d4_output_protocol_independent_validation_",
 )
 D4_INDEPENDENT_PROTOCOL_VALIDATION_ROLE = (
-    "d4_output_protocol_independent_validation_tagged_v2"
+    "d4_output_protocol_independent_validation_tagged_v3"
 )
 D4_INDEPENDENT_PROTOCOL_VALIDATION_DATA_ROLE = (
     "fresh_independent_protocol_validation_after_prompt_freeze"
@@ -151,32 +139,92 @@ D4_INDEPENDENT_PROTOCOL_VALIDATION_BENCHMARKS = {
 }
 
 
+def d4_source_compiler_smoke_snapshot(experiment) -> dict[str, Any]:
+    """Read the configured smoke result without changing its frozen status."""
+
+    status = str(experiment.raw.get("source_compiler_smoke_status") or "")
+    path = Path(str(experiment.raw.get("source_compiler_smoke_result_path") or ""))
+    expected_sha = str(experiment.raw.get("source_compiler_smoke_result_sha256") or "")
+    snapshot: dict[str, Any] = {
+        "configured_status": status,
+        "path": path.as_posix(),
+        "expected_sha256": expected_sha,
+        "artifact_available": path.is_file(),
+        "artifact_valid": False,
+        "mainline_compatible": False,
+        "artifact_passed": False,
+    }
+    if not path.is_file():
+        return snapshot
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return snapshot
+    actual_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest_path = path.with_name("manifest.json")
+    manifest: dict[str, Any] = {}
+    if manifest_path.is_file():
+        try:
+            loaded_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(loaded_manifest, dict):
+                manifest = loaded_manifest
+        except (OSError, json.JSONDecodeError):
+            pass
+    manifest_protocol = dict(manifest.get("protocol") or {})
+    mainline_compatible = (
+        payload.get("d4_mainline_protocol_version") == D4_MAINLINE_PROTOCOL_VERSION
+        and manifest.get("d4_mainline_protocol_version") == D4_MAINLINE_PROTOCOL_VERSION
+        and manifest.get("protocol_sha256") == payload.get("protocol_sha256")
+        and manifest_protocol.get("solver_max_tokens") == 65_536
+        and manifest_protocol.get("role_max_tokens") == 65_536
+        and manifest_protocol.get("judge_max_tokens") == 32_768
+    )
+    snapshot.update(
+        {
+            "actual_sha256": actual_sha,
+            "artifact_valid": actual_sha == expected_sha
+            and payload.get("schema") == "catch_d4_source_compiler_smoke_v1",
+            "mainline_compatible": mainline_compatible,
+            "artifact_passed": payload.get("passed") is True,
+            "run_id": payload.get("run_id"),
+        }
+    )
+    return snapshot
+
+
+def require_passing_d4_source_compiler_smoke(experiment) -> dict[str, Any]:
+    """Fail closed unless the configured, hash-linked D4 smoke passed."""
+
+    snapshot = d4_source_compiler_smoke_snapshot(experiment)
+    if not (
+        snapshot["configured_status"] == D4_SOURCE_COMPILER_SMOKE_PASSED
+        and snapshot["artifact_valid"]
+        and snapshot["mainline_compatible"]
+        and snapshot["artifact_passed"]
+    ):
+        raise RuntimeError(
+            "D4 downstream execution is blocked by the frozen SourceIR v3 compiler smoke: "
+            f"{snapshot}."
+        )
+    return snapshot
+
+
 @dataclass(frozen=True)
 class CatchEndpoint:
     backbone: object
     provider: OpenAICompatibleProvider
-    baseline_cache: object
-    intervention_cache: object
+    cache: object
     throttle: RequestThrottle
-    cache_namespace: str
-    baseline_cache_namespace: str | tuple[str, ...] | None = None
-    intervention_cache_namespaces: tuple[str, ...] = ()
     stop_event: Event | None = None
+    completion_ledger: D4CompletionLedger | None = None
 
     def cache_for_role(self, role: str):
-        if role in {"stage_a_solver", "independent_resample", "direct_judge", "pair_judge"}:
-            return self.baseline_cache
-        return self.intervention_cache
+        del role
+        return self.cache
 
     def cache_lookup_namespaces_for_role(self, role: str) -> tuple[str, ...]:
-        if role in {"stage_a_solver", "independent_resample", "direct_judge", "pair_judge"} and self.baseline_cache_namespace:
-            predecessors = (
-                self.baseline_cache_namespace
-                if isinstance(self.baseline_cache_namespace, tuple)
-                else tuple(item for item in self.baseline_cache_namespace.split(",") if item)
-            )
-            return (self.cache_namespace, *predecessors)
-        return (self.cache_namespace, *self.intervention_cache_namespaces)
+        del role
+        return ("global_cache",)
 
 
 @dataclass(frozen=True)
@@ -195,6 +243,7 @@ def run_experiment(
     cache_root: str | Path | None = None,
     *,
     run_mode: str = "full",
+    resume_run_dir: str | Path | None = None,
 ) -> Path:
     if experiment.study_type == "post_failure_cross_domain_boundary_audit":
         if phase_name != "boundary_audit":
@@ -220,6 +269,10 @@ def run_experiment(
         is_d4_kernel_run
         and evaluation_role == D4_INDEPENDENT_PROTOCOL_VALIDATION_ROLE
     )
+    if is_d4_independent_protocol_validation or (
+        phase_name == "confirmation" and is_d4_kernel_run
+    ):
+        require_passing_d4_source_compiler_smoke(experiment)
     if (
         phase_name == "confirmation"
         and protocol.protocol_version == "catch_kernel_v1"
@@ -227,8 +280,8 @@ def run_experiment(
         and not bool(phase.get("sealed_data_ready", False))
     ):
         raise RuntimeError(
-            "D4 confirmation is blocked: sealed_data_ready=true is required after MuSR-X/SuperGPQA manifests "
-            "and BBEH unseen selection are frozen."
+            "D4 confirmation is blocked: sealed_data_ready=true is required after the BBEH-extension, "
+            "MuSR-X, and SuperGPQA Science manifests and selections are frozen."
         )
     if backbone.provider != "xiaomimimo":
         execution_warnings.append(f"provider_differs_from_original_study:{backbone.provider}")
@@ -309,22 +362,11 @@ def run_experiment(
     if phase_name in {"heldout", "confirmation"} and not is_d4_confirmation:
         execution_warnings.append("confirmatory_evidence_missing_or_not_enforced")
 
-    cache_namespace = experiment.cache_namespaces[phase_name]
+    cache_policy = "global_validated_response_v3"
     d4_human_audit = None
     d4_sealed_manifests = None
-    d4_protocol_ab = None
+    d4_protocol_validation = None
     d4_risk_evidence = None
-    if is_d4_output_protocol_only:
-        provider_audit = {
-            "required": True,
-            "status": "passed",
-            **_require_passing_provider_audit(
-                experiment.provider_audit_path,
-                expected_cache_namespace=experiment.cache_namespaces["confirmation"],
-                expected_provider=str(backbone.provider),
-                expected_model_id=str(backbone.model_id),
-            ),
-        }
     if is_d4_independent_protocol_validation:
         _validate_d4_independent_protocol_validation_config(
             experiment,
@@ -336,6 +378,17 @@ def run_experiment(
             expected_labels=D4_INDEPENDENT_PROTOCOL_VALIDATION_BENCHMARKS,
             expectations=dict(phase.get("sealed_manifest_expectations") or {}),
         )
+    if is_d4_output_protocol_only:
+        provider_audit = {
+            "required": True,
+            "status": "passed",
+            **_require_passing_provider_audit(
+                experiment.provider_audit_path,
+                expected_cache_policy="live_only",
+                expected_provider=str(backbone.provider),
+                expected_model_id=str(backbone.model_id),
+            ),
+        }
     if is_d4_confirmation:
         if not experiment.confirmatory:
             raise RuntimeError("D4 confirmation is blocked: confirmatory=true is required.")
@@ -345,8 +398,8 @@ def run_experiment(
         freeze_path = Path(str(experiment.raw.get("kernel_freeze_path") or ""))
         if not freeze_path.is_file():
             raise RuntimeError("D4 confirmation is blocked: kernel freeze is missing.")
-        d4_protocol_ab = _require_passing_d4_protocol_ab(
-            Path(str(experiment.raw.get("protocol_ab_assessment_path") or ""))
+        d4_protocol_validation = _require_passing_d4_protocol_validation(
+            Path(str(experiment.raw.get("protocol_validation_assessment_path") or ""))
         )
         d4_risk_evidence = _require_passing_d4_risk_evidence(experiment)
         d4_risk = dict(experiment.raw.get("d4_risk") or {})
@@ -369,26 +422,41 @@ def run_experiment(
             "status": "passed",
             **_require_passing_provider_audit(
                 experiment.provider_audit_path,
-                expected_cache_namespace=cache_namespace,
+                expected_cache_policy="live_only",
                 expected_provider=str(backbone.provider),
                 expected_model_id=str(backbone.model_id),
             ),
         }
+    resume_root = Path(resume_run_dir).resolve() if resume_run_dir is not None else None
+    if resume_root is not None:
+        if not is_d4_kernel_run:
+            raise ValueError("Only frozen D4 runs support --resume-run-dir.")
+        previous_manifest_path = resume_root / "manifest.json"
+        if not previous_manifest_path.is_file():
+            raise FileNotFoundError("D4 resume requires an existing manifest.json.")
+        previous_manifest = json.loads(previous_manifest_path.read_text(encoding="utf-8"))
+        if (
+            previous_manifest.get("experiment_name") != experiment.name
+            or previous_manifest.get("phase_name") != phase_name
+            or previous_manifest.get("frozen_config_sha256") != config_sha
+            or previous_manifest.get("cache_policy") != cache_policy
+            or previous_manifest.get("schema_version") != D4_IR_SCHEMA
+        ):
+            raise ValueError("D4 resume manifest does not match the frozen experiment, phase, protocol, and cache policy.")
+        if str(previous_manifest.get("run_status") or "") in {"completed", "completed_with_errors"}:
+            raise ValueError("A terminal D4 run cannot be resumed.")
     provider = OpenAICompatibleProvider(backbone)
-    active_router = RequestCacheRouter(cache_root, namespace=cache_namespace)
-    baseline_namespace = experiment.baseline_cache_namespaces.get(phase_name)
-    baseline_namespaces = tuple(item for item in str(baseline_namespace or "").split(",") if item)
-    baseline_routers = [RequestCacheRouter(cache_root, namespace=item) for item in baseline_namespaces]
+    active_router = RequestCacheRouter(cache_root)
     throttle = RequestThrottle.for_model(
         backbone,
         max_concurrent_requests=experiment.max_concurrent_requests,
         requests_per_minute=experiment.requests_per_minute_limit,
     )
     network_budget = NetworkAttemptBudget(protocol.max_network_attempts)
-    run_id = build_run_id(backbone.name)
+    run_id = resume_root.name if resume_root is not None else build_run_id(backbone.name)
     layout = prepare_registered_run_layout(
         "contrastive_active_testing",
-        run_root,
+        resume_root.parents[2] if resume_root is not None else run_root,
         experiment.name,
         phase_name,
         run_id,
@@ -491,6 +559,11 @@ def run_experiment(
                 "D4 independent protocol validation requires exactly 100 sealed records from each "
                 "of BBEH-extension, MuSR-X, and SuperGPQA Science."
             )
+    d4_completion_ledger = (
+        D4CompletionLedger(layout.root / "diagnostics" / "d4_completion_ledger.jsonl")
+        if is_d4_kernel_run
+        else None
+    )
     endpoints: dict[str, CatchEndpoint] = {}
     stop_event = Event()
     for benchmark in benchmarks:
@@ -499,31 +572,13 @@ def run_experiment(
             request_model=backbone.model_id,
             dataset=benchmark.slug,
         )
-        fallback_caches = [
-            (
-                router.for_request_target(
-                    provider=backbone.provider,
-                    request_model=backbone.model_id,
-                    dataset=benchmark.slug,
-                ),
-                namespace,
-            )
-            for router, namespace in zip(baseline_routers, baseline_namespaces, strict=True)
-        ]
-        baseline_cache = ReadThroughRequestCache(
-            active_cache,
-            primary_namespace=cache_namespace,
-            fallbacks=fallback_caches,
-        )
         endpoints[benchmark.slug] = CatchEndpoint(
             backbone=backbone,
             provider=provider,
-            baseline_cache=baseline_cache,
-            intervention_cache=active_cache,
+            cache=active_cache,
             throttle=throttle,
-            cache_namespace=cache_namespace,
-            baseline_cache_namespace=baseline_namespaces or None,
             stop_event=stop_event,
+            completion_ledger=d4_completion_ledger,
         )
     jobs: list[CatchSampleJob] = []
     sequence_index = 0
@@ -532,6 +587,30 @@ def run_experiment(
         for sample in selected_by_benchmark[benchmark.slug]:
             jobs.append(CatchSampleJob(sequence_index, sample, split_name, endpoints[benchmark.slug]))
             sequence_index += 1
+    resume_turns = _read_jsonl(layout.agent_turns) if resume_root is not None else []
+    resume_routers = _read_jsonl(layout.router_decisions) if resume_root is not None else []
+    resume_predictions = _read_jsonl(layout.predictions) if resume_root is not None else []
+    resume_prediction_counts: dict[tuple[str, str], int] = defaultdict(int)
+    for row in resume_predictions:
+        resume_prediction_counts[(str(row.get("dataset") or ""), str(row.get("sample_id") or ""))] += 1
+    required_resume_predictions = 1 if is_d4_output_protocol_only else 6
+    resumed_sample_keys = {
+        (str(row.get("dataset") or ""), str(row.get("sample_id") or ""))
+        for row in resume_routers
+        if row.get("dataset")
+        and row.get("sample_id")
+        and (
+            isinstance(row.get("sample_error"), dict)
+            or resume_prediction_counts[(str(row.get("dataset") or ""), str(row.get("sample_id") or ""))]
+            >= required_resume_predictions
+        )
+    }
+    if resume_root is not None:
+        jobs = [
+            job
+            for job in jobs
+            if (str(job.sample.dataset), str(job.sample.sample_id)) not in resumed_sample_keys
+        ]
     cert_screening_mode = bool(
         protocol.protocol_version in {"catch_cert_v1", "catch_cert_v2", "catch_kernel_v1"}
         and phase_name == "development"
@@ -637,6 +716,9 @@ def run_experiment(
             ),
             "method_version": protocol.protocol_version,
             "protocol_version": protocol.protocol_version,
+            "d4_mainline_protocol_version": (
+                D4_MAINLINE_PROTOCOL_VERSION if is_d4_kernel_run else None
+            ),
             "kernel_revision": (
                 str(experiment.raw.get("kernel_revision") or "d1_pairwise_v1")
                 if protocol.protocol_version == "catch_kernel_v1"
@@ -700,9 +782,9 @@ def run_experiment(
                 else CATCH_SCHEMA_VERSION
             ),
             "global_seed": experiment.global_seed,
-            "cache_namespace": cache_namespace,
-            "baseline_read_cache_namespace": baseline_namespace,
-            "request_source": "role_aware_versioned_catch_cache",
+            "cache_policy": cache_policy,
+            "cache_key_policy": CACHE_KEY_POLICY_VERSION,
+            "request_source": "global_validated_response_cache",
             "provider_audit": provider_audit,
             "preflight_dependency": preflight_dependency,
             "readiness_assessment": readiness_assessment,
@@ -732,9 +814,12 @@ def run_experiment(
                 if str(experiment.raw.get("kernel_revision") or "") == "d4_proof_carrying_v1"
                 else None
             ),
+            "d4_source_compiler_smoke": (
+                d4_source_compiler_smoke_snapshot(experiment) if is_d4_kernel_run else None
+            ),
             "d4_human_audit": d4_human_audit if is_d4_confirmation else None,
             "d4_sealed_manifests": d4_sealed_manifests,
-            "d4_output_protocol_ab": d4_protocol_ab if is_d4_confirmation else None,
+            "d4_output_protocol_validation": d4_protocol_validation if is_d4_confirmation else None,
             "d4_risk_evidence_validation": d4_risk_evidence if is_d4_confirmation else None,
             "planned_sample_count": total_planned_samples,
             "screening_sample_count_per_dataset": int(phase.get("screening_sample_count") or 0)
@@ -790,15 +875,24 @@ def run_experiment(
             "calls_per_triggered_question_upper_bound": calls_per_triggered,
             "preflight_call_upper_bound": preflight_call_upper_bound,
             "run_status": "running",
+            "resume_source_run_dir": resume_root.as_posix() if resume_root is not None else None,
+            "resume_completed_sample_count": len(resumed_sample_keys),
+            "d4_completion_ledger": (
+                "diagnostics/d4_completion_ledger.jsonl" if d4_completion_ledger is not None else None
+            ),
             "dgcr_predecessor_status": "retired_exact_span_reconstruction_channel_failed",
         },
         family_name="contrastive_active_testing",
     )
     layout.manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    turns: list[dict[str, Any]] = []
-    routers: list[dict[str, Any]] = []
-    predictions: list[dict[str, Any]] = []
-    sample_errors: list[dict[str, Any]] = []
+    turns: list[dict[str, Any]] = list(resume_turns)
+    routers: list[dict[str, Any]] = list(resume_routers)
+    predictions: list[dict[str, Any]] = list(resume_predictions)
+    sample_errors: list[dict[str, Any]] = [
+        dict(row["sample_error"])
+        for row in routers
+        if isinstance(row.get("sample_error"), dict)
+    ]
     screening_stage_rows_by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
     screening_selection: dict[str, Any] = {
         "enabled": cert_screening_mode,
@@ -853,6 +947,10 @@ def run_experiment(
                 "w", encoding="utf-8"
             ) as screening_handle,
         ):
+            for row in turns:
+                turns_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+            for row in routers:
+                routers_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
             if cert_screening_mode:
                 for job, stage_turns, stage_or_router in _execute_jobs_bounded(
                     all_screening_jobs,
@@ -1129,8 +1227,6 @@ def run_experiment(
         progress.close()
         provider.close()
         active_router.close()
-        for baseline_router in baseline_routers:
-            baseline_router.close()
 
 
 def _execute_jobs_bounded(
@@ -2060,8 +2156,8 @@ def write_kernel_d4_freeze(experiment_path: str | Path, output_path: str | Path)
         raise RuntimeError("D4 freeze is blocked until sealed_data_ready=true.")
     if not experiment.confirmatory:
         raise RuntimeError("D4 freeze requires confirmatory=true.")
-    _require_passing_d4_protocol_ab(
-        Path(str(experiment.raw.get("protocol_ab_assessment_path") or ""))
+    _require_passing_d4_protocol_validation(
+        Path(str(experiment.raw.get("protocol_validation_assessment_path") or ""))
     )
     risk_evidence = _require_passing_d4_risk_evidence(experiment)
     d4_risk = dict(experiment.raw.get("d4_risk") or {})
@@ -2091,6 +2187,7 @@ def write_d4_independent_protocol_validation_selection(
     """
 
     experiment = load_experiment_config(experiment_path)
+    require_passing_d4_source_compiler_smoke(experiment)
     phase = phase_metadata(experiment, "development")
     protocol = load_protocol_config(experiment.protocol)
     role = str(phase.get("evaluation_role") or "")
@@ -2099,7 +2196,7 @@ def write_d4_independent_protocol_validation_selection(
         or str(experiment.raw.get("kernel_revision") or "") != "d4_proof_carrying_v1"
         or role != D4_INDEPENDENT_PROTOCOL_VALIDATION_ROLE
     ):
-        raise ValueError("The selection inspector requires the D4 tagged-v2 validation template.")
+        raise ValueError("The selection inspector requires the D4 tagged-v3 validation template.")
     conditions = _d4_independent_protocol_validation_config_conditions(
         experiment,
         phase_name="development",
@@ -2219,6 +2316,9 @@ def _kernel_freeze_metadata(experiment, *, protocol, phase: dict[str, Any]) -> d
     kernel_revision = str(experiment.raw.get("kernel_revision") or "d1_pairwise_v1")
     return {
         "protocol_version": protocol.protocol_version,
+        "d4_mainline_protocol_version": (
+            D4_MAINLINE_PROTOCOL_VERSION if kernel_revision == "d4_proof_carrying_v1" else None
+        ),
         "prompt_version": (
             D4_PROMPT_VERSION
             if kernel_revision == "d4_proof_carrying_v1"
@@ -2241,7 +2341,7 @@ def _kernel_freeze_metadata(experiment, *, protocol, phase: dict[str, Any]) -> d
         "kernel_revision": kernel_revision,
         "primary_model_ref": experiment.primary_model_ref,
         "global_seed": experiment.global_seed,
-        "cache_namespaces": dict(experiment.cache_namespaces),
+        "cache_policy": "global_validated_response_v3",
         "required_comparison_methods": list(phase.get("required_comparison_methods") or []),
         "d3_capability_registry_version": (
             D3_CAPABILITY_REGISTRY_VERSION if kernel_revision == "d3_source_blind_v1" else None
@@ -2423,15 +2523,16 @@ def _frozen_component_hashes(experiment) -> dict[str, str]:
         Path(experiment.protocol).resolve(),
         *(Path(path).resolve() for path in experiment.benchmark_configs),
         family_root / "algorithms.py",
-        family_root / "cache_layers.py",
         family_root / "certificates.py",
         family_root / "certificates_v2.py",
         family_root / "kernel.py",
         family_root / "kernel_d3.py",
         family_root / "kernel_d4.py",
+        family_root / "d4_contract.py",
+        family_root / "d4_compiler_smoke.py",
         family_root / "d4_audit.py",
         family_root / "d4_data.py",
-        family_root / "d4_protocol_ab.py",
+        family_root / "d4_protocol_validation.py",
         family_root / "kernel_adapters.py",
         family_root / "kernel_mechanism.py",
         family_root / "kernel_prompts.py",
@@ -2447,6 +2548,7 @@ def _frozen_component_hashes(experiment) -> dict[str, str]:
         family_root / "config.py",
         Path(__file__).resolve(),
         Path(__file__).with_name("sample.py").resolve(),
+        Path(__file__).with_name("d4_ledger.py").resolve(),
         Path(__file__).with_name("report.py").resolve(),
         Path(__file__).with_name("preflight.py").resolve(),
         Path(__file__).with_name("validate.py").resolve(),
@@ -2460,7 +2562,6 @@ def _frozen_component_hashes(experiment) -> dict[str, str]:
         repo_root / "src" / "research_experiments" / "core" / "execution" / "runtime.py",
         repo_root / "src" / "research_experiments" / "core" / "execution" / "providers" / "client.py",
         repo_root / "src" / "research_experiments" / "family_runtime" / "free_text_protocol.py",
-        repo_root / "src" / "research_experiments" / "family_runtime" / "answer_first_json_protocol.py",
         repo_root / "src" / "research_experiments" / "family_runtime" / "output_protocols.py",
         repo_root / "src" / "research_experiments" / "reporting" / "paired_inference.py",
     }
@@ -2476,15 +2577,19 @@ def _frozen_component_hashes(experiment) -> dict[str, str]:
         risk_path = dict(experiment.raw.get("d4_risk") or {}).get("evidence_path")
         if risk_path:
             paths.add(Path(str(risk_path)).resolve())
-        protocol_ab_path = experiment.raw.get("protocol_ab_assessment_path")
-        if protocol_ab_path:
-            paths.add(Path(str(protocol_ab_path)).resolve())
+        protocol_validation_path = Path(
+            str(experiment.raw.get("protocol_validation_assessment_path") or "")
+        )
+        if protocol_validation_path.is_file():
+            paths.add(protocol_validation_path.resolve())
         if bool(dict(experiment.raw.get("d4_risk") or {}).get("semantic_override_enabled", False)):
             paths.add(experiment.human_audit_path.resolve())
         confirmation_phase = dict((experiment.raw.get("phases") or {}).get("confirmation") or {})
         for manifest_path in dict(confirmation_phase.get("sealed_manifest_paths") or {}).values():
             paths.add(Path(str(manifest_path)).resolve())
     for phase_name, phase in (experiment.raw.get("phases") or {}).items():
+        if str(phase.get("selection_strategy") or "") == "d4_sealed_manifest_only":
+            continue
         benchmarks = {item.slug: item for item in load_phase_benchmarks(experiment, str(phase_name))}
         for slug, split_name in dict(phase.get("split_overrides") or {}).items():
             benchmark = benchmarks[str(slug)]
@@ -2718,7 +2823,7 @@ def _load_cert_v2_readiness_gate(path: Path, *, config_sha: str) -> dict[str, An
 def _require_passing_provider_audit(
     path: Path,
     *,
-    expected_cache_namespace: str,
+    expected_cache_policy: str,
     expected_provider: str,
     expected_model_id: str,
 ) -> dict[str, Any]:
@@ -2731,7 +2836,7 @@ def _require_passing_provider_audit(
         raise RuntimeError("CATCH gate is blocked: provider audit used a different provider or model.")
     evaluated = evaluate_mimo_provider_audit(
         payload.get("records") or [],
-        expected_cache_namespace=expected_cache_namespace,
+        expected_cache_policy=expected_cache_policy,
     )
     if not payload.get("passed") or not evaluated.get("passed"):
         raise RuntimeError(f"CATCH gate is blocked: provider audit failed: {evaluated.get('conditions', {})}")
@@ -2766,7 +2871,7 @@ def _require_passing_d4_human_audit(
     }
 
 
-def _require_passing_d4_protocol_ab(path: Path) -> dict[str, Any]:
+def _require_passing_d4_protocol_validation(path: Path) -> dict[str, Any]:
     if not path.is_file():
         raise RuntimeError(
             f"D4 confirmation is blocked: independent tagged protocol validation is missing at {path}."
@@ -2977,17 +3082,30 @@ def _d4_independent_protocol_validation_config_conditions(
     phase: dict[str, Any],
 ) -> dict[str, bool]:
     d4_output = dict(experiment.raw.get("d4_output") or {})
+    protocol = load_protocol_config(experiment.protocol)
     expected_hashes = dict(phase.get("expected_selection_sha256") or {})
     benchmark_slugs = {str(item) for item in phase.get("benchmark_slugs") or []}
     sample_limits = {
         str(key): int(value)
         for key, value in dict(phase.get("sample_limits") or {}).items()
     }
+    smoke_snapshot = d4_source_compiler_smoke_snapshot(experiment)
     return {
         "development_phase": phase_name == "development",
         "nonconfirmatory_run": not experiment.confirmatory,
-        "tagged_legacy_protocol": d4_output.get("stage_a_protocol") == "tagged_text"
-        and str(d4_output.get("prompt_variant") or "legacy") == "legacy",
+        "mainline_protocol_version": experiment.raw.get("d4_mainline_protocol_version")
+        == D4_MAINLINE_PROTOCOL_VERSION,
+        "source_compiler_smoke_passed": (
+            smoke_snapshot["configured_status"] == D4_SOURCE_COMPILER_SMOKE_PASSED
+            and smoke_snapshot["artifact_valid"]
+            and smoke_snapshot["mainline_compatible"]
+            and smoke_snapshot["artifact_passed"]
+        ),
+        "tagged_mainline_protocol": d4_output.get("stage_a_protocol") == "tagged_text",
+        "global_validated_cache": experiment.raw.get("cache_policy") == "global_validated_response_v3",
+        "high_completion_caps": protocol.solver_max_tokens == 65_536
+        and protocol.role_max_tokens == 65_536
+        and protocol.judge_max_tokens == 32_768,
         "frozen_targets": d4_output.get("parse_failure_target") == 0.01
         and d4_output.get("stage_a_quorum_minimum_valid_turns") == 3
         and d4_output.get("stage_a_quorum_failure_target") == 0.01,

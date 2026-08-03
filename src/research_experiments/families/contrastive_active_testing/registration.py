@@ -26,12 +26,14 @@ from research_experiments.families.contrastive_active_testing.config import (
     phase_metadata,
 )
 from research_experiments.families.contrastive_active_testing.d4_audit import write_d4_gate_evidence
+from research_experiments.families.contrastive_active_testing.d4_compiler_smoke import (
+    run_d4_source_compiler_smoke,
+)
 from research_experiments.families.contrastive_active_testing.d4_data import (
     write_latent_sealed_manifest_from_files,
     write_text_sealed_manifest_from_files,
 )
-from research_experiments.families.contrastive_active_testing.d4_protocol_ab import (
-    write_output_protocol_ab_assessment,
+from research_experiments.families.contrastive_active_testing.d4_protocol_validation import (
     write_tagged_protocol_validation_assessment,
 )
 from research_experiments.families.contrastive_active_testing.kernel_mechanism import (
@@ -46,6 +48,7 @@ from research_experiments.families.contrastive_active_testing.mechanism_factoria
 )
 from research_experiments.families.contrastive_active_testing.replay import replay_from_experiment
 from research_experiments.families.contrastive_active_testing.run.execute import (
+    require_passing_d4_source_compiler_smoke,
     run_experiment,
     write_d4_independent_protocol_validation_selection,
     write_kernel_d2_freeze,
@@ -98,8 +101,7 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "execution_policy": "best_effort_non_blocking",
         "config_warnings": list(experiment.config_warnings),
         "phases": {name: phase_metadata(experiment, name) for name in phase_names},
-        "cache_namespaces": experiment.cache_namespaces,
-        "baseline_cache_namespaces": experiment.baseline_cache_namespaces,
+        "cache_policy": experiment.cache_policy,
         "resolved_model": asdict(resolved),
         "workspace_defaults": workspace_defaults(FAMILY_NAME),
     }
@@ -108,7 +110,14 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
 def run_from_cli(request: FamilyRunRequest):
     experiment = load_experiment_config(request.experiment_path)
     backbone = resolve_model(request.model_ref or experiment.primary_model_ref)
-    return run_experiment(experiment, request.phase_name, backbone, request.runs_root, request.cache_root)
+    return run_experiment(
+        experiment,
+        request.phase_name,
+        backbone,
+        request.runs_root,
+        request.cache_root,
+        resume_run_dir=request.resume_run_dir,
+    )
 
 
 def configure_parser(parser) -> None:
@@ -222,14 +231,6 @@ def configure_parser(parser) -> None:
         d4_evidence.add_argument("--predictions", required=True)
         d4_evidence.add_argument("--human-audit")
         d4_evidence.add_argument("--output", required=True)
-        d4_protocol_ab = action.add_parser(
-            "assess-kernel-d4-output-protocol",
-            help="Assess the three completed D4 output-protocol A/B runs with hash-linked artifacts.",
-        )
-        d4_protocol_ab.add_argument("--tagged-text-run", required=True)
-        d4_protocol_ab.add_argument("--reasoning-first-json-run", required=True)
-        d4_protocol_ab.add_argument("--answer-first-json-run", required=True)
-        d4_protocol_ab.add_argument("--output", required=True)
         d4_tagged_validation = action.add_parser(
             "assess-kernel-d4-tagged-protocol-validation",
             help="Assess a fresh independent tagged-text run under the frozen per-turn and SC5-quorum bounds.",
@@ -239,12 +240,22 @@ def configure_parser(parser) -> None:
         d4_validation_selection = action.add_parser(
             "inspect-kernel-d4-protocol-validation-selection",
             help=(
-                "Offline validation of the three sealed tagged-v2 assets; emits only the selection hashes "
+                "Offline validation of the three sealed tagged-text assets; emits only the selection hashes "
                 "that must be frozen before the run."
             ),
         )
         d4_validation_selection.add_argument("--experiment", required=True)
         d4_validation_selection.add_argument("--output", required=True)
+        d4_compiler_smoke = action.add_parser(
+            "smoke-kernel-d4-source-compiler",
+            help=(
+                "Run the one-shot 45x3 public-development, candidate-blind SourceIR v3 compiler smoke; "
+                "it does not execute Stage-A or calculate gold accuracy."
+            ),
+        )
+        d4_compiler_smoke.add_argument("--experiment", required=True)
+        d4_compiler_smoke.add_argument("--run-dir", required=True)
+        d4_compiler_smoke.add_argument("--cache-root", default=None)
         d4_provider_audit = action.add_parser(
             "kernel-d4-provider-audit",
             help="Run the cache-bypassed live provider preflight required before D4 formal runs.",
@@ -289,6 +300,28 @@ def configure_parser(parser) -> None:
 
 
 def dispatch_extra_command(args) -> bool:
+    if args.command == "smoke-kernel-d4-source-compiler":
+        experiment = load_experiment_config(args.experiment)
+        backbone = resolve_model(experiment.primary_model_ref)
+        payload = run_d4_source_compiler_smoke(
+            experiment=experiment,
+            backbone=backbone,
+            run_dir=args.run_dir,
+            cache_root=args.cache_root,
+        )
+        print(
+            json.dumps(
+                {
+                    "run_dir": payload["run_dir"],
+                    "passed": payload["passed"],
+                    "conditions": payload["conditions"],
+                    "summary": payload["summary"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return True
     if args.command == "kernel-d4-provider-audit":
         experiment = load_experiment_config(args.experiment)
         protocol = load_protocol_config(experiment.protocol)
@@ -297,6 +330,7 @@ def dispatch_extra_command(args) -> bool:
             or str(experiment.raw.get("kernel_revision") or "") != "d4_proof_carrying_v1"
         ):
             raise ValueError("The D4 provider audit requires a catch_kernel_v1 D4 experiment.")
+        require_passing_d4_source_compiler_smoke(experiment)
         backbone = resolve_model(experiment.primary_model_ref)
         if backbone.provider != "xiaomimimo":
             raise ValueError("The frozen D4 provider audit is defined only for xiaomimimo.")
@@ -306,7 +340,6 @@ def dispatch_extra_command(args) -> bool:
             payload = run_mimo_provider_audit(
                 backbone=backbone,
                 provider=provider,
-                cache_namespace=experiment.cache_namespaces["confirmation"],
             )
         finally:
             provider.close()
@@ -494,25 +527,6 @@ def dispatch_extra_command(args) -> bool:
             )
         )
         return True
-    if args.command == "assess-kernel-d4-output-protocol":
-        payload = write_output_protocol_ab_assessment(
-            tagged_text_run=args.tagged_text_run,
-            reasoning_first_json_run=args.reasoning_first_json_run,
-            answer_first_json_run=args.answer_first_json_run,
-            output_path=args.output,
-        )
-        print(
-            json.dumps(
-                {
-                    "output": args.output,
-                    "answer_first_json_accepted": payload["answer_first_json_accepted"],
-                    "answer_first_json_certified": payload["answer_first_json_certified"],
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
-        return True
     if args.command == "assess-kernel-d4-tagged-protocol-validation":
         payload = write_tagged_protocol_validation_assessment(
             run=args.run,
@@ -628,6 +642,7 @@ REGISTRATION = make_family_registration(
         summarize_help="Print a CATCH run summary.",
         validate_help="Summarize CATCH result readability and recoverable execution warnings.",
         report_help="Return or regenerate the CATCH report.",
+        include_resume_run_dir=True,
     ),
     load_experiment=load_experiment_config,
     resolve_model=resolve_model,

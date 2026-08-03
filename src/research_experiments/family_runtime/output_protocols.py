@@ -14,12 +14,6 @@ from research_experiments.core.execution.runner_common import (
     TurnRequestExecutor,
     execute_cached_request,
 )
-from research_experiments.family_runtime.answer_first_json_protocol import (
-    ANSWER_FIRST_JSON_PROTOCOL_V1,
-    REASONING_FIRST_JSON_PROTOCOL_V1,
-    parse_answer_first_json_output,
-    parse_reasoning_first_json_output,
-)
 from research_experiments.family_runtime.free_text_protocol import (
     FREE_TEXT_ANSWER_PROTOCOL_V1,
     parse_free_text_answer_output,
@@ -33,8 +27,6 @@ from research_experiments.family_runtime.json_object_protocol import (
 OutputProtocol = Literal[
     "free_text_answer_v1",
     "json_object_answer_v3",
-    "answer_first_json_v1",
-    "reasoning_first_json_v1",
 ]
 ProtocolParseStatus = Literal["ok", "failed", "not_attempted"]
 
@@ -86,6 +78,7 @@ def execute_output_protocol_turn(
     output_protocol: OutputProtocol,
     max_tokens: int | None = None,
     request_executor: TurnRequestExecutor | None = None,
+    delete_cache_on_protocol_failure: bool = False,
 ) -> OutputProtocolTurnResult:
     request = execute_cached_request(
         backbone=backbone,
@@ -96,20 +89,27 @@ def execute_output_protocol_turn(
         temperature=temperature,
         top_p=top_p,
         seed=seed,
-        use_response_format=output_protocol in {
-            JSON_OBJECT_ANSWER_PROTOCOL_V3,
-            ANSWER_FIRST_JSON_PROTOCOL_V1,
-            REASONING_FIRST_JSON_PROTOCOL_V1,
-        },
+        use_response_format=output_protocol == JSON_OBJECT_ANSWER_PROTOCOL_V3,
         max_tokens=max_tokens,
         request_executor=request_executor,
+        response_validator=lambda response: _admit_output_protocol_response(
+            response,
+            dataset=dataset,
+            output_protocol=output_protocol,
+            sample=sample,
+        ),
     )
-    return _finalize_turn_result(
+    result = _finalize_turn_result(
         request,
         dataset=dataset,
         output_protocol=output_protocol,
         sample=sample,
     )
+    # D4 opts into this explicitly: its frozen run ledger preserves the
+    # failure while the shared cache must not preserve malformed tagged text.
+    if delete_cache_on_protocol_failure and result.protocol_parse_status != "ok":
+        cache.delete(request.cache_key)
+    return result
 
 
 def refresh_output_protocol_turn(
@@ -183,8 +183,6 @@ def validate_output_protocol(value: str) -> OutputProtocol:
     if normalized not in {
         FREE_TEXT_ANSWER_PROTOCOL_V1,
         JSON_OBJECT_ANSWER_PROTOCOL_V3,
-        ANSWER_FIRST_JSON_PROTOCOL_V1,
-        REASONING_FIRST_JSON_PROTOCOL_V1,
     }:
         raise ValueError(
             f"Unsupported output_protocol {value!r}. "
@@ -325,15 +323,7 @@ def _parse_output_protocol_response(
         )
 
     try:
-        if output_protocol in {ANSWER_FIRST_JSON_PROTOCOL_V1, REASONING_FIRST_JSON_PROTOCOL_V1}:
-            if sample is None:
-                raise ValueError("two-key JSON protocols require a DatasetSample.")
-            validated = (
-                parse_answer_first_json_output(sample, cleaned)
-                if output_protocol == ANSWER_FIRST_JSON_PROTOCOL_V1
-                else parse_reasoning_first_json_output(sample, cleaned)
-            )
-        elif output_protocol == JSON_OBJECT_ANSWER_PROTOCOL_V3:
+        if output_protocol == JSON_OBJECT_ANSWER_PROTOCOL_V3:
             validated = parse_json_object_answer_output(cleaned, dataset=dataset)
         else:
             validated = (
@@ -356,6 +346,24 @@ def _parse_output_protocol_response(
             error=str(exc),
             reason_present=False,
         )
+
+
+def _admit_output_protocol_response(
+    response_payload: dict[str, Any],
+    *,
+    dataset: str,
+    output_protocol: OutputProtocol,
+    sample: DatasetSample | None,
+) -> dict[str, Any]:
+    parsed = _parse_output_protocol_response(
+        str(response_payload.get("assistant_text") or ""),
+        dataset=dataset,
+        output_protocol=output_protocol,
+        sample=sample,
+    )
+    if parsed.status != "ok":
+        raise ValueError(parsed.error or "Output protocol validation failed.")
+    return parsed.validated_output
 
 
 def _raw_finish_reason(response_payload: dict[str, Any]) -> str | None:

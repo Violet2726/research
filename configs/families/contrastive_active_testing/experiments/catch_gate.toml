@@ -1,4 +1,5 @@
 name = "catch_gate"
+cache_policy = "global_validated_response_v3"
 description = "Best-effort CATCH-ICV indexed contrast verification on BBEH development, heldout, or confirmation splits."
 benchmark_configs = ["configs/core/shared/benchmarks/bbeh/bbeh-main.toml"]
 protocol = "configs/families/contrastive_active_testing/protocols/catch_v3.toml"
@@ -6,13 +7,6 @@ primary_model_ref = "xiaomimimo/mimo-v2.5"
 global_seed = 42
 max_concurrent_requests = 15
 requests_per_minute_limit = 18
-[cache_namespaces]
-development = "catch-dev-v3"
-heldout = "catch-heldout-v3"
-confirmation = "catch-confirm-v3"
-
-[baseline_cache_namespaces]
-development = "catch-dev-v1"
 
 [phases.development]
 benchmark_slugs = ["bbeh"]

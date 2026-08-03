@@ -1,4 +1,5 @@
 name = "catch_kernel_d1"
+cache_policy = "global_validated_response_v3"
 description = "CATCH-Kernel D1 with typed obligations, verifier jurisdictions, and proof-carrying overrides."
 study_type = "catch_kernel_cross_domain"
 confirmatory = false
@@ -15,15 +16,6 @@ provider_runtime_profile = "xiaomimimo_75x95_validated_v1"
 max_concurrent_requests = 75
 requests_per_minute_limit = 95
 
-[cache_namespaces]
-development = "catch-dev-kernel_d1_v3"
-heldout = "catch-heldout-kernel_d1_v3"
-confirmation = "catch-confirm-kernel_d1_v3"
-
-[baseline_cache_namespaces]
-development = "catch-dev-cert_v2,catch-dev-cert_v1"
-heldout = "catch-heldout-cert_v2,catch-heldout-cert_v1"
-confirmation = "catch-confirm-cert_v2,catch-confirm-cert_v1"
 
 [phases.development]
 benchmark_slugs = ["bbeh", "musr", "seqbench", "gpqa_diamond"]

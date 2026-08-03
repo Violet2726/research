@@ -103,6 +103,14 @@ def test_answer_nodes_expose_option_meaning_without_gold_or_votes() -> None:
     assert "gold" not in rendered.casefold()
 
 
+def test_source_span_graph_is_exactly_reversible_and_keeps_latex_expression_intact() -> None:
+    source = "Compute $x = 2.5 + y!$ exactly.\nThen choose A."
+    sample = DatasetSample("gpqa_diamond", "symbolic-spans", source, "A", "", {"answer_contract": _choice_contract(["yes", "no"])})
+    graph = build_source_span_graph(sample)
+    assert "".join(span.text for span in graph.spans) == source
+    assert any("$x = 2.5 + y!$ exactly." in span.text for span in graph.spans)
+
+
 def test_gpqa_contract_uses_domain_metadata() -> None:
     sample = _gpqa()
     contract = build_task_contract_v2(sample, build_source_span_graph(sample))

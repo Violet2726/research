@@ -34,7 +34,6 @@ from research_experiments.families.contrastive_active_testing.boundary import (
     verify_frozen_v3_mechanism,
     verify_source_asset,
 )
-from research_experiments.families.contrastive_active_testing.cache_layers import ReadThroughRequestCache
 from research_experiments.families.contrastive_active_testing.config import (
     load_phase_benchmarks,
     load_protocol_config,
@@ -141,56 +140,17 @@ def run_boundary_audit(
     )
     provider = OpenAICompatibleProvider(backbone)
     budget = NetworkAttemptBudget(protocol.max_network_attempts)
-    active_routers: dict[str, RequestCacheRouter] = {}
-    fallback_routers: dict[str, RequestCacheRouter] = {}
+    cache_router = RequestCacheRouter(cache_root)
     endpoints: dict[str, CatchEndpoint] = {}
     for benchmark in benchmarks:
-        namespace = experiment.cache_namespaces[benchmark.slug]
-        active_router = RequestCacheRouter(cache_root, namespace=namespace)
-        active_routers[benchmark.slug] = active_router
-        active = active_router.for_request_target(
+        active = cache_router.for_request_target(
             provider=backbone.provider, request_model=backbone.model_id, dataset=benchmark.slug
-        )
-        predecessor_namespaces = tuple(
-            item.strip()
-            for item in str(experiment.baseline_cache_namespaces.get(benchmark.slug) or "").split(",")
-            if item.strip()
-        )
-        fallbacks = []
-        for predecessor in predecessor_namespaces:
-            router = fallback_routers.setdefault(
-                predecessor, RequestCacheRouter(cache_root, namespace=predecessor)
-            )
-            fallbacks.append(
-                (
-                    router.for_request_target(
-                        provider=backbone.provider,
-                        request_model=backbone.model_id,
-                        dataset=benchmark.slug,
-                    ),
-                    predecessor,
-                )
-            )
-        baseline_cache = ReadThroughRequestCache(
-            active,
-            primary_namespace=namespace,
-            fallbacks=fallbacks,
-        )
-        intervention_fallbacks = [item for item in fallbacks if item[1] == "catch-dev-v3"]
-        intervention_cache = ReadThroughRequestCache(
-            active,
-            primary_namespace=namespace,
-            fallbacks=intervention_fallbacks,
         )
         endpoints[benchmark.slug] = CatchEndpoint(
             backbone=backbone,
             provider=provider,
-            baseline_cache=baseline_cache,
-            intervention_cache=intervention_cache,
+            cache=active,
             throttle=throttle,
-            cache_namespace=namespace,
-            baseline_cache_namespace=predecessor_namespaces,
-            intervention_cache_namespaces=tuple(item[1] for item in intervention_fallbacks),
             stop_event=Event(),
         )
 
@@ -230,12 +190,8 @@ def run_boundary_audit(
             "prompt_version": CATCH_PROMPT_VERSION,
             "schema_version": CATCH_SCHEMA_VERSION,
             "global_seed": experiment.global_seed,
-            "cache_namespace": "per_dataset_boundary_namespaces",
-            "cache_namespaces": {
-                key: value for key, value in experiment.cache_namespaces.items() if key != "provider_audit"
-            },
-            "baseline_read_cache_namespaces": experiment.baseline_cache_namespaces,
-            "request_source": "role_aware_cross_domain_boundary_cache",
+            "cache_policy": "global_validated_response_v3",
+            "request_source": "global_validated_response_cache",
             "provider_audit": provider_audit,
             "execution_policy": "best_effort_non_blocking",
             "execution_warnings": execution_warnings,
@@ -276,10 +232,7 @@ def run_boundary_audit(
         "schema_version": CATCH_SCHEMA_VERSION,
         "frozen_bbeh_v3_mechanism_compatibility": mechanism_compatibility,
         "provider_audit": provider_audit,
-        "cache_namespaces": {
-            key: value for key, value in experiment.cache_namespaces.items() if key != "provider_audit"
-        },
-        "read_only_predecessor_cache_namespaces": experiment.baseline_cache_namespaces,
+        "cache_policy": "global_validated_response_v3",
         "dataset_sources": source_assets,
         "execution_warnings": execution_warnings,
         "screening_manifests": {},
@@ -597,10 +550,7 @@ def run_boundary_audit(
     finally:
         progress.close()
         provider.close()
-        for router in active_routers.values():
-            router.close()
-        for router in fallback_routers.values():
-            router.close()
+        cache_router.close()
 
 
 def _run_screening_dataset(

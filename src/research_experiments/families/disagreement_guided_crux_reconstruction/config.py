@@ -33,7 +33,7 @@ class DgcrExperimentConfig:
     global_seed: int
     max_concurrent_requests: int
     requests_per_minute_limit: int
-    cache_namespaces: dict[str, str]
+    cache_policy: str
     provider_audit_path: Path
     raw: dict[str, Any]
 
@@ -73,10 +73,11 @@ def load_protocol_config(path: str | Path) -> DgcrProtocolConfig:
 def load_experiment_config(path: str | Path) -> DgcrExperimentConfig:
     raw = load_toml(path)
     runtime = apply_runtime_defaults(raw)
-    namespaces = {str(key): str(value) for key, value in dict(raw.get("cache_namespaces") or {}).items()}
-    required_namespaces = {"provider_audit", "development", "heldout"}
-    if set(namespaces) != required_namespaces:
-        raise ValueError(f"DGCR cache_namespaces must exactly contain {sorted(required_namespaces)}.")
+    if "cache_namespaces" in raw:
+        raise ValueError("DGCR retired cache_namespaces field is forbidden.")
+    cache_policy = str(raw.get("cache_policy") or "")
+    if cache_policy != "global_validated_response_v3":
+        raise ValueError("DGCR requires cache_policy='global_validated_response_v3'.")
     provider_audit_raw = str(raw.get("provider_audit_path") or "").strip()
     if not provider_audit_raw:
         raise ValueError("DGCR requires a provider_audit_path before either gate phase can run.")
@@ -90,7 +91,7 @@ def load_experiment_config(path: str | Path) -> DgcrExperimentConfig:
         global_seed=int(raw.get("global_seed", 42)),
         max_concurrent_requests=runtime["max_concurrent_requests"],
         requests_per_minute_limit=runtime["requests_per_minute_limit"],
-        cache_namespaces=namespaces,
+        cache_policy=cache_policy,
         provider_audit_path=provider_audit_path,
         raw=raw,
     )

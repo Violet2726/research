@@ -1,12 +1,20 @@
-"""CATCH 配置加载与冻结协议不变量。"""
+"""加载 CATCH 配置并执行冻结协议不变量检查。"""
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from research_experiments.families.contrastive_active_testing.d4_contract import (
+    D4_MAINLINE_PROTOCOL_VERSION,
+    D4_SOURCE_COMPILER_SMOKE_FAILED,
+    D4_SOURCE_COMPILER_SMOKE_PASSED,
+)
 from research_experiments.family_runtime.config_helpers import apply_runtime_defaults, load_benchmarks, load_toml
+
+GLOBAL_CACHE_POLICY = "global_validated_response_v3"
 
 
 @dataclass(frozen=True)
@@ -49,8 +57,7 @@ class CatchExperimentConfig:
     global_seed: int
     max_concurrent_requests: int
     requests_per_minute_limit: int
-    cache_namespaces: dict[str, str]
-    baseline_cache_namespaces: dict[str, str]
+    cache_policy: str
     provider_audit_path: Path
     frozen_decoding_path: Path
     human_audit_path: Path
@@ -74,11 +81,7 @@ def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
         max_selected_tests=int(
             raw.get(
                 "max_selected_tests",
-                0
-                if protocol_version == "catch_v3"
-                else 6
-                if protocol_version in {"catch_cert_v2", "catch_kernel_v1"}
-                else 4,
+                0 if protocol_version == "catch_v3" else 6 if protocol_version in {"catch_cert_v2", "catch_kernel_v1"} else 4,
             )
         ),
         temperature=float(raw.get("temperature", 0.7)),
@@ -86,12 +89,8 @@ def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
         solver_max_tokens=int(raw.get("solver_max_tokens", 16_384)),
         role_max_tokens=int(raw.get("role_max_tokens", 4_096)),
         judge_max_tokens=int(raw.get("judge_max_tokens", raw.get("role_max_tokens", 4_096))),
-        d_min_grid=tuple(
-            int(item) for item in raw.get("d_min_grid", [] if protocol_version == "catch_v3" else [2, 3, 4])
-        ),
-        margin_grid=tuple(
-            int(item) for item in raw.get("margin_grid", [] if protocol_version == "catch_v3" else [1, 2])
-        ),
+        d_min_grid=tuple(int(item) for item in raw.get("d_min_grid", [] if protocol_version == "catch_v3" else [2, 3, 4])),
+        margin_grid=tuple(int(item) for item in raw.get("margin_grid", [] if protocol_version == "catch_v3" else [1, 2])),
         max_network_attempts=int(raw.get("max_network_attempts", 62_000)),
         protocol_version=protocol_version,
         preflight_sample_count=int(raw.get("preflight_sample_count", 0)),
@@ -115,7 +114,7 @@ def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
         "catch_kernel_v1",
     }:
         raise ValueError(f"Unsupported CATCH protocol version {protocol_version!r}.")
-    minimum_fields = {
+    positive = {
         "stage_candidates": config.stage_candidates,
         "resample_candidates": config.resample_candidates,
         "witness_count": config.witness_count,
@@ -124,139 +123,86 @@ def load_protocol_config(path: str | Path) -> CatchProtocolConfig:
         "judge_max_tokens": config.judge_max_tokens,
         "max_network_attempts": config.max_network_attempts,
     }
-    invalid = [name for name, value in minimum_fields.items() if int(value) <= 0]
+    invalid = [name for name, value in positive.items() if int(value) <= 0]
     if invalid:
         raise ValueError("CATCH protocol fields must be positive: " + ", ".join(invalid))
     if not 0 <= config.temperature <= 2 or not 0 < config.top_p <= 1:
         raise ValueError("CATCH temperature/top_p are outside executable ranges.")
+    if Path(path).name == "catch_kernel_d4_v3.toml" and (
+        raw.get("d4_mainline_protocol_version") != D4_MAINLINE_PROTOCOL_VERSION
+        or protocol_version != "catch_kernel_v1"
+        or (config.solver_max_tokens, config.role_max_tokens, config.judge_max_tokens)
+        != (65_536, 65_536, 32_768)
+    ):
+        raise ValueError("D4 requires its frozen 65536/65536/32768 completion-token protocol.")
     return config
+
+
+def _validate_d4_mainline_config(
+    raw: dict[str, Any],
+    *,
+    protocol_path: Path,
+    protocol: CatchProtocolConfig,
+) -> None:
+    if protocol_path.name != "catch_kernel_d4_v3.toml":
+        raise ValueError("D4 accepts only the frozen catch_kernel_d4_v3 protocol file.")
+    if raw.get("d4_mainline_protocol_version") != D4_MAINLINE_PROTOCOL_VERSION:
+        raise ValueError(f"D4 requires mainline protocol {D4_MAINLINE_PROTOCOL_VERSION}.")
+    smoke_status = str(raw.get("source_compiler_smoke_status") or "")
+    smoke_path = str(raw.get("source_compiler_smoke_result_path") or "")
+    smoke_sha = str(raw.get("source_compiler_smoke_result_sha256") or "")
+    if (
+        smoke_status not in {D4_SOURCE_COMPILER_SMOKE_PASSED, D4_SOURCE_COMPILER_SMOKE_FAILED}
+        or not smoke_path
+        or re.fullmatch(r"[0-9a-f]{64}", smoke_sha) is None
+    ):
+        raise ValueError("D4 requires an explicit hash-linked source-compiler smoke status.")
+    if (
+        protocol.protocol_version != "catch_kernel_v1"
+        or protocol.stage_candidates != 5
+        or protocol.resample_candidates != 3
+        or (protocol.solver_max_tokens, protocol.role_max_tokens, protocol.judge_max_tokens)
+        != (65_536, 65_536, 32_768)
+    ):
+        raise ValueError("D4 requires the frozen 5-stage/3-compiler and 65536/65536/32768 protocol.")
+    output = raw.get("d4_output")
+    if not isinstance(output, dict):
+        raise ValueError("D4 requires an explicit tagged-text d4_output configuration.")
+    allowed_output = {
+        "stage_a_protocol",
+        "parse_failure_target",
+        "stage_a_quorum_minimum_valid_turns",
+        "stage_a_quorum_failure_target",
+        "conflicts_fail_closed",
+    }
+    retired = set(output) - allowed_output
+    if retired:
+        raise ValueError("D4 retired configuration fields are forbidden: " + ", ".join(sorted(retired)))
+    if output.get("stage_a_protocol") != "tagged_text":
+        raise ValueError("D4 supports only the tagged_text Stage-A protocol.")
+    for key in ("protocol_ab_assessment_path", "prompt_variant", "cache_namespaces", "baseline_cache_namespaces"):
+        if key in raw:
+            raise ValueError(f"D4 retired configuration field is forbidden: {key}")
 
 
 def load_experiment_config(path: str | Path) -> CatchExperimentConfig:
     raw = load_toml(path)
     runtime = apply_runtime_defaults(raw)
-    namespaces = {str(key): str(value) for key, value in dict(raw.get("cache_namespaces") or {}).items()}
-    baseline_namespaces = {
-        str(key): str(value) for key, value in dict(raw.get("baseline_cache_namespaces") or {}).items()
-    }
+    retired_cache_fields = {"cache_namespaces", "baseline_cache_namespaces"} & set(raw)
+    if retired_cache_fields:
+        raise ValueError("CATCH retired cache fields are forbidden: " + ", ".join(sorted(retired_cache_fields)))
+    cache_policy = str(raw.get("cache_policy") or "")
+    if cache_policy != GLOBAL_CACHE_POLICY:
+        raise ValueError(f"CATCH requires cache_policy={GLOBAL_CACHE_POLICY!r}.")
     study_type = str(raw.get("study_type") or "confirmatory_gate")
     is_boundary = study_type == "post_failure_cross_domain_boundary_audit"
-    config_warnings: list[str] = []
-    required_namespaces = (
-        {"bbeh", "musr", "seqbench", "gpqa_diamond"} if is_boundary else {"development", "heldout", "confirmation"}
-    )
-    missing_namespaces = required_namespaces - set(namespaces)
-    if missing_namespaces:
-        config_warnings.append(f"derived_missing_cache_namespaces:{sorted(missing_namespaces)}")
     protocol_path = Path(str(raw["protocol"]))
     protocol = load_protocol_config(protocol_path)
-    namespace_version = protocol.protocol_version.removeprefix("catch_")
     kernel_revision = str(raw.get("kernel_revision") or "d1_pairwise_v1")
-    expected_namespaces = (
-        {
-            "bbeh": "catch-boundary-v3-bbeh",
-            "musr": "catch-boundary-v3-musr",
-            "seqbench": "catch-boundary-v3-seqbench",
-            "gpqa_diamond": "catch-boundary-v3-gpqa",
-        }
-        if is_boundary
-        else {
-            "development": "catch-dev-cert-v3-baseline",
-            "heldout": "catch-heldout-cert-v3-baseline",
-            "confirmation": "catch-confirm-cert-v3-baseline",
-        }
-        if study_type == "catch_cert_cross_domain_baseline"
-        else {
-            "development": (
-                "catch-dev-kernel_d4_v1"
-                if kernel_revision == "d4_proof_carrying_v1"
-                else "catch-dev-kernel_d3_v1"
-                if kernel_revision == "d3_source_blind_v1"
-                else "catch-dev-kernel_d2_v1"
-                if kernel_revision == "d2_unary_exact_v1"
-                else "catch-dev-kernel_d1_v3"
-            ),
-            "heldout": (
-                "catch-heldout-kernel_d4_v1"
-                if kernel_revision == "d4_proof_carrying_v1"
-                else "catch-heldout-kernel_d3_v1"
-                if kernel_revision == "d3_source_blind_v1"
-                else "catch-heldout-kernel_d2_v1"
-                if kernel_revision == "d2_unary_exact_v1"
-                else "catch-heldout-kernel_d1_v3"
-            ),
-            "confirmation": (
-                "catch-confirm-kernel_d4_v1"
-                if kernel_revision == "d4_proof_carrying_v1"
-                else "catch-confirm-kernel_d3_v1"
-                if kernel_revision == "d3_source_blind_v1"
-                else "catch-confirm-kernel_d2_v1"
-                if kernel_revision == "d2_unary_exact_v1"
-                else "catch-confirm-kernel_d1_v3"
-            ),
-        }
-        if protocol.protocol_version == "catch_kernel_v1"
-        else {
-            "development": f"catch-dev-{namespace_version}",
-            "heldout": f"catch-heldout-{namespace_version}",
-            "confirmation": f"catch-confirm-{namespace_version}",
-        }
-    )
-    for key in missing_namespaces:
-        namespaces[key] = expected_namespaces[key]
-    if namespaces != expected_namespaces:
-        config_warnings.append("cache_namespaces_differ_from_original_study")
-    expected_baseline = (
-        {"bbeh": "catch-dev-v3,catch-dev-v1"}
-        if is_boundary
-        else {
-            "development": (
-                "catch-dev-kernel_d3_v1,catch-dev-kernel_d2_v1,catch-dev-kernel_d1_v3,catch-dev-cert_v2,catch-dev-cert_v1"
-                if kernel_revision == "d4_proof_carrying_v1"
-                else "catch-dev-kernel_d2_v1,catch-dev-kernel_d1_v3,catch-dev-cert_v2,catch-dev-cert_v1"
-                if kernel_revision == "d3_source_blind_v1"
-                else "catch-dev-kernel_d1_v3,catch-dev-cert_v2,catch-dev-cert_v1"
-                if kernel_revision == "d2_unary_exact_v1"
-                else "catch-dev-cert_v2,catch-dev-cert_v1"
-            ),
-            "heldout": (
-                "catch-heldout-kernel_d3_v1,catch-heldout-kernel_d2_v1,catch-heldout-kernel_d1_v3,catch-heldout-cert_v2,catch-heldout-cert_v1"
-                if kernel_revision == "d4_proof_carrying_v1"
-                else "catch-heldout-kernel_d2_v1,catch-heldout-kernel_d1_v3,catch-heldout-cert_v2,catch-heldout-cert_v1"
-                if kernel_revision == "d3_source_blind_v1"
-                else "catch-heldout-kernel_d1_v3,catch-heldout-cert_v2,catch-heldout-cert_v1"
-                if kernel_revision == "d2_unary_exact_v1"
-                else "catch-heldout-cert_v2,catch-heldout-cert_v1"
-            ),
-            "confirmation": (
-                "catch-confirm-kernel_d3_v1,catch-confirm-kernel_d2_v1,catch-confirm-kernel_d1_v3,catch-confirm-cert_v2,catch-confirm-cert_v1"
-                if kernel_revision == "d4_proof_carrying_v1"
-                else "catch-confirm-kernel_d2_v1,catch-confirm-kernel_d1_v3,catch-confirm-cert_v2,catch-confirm-cert_v1"
-                if kernel_revision == "d3_source_blind_v1"
-                else "catch-confirm-kernel_d1_v3,catch-confirm-cert_v2,catch-confirm-cert_v1"
-                if kernel_revision == "d2_unary_exact_v1"
-                else "catch-confirm-cert_v2,catch-confirm-cert_v1"
-            ),
-        }
-        if protocol.protocol_version == "catch_kernel_v1"
-        else {
-            "development": "catch-dev-cert_v1",
-            "heldout": "catch-heldout-cert_v1",
-            "confirmation": "catch-confirm-cert_v1",
-        }
-        if protocol.protocol_version == "catch_cert_v2"
-        else {
-            "development": "catch-dev-cert_v1",
-            "heldout": "catch-heldout-cert_v1",
-            "confirmation": "catch-confirm-cert_v1",
-        }
-        if study_type == "catch_cert_cross_domain_baseline"
-        else {"development": "catch-dev-v1"}
-        if protocol.protocol_version in {"catch_v2", "catch_v3"}
-        else {}
-    )
-    if baseline_namespaces != expected_baseline:
-        config_warnings.append("baseline_cache_namespaces_differ_from_original_study")
+    if protocol_path.name == "catch_kernel_d4_v3.toml" and kernel_revision != "d4_proof_carrying_v1":
+        raise ValueError("The D4 v3 protocol cannot be paired with a non-D4 kernel revision.")
+    if kernel_revision == "d4_proof_carrying_v1":
+        _validate_d4_mainline_config(raw, protocol_path=protocol_path, protocol=protocol)
     return CatchExperimentConfig(
         name=str(raw["name"]),
         description=str(raw["description"]),
@@ -266,17 +212,12 @@ def load_experiment_config(path: str | Path) -> CatchExperimentConfig:
         global_seed=int(raw.get("global_seed", 42)),
         max_concurrent_requests=runtime["max_concurrent_requests"],
         requests_per_minute_limit=runtime["requests_per_minute_limit"],
-        cache_namespaces=namespaces,
-        baseline_cache_namespaces=baseline_namespaces,
+        cache_policy=cache_policy,
         provider_audit_path=Path(str(raw.get("provider_audit_path") or "unused/provider_audit.json")),
         frozen_decoding_path=Path(str(raw.get("frozen_decoding_path") or "unused/frozen_decoding.json")),
         human_audit_path=Path(str(raw.get("human_audit_path") or "unused/human_audit.json")),
         preflight_human_audit_path=Path(
-            str(
-                raw.get("preflight_human_audit_path")
-                or raw.get("human_audit_path")
-                or "unused/preflight_human_audit.json"
-            )
+            str(raw.get("preflight_human_audit_path") or raw.get("human_audit_path") or "unused/preflight_human_audit.json")
         ),
         readiness_assessment_path=Path(
             str(
@@ -287,7 +228,7 @@ def load_experiment_config(path: str | Path) -> CatchExperimentConfig:
         ),
         study_type=study_type,
         confirmatory=bool(raw.get("confirmatory", not is_boundary)),
-        config_warnings=tuple(config_warnings),
+        config_warnings=(),
         raw=raw,
     )
 

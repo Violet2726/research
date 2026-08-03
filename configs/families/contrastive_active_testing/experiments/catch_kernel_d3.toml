@@ -1,4 +1,5 @@
 name = "catch_kernel_d3"
+cache_policy = "global_validated_response_v3"
 description = "CATCH-Kernel D3: source-blind conditional certificates, exact candidate completion, and Stage-A-anchor fallback on BBEH, MuSR, and GPQA Diamond."
 study_type = "catch_kernel_cross_domain"
 confirmatory = false
@@ -32,15 +33,6 @@ previously_inspected_splits = ["catch_cert_dev200_seed42", "catch_cert_holdout20
 primary_confirmation_role = "independent_mechanism_confirmation"
 official_bbeh_mini_role = "secondary_benchmark_compatibility_only"
 
-[cache_namespaces]
-development = "catch-dev-kernel_d3_v1"
-heldout = "catch-heldout-kernel_d3_v1"
-confirmation = "catch-confirm-kernel_d3_v1"
-
-[baseline_cache_namespaces]
-development = "catch-dev-kernel_d2_v1,catch-dev-kernel_d1_v3,catch-dev-cert_v2,catch-dev-cert_v1"
-heldout = "catch-heldout-kernel_d2_v1,catch-heldout-kernel_d1_v3,catch-heldout-cert_v2,catch-heldout-cert_v1"
-confirmation = "catch-confirm-kernel_d2_v1,catch-confirm-kernel_d1_v3,catch-confirm-cert_v2,catch-confirm-cert_v1"
 
 [phases.development]
 benchmark_slugs = ["bbeh", "musr", "gpqa_diamond"]

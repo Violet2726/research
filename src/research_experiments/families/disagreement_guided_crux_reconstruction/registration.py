@@ -12,8 +12,6 @@ from dotenv import load_dotenv
 from research_experiments.core.contracts import FamilyCliHelp, FamilyRunRequest
 from research_experiments.core.execution.provider_audit import run_mimo_provider_audit
 from research_experiments.core.execution.providers import OpenAICompatibleProvider
-from research_experiments.family_runtime.config_helpers import resolve_model
-from research_experiments.family_runtime.registration import make_family_registration
 from research_experiments.families.disagreement_guided_crux_reconstruction.config import (
     load_experiment_config,
     load_phase_benchmarks,
@@ -21,10 +19,14 @@ from research_experiments.families.disagreement_guided_crux_reconstruction.confi
     phase_metadata,
 )
 from research_experiments.families.disagreement_guided_crux_reconstruction.run.execute import run_experiment
-from research_experiments.families.disagreement_guided_crux_reconstruction.run.report import render_report, summarize_run
+from research_experiments.families.disagreement_guided_crux_reconstruction.run.report import (
+    render_report,
+    summarize_run,
+)
 from research_experiments.families.disagreement_guided_crux_reconstruction.run.validate import validate_run
+from research_experiments.family_runtime.config_helpers import resolve_model
+from research_experiments.family_runtime.registration import make_family_registration
 from research_experiments.workspace.layout import workspace_defaults
-
 
 FAMILY_NAME = "disagreement_guided_crux_reconstruction"
 
@@ -38,7 +40,7 @@ def inspect_experiment(experiment_path: str, model_override: str | None) -> dict
         "protocol": asdict(load_protocol_config(experiment.protocol)),
         "benchmarks": [benchmark.slug for benchmark in load_phase_benchmarks(experiment, "development")],
         "phases": {name: phase_metadata(experiment, name) for name in ("development", "heldout")},
-        "cache_namespaces": experiment.cache_namespaces,
+        "cache_policy": experiment.cache_policy,
         "provider_audit_path": str(experiment.provider_audit_path),
         "resolved_model": asdict(resolved),
         "workspace_defaults": workspace_defaults(FAMILY_NAME),
@@ -74,7 +76,6 @@ def dispatch_extra_command(args) -> bool:
         payload = run_mimo_provider_audit(
             backbone=backbone,
             provider=provider,
-            cache_namespace=experiment.cache_namespaces["provider_audit"],
         )
     finally:
         provider.close()

@@ -38,7 +38,6 @@ class DgcrEndpoint:
     provider: OpenAICompatibleProvider
     cache: object
     throttle: RequestThrottle
-    cache_namespace: str
 
 
 def run_experiment(experiment, phase_name: str, backbone, run_root: str | Path | None = None, cache_root: str | Path | None = None) -> Path:
@@ -51,15 +50,14 @@ def run_experiment(experiment, phase_name: str, backbone, run_root: str | Path |
         raise ValueError("DGCR is frozen to the audited xiaomimimo provider.")
     provider_audit = _require_passing_provider_audit(
         experiment.provider_audit_path,
-        expected_cache_namespace=experiment.cache_namespaces["provider_audit"],
+        expected_cache_policy="live_only",
         expected_provider=backbone.provider,
         expected_model_id=backbone.model_id,
     )
     if phase_name == "heldout":
         _require_passing_development_gate(run_root, experiment.name, backbone.name, _frozen_config_sha(experiment))
-    cache_namespace = experiment.cache_namespaces["development" if phase_name == "development" else "heldout"]
     provider = OpenAICompatibleProvider(backbone)
-    router = RequestCacheRouter(cache_root, namespace=cache_namespace)
+    router = RequestCacheRouter(cache_root)
     throttle = RequestThrottle.for_model(
         backbone,
         max_concurrent_requests=experiment.max_concurrent_requests,
@@ -92,8 +90,8 @@ def run_experiment(experiment, phase_name: str, backbone, run_root: str | Path |
             "resolved_model": asdict(backbone),
             "protocol": asdict(protocol),
             "global_seed": experiment.global_seed,
-            "cache_namespace": cache_namespace,
-            "request_source": "fresh_dgcr_confirmation_cache",
+            "cache_policy": "global_validated_response_v3",
+            "request_source": "global_validated_response_cache",
             "provider_audit": provider_audit,
             "frozen_config_sha256": _frozen_config_sha(experiment),
             "phase_metadata": phase,
@@ -111,7 +109,7 @@ def run_experiment(experiment, phase_name: str, backbone, run_root: str | Path |
             for benchmark in benchmarks:
                 split_name = str(phase["split_overrides"][benchmark.slug])
                 cache = router.for_request_target(provider=backbone.provider, request_model=backbone.model_id, dataset=benchmark.slug)
-                endpoint = DgcrEndpoint(backbone=backbone, provider=provider, cache=cache, throttle=throttle, cache_namespace=cache_namespace)
+                endpoint = DgcrEndpoint(backbone=backbone, provider=provider, cache=cache, throttle=throttle)
                 for sample in selected_by_benchmark[benchmark.slug]:
                     sample_turns, router_row, sample_predictions = run_dgcr_sample(
                         sample, run_id=run_id, split_name=split_name, experiment=experiment, protocol=protocol, endpoint=endpoint
@@ -152,7 +150,7 @@ def _frozen_config_sha(experiment) -> str:
 def _require_passing_provider_audit(
     path: Path,
     *,
-    expected_cache_namespace: str,
+    expected_cache_policy: str,
     expected_provider: str = "xiaomimimo",
     expected_model_id: str | None = None,
 ) -> dict:
@@ -167,7 +165,7 @@ def _require_passing_provider_audit(
         raise RuntimeError("DGCR gate is blocked: provider audit was recorded for a different provider or model.")
     evaluated = evaluate_mimo_provider_audit(
         payload.get("records") or [],
-        expected_cache_namespace=expected_cache_namespace,
+        expected_cache_policy=expected_cache_policy,
     )
     if not payload.get("passed") or not evaluated.get("passed"):
         raise RuntimeError(f"DGCR gate is blocked: provider audit failed: {evaluated.get('conditions', {})}")

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, fields, replace
+from dataclasses import fields, replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -13,6 +14,7 @@ from research_experiments.families.contrastive_active_testing.config import (
     CatchProtocolConfig,
     load_experiment_config,
     load_phase_benchmarks,
+    load_protocol_config,
     phase_metadata,
 )
 from research_experiments.families.contrastive_active_testing.d4_audit import (
@@ -21,6 +23,9 @@ from research_experiments.families.contrastive_active_testing.d4_audit import (
     evaluate_d4_human_audit,
     gwet_ac1,
     validate_d4_gate_evidence,
+)
+from research_experiments.families.contrastive_active_testing.d4_contract import (
+    D4_MAINLINE_PROTOCOL_VERSION,
 )
 from research_experiments.families.contrastive_active_testing.d4_data import (
     partition_latent_records,
@@ -34,19 +39,18 @@ from research_experiments.families.contrastive_active_testing.d4_data import (
     write_latent_sealed_manifest_from_files,
     write_text_sealed_manifest_from_files,
 )
-from research_experiments.families.contrastive_active_testing.d4_protocol_ab import (
-    diagnose_output_protocol_failures,
-    evaluate_output_protocol_ab,
+from research_experiments.families.contrastive_active_testing.d4_protocol_validation import (
     evaluate_tagged_protocol_validation,
     validate_tagged_protocol_validation_assessment,
 )
 from research_experiments.families.contrastive_active_testing.kernel_d4 import (
     D4RouteDecision,
+    D4SolverResult,
     ProofPackageV2,
-    SourceIRv2,
+    SourceIRv3,
     compile_exact_source_ir,
     metamorphic_checks_passed,
-    parse_source_ir_v2,
+    parse_source_ir_v3,
     risk_gate_snapshot,
     route_for_sample,
     run_metamorphic_checks,
@@ -58,16 +62,13 @@ from research_experiments.families.contrastive_active_testing.kernel_prompts imp
 from research_experiments.families.contrastive_active_testing.run import sample as sample_runner
 from research_experiments.families.contrastive_active_testing.run.execute import (
     D4_INDEPENDENT_PROTOCOL_VALIDATION_BENCHMARKS,
-    D4_OUTPUT_PROTOCOL_AB_SOURCE_CONTRACT,
     _require_d4_sealed_manifests,
     _select_phase_samples,
     _selected_sample_manifest,
     _validate_d4_independent_protocol_validation_config,
+    d4_source_compiler_smoke_snapshot,
+    require_passing_d4_source_compiler_smoke,
     run_experiment,
-)
-from research_experiments.family_runtime.answer_first_json_protocol import (
-    parse_answer_first_json_output,
-    parse_reasoning_first_json_output,
 )
 
 
@@ -132,32 +133,9 @@ def _truth_sample(*, anchored: bool = True) -> DatasetSample:
     return DatasetSample("bbeh", "d4-truth", question, "yes, no", "", {"task": "web_of_lies"})
 
 
-def test_answer_first_json_is_strict_fail_closed() -> None:
-    sample = _mc_sample()
-    parsed = parse_answer_first_json_output(sample, '{"final_answer":"A","reasoning":"checked"}')
-    assert parsed["canonical_key"] == "A"
-    assert parse_reasoning_first_json_output(
-        sample, '{"reasoning":"checked","final_answer":"A"}'
-    )["canonical_key"] == "A"
-    invalid = [
-        '{"reasoning":"checked","final_answer":"A"}',
-        '{"final_answer":"A","final_answer":"B","reasoning":"duplicate"}',
-        '{"final_answer":"A","reasoning":"checked","extra":1}',
-        '{"final_answer":"A","reasoning":"截断"',
-        '{"final_answer":"","reasoning":"missing"}',
-        '```json\n{"final_answer":"A","reasoning":"fenced"}\n```',
-    ]
-    for raw in invalid:
-        with pytest.raises(ValueError):
-            parse_answer_first_json_output(sample, raw)
-    long_reasoning = "验证" * 20_000
-    assert parse_answer_first_json_output(
-        sample,
-        '{"final_answer":"A","reasoning":"' + long_reasoning + '"}',
-    )["canonical_key"] == "A"
 
 
-def test_source_ir_v2_has_frozen_public_fields_and_rejects_candidate_leakage() -> None:
+def test_source_ir_v3_has_frozen_public_fields_and_rejects_candidate_leakage() -> None:
     expected = {
         "capability_id",
         "query_operator",
@@ -172,7 +150,7 @@ def test_source_ir_v2_has_frozen_public_fields_and_rejects_candidate_leakage() -
         "uncovered_spans",
         "canonical_ir_hash",
     }
-    assert {field.name for field in fields(SourceIRv2)} == expected
+    assert {field.name for field in fields(SourceIRv3)} == expected
     assert {
         "compiler_vote_hashes",
         "solver_status",
@@ -191,29 +169,68 @@ def test_source_ir_v2_has_frozen_public_fields_and_rejects_candidate_leakage() -
     decision = route_for_sample(sample)
     ir, reason = compile_exact_source_ir(sample, decision)
     assert reason == "ok" and ir is not None
-    payload = asdict(ir)
-    payload["canonical_ir_hash"] = ""
+    payload = {
+        "entities": list(ir.entities),
+        "facts": list(ir.facts),
+        "events": list(ir.events),
+        "constraints": list(ir.constraints),
+        "query": dict(ir.query),
+        "uncovered_span_ids": list(ir.uncovered_spans),
+    }
     payload["query"]["anchor"] = "A"
-    parsed, reason = parse_source_ir_v2(payload, sample=sample, decision=decision)
+    parsed, reason = parse_source_ir_v3(payload, sample=sample, decision=decision)
     assert parsed is None
-    assert reason == "source_ir_v2_candidate_leakage:anchor"
+    assert reason == "source_ir_v3_candidate_leakage:anchor"
 
-    payload = asdict(ir)
-    payload["canonical_ir_hash"] = ""
-    payload["source_span_map"] = list(payload["source_span_map"])
-    payload["mandatory_spans"] = list(payload["mandatory_spans"])
-    payload["uncovered_spans"] = list(payload["uncovered_spans"])
-    payload["mandatory_spans"] = payload["mandatory_spans"][:-1]
-    parsed, reason = parse_source_ir_v2(payload, sample=sample, decision=decision)
+    payload = {
+        "entities": list(ir.entities),
+        "facts": list(ir.facts),
+        "events": list(ir.events),
+        "constraints": list(ir.constraints),
+        "query": dict(ir.query),
+        "uncovered_span_ids": [item["span_id"] for item in ir.source_span_map],
+    }
+    parsed, reason = parse_source_ir_v3(payload, sample=sample, decision=decision)
     assert parsed is None
-    assert reason == "source_ir_v2_span_partition_invalid"
+    assert reason == "source_ir_v3_span_partition_invalid"
 
-    payload = asdict(ir)
-    payload["canonical_ir_hash"] = ""
-    payload["source_span_map"] = [*payload["source_span_map"], payload["source_span_map"][0]]
-    parsed, reason = parse_source_ir_v2(payload, sample=sample, decision=decision)
+    payload = {
+        "entities": list(ir.entities),
+        "facts": list(ir.facts),
+        "events": list(ir.events),
+        "constraints": list(ir.constraints),
+        "query": dict(ir.query),
+        "uncovered_span_ids": list(ir.uncovered_spans),
+        "source_span_map": list(ir.source_span_map),
+    }
+    parsed, reason = parse_source_ir_v3(payload, sample=sample, decision=decision)
     assert parsed is None
-    assert reason == "source_ir_v2_span_map_not_exact_source"
+    assert reason == "source_ir_v3_keys_invalid"
+
+
+def test_source_ir_v3_host_binds_contract_and_complete_span_map() -> None:
+    sample = _shuffled_sample()
+    decision = route_for_sample(sample)
+    ir, reason = compile_exact_source_ir(sample, decision)
+    assert reason == "ok" and ir is not None
+    payload = {
+        "entities": list(ir.entities),
+        "facts": list(ir.facts),
+        "events": list(ir.events),
+        "constraints": list(ir.constraints),
+        "query": dict(ir.query),
+        "uncovered_span_ids": list(ir.uncovered_spans),
+    }
+    parsed, reason = parse_source_ir_v3(payload, sample=sample, decision=decision)
+    assert reason == "ok" and parsed is not None
+    assert parsed.capability_id == decision.capability_id
+    assert parsed.query_operator == decision.query_operator
+    assert parsed.answer_contract == ir.answer_contract
+    assert [row["text"] for row in parsed.source_span_map] == [row["text"] for row in ir.source_span_map]
+    assert set(parsed.mandatory_spans).isdisjoint(parsed.uncovered_spans)
+    assert set(parsed.mandatory_spans) | set(parsed.uncovered_spans) == {
+        row["span_id"] for row in parsed.source_span_map
+    }
 
 
 def test_sequence_trace_shuffled_solver_and_metamorphics_are_exact() -> None:
@@ -300,7 +317,7 @@ def test_numeric_solver_rejects_ungrounded_constants_and_extra_records() -> None
     )
     decision = route_for_sample(sample)
     assert decision.capability_id == "constraint.explicit_calculator_v1"
-    ir = SourceIRv2(
+    ir = SourceIRv3(
         capability_id=decision.capability_id,
         query_operator=decision.query_operator,
         entities=(),
@@ -768,7 +785,7 @@ def test_typed_event_state_operator_solves_auditable_musr_object_ledger() -> Non
         "belief_state_at_query_time",
         "fixture",
     )
-    ir = SourceIRv2(
+    ir = SourceIRv3(
         capability_id=decision.capability_id,
         query_operator=decision.query_operator,
         entities=({"entity_id": "key", "kind": "object"},),
@@ -804,7 +821,7 @@ def test_typed_sequence_operators_solve_word_trace_and_temporal_windows() -> Non
         "earliest_trace_divergence",
         "fixture",
     )
-    word_ir = SourceIRv2(
+    word_ir = SourceIRv3(
         capability_id=word_decision.capability_id,
         query_operator=word_decision.query_operator,
         entities=(),
@@ -892,7 +909,7 @@ def test_d4_runner_emits_exactly_five_main_methods(monkeypatch) -> None:
         global_seed=42,
         raw={
             "kernel_revision": "d4_proof_carrying_v1",
-            "d4_output": {"stage_a_protocol": "answer_first_json"},
+            "d4_output": {"stage_a_protocol": "tagged_text"},
             "d4_risk": {
                 "evidence_path": "configs/families/contrastive_active_testing/d4_gate_evidence.example.json",
                 "new_exact_override_enabled": False,
@@ -940,101 +957,156 @@ def test_d4_runner_emits_exactly_five_main_methods(monkeypatch) -> None:
         "logical_calls_per_question"
     ] == 5
 
-    experiment.raw["phases"]["development"]["evaluation_role"] = (
-        "d4_output_protocol_ab_answer_first_json"
+
+def test_semantic_compiler_consensus_requires_three_complete_proof_chains(monkeypatch) -> None:
+    sample = _shuffled_sample()
+    decision = route_for_sample(sample)
+    base_ir, reason = compile_exact_source_ir(sample, decision)
+    assert reason == "ok" and base_ir is not None
+    irs = [
+        (2, replace(base_ir, canonical_ir_hash="ir-two")),
+        (1, replace(base_ir, canonical_ir_hash="ir-one")),
+        (3, replace(base_ir, canonical_ir_hash="ir-three")),
+    ]
+
+    def fake_solver(_sample, _decision, ir):
+        answer = "C" if ir.canonical_ir_hash == "ir-three-bad" else "B"
+        return D4SolverResult(
+            status="UNIQUE",
+            canonical_answer=answer,
+            answer_text=answer,
+            solver_trace=({"ir_hash": ir.canonical_ir_hash},),
+            reference_checker_status="PASSED_FIXTURE_REFERENCE_CHECKER",
+            concrete_witness_status={"status": "PASSED"},
+            reason="fixture",
+        )
+
+    monkeypatch.setattr(sample_runner, "d4_solve_source_ir", fake_solver)
+    monkeypatch.setattr(sample_runner, "run_metamorphic_checks", lambda *_args, **_kwargs: {"fixture": "PASSED"})
+    fallback = D4SolverResult("UNSUPPORTED", None, None, (), "NOT_RUN", {"status": "NOT_AVAILABLE"}, "fallback")
+    source_ir, solver, hashes, verifications, agreed, metamorphic = sample_runner.verify_d4_semantic_compiler_consensus(
+        sample=sample,
+        decision=decision,
+        parsed_irs=irs,
+        required_compiler_count=3,
+        fallback_solver=fallback,
     )
-    physical, router, predictions = sample_runner.run_catch_sample(
-        sample,
-        run_id="d4-ab-test",
-        split_name="fixture",
-        experiment=experiment,
-        protocol=protocol,
-        endpoint=None,
-        network_budget=sample_runner.NetworkAttemptBudget(100),
-        phase_name="development",
-        run_direct_judge=False,
-        precomputed_stage_rows=stage_rows,
+    assert agreed is True
+    assert source_ir is not None and source_ir.canonical_ir_hash == "ir-one"
+    assert solver.canonical_answer == "B"
+    assert hashes == ("ir-one", "ir-two", "ir-three")
+    assert all(item["passed"] and item["solver_trace"] for item in verifications)
+    assert metamorphic == {"fixture": "PASSED"}
+
+    bad_irs = [*irs[:2], (3, replace(base_ir, canonical_ir_hash="ir-three-bad"))]
+    source_ir, solver, _, verifications, agreed, _ = sample_runner.verify_d4_semantic_compiler_consensus(
+        sample=sample,
+        decision=decision,
+        parsed_irs=bad_irs,
+        required_compiler_count=3,
+        fallback_solver=fallback,
     )
-    assert len(physical) == 5
-    assert [row["method_name"] for row in predictions] == ["sc_5"]
-    assert router["route"] == "OUTPUT_PROTOCOL_AB_ONLY"
+    assert agreed is False
+    assert source_ir is None
+    assert solver.reason == "compiler_ir_non_agreement_or_parse_failure"
+    assert len(verifications) == 3
 
 
-def test_protocol_ab_acceptance_is_predeclared() -> None:
-    def arm(parse_status: str, score: float) -> dict[str, list[dict[str, object]]]:
-        predictions = [
+def test_d4_mainline_config_rejects_retired_protocol_field(tmp_path) -> None:
+    source = Path(
+        "configs/families/contrastive_active_testing/experiments/catch_kernel_d4.toml"
+    ).read_text(encoding="utf-8")
+    target = tmp_path / "retired.toml"
+    target.write_text(source.replace("conflicts_fail_closed = true", 'prompt_variant = "json"'), encoding="utf-8")
+    with pytest.raises(ValueError, match="retired configuration fields"):
+        load_experiment_config(target)
+
+
+def test_d4_v3_protocol_rejects_non_d4_kernel_revision(tmp_path) -> None:
+    source = Path(
+        "configs/families/contrastive_active_testing/experiments/catch_kernel_d4.toml"
+    ).read_text(encoding="utf-8")
+    target = tmp_path / "wrong-kernel.toml"
+    target.write_text(
+        source.replace('kernel_revision = "d4_proof_carrying_v1"', 'kernel_revision = "d3_source_blind_v1"'),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="cannot be paired"):
+        load_experiment_config(target)
+
+
+def test_d4_mainline_config_has_one_protocol_and_distinct_confirmation_assets() -> None:
+    experiment = load_experiment_config(
+        "configs/families/contrastive_active_testing/experiments/catch_kernel_d4.toml"
+    )
+    protocol = load_protocol_config(experiment.protocol)
+    confirmation = phase_metadata(experiment, "confirmation")
+    benchmarks = load_phase_benchmarks(experiment, "confirmation")
+
+    assert experiment.raw["d4_mainline_protocol_version"] == D4_MAINLINE_PROTOCOL_VERSION
+    assert experiment.protocol.name == "catch_kernel_d4_v3.toml"
+    assert (protocol.solver_max_tokens, protocol.role_max_tokens, protocol.judge_max_tokens) == (
+        65_536,
+        65_536,
+        32_768,
+    )
+    assert set(confirmation["benchmark_slugs"]) == {
+        "bbeh_extension",
+        "musr_x",
+        "supergpqa_science",
+    }
+    assert {Path(item.source_path).parent.as_posix() for item in benchmarks} == {"d4_confirmation"}
+    assert experiment.cache_policy == "global_validated_response_v3"
+
+
+def test_hash_linked_passing_smoke_must_match_current_mainline(tmp_path) -> None:
+    result_path = tmp_path / "result.json"
+    protocol_hash = "a" * 64
+    result = {
+        "schema": "catch_d4_source_compiler_smoke_v1",
+        "d4_mainline_protocol_version": D4_MAINLINE_PROTOCOL_VERSION,
+        "protocol_sha256": protocol_hash,
+        "passed": True,
+        "run_id": "fixture",
+    }
+    result_path.write_text(json.dumps(result), encoding="utf-8")
+    (tmp_path / "manifest.json").write_text(
+        json.dumps(
             {
-                "dataset": "fixture",
-                "sample_id": f"sample-{index}",
-                "method_name": "sc_5",
-                "score": score,
-                "output_protocol_ab_only": True,
-                "logical_calls_per_question": 5,
+                "d4_mainline_protocol_version": D4_MAINLINE_PROTOCOL_VERSION,
+                "protocol_sha256": protocol_hash,
+                "protocol": {
+                    "solver_max_tokens": 65_536,
+                    "role_max_tokens": 65_536,
+                    "judge_max_tokens": 32_768,
+                },
             }
-            for index in range(300)
-        ]
-        return {
-            "turns": [
-                {
-                    "role": "stage_a_solver",
-                    "protocol_parse_status": parse_status,
-                    "dataset": prediction["dataset"],
-                    "sample_id": prediction["sample_id"],
-                    "agent_id": agent_id,
-                }
-                for prediction in predictions
-                for agent_id in range(1, 6)
-            ],
-            "predictions": predictions,
-        }
-
-    result = evaluate_output_protocol_ab(
-        {
-            "tagged_text": arm("ok", 0.5),
-            "reasoning_first_json": arm("ok", 0.5),
-            "answer_first_json": arm("ok", 0.5),
+        ),
+        encoding="utf-8",
+    )
+    experiment = SimpleNamespace(
+        raw={
+            "source_compiler_smoke_status": "passed",
+            "source_compiler_smoke_result_path": result_path.as_posix(),
+            "source_compiler_smoke_result_sha256": hashlib.sha256(result_path.read_bytes()).hexdigest(),
         }
     )
-    assert result["answer_first_json_accepted"] is True
-    assert result["answer_first_json_certified"] is True
-    assert result["minimum_zero_failure_turns_for_95pct_certification"] == 1497
-    assert result["accuracy_check_interpretation"].endswith("not_confidence_certification")
-    assert result["arms"]["answer_first_json"]["failure_diagnostics"][
-        "protocol_failure_count"
-    ] == 0
-    assert result["arms"]["answer_first_json"]["stage_a_quorum_failure_count"] == 0
+
+    snapshot = d4_source_compiler_smoke_snapshot(experiment)
+    assert snapshot["artifact_valid"] is True
+    assert snapshot["mainline_compatible"] is True
+    assert require_passing_d4_source_compiler_smoke(experiment) == snapshot
+
+    result["d4_mainline_protocol_version"] = "retired"
+    result_path.write_text(json.dumps(result), encoding="utf-8")
+    experiment.raw["source_compiler_smoke_result_sha256"] = hashlib.sha256(
+        result_path.read_bytes()
+    ).hexdigest()
+    with pytest.raises(RuntimeError, match="compiler smoke"):
+        require_passing_d4_source_compiler_smoke(experiment)
 
 
-def test_protocol_ab_failure_diagnostics_separate_network_loop_and_stopped_failures() -> None:
-    loop = " ".join(["alpha beta gamma delta"] * 500)
-    diagnostics = diagnose_output_protocol_failures(
-        [
-            {
-                "protocol_parse_status": "failed",
-                "request_error": "connection refused",
-                "raw_finish_reason": None,
-                "assistant_text": "",
-            },
-            {
-                "protocol_parse_status": "failed",
-                "request_error": None,
-                "raw_finish_reason": "length",
-                "assistant_text": loop,
-            },
-            {
-                "protocol_parse_status": "failed",
-                "request_error": None,
-                "raw_finish_reason": "stop",
-                "assistant_text": '{"final_answer":"A"}',
-                "cache_hit": True,
-            },
-        ]
-    )
-    assert diagnostics["request_failure_count"] == 1
-    assert diagnostics["completion_limit_count"] == 1
-    assert diagnostics["completion_limit_high_repetition_loop_count"] == 1
-    assert diagnostics["stopped_protocol_violation_count"] == 1
-    assert diagnostics["failed_response_cache_hit_count"] == 1
+
 
 
 def test_independent_tagged_validation_gates_turn_and_sample_quorum_bounds() -> None:
@@ -1045,7 +1117,7 @@ def test_independent_tagged_validation_gates_turn_and_sample_quorum_bounds() -> 
             "sample_id": f"sample-{index}",
             "method_name": "sc_5",
             "score": 1.0,
-            "output_protocol_ab_only": True,
+            "output_protocol_validation_only": True,
             "logical_calls_per_question": 5,
         }
         for index in range(300)
@@ -1064,35 +1136,20 @@ def test_independent_tagged_validation_gates_turn_and_sample_quorum_bounds() -> 
     source = {
         "run_root": "unused",
         "kernel_revision": "d4_proof_carrying_v1",
-        "evaluation_role": "d4_output_protocol_independent_validation_tagged_v2",
+        "evaluation_role": "d4_output_protocol_independent_validation_tagged_v3",
         "stage_a_protocol": "tagged_text",
-        "prompt_variant": "legacy",
         "phase_name": "development",
         "run_id": "independent-run",
         "run_status": "completed",
-        "dataset_error_count": 0,
-        "sample_count": 300,
-        "selected_sample_count": 300,
         "selected_sample_counts": {dataset: 100 for dataset in datasets},
-        "selection_strategy": "d4_sealed_manifest_only",
         "expected_selection_sha256": {
             dataset: f"{index + 1:064x}" for index, dataset in enumerate(datasets)
         },
         "selected_selection_sha256": {
             dataset: f"{index + 1:064x}" for index, dataset in enumerate(datasets)
         },
-        "sealed_manifest_split": "protocol_validation",
-        "sealed_data_ready": True,
-        "validation_data_role": "fresh_independent_protocol_validation_after_prompt_freeze",
-        "sealed_manifest_sha256": {
-            dataset: f"{index + 11:064x}" for index, dataset in enumerate(datasets)
-        },
-        "sealed_manifest_validation_passed": True,
-        "sealed_manifest_files_verified": True,
-        "provider_audit_required": True,
-        "provider_audit_passed": True,
-        "provider_audit_sha256": "f" * 64,
-        "provider_audit_file_verified": True,
+        "cache_policy": "global_validated_response_v3",
+        "provider_audit": {"required": True, "status": "passed"},
     }
     result = evaluate_tagged_protocol_validation(
         {"turns": turns, "predictions": predictions, "source": source}
@@ -1106,37 +1163,18 @@ def test_independent_tagged_validation_gates_turn_and_sample_quorum_bounds() -> 
         {
             "turns": turns,
             "predictions": predictions,
-            "source": {**source, "evaluation_role": "d4_output_protocol_ab_tagged_text"},
+            "source": {**source, "evaluation_role": "inspected_development"},
         }
     )
     assert inspected["independent_validation_passed"] is False
 
 
-@pytest.mark.parametrize(
-    ("arm", "config_name"),
-    [
-        ("tagged_text", "catch_kernel_d4_protocol_ab_tagged.toml"),
-        ("reasoning_first_json", "catch_kernel_d4_protocol_ab_json_short_v2.toml"),
-        ("answer_first_json", "catch_kernel_d4_protocol_ab_answer_first_short_v2.toml"),
-    ],
-)
-def test_protocol_ab_confirmation_contract_pins_short_v2_sources(arm: str, config_name: str) -> None:
-    experiment = load_experiment_config(
-        f"configs/families/contrastive_active_testing/experiments/{config_name}"
-    )
-    expected_role, expected_protocol, expected_variant = D4_OUTPUT_PROTOCOL_AB_SOURCE_CONTRACT[arm]
-    assert experiment.raw["phases"]["development"]["evaluation_role"] == expected_role
-    assert experiment.raw["d4_output"]["stage_a_protocol"] == expected_protocol
-    assert experiment.raw["d4_output"].get("prompt_variant", "legacy") == expected_variant
-    assert experiment.provider_audit_path.as_posix() == (
-        "local/audits/catch_kernel_d4_provider_audit.json"
-    )
 
 
 def test_independent_protocol_validation_template_is_sealed_and_fail_closed() -> None:
     experiment = load_experiment_config(
         "configs/families/contrastive_active_testing/experiments/"
-        "catch_kernel_d4_protocol_independent_validation_tagged_v2.toml"
+        "catch_kernel_d4_protocol_independent_validation_tagged_v3.toml"
     )
     phase = phase_metadata(experiment, "development")
     assert set(phase["benchmark_slugs"]) == D4_INDEPENDENT_PROTOCOL_VALIDATION_BENCHMARKS
@@ -1146,13 +1184,25 @@ def test_independent_protocol_validation_template_is_sealed_and_fail_closed() ->
     assert phase["selection_strategy"] == "d4_sealed_manifest_only"
     assert phase["sealed_manifest_split"] == "protocol_validation"
     assert experiment.raw["d4_output"]["stage_a_protocol"] == "tagged_text"
-    assert experiment.raw["d4_output"]["prompt_variant"] == "legacy"
+    assert "prompt_variant" not in experiment.raw["d4_output"]
+    assert experiment.cache_policy == "global_validated_response_v3"
+    assert "cache_namespaces" not in experiment.raw
+    assert "baseline_cache_namespaces" not in experiment.raw
     with pytest.raises(RuntimeError, match="fresh sealed design"):
         _validate_d4_independent_protocol_validation_config(
             experiment,
             phase_name="development",
             phase=phase,
         )
+
+
+def test_independent_validation_uses_global_cache_without_namespace() -> None:
+    experiment = load_experiment_config(
+        "configs/families/contrastive_active_testing/experiments/"
+        "catch_kernel_d4_protocol_independent_validation_tagged_v3.toml"
+    )
+    assert experiment.cache_policy == "global_validated_response_v3"
+    assert "cache_namespaces" not in experiment.raw
 
 
 def test_d4_gate_evidence_is_derived_from_shadow_rows_and_hash_linked() -> None:
@@ -1199,7 +1249,7 @@ def test_d4_confirmation_hard_gate_blocks_before_any_api_or_selection_call() -> 
     experiment = load_experiment_config(
         "configs/families/contrastive_active_testing/experiments/catch_kernel_d4.toml"
     )
-    with pytest.raises(RuntimeError, match="sealed_data_ready"):
+    with pytest.raises(RuntimeError, match="compiler smoke"):
         run_experiment(experiment, "confirmation", SimpleNamespace())
 
 

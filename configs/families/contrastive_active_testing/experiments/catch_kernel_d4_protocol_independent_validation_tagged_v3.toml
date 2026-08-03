@@ -1,15 +1,20 @@
-name = "catch_kernel_d4_protocol_independent_validation_tagged_v2"
+name = "catch_kernel_d4_protocol_independent_validation_tagged_v3"
+cache_policy = "global_validated_response_v3"
 description = "Blocked template for the fresh, sealed, cross-domain tagged-text validation required after protocol selection and before D4 calibration."
 study_type = "catch_kernel_cross_domain_development"
 confirmatory = false
 kernel_revision = "d4_proof_carrying_v1"
+d4_mainline_protocol_version = "catch_kernel_d4_mainline_v3"
+source_compiler_smoke_status = "failed_blocking_downstream"
+source_compiler_smoke_result_path = "local/runs/contrastive_active_testing/catch_kernel_d4/source_compiler_smoke_v3_20260801/result.json"
+source_compiler_smoke_result_sha256 = "ff8a862e93a82fdf0dcc89ecec6ccca631d9670b06eb46e7868c07b5deeecf47"
 provider_audit_path = "local/audits/catch_kernel_d4_provider_audit.json"
 benchmark_configs = [
   "configs/core/shared/benchmarks/d4_independent_validation/bbeh_extension.toml",
   "configs/core/shared/benchmarks/d4_independent_validation/musr_x.toml",
   "configs/core/shared/benchmarks/d4_independent_validation/supergpqa_science.toml",
 ]
-protocol = "configs/families/contrastive_active_testing/protocols/catch_kernel_d4_v1.toml"
+protocol = "configs/families/contrastive_active_testing/protocols/catch_kernel_d4_v3.toml"
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 global_seed = 42
 provider_runtime_profile = "xiaomimimo_75x95_validated_v1"
@@ -18,7 +23,6 @@ requests_per_minute_limit = 95
 
 [d4_output]
 stage_a_protocol = "tagged_text"
-prompt_variant = "legacy"
 parse_failure_target = 0.01
 stage_a_quorum_minimum_valid_turns = 3
 stage_a_quorum_failure_target = 0.01
@@ -29,15 +33,6 @@ evidence_path = "configs/families/contrastive_active_testing/d4_gate_evidence.ex
 new_exact_override_enabled = false
 semantic_override_enabled = false
 
-[cache_namespaces]
-development = "catch-dev-kernel_d4_v1"
-heldout = "catch-heldout-kernel_d4_v1"
-confirmation = "catch-confirm-kernel_d4_v1"
-
-[baseline_cache_namespaces]
-development = "catch-dev-kernel_d3_v1,catch-dev-kernel_d2_v1,catch-dev-kernel_d1_v3,catch-dev-cert_v2,catch-dev-cert_v1"
-heldout = "catch-heldout-kernel_d3_v1,catch-heldout-kernel_d2_v1,catch-heldout-kernel_d1_v3,catch-heldout-cert_v2,catch-heldout-cert_v1"
-confirmation = "catch-confirm-kernel_d3_v1,catch-confirm-kernel_d2_v1,catch-confirm-kernel_d1_v3,catch-confirm-cert_v2,catch-confirm-cert_v1"
 
 [phases.development]
 sealed_data_ready = false
@@ -51,6 +46,6 @@ sample_limits = { bbeh_extension = 100, musr_x = 100, supergpqa_science = 100 }
 selection_strategy = "d4_sealed_manifest_only"
 selection_seed = 42
 run_direct_judge = false
-evaluation_role = "d4_output_protocol_independent_validation_tagged_v2"
+evaluation_role = "d4_output_protocol_independent_validation_tagged_v3"
 # The custodian must fill all three hashes before setting sealed_data_ready=true.
 expected_selection_sha256 = {}

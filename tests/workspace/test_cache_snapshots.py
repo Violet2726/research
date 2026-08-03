@@ -27,9 +27,7 @@ def test_resolve_local_cache_hash_generates_and_refreshes_sidecar(tmp_path: Path
             cache_key="abc",
             payload_json=json_dump({"request": 1}),
             response_json=json_dump({"ok": True}),
-            http_status=200,
-            latency_ms=1.0,
-            provider_request_id="req_1",
+            completion_tokens=1,
         )
     )
     first_sqlite = cache.db_path
@@ -50,9 +48,7 @@ def test_resolve_local_cache_hash_generates_and_refreshes_sidecar(tmp_path: Path
             cache_key="def",
             payload_json=json_dump({"request": 2}),
             response_json=json_dump({"ok": True}),
-            http_status=200,
-            latency_ms=1.0,
-            provider_request_id="req_2",
+            completion_tokens=1,
         )
     )
     router.close()
@@ -79,9 +75,7 @@ def test_push_cache_to_hub_skips_unchanged_shards_against_remote_manifest(monkey
             cache_key="abc",
             payload_json=json_dump({"request": 1}),
             response_json=json_dump({"ok": True}),
-            http_status=200,
-            latency_ms=1.0,
-            provider_request_id="req_1",
+            completion_tokens=1,
         )
     )
     router.close()
@@ -142,9 +136,7 @@ def test_pull_cache_from_hub_skips_matching_local_shards(monkeypatch, tmp_path: 
             cache_key="abc",
             payload_json=json_dump({"request": 1}),
             response_json=json_dump({"ok": True}),
-            http_status=200,
-            latency_ms=1.0,
-            provider_request_id="req_1",
+            completion_tokens=1,
         )
     )
     router.close()
@@ -195,9 +187,7 @@ def test_pull_cache_from_hub_restores_sqlite_and_rewrites_sidecar(monkeypatch, t
             cache_key="abc",
             payload_json=json_dump({"request": 1}),
             response_json=json_dump({"ok": True}),
-            http_status=200,
-            latency_ms=1.0,
-            provider_request_id="req_1",
+            completion_tokens=1,
         )
     )
     router.close()
@@ -259,9 +249,7 @@ def test_pull_then_push_cache_round_trip_skips_unchanged_remote_shards(monkeypat
             cache_key="abc",
             payload_json=json_dump({"request": 1}),
             response_json=json_dump({"ok": True}),
-            http_status=200,
-            latency_ms=1.0,
-            provider_request_id="req_1",
+            completion_tokens=1,
         )
     )
     router.close()

@@ -1,0 +1,15 @@
+name = "D4 sealed MuSR-X confirmation set"
+slug = "musr_x"
+loader = "musr_x_jsonl"
+source_path = "d4_confirmation/musr_x.jsonl"
+source_split = "confirmation"
+sample_id_prefix = "musr_x"
+question_field = "question"
+answer_field = "answer_index"
+options_field = "choices"
+answer_index_field = "answer_index"
+smoke_size = 0
+pilot_size = 0
+main_size = 0
+random_seed = 42
+notes = "潜变量优先、独立渲染并由托管方密封的确认资产；公开 MuSR 记录不得用于确认。"

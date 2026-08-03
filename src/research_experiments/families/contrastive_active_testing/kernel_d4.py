@@ -1,8 +1,7 @@
 """CATCH-Kernel D4 的可执行 jurisdiction 与 proof-carrying 路由。
-
 D4 keeps source compilation candidate-blind and separates three claims:
 
-1. the source was compiled into a closed ``SourceIRv2``;
+1. the source was compiled into a closed ``SourceIRv3``;
 2. the local solver answered that IR;
 3. a frozen empirical risk gate authorizes (or refuses) an override.
 
@@ -37,32 +36,26 @@ from research_experiments.families.contrastive_active_testing.kernel_d3 import (
     solve_exact as d3_solve_exact,
 )
 
-D4_IR_SCHEMA = "catch_source_ir_v2"
-D4_IR_VERSION = "2"
+D4_IR_SCHEMA = "catch_source_ir_v3"
+D4_IR_VERSION = "3"
 D4_PROOF_SCHEMA = "catch_proof_package_v2"
 D4_RISK_GATE_VERSION = "catch_d4_risk_gate_v1"
 D4_SOLVER_VERSION = "catch_d4_local_solver_v1"
 D4_CAPABILITY_REGISTRY_VERSION = "catch_d4_capability_registry_v1"
-D4_PROMPT_VERSION = "catch_d4_candidate_blind_compiler_v1"
-D4_DECODER_VERSION = "catch_d4_proof_carrying_decoder_v1"
+D4_PROMPT_VERSION = "catch_d4_candidate_blind_compiler_v2"
+D4_DECODER_VERSION = "catch_d4_proof_carrying_decoder_v2"
 D4_DEVELOPMENT_FAMILYWISE_ALPHA = 0.05
 
 Route = Literal["EXACT_EXECUTABLE", "SEMANTIC_EXECUTABLE", "SOFT_UNSUPPORTED"]
 SolverStatus = Literal["UNIQUE", "MULTIPLE", "UNSAT", "UNSUPPORTED"]
 
-_IR_KEYS = {
-    "capability_id",
-    "query_operator",
+_UNTRUSTED_IR_KEYS = {
     "entities",
     "facts",
     "events",
     "constraints",
     "query",
-    "answer_contract",
-    "source_span_map",
-    "mandatory_spans",
-    "uncovered_spans",
-    "canonical_ir_hash",
+    "uncovered_span_ids",
 }
 _FORBIDDEN_IR_KEYS = {
     "stage_a",
@@ -144,7 +137,7 @@ class D4RouteDecision:
 
 
 @dataclass(frozen=True)
-class SourceIRv2:
+class SourceIRv3:
     capability_id: str
     query_operator: str
     entities: tuple[dict[str, Any], ...]
@@ -193,6 +186,7 @@ class RiskGateSnapshot:
 class ProofPackageV2:
     schema: str
     compiler_vote_hashes: tuple[str, ...]
+    compiler_verifications: tuple[dict[str, Any], ...]
     solver_status: SolverStatus
     solver_trace: tuple[dict[str, Any], ...]
     candidate_evaluation: tuple[dict[str, Any], ...]
@@ -210,14 +204,14 @@ class ProofPackageV2:
 class SequenceTraceKernel:
     kernel_id = "sequence_trace_kernel_v1"
 
-    def compile_exact(self, sample: DatasetSample, decision: D4RouteDecision) -> tuple[SourceIRv2 | None, str]:
+    def compile_exact(self, sample: DatasetSample, decision: D4RouteDecision) -> tuple[SourceIRv3 | None, str]:
         if decision.capability_id in _FOUNDATION_CAPABILITIES:
             return _foundation_ir(sample, decision), "ok"
         if decision.capability_id == "sequence.shuffled_swap_v1":
             return _compile_shuffled_swap(sample, decision)
         return None, "sequence_exact_capability_unsupported"
 
-    def solve(self, sample: DatasetSample, decision: D4RouteDecision, ir: SourceIRv2) -> D4SolverResult:
+    def solve(self, sample: DatasetSample, decision: D4RouteDecision, ir: SourceIRv3) -> D4SolverResult:
         if decision.capability_id in _FOUNDATION_CAPABILITIES:
             d3 = d3_route_for_sample(sample)
             certificate = d3_solve_exact(sample, d3)
@@ -249,7 +243,7 @@ class SequenceTraceKernel:
 class EventStateKernel:
     kernel_id = "event_state_kernel_v1"
 
-    def solve(self, sample: DatasetSample, decision: D4RouteDecision, ir: SourceIRv2) -> D4SolverResult:
+    def solve(self, sample: DatasetSample, decision: D4RouteDecision, ir: SourceIRv3) -> D4SolverResult:
         if decision.capability_id not in {
             "event.structured_state_ledger_v1",
             "event.musr_object_belief_ledger_v1",
@@ -262,12 +256,12 @@ class EventStateKernel:
 class ConstraintCalculatorKernel:
     kernel_id = "constraint_calculator_kernel_v1"
 
-    def compile_exact(self, sample: DatasetSample, decision: D4RouteDecision) -> tuple[SourceIRv2 | None, str]:
+    def compile_exact(self, sample: DatasetSample, decision: D4RouteDecision) -> tuple[SourceIRv3 | None, str]:
         if decision.capability_id == "constraint.truth_graph_v1":
             return _compile_truth_graph(sample, decision)
         return None, "constraint_exact_capability_unsupported"
 
-    def solve(self, sample: DatasetSample, decision: D4RouteDecision, ir: SourceIRv2) -> D4SolverResult:
+    def solve(self, sample: DatasetSample, decision: D4RouteDecision, ir: SourceIRv3) -> D4SolverResult:
         if decision.capability_id == "constraint.truth_graph_v1":
             return _solve_truth_graph(sample, ir)
         if decision.query_operator == "evaluate_numeric_expression":
@@ -417,80 +411,55 @@ def capability_spec(capability_id: str) -> dict[str, Any] | None:
     return {"kernel_id": kernel_id, "route": route, "foundation": foundation}
 
 
-def parse_source_ir_v2(
+def parse_source_ir_v3(
     payload: Any,
     *,
     sample: DatasetSample,
     decision: D4RouteDecision,
     require_complete_provenance: bool = True,
-) -> tuple[SourceIRv2 | None, str]:
+) -> tuple[SourceIRv3 | None, str]:
     if not isinstance(payload, dict):
-        return None, "source_ir_v2_not_object"
-    if set(payload) != _IR_KEYS:
-        return None, "source_ir_v2_keys_invalid"
+        return None, "source_ir_v3_not_object"
     leaked = sorted(_find_forbidden_keys(payload))
     if leaked:
-        return None, "source_ir_v2_candidate_leakage:" + ",".join(leaked)
-    if str(payload.get("capability_id") or "") != decision.capability_id:
-        return None, "source_ir_v2_capability_mismatch"
-    if str(payload.get("query_operator") or "") != decision.query_operator:
-        return None, "source_ir_v2_query_operator_mismatch"
-    if payload.get("canonical_ir_hash") not in {"", None}:
-        return None, "source_ir_v2_untrusted_hash_must_be_empty"
+        return None, "source_ir_v3_candidate_leakage:" + ",".join(leaked)
+    if set(payload) != _UNTRUSTED_IR_KEYS:
+        return None, "source_ir_v3_keys_invalid"
 
     graph = build_source_span_graph(sample)
     expected_spans = {span.span_id: span.text for span in graph.spans}
-    span_map = payload.get("source_span_map")
-    if not isinstance(span_map, list) or any(
-        not isinstance(item, dict) or set(item) != {"span_id", "text"} for item in span_map
-    ):
-        return None, "source_ir_v2_span_map_invalid"
-    normalized_span_map = tuple(
-        {"span_id": str(item["span_id"]), "text": str(item["text"])} for item in span_map
-    )
-    if (
-        len(normalized_span_map) != len(expected_spans)
-        or len({item["span_id"] for item in normalized_span_map}) != len(normalized_span_map)
-        or {item["span_id"]: item["text"] for item in normalized_span_map} != expected_spans
-    ):
-        return None, "source_ir_v2_span_map_not_exact_source"
-    mandatory = _string_tuple(payload.get("mandatory_spans"))
-    uncovered = _string_tuple(payload.get("uncovered_spans"))
+    normalized_span_map = tuple({"span_id": span.span_id, "text": span.text} for span in graph.spans)
+    uncovered = _string_tuple(payload.get("uncovered_span_ids"))
     known = set(expected_spans)
     if (
-        not mandatory
-        or len(mandatory) != len(set(mandatory))
-        or len(uncovered) != len(set(uncovered))
-        or set(mandatory) - known
+        len(uncovered) != len(set(uncovered))
         or set(uncovered) - known
-        or set(mandatory) & set(uncovered)
-        or set(mandatory) | set(uncovered) != known
+        or set(uncovered) == known
     ):
-        return None, "source_ir_v2_span_partition_invalid"
+        return None, "source_ir_v3_span_partition_invalid"
+    mandatory = known - set(uncovered)
     referenced = _referenced_span_ids(payload)
     if referenced - known:
-        return None, "source_ir_v2_unknown_provenance_span"
+        return None, "source_ir_v3_unknown_provenance_span"
     if require_complete_provenance and (
         not _decisive_records_have_provenance(payload)
-        or not set(mandatory).issubset(referenced)
+        or not mandatory.issubset(referenced)
         or bool(referenced & set(uncovered))
     ):
-        return None, "source_ir_v2_mandatory_provenance_uncovered"
+        return None, "source_ir_v3_mandatory_provenance_uncovered"
 
     expected_contract = _answer_contract_for_sample(sample)
-    if payload.get("answer_contract") != expected_contract:
-        return None, "source_ir_v2_answer_contract_mismatch"
     collections: dict[str, tuple[dict[str, Any], ...]] = {}
     for name in ("entities", "facts", "events", "constraints"):
         value = payload.get(name)
         if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
-            return None, f"source_ir_v2_{name}_invalid"
+            return None, f"source_ir_v3_{name}_invalid"
         collections[name] = tuple(dict(item) for item in value)
     query = payload.get("query")
     if not isinstance(query, dict) or not query:
-        return None, "source_ir_v2_query_invalid"
+        return None, "source_ir_v3_query_invalid"
 
-    ir = SourceIRv2(
+    ir = SourceIRv3(
         capability_id=decision.capability_id,
         query_operator=decision.query_operator,
         entities=collections["entities"],
@@ -507,7 +476,7 @@ def parse_source_ir_v2(
     return replace(ir, canonical_ir_hash=canonical_ir_hash(ir)), "ok"
 
 
-def canonical_ir_hash(ir: SourceIRv2) -> str:
+def canonical_ir_hash(ir: SourceIRv3) -> str:
     payload = asdict(ir)
     payload["canonical_ir_hash"] = ""
     payload["entities"] = sorted(payload["entities"], key=_canonical_sort_key)
@@ -518,7 +487,7 @@ def canonical_ir_hash(ir: SourceIRv2) -> str:
     return _sha256(payload)
 
 
-def solve_source_ir(sample: DatasetSample, decision: D4RouteDecision, ir: SourceIRv2) -> D4SolverResult:
+def solve_source_ir(sample: DatasetSample, decision: D4RouteDecision, ir: SourceIRv3) -> D4SolverResult:
     if decision.kernel_id == SequenceTraceKernel.kernel_id:
         return SequenceTraceKernel().solve(sample, decision, ir)
     if decision.kernel_id == EventStateKernel.kernel_id:
@@ -528,7 +497,7 @@ def solve_source_ir(sample: DatasetSample, decision: D4RouteDecision, ir: Source
     return _unsupported_solver("kernel_id_unregistered")
 
 
-def compile_exact_source_ir(sample: DatasetSample, decision: D4RouteDecision) -> tuple[SourceIRv2 | None, str]:
+def compile_exact_source_ir(sample: DatasetSample, decision: D4RouteDecision) -> tuple[SourceIRv3 | None, str]:
     if decision.kernel_id == SequenceTraceKernel.kernel_id:
         return SequenceTraceKernel().compile_exact(sample, decision)
     if decision.kernel_id == ConstraintCalculatorKernel.kernel_id:
@@ -687,7 +656,7 @@ def _load_risk_evidence_file(path: str, _mtime_ns: int, _size: int) -> dict[str,
 
 
 def run_metamorphic_checks(
-    ir: SourceIRv2,
+    ir: SourceIRv3,
     solver: D4SolverResult,
     *,
     sample: DatasetSample | None = None,
@@ -719,7 +688,7 @@ def run_metamorphic_checks(
 
 
 def metamorphic_checks_passed(
-    ir: SourceIRv2,
+    ir: SourceIRv3,
     solver: D4SolverResult,
     status: dict[str, str],
 ) -> bool:
@@ -739,9 +708,10 @@ def metamorphic_checks_passed(
 def build_proof_package(
     *,
     sample: DatasetSample,
-    ir: SourceIRv2 | None,
+    ir: SourceIRv3 | None,
     solver: D4SolverResult,
     compiler_vote_hashes: tuple[str, ...],
+    compiler_verifications: tuple[dict[str, Any], ...],
     candidate_evaluation: tuple[dict[str, Any], ...],
     metamorphic_status: dict[str, str],
     risk_snapshot: RiskGateSnapshot,
@@ -751,6 +721,7 @@ def build_proof_package(
     return ProofPackageV2(
         schema=D4_PROOF_SCHEMA,
         compiler_vote_hashes=compiler_vote_hashes,
+        compiler_verifications=tuple(dict(item) for item in compiler_verifications),
         solver_status=solver.status,
         solver_trace=solver.solver_trace,
         candidate_evaluation=candidate_evaluation,
@@ -770,7 +741,7 @@ def build_proof_package(
     )
 
 
-def source_ir_to_dict(ir: SourceIRv2) -> dict[str, Any]:
+def source_ir_to_dict(ir: SourceIRv3) -> dict[str, Any]:
     return asdict(ir)
 
 
@@ -790,11 +761,11 @@ def risk_gate_to_dict(snapshot: RiskGateSnapshot) -> dict[str, Any]:
     return asdict(snapshot)
 
 
-def _foundation_ir(sample: DatasetSample, decision: D4RouteDecision) -> SourceIRv2:
+def _foundation_ir(sample: DatasetSample, decision: D4RouteDecision) -> SourceIRv3:
     graph = build_source_span_graph(sample)
     spans = tuple({"span_id": span.span_id, "text": span.text} for span in graph.spans)
     mandatory = tuple(item["span_id"] for item in spans)
-    ir = SourceIRv2(
+    ir = SourceIRv3(
         capability_id=decision.capability_id,
         query_operator=decision.query_operator,
         entities=(),
@@ -814,7 +785,7 @@ def _foundation_ir(sample: DatasetSample, decision: D4RouteDecision) -> SourceIR
 def _compile_shuffled_swap(
     sample: DatasetSample,
     decision: D4RouteDecision,
-) -> tuple[SourceIRv2 | None, str]:
+) -> tuple[SourceIRv3 | None, str]:
     source = question_without_answer_contract(sample)
     prefix_match = re.match(r"(?s)^(.+?) are .+?\.\s+At the start[^:]*:\s*(.+?)\.\s+", source)
     if prefix_match is None:
@@ -941,7 +912,7 @@ def _compile_shuffled_swap(
     }
     mandatory = tuple(span.span_id for span in graph.spans if span.span_id in mandatory_set)
     uncovered = tuple(span.span_id for span in graph.spans if span.span_id not in mandatory_set)
-    ir = SourceIRv2(
+    ir = SourceIRv3(
         capability_id=decision.capability_id,
         query_operator=decision.query_operator,
         entities=tuple({"entity_id": name, "kind": "holder"} for name in participants),
@@ -962,7 +933,7 @@ def _compile_shuffled_swap(
     return replace(ir, canonical_ir_hash=canonical_ir_hash(ir)), "ok"
 
 
-def _solve_shuffled_swap(sample: DatasetSample, ir: SourceIRv2) -> D4SolverResult:
+def _solve_shuffled_swap(sample: DatasetSample, ir: SourceIRv3) -> D4SolverResult:
     state = {
         str(fact.get("entity")): str(fact.get("value"))
         for fact in ir.facts
@@ -1009,7 +980,7 @@ def _solve_shuffled_swap(sample: DatasetSample, ir: SourceIRv2) -> D4SolverResul
 def _solve_event_state_ledger(
     sample: DatasetSample,
     decision: D4RouteDecision,
-    ir: SourceIRv2,
+    ir: SourceIRv3,
 ) -> D4SolverResult:
     """Solve a conservative typed event ledger emitted by the blind compiler.
 
@@ -1163,7 +1134,7 @@ def _event_state_answer_text(sample: DatasetSample, value: Any) -> str:
     return str(value)
 
 
-def _solve_word_sort_trace(sample: DatasetSample, ir: SourceIRv2) -> D4SolverResult:
+def _solve_word_sort_trace(sample: DatasetSample, ir: SourceIRv3) -> D4SolverResult:
     """Check a compiler-emitted word-sort trace without sorting prose itself."""
 
     if len(ir.facts) != 1 or str(ir.facts[0].get("kind") or "") != "word_sort_target":
@@ -1217,7 +1188,7 @@ def _solve_word_sort_trace(sample: DatasetSample, ir: SourceIRv2) -> D4SolverRes
     )
 
 
-def _solve_temporal_interval_trace(sample: DatasetSample, ir: SourceIRv2) -> D4SolverResult:
+def _solve_temporal_interval_trace(sample: DatasetSample, ir: SourceIRv3) -> D4SolverResult:
     """Solve compiler-emitted feasible windows on a fixed start-time grid."""
 
     if str(ir.query.get("kind") or "") != "longest_feasible_interval":
@@ -1281,7 +1252,7 @@ def _solve_temporal_interval_trace(sample: DatasetSample, ir: SourceIRv2) -> D4S
 def _compile_truth_graph(
     sample: DatasetSample,
     decision: D4RouteDecision,
-) -> tuple[SourceIRv2 | None, str]:
+) -> tuple[SourceIRv3 | None, str]:
     source = question_without_answer_contract(sample)
     graph = build_source_span_graph(sample)
     relations = []
@@ -1352,7 +1323,7 @@ def _compile_truth_graph(
     }
     mandatory = tuple(span.span_id for span in graph.spans if span.span_id in mandatory_set)
     uncovered = tuple(span.span_id for span in graph.spans if span.span_id not in mandatory_set)
-    ir = SourceIRv2(
+    ir = SourceIRv3(
         capability_id=decision.capability_id,
         query_operator=decision.query_operator,
         entities=tuple({"entity_id": entity, "kind": "truth_agent"} for entity in entities),
@@ -1369,7 +1340,7 @@ def _compile_truth_graph(
     return replace(ir, canonical_ir_hash=canonical_ir_hash(ir)), "ok"
 
 
-def _solve_truth_graph(sample: DatasetSample, ir: SourceIRv2) -> D4SolverResult:
+def _solve_truth_graph(sample: DatasetSample, ir: SourceIRv3) -> D4SolverResult:
     status, values, trace, reason = _truth_assignment(ir)
     if status != "UNIQUE":
         return _status_solver(status, reason)
@@ -1391,7 +1362,7 @@ def _solve_truth_graph(sample: DatasetSample, ir: SourceIRv2) -> D4SolverResult:
     )
 
 
-def _solve_numeric_expression(sample: DatasetSample, ir: SourceIRv2) -> D4SolverResult:
+def _solve_numeric_expression(sample: DatasetSample, ir: SourceIRv3) -> D4SolverResult:
     if ir.facts or ir.events or len(ir.constraints) != 1:
         return _unsupported_solver("numeric_ir_contains_unexpected_records")
     expressions = [
@@ -1460,7 +1431,7 @@ def _referenced_span_ids(payload: Any) -> set[str]:
         for key, value in payload.items():
             if key in {"source_span_ids", "provenance_span_ids"}:
                 found.update(_string_tuple(value))
-            elif key not in {"source_span_map", "mandatory_spans", "uncovered_spans"}:
+            elif key not in {"source_span_map", "mandatory_spans", "uncovered_spans", "uncovered_span_ids"}:
                 found.update(_referenced_span_ids(value))
     elif isinstance(payload, list):
         for value in payload:
@@ -1576,7 +1547,7 @@ def _string_tuple(value: Any) -> tuple[str, ...]:
 
 
 def _option_contract_invariant(
-    ir: SourceIRv2,
+    ir: SourceIRv3,
     solver: D4SolverResult,
     *,
     sample: DatasetSample | None,
@@ -1604,7 +1575,7 @@ def _option_contract_invariant(
 
 
 def _answer_label_permutation_check(
-    ir: SourceIRv2,
+    ir: SourceIRv3,
     solver: D4SolverResult,
     *,
     sample: DatasetSample | None,
@@ -1662,7 +1633,7 @@ def _sample_with_answer_contract(sample: DatasetSample, contract: dict[str, Any]
     )
 
 
-def _shuffled_state(ir: SourceIRv2, events: tuple[dict[str, Any], ...] | None = None) -> dict[str, str] | None:
+def _shuffled_state(ir: SourceIRv3, events: tuple[dict[str, Any], ...] | None = None) -> dict[str, str] | None:
     state = {str(row.get("entity")): str(row.get("value")) for row in ir.facts}
     for event in events if events is not None else ir.events:
         left, right = str(event.get("left") or ""), str(event.get("right") or "")
@@ -1672,7 +1643,7 @@ def _shuffled_state(ir: SourceIRv2, events: tuple[dict[str, Any], ...] | None = 
     return state
 
 
-def _shuffled_entity_renaming_check(ir: SourceIRv2, solver: D4SolverResult) -> str:
+def _shuffled_entity_renaming_check(ir: SourceIRv3, solver: D4SolverResult) -> str:
     names = [str(row.get("entity_id") or "") for row in ir.entities]
     if not names or any(not name for name in names):
         return "FAILED"
@@ -1692,7 +1663,7 @@ def _shuffled_entity_renaming_check(ir: SourceIRv2, solver: D4SolverResult) -> s
     return "PASSED" if state is not None and state.get(str(query["entity"])) == solver.answer_text else "FAILED"
 
 
-def _shuffled_reversible_event_check(ir: SourceIRv2, solver: D4SolverResult) -> str:
+def _shuffled_reversible_event_check(ir: SourceIRv3, solver: D4SolverResult) -> str:
     if not ir.events:
         return "NOT_APPLICABLE"
     event = ir.events[-1]
@@ -1701,7 +1672,7 @@ def _shuffled_reversible_event_check(ir: SourceIRv2, solver: D4SolverResult) -> 
     return "PASSED" if state is not None and state.get(query) == solver.answer_text else "FAILED"
 
 
-def _shuffled_commutation_check(ir: SourceIRv2, solver: D4SolverResult) -> str:
+def _shuffled_commutation_check(ir: SourceIRv3, solver: D4SolverResult) -> str:
     for index in range(len(ir.events) - 1):
         left = {str(ir.events[index].get("left")), str(ir.events[index].get("right"))}
         right = {str(ir.events[index + 1].get("left")), str(ir.events[index + 1].get("right"))}
@@ -1714,7 +1685,7 @@ def _shuffled_commutation_check(ir: SourceIRv2, solver: D4SolverResult) -> str:
     return "NOT_APPLICABLE"
 
 
-def _truth_assignment(ir: SourceIRv2) -> tuple[SolverStatus, dict[str, int], tuple[dict[str, Any], ...], str]:
+def _truth_assignment(ir: SourceIRv3) -> tuple[SolverStatus, dict[str, int], tuple[dict[str, Any], ...], str]:
     adjacency: dict[str, list[tuple[str, int]]] = {}
     fixed: dict[str, int] = {}
     for row in ir.constraints:
@@ -1749,11 +1720,11 @@ def _truth_assignment(ir: SourceIRv2) -> tuple[SolverStatus, dict[str, int], tup
     return "UNIQUE", values, tuple(trace), "truth_graph_unique"
 
 
-def _truth_answer_text(ir: SourceIRv2, values: dict[str, int]) -> str:
+def _truth_answer_text(ir: SourceIRv3, values: dict[str, int]) -> str:
     return ", ".join("yes" if values[str(item)] else "no" for item in ir.query.get("entities") or [])
 
 
-def _truth_entity_renaming_check(ir: SourceIRv2, solver: D4SolverResult) -> str:
+def _truth_entity_renaming_check(ir: SourceIRv3, solver: D4SolverResult) -> str:
     if solver.status != "UNIQUE" or solver.answer_text is None:
         return "NOT_RUN"
     names = [str(row.get("entity_id") or "") for row in ir.entities]
@@ -1777,7 +1748,7 @@ def _truth_entity_renaming_check(ir: SourceIRv2, solver: D4SolverResult) -> str:
     return "PASSED" if status == "UNIQUE" and _truth_answer_text(renamed, values) == solver.answer_text else "FAILED"
 
 
-def _truth_constraint_order_check(ir: SourceIRv2, solver: D4SolverResult) -> str:
+def _truth_constraint_order_check(ir: SourceIRv3, solver: D4SolverResult) -> str:
     if solver.status != "UNIQUE" or solver.answer_text is None:
         return "NOT_RUN"
     reordered = replace(ir, constraints=tuple(reversed(ir.constraints)))
@@ -1785,7 +1756,7 @@ def _truth_constraint_order_check(ir: SourceIRv2, solver: D4SolverResult) -> str
     return "PASSED" if status == "UNIQUE" and _truth_answer_text(reordered, values) == solver.answer_text else "FAILED"
 
 
-def _numeric_algebraic_equivalence_check(ir: SourceIRv2, solver: D4SolverResult) -> str:
+def _numeric_algebraic_equivalence_check(ir: SourceIRv3, solver: D4SolverResult) -> str:
     if solver.status != "UNIQUE":
         return "NOT_RUN"
     expressions = [

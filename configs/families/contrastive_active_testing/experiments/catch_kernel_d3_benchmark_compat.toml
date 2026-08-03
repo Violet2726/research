@@ -1,4 +1,5 @@
 name = "catch_kernel_d3_benchmark_compat"
+cache_policy = "global_validated_response_v3"
 description = "Secondary benchmark-compatible D3 run on official BBEH Mini and full MuSR/GPQA; not an independent confirmation because local development/heldout samples overlap these pools."
 study_type = "catch_kernel_cross_domain_benchmark_compatibility"
 confirmatory = false
@@ -31,15 +32,6 @@ previously_inspected_splits = ["catch_cert_dev200_seed42", "catch_cert_holdout20
 primary_confirmation_role = "secondary_benchmark_compatibility_only"
 official_bbeh_mini_role = "official_mini_micro_comparable_not_independent"
 
-[cache_namespaces]
-development = "catch-dev-kernel_d3_v1"
-heldout = "catch-heldout-kernel_d3_v1"
-confirmation = "catch-confirm-kernel_d3_v1"
-
-[baseline_cache_namespaces]
-development = "catch-dev-kernel_d2_v1,catch-dev-kernel_d1_v3,catch-dev-cert_v2,catch-dev-cert_v1"
-heldout = "catch-heldout-kernel_d2_v1,catch-heldout-kernel_d1_v3,catch-heldout-cert_v2,catch-heldout-cert_v1"
-confirmation = "catch-confirm-kernel_d2_v1,catch-confirm-kernel_d1_v3,catch-confirm-cert_v2,catch-confirm-cert_v1"
 
 [phases.development]
 benchmark_slugs = ["bbeh", "musr", "gpqa_diamond"]

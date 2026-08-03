@@ -200,7 +200,7 @@ def build_source_span_graph(sample: DatasetSample, *, max_span_length: int = 512
     spans = tuple(
         SourceSpan(f"S{index}", start, end, source[start:end], _sha256(source[start:end]))
         for index, (start, end) in enumerate(ranges)
-        if source[start:end].strip()
+        if start < end
     )
     return SourceSpanGraph(_sha256(source), spans)
 
@@ -1114,24 +1114,42 @@ def _empty_validation(error: str) -> CertificateBankValidationV2:
 
 
 def _source_ranges(source: str, *, max_span_length: int) -> list[tuple[int, int]]:
+    """Partition the source exactly, preserving whitespace and symbolic text."""
+
     ranges: list[tuple[int, int]] = []
-    for line_match in re.finditer(r"[^\r\n]+", source):
-        line_start, line_end = line_match.span()
-        cursor = line_start
-        sentence_matches = list(re.finditer(r".+?(?:[.!?](?=\s|$)|$)", line_match.group(0)))
-        for sentence in sentence_matches:
-            start = line_start + sentence.start()
-            end = line_start + sentence.end()
-            while end - start > max_span_length:
-                split = source.rfind(" ", start, start + max_span_length + 1)
-                split = split if split > start else start + max_span_length
-                ranges.append((start, split))
-                start = split + int(split < end and source[split] == " ")
-            if source[start:end].strip():
-                ranges.append((start, end))
-            cursor = end
-        if cursor < line_end and source[cursor:line_end].strip():
-            ranges.append((cursor, line_end))
+    for start, end in _symbolic_sentence_ranges(source, 0, len(source)):
+        while end - start > max_span_length:
+            # Include the split whitespace in the preceding interval, so the
+            # concatenated span texts remain byte-for-byte reversible.
+            split = source.rfind(" ", start + 1, start + max_span_length + 1)
+            split = split + 1 if split > start else start + max_span_length
+            ranges.append((start, split))
+            start = split
+        if start < end:
+            ranges.append((start, end))
+    return ranges
+
+
+def _symbolic_sentence_ranges(source: str, line_start: int, line_end: int) -> list[tuple[int, int]]:
+    """Split prose sentences without treating operators inside ``$...$`` as stops."""
+
+    ranges: list[tuple[int, int]] = []
+    start = line_start
+    in_math = False
+    for index in range(line_start, line_end):
+        character = source[index]
+        if character == "$":
+            in_math = not in_math
+            continue
+        if in_math or character not in ".!?":
+            continue
+        following = source[index + 1] if index + 1 < line_end else ""
+        if following and not following.isspace():
+            continue
+        ranges.append((start, index + 1))
+        start = index + 1
+    if source[start:line_end].strip():
+        ranges.append((start, line_end))
     return ranges
 
 

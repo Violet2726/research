@@ -1,4 +1,5 @@
 name = "catch_kernel_d3_count50"
+cache_policy = "global_validated_response_v3"
 description = "D3 development freeze run on nested task/domain-stratified count50 pools; use before the count100 development run."
 study_type = "catch_kernel_cross_domain_development"
 confirmatory = false
@@ -25,15 +26,6 @@ semantic_precision_gate_passed = false
 semantic_metamorphic_suite_passed = false
 semantic_human_audit_passed = false
 
-[cache_namespaces]
-development = "catch-dev-kernel_d3_v1"
-heldout = "catch-heldout-kernel_d3_v1"
-confirmation = "catch-confirm-kernel_d3_v1"
-
-[baseline_cache_namespaces]
-development = "catch-dev-kernel_d2_v1,catch-dev-kernel_d1_v3,catch-dev-cert_v2,catch-dev-cert_v1"
-heldout = "catch-heldout-kernel_d2_v1,catch-heldout-kernel_d1_v3,catch-heldout-cert_v2,catch-heldout-cert_v1"
-confirmation = "catch-confirm-kernel_d2_v1,catch-confirm-kernel_d1_v3,catch-confirm-cert_v2,catch-confirm-cert_v1"
 
 [phases.development]
 benchmark_slugs = ["bbeh", "musr", "gpqa_diamond"]

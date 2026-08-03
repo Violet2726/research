@@ -8,10 +8,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 
 from research_experiments.core.config import ResolvedModelConfig
 from research_experiments.core.execution.cache import (
+    CACHE_KEY_POLICY_VERSION,
     RequestCache,
     build_request_cache_key,
     cache_successful_response,
@@ -33,6 +34,7 @@ TurnRequestExecutor = Callable[
     dict[str, Any],
 ]
 TurnResponseHook = Callable[[dict[str, Any], dict[str, Any]], None]
+ResponseAdmission = Callable[[dict[str, Any]], dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -115,8 +117,10 @@ def execute_cached_request(
     max_tokens: int | None = None,
     request_executor: TurnRequestExecutor | None = None,
     response_hook: TurnResponseHook | None = None,
+    response_validator: ResponseAdmission | None = None,
+    cache_mode: Literal["shared", "live"] = "shared",
 ) -> CachedRequestResult:
-    """Execute one cached raw provider request and persist successful raw responses."""
+    """Execute one request, caching only after an explicit validator passes."""
 
     payload = build_payload(
         config=backbone,
@@ -135,7 +139,9 @@ def execute_cached_request(
     )
     cache_lookup_started_at = datetime.now(UTC).isoformat()
     cache_lookup_started = time.monotonic()
-    cached = cache.get(cache_key)
+    cached = None if cache_mode == "live" else cache.get(cache_key)
+    if cached is not None and not _cached_response_fits_cap(cached.completion_tokens, payload):
+        cached = None
     cache_lookup_ms = max(0.0, (time.monotonic() - cache_lookup_started) * 1000)
     cache_lookup_finished_at = datetime.now(UTC).isoformat()
     if cached is None:
@@ -149,22 +155,33 @@ def execute_cached_request(
         if response_hook is not None:
             response_hook(payload, response_payload)
         cache_hit = False
-        if response_payload.get("request_error") is None:
+        if response_payload.get("request_error") is None and cache_mode != "live" and response_validator is not None:
             try:
+                validated_output = response_validator(response_payload)
                 cache_successful_response(
                     cache,
                     cache_key=cache_key,
                     payload=payload,
                     response_payload=response_payload,
+                    validated_output=validated_output,
                 )
             except Exception:
                 response_payload = dict(response_payload)
-                response_payload["cache_write_error"] = True
+                response_payload["cache_admission_error"] = True
     else:
-        response_payload = json.loads(cached.response_json)
+        response_payload = dict(json.loads(cached.response_json))
+        if cached.completion_tokens is not None:
+            response_payload["usage_reported"] = {
+                "completion_tokens": cached.completion_tokens,
+            }
+        response_payload["cache_origin_completion_cap"] = None
+        response_payload["cache_origin_key_policy"] = CACHE_KEY_POLICY_VERSION
         cache_hit = True
 
     response_payload = dict(response_payload)
+    if not cache_hit:
+        response_payload["cache_origin_completion_cap"] = None
+        response_payload["cache_origin_key_policy"] = CACHE_KEY_POLICY_VERSION
     response_payload["cache_lookup_timeline"] = {
         "started_at": cache_lookup_started_at,
         "finished_at": cache_lookup_finished_at,
@@ -183,6 +200,25 @@ def execute_cached_request(
         request_error=str(request_error) if request_error else None,
         usage=usage,
     )
+
+
+def _completion_cap(payload: dict[str, Any]) -> int | None:
+    """Read the original provider cap without treating it as cache identity."""
+
+    for field in ("max_completion_tokens", "max_tokens"):
+        value = payload.get(field)
+        if isinstance(value, int) and value > 0:
+            return value
+    return None
+
+
+def _cached_response_fits_cap(completion_tokens: int | None, payload: dict[str, Any]) -> bool:
+    """Reject a replay that would exceed the current transport ceiling."""
+
+    cap = _completion_cap(payload)
+    if cap is None:
+        return True
+    return completion_tokens is not None and completion_tokens <= cap
 
 
 def _execute_request_with_retries(
@@ -255,8 +291,24 @@ def execute_cached_turn(
     max_tokens: int | None = None,
     request_executor: TurnRequestExecutor | None = None,
     response_hook: TurnResponseHook | None = None,
+    cache_mode: Literal["shared", "live"] = "shared",
 ) -> CachedTurnResult:
     """Execute one cached model turn and validate its structured output."""
+
+    def _validate_response(response_payload: dict[str, Any]) -> dict[str, Any]:
+        if validator is not None:
+            return validator(
+                str(response_payload.get("assistant_text") or ""),
+                str(response_payload.get("provider_reasoning_text") or ""),
+            )
+        if schema_id is None:
+            raise ValueError("schema_id is required when validator is not provided.")
+        return validate_or_recover_structured_output(
+            str(response_payload.get("assistant_text") or ""),
+            schema_id,
+            dataset=dataset,
+            provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
+        )
 
     request_result = execute_cached_request(
         backbone=backbone,
@@ -271,6 +323,8 @@ def execute_cached_turn(
         max_tokens=max_tokens,
         request_executor=request_executor,
         response_hook=response_hook,
+        response_validator=_validate_response,
+        cache_mode=cache_mode,
     )
     response_payload = request_result.response_payload
     request_error = request_result.request_error
@@ -278,24 +332,14 @@ def execute_cached_turn(
     output_status = "request_fail" if request_error else "schema_fail"
     if not request_error:
         try:
-            if validator is not None:
-                validated_output = validator(
-                    str(response_payload.get("assistant_text") or ""),
-                    str(response_payload.get("provider_reasoning_text") or ""),
-                )
-            else:
-                if schema_id is None:
-                    raise ValueError("schema_id is required when validator is not provided.")
-                validated_output = validate_or_recover_structured_output(
-                    str(response_payload.get("assistant_text") or ""),
-                    schema_id,
-                    dataset=dataset,
-                    provider_reasoning_text=str(response_payload.get("provider_reasoning_text") or ""),
-                )
+            validated_output = _validate_response(response_payload)
             output_status = "ok"
         except Exception:
             validated_output = {}
             output_status = "schema_fail"
+
+    if request_result.cache_hit and output_status != "ok":
+        cache.delete(request_result.cache_key)
 
     usage = response_payload.get("usage_reported") or response_payload.get("usage_estimated") or {}
     return CachedTurnResult(

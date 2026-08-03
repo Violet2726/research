@@ -1,4 +1,5 @@
 name = "catch_cross_domain_boundary_audit"
+cache_policy = "global_validated_response_v3"
 description = "Best-effort cross-domain CATCH-v3 experiment across BBEH, MuSR, seqBench, and GPQA Diamond."
 study_type = "post_failure_cross_domain_boundary_audit"
 confirmatory = false
@@ -13,14 +14,6 @@ primary_model_ref = "xiaomimimo/mimo-v2.5"
 global_seed = 42
 max_concurrent_requests = 15
 requests_per_minute_limit = 18
-[cache_namespaces]
-bbeh = "catch-boundary-v3-bbeh"
-musr = "catch-boundary-v3-musr"
-seqbench = "catch-boundary-v3-seqbench"
-gpqa_diamond = "catch-boundary-v3-gpqa"
-
-[baseline_cache_namespaces]
-bbeh = "catch-dev-v3,catch-dev-v1"
 
 [phases.boundary_audit]
 benchmark_slugs = ["bbeh", "musr", "seqbench", "gpqa_diamond"]

@@ -31,7 +31,6 @@ from research_experiments.core.execution.artifacts import BufferedJsonlWriter
 from research_experiments.core.execution.cache import (
     RequestCache,
     build_request_cache_key,
-    cache_successful_response,
 )
 from research_experiments.core.execution.providers import (
     OpenAICompatibleProvider,

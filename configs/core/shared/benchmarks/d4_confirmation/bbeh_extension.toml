@@ -1,0 +1,13 @@
+name = "D4 sealed BBEH extension confirmation set"
+slug = "bbeh_extension"
+loader = "bbeh_extension_jsonl"
+source_path = "d4_confirmation/bbeh_extension.jsonl"
+source_split = "confirmation"
+sample_id_prefix = "bbeh_extension"
+question_field = "input"
+answer_field = "target"
+smoke_size = 0
+pilot_size = 0
+main_size = 0
+random_seed = 42
+notes = "由独立托管方密封的确认资产；只有冻结 manifest 与源数据哈希后才能安装并启用。"

@@ -9,8 +9,6 @@ from research_experiments.core.controls.control_prompts import build_cot_message
 from research_experiments.core.data.datasets import DatasetSample
 from research_experiments.core.data.evaluation import canonicalize_answer, score_prediction
 from research_experiments.core.execution.runner_common import execute_cached_request
-from research_experiments.family_runtime.free_text_protocol import FREE_TEXT_ANSWER_PROTOCOL_V1
-from research_experiments.family_runtime.output_protocols import execute_output_protocol_turn
 from research_experiments.families.disagreement_guided_crux_reconstruction.algorithms import (
     build_panel_labels,
     build_stage_decision,
@@ -22,6 +20,8 @@ from research_experiments.families.disagreement_guided_crux_reconstruction.promp
     build_panel_messages,
     build_proposer_messages,
 )
+from research_experiments.family_runtime.free_text_protocol import FREE_TEXT_ANSWER_PROTOCOL_V1
+from research_experiments.family_runtime.output_protocols import execute_output_protocol_turn
 
 
 def run_dgcr_sample(
@@ -196,7 +196,7 @@ def _answer_turn(sample: DatasetSample, *, run_id: str, split_name: str, endpoin
         canonical.key if canonical is not None and canonical.valid else "",
         canonical.invalid_reason if canonical is not None else "request_or_protocol_failure",
     )
-    row["cache_namespace"] = endpoint.cache_namespace
+    row["cache_policy"] = "global_validated_response_v3"
     return row
 
 
@@ -204,6 +204,7 @@ def _json_turn(sample: DatasetSample, *, run_id: str, split_name: str, endpoint,
     request = execute_cached_request(
         backbone=endpoint.backbone, provider=endpoint.provider, cache=endpoint.cache, throttle=endpoint.throttle,
         messages=messages, temperature=0.7, top_p=1.0, seed=seed, use_response_format=True, max_tokens=max_tokens,
+        response_validator=_admit_json_object_response,
     )
     parsed: dict[str, Any] | None = None
     error = request.request_error
@@ -221,8 +222,15 @@ def _json_turn(sample: DatasetSample, *, run_id: str, split_name: str, endpoint,
         request.cache_hit, request.request_error, request.response_payload.get("finish_reason"), request.usage,
         "ok" if parsed is not None else "failed", parsed or {}, "", error,
     )
-    row["cache_namespace"] = endpoint.cache_namespace
+    row["cache_policy"] = "global_validated_response_v3"
     return row, parsed
+
+
+def _admit_json_object_response(response: dict[str, Any]) -> dict[str, Any]:
+    candidate = json.loads(str(response.get("assistant_text") or ""))
+    if not isinstance(candidate, dict):
+        raise ValueError("JSON output must be an object")
+    return candidate
 
 
 def _turn_base(run_id, sample, split_name, method_name, role, agent_id, seed, payload, response, cache_hit, request_error, finish_reason, usage, parse_status, validated, answer_key, invalid_reason):
@@ -232,8 +240,8 @@ def _turn_base(run_id, sample, split_name, method_name, role, agent_id, seed, pa
     return {
         "run_id": run_id, "dataset": sample.dataset, "split": split_name, "sample_id": sample.sample_id,
         "task": sample.metadata.get("task"), "method_name": method_name, "role": role, "agent_id": agent_id,
-        "request_seed": seed, "payload": payload, "cache_namespace": None,
-        "request_source": "dgcr_confirmation_cache",
+        "request_seed": seed, "payload": payload, "cache_policy": "global_validated_response_v3",
+        "request_source": "global_validated_response_cache",
         "prompt_hash": _sha256(json.dumps(payload.get("messages") or [], ensure_ascii=False, sort_keys=True)),
         "cache_hit": cache_hit, "request_error": request_error, "request_status": "request_fail" if request_error else "ok",
         "raw_finish_reason": finish_reason, "network_attempt_count": attempts, "network_request_count": attempts,

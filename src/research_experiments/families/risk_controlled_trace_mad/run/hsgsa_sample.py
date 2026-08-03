@@ -430,6 +430,12 @@ def _execute_reviewer_turn(
             seed=seed,
             use_response_format=False,
             max_tokens=max_tokens,
+            response_validator=lambda response: parse_blind_reviewer_output(
+                str(response.get("assistant_text") or ""),
+                label_to_key=label_to_key,
+                label_to_answer=label_to_answer,
+                dataset=dataset,
+            ),
         )
     except Exception:
         network_budget.settle(reservation, 0)

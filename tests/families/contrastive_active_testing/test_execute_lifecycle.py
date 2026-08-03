@@ -27,8 +27,8 @@ class _DummyProvider:
 
 
 class _DummyRouter:
-    def __init__(self, _root, *, namespace) -> None:
-        self.namespace = namespace
+    def __init__(self, _root) -> None:
+        pass
 
     def for_request_target(self, **_kwargs):
         return object()

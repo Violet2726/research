@@ -791,4 +791,4 @@ def test_hf_pull_runs_uses_new_arguments(monkeypatch) -> None:
 def test_hf_is_the_only_huggingface_tool_family() -> None:
     from research_experiments.cli.main import TOOL_MAINS
 
-    assert {"artifact-cleanup", "dataset-assets", "hf"} == set(TOOL_MAINS)
+    assert {"artifact-cleanup", "cache-rekey", "dataset-assets", "hf"} == set(TOOL_MAINS)

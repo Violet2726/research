@@ -40,13 +40,13 @@ def test_provider_audit_requires_documented_fields() -> None:
             "request_error": None,
             "assistant_text": "same",
             "usage_reported": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
-            "cache_namespace": "dgcr-provider-audit-v1",
+            "cache_policy": "live_only",
             "request_source": "live_uncached_provider_audit",
             "cache_hit": False,
         }
         for index in range(10)
     ]
-    assert evaluate_mimo_provider_audit(rows, expected_cache_namespace="dgcr-provider-audit-v1")["passed"] is True
+    assert evaluate_mimo_provider_audit(rows, expected_cache_policy="live_only")["passed"] is True
     rows[0]["reasoning_tokens"] = None
     assert evaluate_mimo_provider_audit(rows)["passed"] is False
 
@@ -54,7 +54,7 @@ def test_provider_audit_requires_documented_fields() -> None:
 def test_gate_rejects_missing_or_unsuccessful_provider_audit(tmp_path) -> None:
     path = tmp_path / "provider_audit.json"
     with pytest.raises(RuntimeError, match="missing"):
-        _require_passing_provider_audit(path, expected_cache_namespace="dgcr-provider-audit-v1")
+        _require_passing_provider_audit(path, expected_cache_policy="live_only")
 
     rows = [
         {
@@ -85,16 +85,16 @@ def test_gate_rejects_missing_or_unsuccessful_provider_audit(tmp_path) -> None:
             "request_error": None,
             "assistant_text": "same",
             "usage_reported": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
-            "cache_namespace": "dgcr-provider-audit-v1",
+            "cache_policy": "live_only",
             "request_source": "live_uncached_provider_audit",
             "cache_hit": False,
         }
         for index in range(10)
     ]
-    payload = evaluate_mimo_provider_audit(rows, expected_cache_namespace="dgcr-provider-audit-v1")
+    payload = evaluate_mimo_provider_audit(rows, expected_cache_policy="live_only")
     payload.update({"provider": "xiaomimimo", "model_id": "mimo-v2.5"})
     path.write_text(json.dumps(payload), encoding="utf-8")
-    assert _require_passing_provider_audit(path, expected_cache_namespace="dgcr-provider-audit-v1")["passed"] is True
+    assert _require_passing_provider_audit(path, expected_cache_policy="live_only")["passed"] is True
 
 
 def test_live_audit_matrix_covers_catch_role_and_solver_caps_without_cache(monkeypatch) -> None:
@@ -126,9 +126,8 @@ def test_live_audit_matrix_covers_catch_role_and_solver_caps_without_cache(monke
     report = provider_audit_module.run_mimo_provider_audit(
         backbone=resolve_model("xiaomimimo/mimo-v2.5"),
         provider=object(),
-        cache_namespace="catch-provider-audit-v1",
     )
 
     assert report["passed"] is True
-    assert {row["cap"] for row in report["records"]} == {2_048, 4_096, 16_384}
+    assert {row["cap"] for row in report["records"]} == {2_048, 4_096, 32_768, 65_536}
     assert all(row["cache_hit"] is False for row in report["records"])

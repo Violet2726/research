@@ -4,6 +4,12 @@ This document defines the input contracts for data that may eventually enter a
 D4 calibration or confirmation run. The current repository contains loaders and
 validators, but no real confirmation asset or activation evidence.
 
+All stages use the sole executable protocol `catch_kernel_d4_mainline_v3`
+(`protocols/catch_kernel_d4_v3.toml`). The completed compiler smoke is frozen as
+`failed_blocking_downstream`, so selection inspection, provider audit, the
+300-record validation, calibration, and confirmation currently stop before any
+model request.
+
 ## Common rules
 
 - Calibration, human-audit, and confirmation rows must be split before the
@@ -11,8 +17,12 @@ validators, but no real confirmation asset or activation evidence.
 - A manifest contains IDs, strata, and hashes only. It must not contain
   question text, options, latent graphs, or gold answers.
 - Every manifest is hash-linked to the source asset and the independent audit
-  artifacts. The runner recomputes these links and recomputes per-row hashes
-  when it materializes the sealed confirmation split.
+artifacts. The runner recomputes these links and recomputes per-row hashes
+when it materializes the sealed confirmation split.
+- The independent 300-record tagged validation uses the project-wide validated
+  response cache. Exact provider/model/dataset/prompt/seed identities may be
+  reused across experiments; interruption recovery remains bound to the same
+  run ledger. Protocol and selection hashes remain frozen in the manifest.
 - All linked paths must be relative to the manifest directory. Absolute paths
   and `..` traversal are rejected.
 - `development`, `human_audit`, and `confirmation` counts and strata must be
@@ -25,7 +35,7 @@ The post-selection tagged-text validation is a separate 300-record development
 artifact, not calibration or confirmation data. It uses exactly 100 records
 each from `bbeh_extension`, `musr_x`, and `supergpqa_science`, all under the
 manifest split name `protocol_validation`. The blocked executable template is
-`configs/families/contrastive_active_testing/experiments/catch_kernel_d4_protocol_independent_validation_tagged_v2.toml`.
+`configs/families/contrastive_active_testing/experiments/catch_kernel_d4_protocol_independent_validation_tagged_v3.toml`.
 
 Before enabling that template, the custodian must install all three source
 assets and manifests, fill the exact counts/strata and selection SHA-256 values,
@@ -42,13 +52,20 @@ compute the values to freeze without any model calls:
 ```powershell
 research_cli experiment --family contrastive_active_testing `
   inspect-kernel-d4-protocol-validation-selection `
-  --experiment configs/families/contrastive_active_testing/experiments/catch_kernel_d4_protocol_independent_validation_tagged_v2.toml `
+  --experiment configs/families/contrastive_active_testing/experiments/catch_kernel_d4_protocol_independent_validation_tagged_v3.toml `
   --output local/audits/catch_kernel_d4_protocol_validation_selection.json
 ```
 
 Copy the emitted `selection_hashes` into the experiment TOML, review the
 hash-only artifact, and only then set `sealed_data_ready=true`. Immediately
 before the formal validation run, refresh `kernel-d4-provider-audit`.
+
+The later one-shot confirmation is a distinct split and asset namespace. Its
+three executable benchmark placeholders are
+`configs/core/shared/benchmarks/d4_confirmation/bbeh_extension.toml`,
+`musr_x.toml`, and `supergpqa_science.toml`; it never falls back to the public
+BBEH, MuSR, or GPQA development pools and never reuses the protocol-validation
+split as confirmation data.
 
 ## BBEH-extension records
 
@@ -98,7 +115,7 @@ Use `supergpqa_science_jsonl` or `supergpqa_science_parquet` on a prefiltered
 asset. The official dataset exposes `uuid`, `question`, `options`, `answer`,
 `answer_letter`, `discipline`, `field`, `subfield`, `difficulty`, and
 `is_calculation`; the loader requires `discipline=Science`,
-`field∈{Physics,Chemistry,Biology}`, text-only questions, and a consistent
+`field` in `{Physics, Chemistry, Biology}`, text-only questions, and a consistent
 answer letter/text pair. The official schema can be inspected in the
 [SuperGPQA dataset card](https://huggingface.co/datasets/m-a-p/SuperGPQA).
 

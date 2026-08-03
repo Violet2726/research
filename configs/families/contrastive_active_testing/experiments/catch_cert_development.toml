@@ -1,4 +1,5 @@
 name = "catch_cert_development"
+cache_policy = "global_validated_response_v3"
 description = "CATCH-Cert question-conditioned certificate verification across BBEH, MuSR, seqBench, and GPQA Diamond."
 study_type = "catch_cert_cross_domain"
 confirmatory = false
@@ -14,10 +15,6 @@ global_seed = 42
 max_concurrent_requests = 15
 requests_per_minute_limit = 18
 
-[cache_namespaces]
-development = "catch-dev-cert_v1"
-heldout = "catch-heldout-cert_v1"
-confirmation = "catch-confirm-cert_v1"
 
 [phases.development]
 benchmark_slugs = ["bbeh", "musr", "seqbench", "gpqa_diamond"]

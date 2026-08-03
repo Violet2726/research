@@ -7,6 +7,7 @@ from collections.abc import Callable
 
 from research_experiments.cli.family import dispatch_family_cli
 from research_experiments.cli.tools.artifact_cleanup import main as artifact_cleanup_main
+from research_experiments.cli.tools.cache_rekey import main as cache_rekey_main
 from research_experiments.cli.tools.dataset_assets import main as dataset_assets_main
 from research_experiments.cli.tools.hf import main as hf_main
 from research_experiments.cli_support.output import configure_utf8_stdio
@@ -17,6 +18,7 @@ ToolMain = Callable[[list[str] | None], None]
 
 TOOL_MAINS: dict[str, ToolMain] = {
     "artifact-cleanup": artifact_cleanup_main,
+    "cache-rekey": cache_rekey_main,
     "dataset-assets": dataset_assets_main,
     "hf": hf_main,
 }

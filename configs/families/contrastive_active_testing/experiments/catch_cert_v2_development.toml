@@ -1,4 +1,5 @@
 name = "catch_cert_v2_development"
+cache_policy = "global_validated_response_v3"
 description = "CATCH-Cert v2 answer-linked global-obligation certificates across BBEH, MuSR, seqBench, and GPQA Diamond."
 study_type = "catch_cert_cross_domain"
 confirmatory = false
@@ -15,15 +16,6 @@ max_concurrent_requests = 15
 requests_per_minute_limit = 18
 readiness_assessment_path = "local/analysis/catch_cert_v2_readiness_assessment.json"
 
-[cache_namespaces]
-development = "catch-dev-cert_v2"
-heldout = "catch-heldout-cert_v2"
-confirmation = "catch-confirm-cert_v2"
-
-[baseline_cache_namespaces]
-development = "catch-dev-cert_v1"
-heldout = "catch-heldout-cert_v1"
-confirmation = "catch-confirm-cert_v1"
 
 [phases.development]
 benchmark_slugs = ["bbeh", "musr", "seqbench", "gpqa_diamond"]

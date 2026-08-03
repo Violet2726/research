@@ -39,13 +39,12 @@ def build_d4_source_compiler_messages(
 ) -> list[dict[str, str]]:
     """Build a D4 compiler prompt from source-only inputs.
 
-    The caller cannot pass Stage-A state.  ``canonical_ir_hash`` is emitted as
-    an empty placeholder and is computed by trusted local code after parsing.
+    The caller cannot pass Stage-A state.  The source-span map, route identity,
+    answer contract and canonical hash are bound by trusted local code rather
+    than copied back by the model.
     """
 
     schema = {
-        "capability_id": decision.capability_id,
-        "query_operator": decision.query_operator,
         "entities": [{"entity_id": "source entity", "kind": "typed kind"}],
         "facts": [{"fact_id": "F0", "kind": "typed fact", "source_span_ids": ["S0"]}],
         "events": [{"event_id": "E0", "kind": "typed event", "source_span_ids": ["S0"]}],
@@ -58,11 +57,7 @@ def build_d4_source_compiler_messages(
             }
         ],
         "query": {"kind": decision.query_operator, "source_span_ids": ["S0"]},
-        "answer_contract": answer_contract,
-        "source_span_map": source_spans,
-        "mandatory_spans": ["S0"],
-        "uncovered_spans": [],
-        "canonical_ir_hash": "",
+        "uncovered_span_ids": [],
     }
     return [
         {
@@ -71,8 +66,8 @@ def build_d4_source_compiler_messages(
                 "Return exactly one JSON object and no other text. You are a candidate-blind source compiler. "
                 "You never receive Stage-A answers, candidates, an anchor, vote counts, gold, or a candidate "
                 "oracle. Compile only source-grounded entities, facts, ordered events, constraints, and query. "
-                "Do not infer open-world facts. Copy source_span_map and answer_contract exactly. Leave "
-                "canonical_ir_hash empty for trusted local computation."
+                "Do not infer open-world facts. Never return route identity, answer-contract fields, source text, "
+                "a source-span map, mandatory spans, or a hash: trusted local code binds those fields."
             ),
         },
         {
@@ -87,10 +82,11 @@ def build_d4_source_compiler_messages(
                 f"{json.dumps(answer_contract, ensure_ascii=False)}\n\n"
                 f"Exact indexed source spans:\n{json.dumps(source_spans, ensure_ascii=False)}\n\n"
                 "Every decisive fact, event, constraint, and query field must cite source_span_ids. "
-                "Put genuinely irrelevant spans in uncovered_spans; all query-critical spans must be mandatory. "
+                "Put only genuinely irrelevant span IDs in uncovered_span_ids; every remaining span is mandatory "
+                "and must be cited by the compiled IR. "
                 "For evaluate_numeric_expression, use one closed numeric_expression and no unmentioned constants, "
                 "formulas, conversions, chemical structures, or retrieved knowledge. If the source cannot be "
-                "compiled into the declared operator, preserve the source span map but return empty typed lists and "
+                "compiled into the declared operator, return empty typed lists and "
                 "a query whose status is unsupported. Return exactly these keys and no others:\n"
                 f"{json.dumps(schema, ensure_ascii=False)}"
             ),

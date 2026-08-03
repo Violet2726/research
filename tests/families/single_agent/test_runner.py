@@ -166,6 +166,6 @@ def test_execute_call_does_not_cache_schema_failures(tmp_path, monkeypatch: pyte
 
     assert row["output_status"] == "protocol_fail"
     assert row["cache_hit"] is False
-    assert cache.get(spec.cache_key) is not None
+    assert cache.get(spec.cache_key) is None
     cache.close()
 

@@ -13,14 +13,15 @@ def validate_run(run_dir: str | Path) -> dict[str, object]:
     if missing:
         raise ValueError("DGCR run is missing artifacts: " + ", ".join(missing))
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-    if not manifest.get("cache_namespace") or manifest.get("request_source") != "fresh_dgcr_confirmation_cache":
-        raise ValueError("DGCR manifest lacks an isolated cache namespace or source declaration.")
-    if manifest["cache_namespace"] not in {"dgcr-dev-v1", "dgcr-heldout-v1"}:
-        raise ValueError("DGCR run used an unexpected cache namespace.")
+    if (
+        manifest.get("cache_policy") != "global_validated_response_v3"
+        or manifest.get("request_source") != "global_validated_response_cache"
+    ):
+        raise ValueError("DGCR manifest lacks the global validated-response cache policy.")
     turns = [json.loads(line) for line in (root / "turns" / "agent_turns.jsonl").read_text(encoding="utf-8").splitlines() if line]
     invalid_turns = [
         row for row in turns
-        if row.get("cache_namespace") != manifest["cache_namespace"]
+        if row.get("cache_policy") != manifest["cache_policy"]
         or row.get("request_source") != "dgcr_confirmation_cache"
         or not isinstance(row.get("payload"), dict)
         or "raw_finish_reason" not in row

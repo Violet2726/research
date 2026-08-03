@@ -1,18 +1,26 @@
 name = "catch_kernel_d4"
+cache_policy = "global_validated_response_v3"
 description = "Risk-Calibrated Proof-Carrying Candidate Completion with reusable sequence, event-state, and calculator kernels. Confirmation remains hard-blocked until new sealed data and audits exist."
 study_type = "catch_kernel_cross_domain"
 confirmatory = true
 kernel_revision = "d4_proof_carrying_v1"
+d4_mainline_protocol_version = "catch_kernel_d4_mainline_v3"
+source_compiler_smoke_status = "failed_blocking_downstream"
+source_compiler_smoke_result_path = "local/runs/contrastive_active_testing/catch_kernel_d4/source_compiler_smoke_v3_20260801/result.json"
+source_compiler_smoke_result_sha256 = "ff8a862e93a82fdf0dcc89ecec6ccca631d9670b06eb46e7868c07b5deeecf47"
 kernel_freeze_path = "configs/families/contrastive_active_testing/freezes/catch_kernel_d4_confirmation.json"
 provider_audit_path = "local/audits/catch_kernel_d4_provider_audit.json"
 human_audit_path = "local/audits/catch_kernel_d4_blind_ir_audit.json"
-protocol_ab_assessment_path = "local/audits/catch_kernel_d4_output_protocol_independent_validation_tagged_v2.json"
+protocol_validation_assessment_path = "local/audits/catch_kernel_d4_output_protocol_independent_validation_tagged_v3.json"
 benchmark_configs = [
   "configs/core/shared/benchmarks/bbeh/bbeh-main.toml",
   "configs/core/shared/benchmarks/musr/all.toml",
   "configs/core/shared/benchmarks/gpqa/dataset.toml",
+  "configs/core/shared/benchmarks/d4_confirmation/bbeh_extension.toml",
+  "configs/core/shared/benchmarks/d4_confirmation/musr_x.toml",
+  "configs/core/shared/benchmarks/d4_confirmation/supergpqa_science.toml",
 ]
-protocol = "configs/families/contrastive_active_testing/protocols/catch_kernel_d4_v1.toml"
+protocol = "configs/families/contrastive_active_testing/protocols/catch_kernel_d4_v3.toml"
 primary_model_ref = "xiaomimimo/mimo-v2.5"
 global_seed = 42
 provider_runtime_profile = "xiaomimimo_75x95_validated_v1"
@@ -24,8 +32,6 @@ stage_a_protocol = "tagged_text"
 parse_failure_target = 0.01
 stage_a_quorum_minimum_valid_turns = 3
 stage_a_quorum_failure_target = 0.01
-selection_status = "development_selected_requires_independent_validation"
-accuracy_noninferiority_margin = 0.005
 conflicts_fail_closed = true
 
 [d4_risk]
@@ -49,15 +55,6 @@ musr_confirmation = "new_musr_x_requires_pinned_official_generator_plus_independ
 gpqa_198 = "development_compatibility_only"
 science_confirmation = "new_supergpqa_science_manifest_required"
 
-[cache_namespaces]
-development = "catch-dev-kernel_d4_v1"
-heldout = "catch-heldout-kernel_d4_v1"
-confirmation = "catch-confirm-kernel_d4_v1"
-
-[baseline_cache_namespaces]
-development = "catch-dev-kernel_d3_v1,catch-dev-kernel_d2_v1,catch-dev-kernel_d1_v3,catch-dev-cert_v2,catch-dev-cert_v1"
-heldout = "catch-heldout-kernel_d3_v1,catch-heldout-kernel_d2_v1,catch-heldout-kernel_d1_v3,catch-heldout-cert_v2,catch-heldout-cert_v1"
-confirmation = "catch-confirm-kernel_d3_v1,catch-confirm-kernel_d2_v1,catch-confirm-kernel_d1_v3,catch-confirm-cert_v2,catch-confirm-cert_v1"
 
 [phases.development]
 benchmark_slugs = ["bbeh", "musr", "gpqa_diamond"]
@@ -87,12 +84,13 @@ sealed_data_ready = false
 # expectations and does not accept the old public pools.
 sealed_manifest_paths = {}
 sealed_manifest_expectations = {}
-benchmark_slugs = ["bbeh", "musr", "gpqa_diamond"]
-split_overrides = { bbeh = "full4520_seed42", musr = "full756_seed42", gpqa_diamond = "full198_seed42" }
-sample_limits = { bbeh = 0, musr = 0, gpqa_diamond = 0 }
+sealed_manifest_split = "confirmation"
+benchmark_slugs = ["bbeh_extension", "musr_x", "supergpqa_science"]
+split_overrides = { bbeh_extension = "confirmation", musr_x = "confirmation", supergpqa_science = "confirmation" }
+sample_limits = { bbeh_extension = 0, musr_x = 0, supergpqa_science = 0 }
 selection_strategy = "d4_sealed_manifest_only"
 selection_seed = 42
-hash_sample_selection = true
 run_direct_judge = false
 evaluation_role = "BLOCKED_UNTIL_NEW_BBEH_MUSR_X_SUPERGPQA_MANIFESTS"
+expected_selection_sha256 = {}
 required_comparison_methods = ["sc_5", "fixed_sc_8", "catch_d3_exact_only", "ssv_raw", "catch_kernel_d4"]

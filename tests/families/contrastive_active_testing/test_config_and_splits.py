@@ -40,8 +40,7 @@ def test_best_effort_protocol_and_registration_are_discoverable() -> None:
     assert protocol.preflight_sample_count == 0
     assert protocol.coordinates_per_pair == 3
     assert protocol.pair_judge_count == 3
-    assert experiment.cache_namespaces["development"] == "catch-dev-v3"
-    assert experiment.baseline_cache_namespaces == {"development": "catch-dev-v1"}
+    assert experiment.cache_policy == "global_validated_response_v3"
     assert registration.prototype == "shared_stage_policy"
     assert registration.artifact_schema.progress_path == "progress.json"
     assert registration.artifact_schema.validation_path == "run_validation.json"
@@ -51,13 +50,12 @@ def test_best_effort_protocol_and_registration_are_discoverable() -> None:
     assert "configs/core/shared/benchmarks/splits/dgcr_dev100/bbeh/bbeh-main-seed42.json" in frozen_components
 
 
-def test_cert_v2_protocol_namespaces_and_frozen_components_are_versioned() -> None:
+def test_cert_v2_global_cache_policy_and_frozen_components_are_versioned() -> None:
     experiment = load_experiment_config(CERT_V2_EXPERIMENT)
     protocol = load_protocol_config(experiment.protocol)
     assert protocol.protocol_version == "catch_cert_v2"
     assert protocol.max_selected_tests == 6
-    assert experiment.cache_namespaces["development"] == "catch-dev-cert_v2"
-    assert experiment.baseline_cache_namespaces["development"] == "catch-dev-cert_v1"
+    assert experiment.cache_policy == "global_validated_response_v3"
     assert experiment.readiness_assessment_path.as_posix().endswith(
         "local/analysis/catch_cert_v2_readiness_assessment.json"
     )
@@ -99,7 +97,7 @@ def test_kernel_confirmation_uses_frozen_hash_selection_and_all_comparators() ->
     assert protocol.judge_max_tokens == 4_096
     assert protocol.max_selected_tests == 24
     assert experiment.config_warnings == ()
-    assert experiment.baseline_cache_namespaces["development"] == "catch-dev-cert_v2,catch-dev-cert_v1"
+    assert experiment.cache_policy == "global_validated_response_v3"
     assert len(first) == 200
     assert [sample.sample_id for sample in first] == [sample.sample_id for sample in second]
 

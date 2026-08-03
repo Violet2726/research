@@ -10,8 +10,6 @@ from dataclasses import replace
 from typing import Any
 
 from research_experiments.core.controls.control_prompts import (
-    CONSISTENT_JSON_V2_PROMPT_VERSION,
-    CONSISTENT_JSON_V3_PROMPT_VERSION,
     FREE_TEXT_V1_PROMPT_VERSION,
     build_cot_messages,
 )
@@ -148,7 +146,7 @@ from research_experiments.families.contrastive_active_testing.kernel_d4 import (
     compile_exact_source_ir,
     load_risk_evidence,
     metamorphic_checks_passed,
-    parse_source_ir_v2,
+    parse_source_ir_v3,
     proof_package_to_dict,
     risk_gate_snapshot,
     risk_gate_to_dict,
@@ -156,9 +154,6 @@ from research_experiments.families.contrastive_active_testing.kernel_d4 import (
 )
 from research_experiments.families.contrastive_active_testing.kernel_d4 import (
     answer_contract_for_sample as d4_answer_contract_for_sample,
-)
-from research_experiments.families.contrastive_active_testing.kernel_d4 import (
-    canonical_ir_hash as d4_canonical_ir_hash,
 )
 from research_experiments.families.contrastive_active_testing.kernel_d4 import (
     evaluate_candidates as d4_evaluate_candidates,
@@ -188,12 +183,6 @@ from research_experiments.families.contrastive_active_testing.prompts import (
     build_icv_witness_messages,
     build_pair_judge_messages,
     build_witness_messages,
-)
-from research_experiments.family_runtime.answer_first_json_protocol import (
-    ANSWER_FIRST_JSON_PROMPT_V2,
-    ANSWER_FIRST_JSON_PROMPT_VERSION,
-    ANSWER_FIRST_JSON_PROTOCOL_V1,
-    REASONING_FIRST_JSON_PROTOCOL_V1,
 )
 from research_experiments.family_runtime.free_text_protocol import FREE_TEXT_ANSWER_PROTOCOL_V1
 from research_experiments.family_runtime.output_protocols import execute_output_protocol_turn
@@ -1618,35 +1607,11 @@ def run_catch_kernel_d4_sample(
     """
 
     d4_output_config = dict(getattr(experiment, "raw", {}).get("d4_output") or {})
-    output_mode = str(
-        d4_output_config.get("stage_a_protocol")
-        or "answer_first_json"
-    )
-    output_protocol_by_mode = {
-        "tagged_text": FREE_TEXT_ANSWER_PROTOCOL_V1,
-        "reasoning_first_json": REASONING_FIRST_JSON_PROTOCOL_V1,
-        "answer_first_json": ANSWER_FIRST_JSON_PROTOCOL_V1,
-    }
-    prompt_variant = str(d4_output_config.get("prompt_variant") or "legacy")
-    if prompt_variant not in {"legacy", "short_reasoning_v3"}:
-        raise ValueError(f"Unsupported D4 Stage-A prompt variant: {prompt_variant!r}")
-    prompt_version_by_mode = {
-        "tagged_text": FREE_TEXT_V1_PROMPT_VERSION,
-        "reasoning_first_json": (
-            CONSISTENT_JSON_V3_PROMPT_VERSION
-            if prompt_variant == "short_reasoning_v3"
-            else CONSISTENT_JSON_V2_PROMPT_VERSION
-        ),
-        "answer_first_json": (
-            ANSWER_FIRST_JSON_PROMPT_V2
-            if prompt_variant == "short_reasoning_v3"
-            else ANSWER_FIRST_JSON_PROMPT_VERSION
-        ),
-    }
-    if output_mode not in output_protocol_by_mode:
-        raise ValueError(f"Unsupported D4 Stage-A output protocol: {output_mode!r}")
-    stage_output_protocol = output_protocol_by_mode[output_mode]
-    stage_prompt_version = prompt_version_by_mode[output_mode]
+    if d4_output_config.get("stage_a_protocol") != "tagged_text":
+        raise ValueError("D4 has one Stage-A protocol: tagged_text.")
+    output_mode = "tagged_text"
+    stage_output_protocol = FREE_TEXT_ANSWER_PROTOCOL_V1
+    stage_prompt_version = FREE_TEXT_V1_PROMPT_VERSION
     if precomputed_stage_rows is None:
         stage_rows = [
             _answer_turn(
@@ -1672,10 +1637,7 @@ def run_catch_kernel_d4_sample(
     stage = build_stage_decision(stage_rows, seed=experiment.global_seed, sample_id=sample.sample_id)
     phase_config = dict(((getattr(experiment, "raw", {}) or {}).get("phases") or {}).get(phase_name) or {})
     evaluation_role = str(phase_config.get("evaluation_role") or "")
-    if evaluation_role.startswith((
-        "d4_output_protocol_ab_",
-        "d4_output_protocol_independent_validation_",
-    )):
+    if evaluation_role.startswith("d4_output_protocol_independent_validation_"):
         candidate_oracle = any(_score(sample, candidate.answer) == 1.0 for candidate in stage.candidates)
         prediction = _prediction(
             sample,
@@ -1693,7 +1655,7 @@ def run_catch_kernel_d4_sample(
             extra={
                 "kernel_revision": "d4_proof_carrying_v1",
                 "d4_stage_a_output_protocol": output_mode,
-                "output_protocol_ab_only": True,
+                "output_protocol_validation_only": True,
                 "main_table_eligible": False,
             },
         )
@@ -1748,9 +1710,11 @@ def run_catch_kernel_d4_sample(
         reason="route_not_compiled",
     )
     compiler_rows: list[dict[str, Any]] = []
-    parsed_irs = []
+    parsed_irs: list[tuple[int, Any]] = []
     compiler_vote_hashes: tuple[str, ...] = ()
+    compiler_verifications: tuple[dict[str, Any], ...] = ()
     compiler_agreement = False
+    metamorphic_status: dict[str, str] = {}
     if decision.route == "EXACT_EXECUTABLE":
         source_ir, compile_reason = compile_exact_source_ir(sample, decision)
         if source_ir is None:
@@ -1780,27 +1744,49 @@ def run_catch_kernel_d4_sample(
                     decision=decision,
                 ),
             )
-            parsed, reason = parse_source_ir_v2(payload, sample=sample, decision=decision)
+            parsed, reason = parse_source_ir_v3(payload, sample=sample, decision=decision)
             row["d4_ir_schema"] = D4_IR_SCHEMA
             row["d4_source_ir"] = d4_source_ir_to_dict(parsed) if parsed is not None else None
             row["d4_source_ir_parse_reason"] = reason
             if parsed is None:
                 row["protocol_parse_status"] = "failed"
                 row["protocol_parse_error"] = reason
+                # JSON syntax was valid, but the D4 source contract was not.
+                # Do not let this raw row poison a later resumed D4 run.
+                _cache_for_role(endpoint, "d4_source_compiler").delete(str(row.get("cache_key") or ""))
+                _record_d4_completion(endpoint, row)
             else:
-                parsed_irs.append(parsed)
+                parsed_irs.append((compiler_index, parsed))
             compiler_rows.append(row)
-        compiler_vote_hashes = tuple(item.canonical_ir_hash for item in parsed_irs)
-        compiler_agreement = (
-            len(parsed_irs) == protocol.resample_candidates
-            and len(set(compiler_vote_hashes)) == 1
-            and all(d4_canonical_ir_hash(item) == item.canonical_ir_hash for item in parsed_irs)
+        (
+            source_ir,
+            solver,
+            compiler_vote_hashes,
+            compiler_verifications,
+            compiler_agreement,
+            metamorphic_status,
+        ) = verify_d4_semantic_compiler_consensus(
+            sample=sample,
+            decision=decision,
+            parsed_irs=parsed_irs,
+            required_compiler_count=protocol.resample_candidates,
+            fallback_solver=solver,
         )
-        if compiler_agreement:
-            source_ir = parsed_irs[0]
-            solver = d4_solve_source_ir(sample, decision, source_ir)
-        else:
-            solver = replace(solver, reason="compiler_ir_non_agreement_or_parse_failure")
+        verification_by_index = {
+            int(item["compiler_index"]): item for item in compiler_verifications
+        }
+        for row in compiler_rows:
+            compiler_index = int(row.get("agent_id") or 0)
+            verification = verification_by_index.get(compiler_index)
+            row["d4_compiler_verification"] = dict(verification) if verification is not None else None
+            row["d4_compiler_verification_passed"] = bool(
+                verification is not None and verification.get("passed")
+            )
+            if row.get("protocol_parse_status") == "ok" and not row["d4_compiler_verification_passed"]:
+                # A syntactically valid but locally unverifiable SourceIR is a
+                # D4 protocol failure, not a reusable shared response.
+                _cache_for_role(endpoint, "d4_source_compiler").delete(str(row.get("cache_key") or ""))
+            _record_d4_completion(endpoint, row)
 
     candidate_evaluation = d4_evaluate_candidates(
         sample,
@@ -1808,11 +1794,8 @@ def run_catch_kernel_d4_sample(
         solver,
     )
     candidate_present = any(item.get("status") == "VALID" for item in candidate_evaluation)
-    metamorphic_status = (
-        run_metamorphic_checks(source_ir, solver, sample=sample, decision=decision)
-        if source_ir is not None
-        else {}
-    )
+    if decision.route == "EXACT_EXECUTABLE" and source_ir is not None:
+        metamorphic_status = run_metamorphic_checks(source_ir, solver, sample=sample, decision=decision)
     d4_risk = dict(getattr(experiment, "raw", {}).get("d4_risk") or {})
     evidence = load_risk_evidence(d4_risk.get("evidence_path"))
     risk_snapshot = risk_gate_snapshot(
@@ -1909,6 +1892,7 @@ def run_catch_kernel_d4_sample(
         ir=source_ir,
         solver=solver,
         compiler_vote_hashes=compiler_vote_hashes,
+        compiler_verifications=compiler_verifications,
         candidate_evaluation=candidate_evaluation,
         metamorphic_status=metamorphic_status,
         risk_snapshot=risk_snapshot,
@@ -1943,6 +1927,7 @@ def run_catch_kernel_d4_sample(
         "d4_candidate_completion": d4_resolver == "d4_candidate_completion",
         "d4_solver_direct": d4_resolver == "d4_solver_direct",
         "d4_compiler_agreement": compiler_agreement,
+        "d4_compiler_verifications": [dict(item) for item in compiler_verifications],
         "d4_shadow_answer": solver.canonical_answer if solver_unique else None,
         "d4_shadow_score": shadow_score,
         "d4_shadow_override": shadow_override,
@@ -2635,6 +2620,76 @@ def run_catch_kernel_d3_sample(
         "first_failure_reason": first_failure_reason,
     }
     return physical_rows, router, predictions
+
+
+def verify_d4_semantic_compiler_consensus(
+    *,
+    sample: DatasetSample,
+    decision,
+    parsed_irs: list[tuple[int, Any]],
+    required_compiler_count: int,
+    fallback_solver: D4SolverResult,
+) -> tuple[Any | None, D4SolverResult, tuple[str, ...], tuple[dict[str, Any], ...], bool, dict[str, str]]:
+    """Require independent complete proof chains to agree on one answer.
+
+    This intentionally does not compare SourceIR byte hashes: distinct valid
+    representations are acceptable only when every compiler independently
+    reaches a unique, reference-checked, metamorphic-passing answer and all
+    canonical answers are identical.
+    """
+
+    verifications: list[dict[str, Any]] = []
+    solvers_by_index: dict[int, D4SolverResult] = {}
+    for compiler_index, item in parsed_irs:
+        item_solver = d4_solve_source_ir(sample, decision, item)
+        solvers_by_index[compiler_index] = item_solver
+        item_metamorphic = run_metamorphic_checks(item, item_solver, sample=sample, decision=decision)
+        item_passed = bool(
+            item_solver.status == "UNIQUE"
+            and bool(item_solver.canonical_answer)
+            and str(item_solver.reference_checker_status).startswith("PASSED_")
+            and item_solver.concrete_witness_status.get("status") == "PASSED"
+            and metamorphic_checks_passed(item, item_solver, item_metamorphic)
+        )
+        verifications.append(
+            {
+                "compiler_index": compiler_index,
+                "ir_hash": item.canonical_ir_hash,
+                "solver_status": item_solver.status,
+                "canonical_answer": item_solver.canonical_answer,
+                "solver_trace": list(item_solver.solver_trace),
+                "reference_checker_status": item_solver.reference_checker_status,
+                "concrete_witness_status": dict(item_solver.concrete_witness_status),
+                "metamorphic_status": item_metamorphic,
+                "passed": item_passed,
+            }
+        )
+    ordered = tuple(sorted(verifications, key=lambda item: int(item["compiler_index"])))
+    vote_hashes = tuple(str(item["ir_hash"]) for item in ordered)
+    agreement = bool(
+        len(ordered) == required_compiler_count
+        and all(bool(item["passed"]) for item in ordered)
+        and len({str(item["canonical_answer"]) for item in ordered}) == 1
+    )
+    if not agreement:
+        return (
+            None,
+            replace(fallback_solver, reason="compiler_ir_non_agreement_or_parse_failure"),
+            vote_hashes,
+            ordered,
+            False,
+            {},
+        )
+    representative_index = int(ordered[0]["compiler_index"])
+    representative = next(item for index, item in parsed_irs if index == representative_index)
+    return (
+        representative,
+        solvers_by_index[representative_index],
+        vote_hashes,
+        ordered,
+        True,
+        dict(ordered[0]["metamorphic_status"]),
+    )
 
 
 def run_catch_cert_v2_sample(
@@ -3380,6 +3435,16 @@ def _answer_turn(
     output_protocol: str = FREE_TEXT_ANSWER_PROTOCOL_V1,
     prompt_version: str = "single_agent_free_text_v1",
 ) -> dict[str, Any]:
+    completed = _lookup_d4_completion(
+        endpoint,
+        sample=sample,
+        method_name=method_name,
+        role=role,
+        agent_id=agent_id,
+        seed=seed,
+    )
+    if completed is not None:
+        return completed
     _raise_if_cancelled(endpoint)
     reservation = network_budget.reserve()
     cache = _cache_for_role(endpoint, role)
@@ -3398,6 +3463,7 @@ def _answer_turn(
             role=role,
             output_protocol=output_protocol,
             max_tokens=max_tokens,
+            delete_cache_on_protocol_failure=getattr(endpoint, "completion_ledger", None) is not None,
         )
         network_budget.settle(reservation, result.network_request_count)
     except BaseException:
@@ -3446,6 +3512,7 @@ def _answer_turn(
         network_request_count=result.network_request_count,
     )
     _annotate_cache_audit(row, endpoint=endpoint, cache=cache, cache_key=result.cache_key)
+    _record_d4_completion(endpoint, row)
     return row
 
 
@@ -3463,6 +3530,27 @@ def _json_turn(
     max_tokens: int,
     messages: list[dict[str, str]],
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    completed = _lookup_d4_completion(
+        endpoint,
+        sample=sample,
+        method_name=method_name,
+        role=role,
+        agent_id=agent_id,
+        seed=seed,
+    )
+    if completed is not None:
+        parsed = None
+        if completed.get("request_error") is None and completed.get("protocol_parse_status") == "ok":
+            try:
+                candidate = json.loads(
+                    str(completed.get("assistant_text") or ""),
+                    object_pairs_hook=_reject_duplicate_json_keys,
+                )
+                if isinstance(candidate, dict):
+                    parsed = candidate
+            except (TypeError, ValueError, json.JSONDecodeError):
+                parsed = None
+        return completed, parsed
     _raise_if_cancelled(endpoint)
     reservation = network_budget.reserve()
     cache = _cache_for_role(endpoint, role)
@@ -3478,6 +3566,7 @@ def _json_turn(
             seed=seed,
             use_response_format=True,
             max_tokens=max_tokens,
+            response_validator=_admit_json_object_response,
         )
         attempts = 0 if request.cache_hit else max(1, int(request.response_payload.get("network_attempt_count") or 1))
         network_budget.settle(reservation, attempts)
@@ -3497,6 +3586,8 @@ def _json_turn(
             parsed = candidate
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
             parse_error = str(exc)
+    if parsed is None and not request.request_error:
+        cache.delete(request.cache_key)
     row = _turn_base(
         run_id,
         sample,
@@ -3521,7 +3612,46 @@ def _json_turn(
         network_request_count=attempts,
     )
     _annotate_cache_audit(row, endpoint=endpoint, cache=cache, cache_key=request.cache_key)
+    if not (getattr(endpoint, "completion_ledger", None) is not None and role == "d4_source_compiler"):
+        _record_d4_completion(endpoint, row)
     return row, parsed
+
+
+def _admit_json_object_response(response: dict[str, Any]) -> dict[str, Any]:
+    candidate = json.loads(
+        str(response.get("assistant_text") or ""),
+        object_pairs_hook=_reject_duplicate_json_keys,
+    )
+    if not isinstance(candidate, dict):
+        raise ValueError("JSON output must be an object")
+    return candidate
+
+
+def _lookup_d4_completion(
+    endpoint,
+    *,
+    sample: DatasetSample,
+    method_name: str,
+    role: str,
+    agent_id: int,
+    seed: int,
+) -> dict[str, Any] | None:
+    ledger = getattr(endpoint, "completion_ledger", None)
+    if ledger is None:
+        return None
+    return ledger.lookup(
+        sample_id=sample.sample_id,
+        method_name=method_name,
+        role=role,
+        agent_id=agent_id,
+        seed=seed,
+    )
+
+
+def _record_d4_completion(endpoint, row: dict[str, Any]) -> None:
+    ledger = getattr(endpoint, "completion_ledger", None)
+    if ledger is not None:
+        ledger.record(row)
 
 
 def _reject_duplicate_json_keys(items: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -3580,8 +3710,18 @@ def _turn_base(
         "request_seed": seed,
         "payload": payload,
         "cache_key": cache_key,
-        "cache_namespace": None,
-        "request_source": "role_cache_pending",
+        "request_completion_cap": next(
+            (
+                int(payload[field])
+                for field in ("max_completion_tokens", "max_tokens")
+                if isinstance(payload.get(field), int) and int(payload[field]) > 0
+            ),
+            None,
+        ),
+        "cache_origin_completion_cap": response.get("cache_origin_completion_cap"),
+        "cache_key_policy": response.get("cache_origin_key_policy"),
+        "cache_policy": "global_validated_response_v3",
+        "request_source": "global_cache_pending",
         "prompt_hash": _sha256(json.dumps(payload.get("messages") or [], ensure_ascii=False, sort_keys=True)),
         "cache_hit": cache_hit,
         "request_error": request_error,
@@ -3772,17 +3912,9 @@ def _raise_if_cancelled(endpoint) -> None:
 
 
 def _annotate_cache_audit(row: dict[str, Any], *, endpoint, cache, cache_key: str) -> None:
-    source = cache.source_for(cache_key) if hasattr(cache, "source_for") else endpoint.cache_namespace
-    active_namespace = str(getattr(endpoint, "cache_namespace", source))
-    row["cache_namespace"] = active_namespace if source == "network" else source
-    row["cache_write_namespace"] = active_namespace
-    row["cache_lookup_namespaces"] = list(
-        getattr(endpoint, "cache_lookup_namespaces_for_role", lambda _role: (active_namespace,))(row["role"])
-    )
-    if row.get("cache_hit"):
-        row["request_source"] = "predecessor_cache" if source != active_namespace else "active_cache"
-    else:
-        row["request_source"] = "network"
+    del endpoint, cache, cache_key
+    row["cache_policy"] = "global_validated_response_v3"
+    row["request_source"] = "global_cache" if row.get("cache_hit") else "network"
 
 
 def _sha256(value: str) -> str:
